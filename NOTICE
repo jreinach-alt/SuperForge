@@ -41,6 +41,8 @@ Converted derivatives under `templates/*/assets/` are CC0.
 - **fullsnes** (https://problemkaputt.de/fullsnes.htm) — (c) Martin Korth,
   all rights reserved. Fetched by `tools/setup.sh` into the git-ignored
   `docs/reference/`; used locally as the authoritative hardware reference.
-  See `docs/reference/hardware/README.md`.
+  If the canonical host is unreachable, setup falls back to the Internet
+  Archive's snapshot of the same URL (same posture: fetched per-user,
+  never committed). See `docs/reference/hardware/README.md`.
 - **cc65** (https://cc65.github.io/) — installed via the system package
   manager by `tools/setup.sh`; not vendored.

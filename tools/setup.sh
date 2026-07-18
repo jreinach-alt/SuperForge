@@ -206,6 +206,14 @@ fi
 echo "3b. Checking fullsnes reference..."
 FULLSNES_HTM="$PROJECT_ROOT/docs/reference/fullsnes.htm"
 FULLSNES_URL="https://problemkaputt.de/fullsnes.htm"   # canonical host (Martin Korth)
+# Fallback: the Internet Archive's latest snapshot of the SAME canonical URL.
+# The `id_` flag serves the ORIGINAL bytes (no Wayback toolbar injected —
+# consumers parse this file, so archive chrome would be silent corruption).
+# Fallback only: the canonical live serve is always preferred; the snapshot
+# exists so a host outage doesn't strand new users of an irreplaceable
+# reference. Same licensing posture either way: fetched per-user for local
+# reference, never committed (see NOTICE + .gitignore).
+FULLSNES_ARCHIVE_URL="https://web.archive.org/web/2id_/https://problemkaputt.de/fullsnes.htm"
 if [ -f "$FULLSNES_HTM" ] || [ -f "$PROJECT_ROOT/docs/reference/fullsnes.txt" ]; then
     pass "fullsnes reference already present (skipping fetch)"
 elif command -v curl >/dev/null 2>&1; then
@@ -213,10 +221,18 @@ elif command -v curl >/dev/null 2>&1; then
     # Raw download, NO HTML->text conversion (any transform = unverifiable mangling).
     if retry_cmd "fetch fullsnes" curl -fsSL --max-time 60 -o "$FULLSNES_HTM" "$FULLSNES_URL"; then
         pass "fullsnes fetched to docs/reference/fullsnes.htm (git-ignored)"
+    elif echo "  [--] canonical host unreachable; trying the Internet Archive snapshot..." && \
+         retry_cmd "fetch fullsnes (archive)" curl -fsSL --compressed --max-time 120 -o "$FULLSNES_HTM" "$FULLSNES_ARCHIVE_URL" && \
+         grep -qi "SNES" "$FULLSNES_HTM"; then
+         # --compressed is REQUIRED here: the Wayback id_ endpoint serves the
+         # stored gzip stream; without it curl writes raw gzip bytes to disk
+         # (verified 2026-07-18 — the grep guard above catches exactly that).
+        pass "fullsnes fetched from the Internet Archive snapshot (git-ignored; canonical host was unreachable)"
     else
         rm -f "$FULLSNES_HTM"
         echo "  [WARN] Could not fetch fullsnes — reference, not a build input; continuing."
         echo "         Get it manually: $FULLSNES_URL  ->  docs/reference/fullsnes.htm"
+        echo "         (or the archived copy: $FULLSNES_ARCHIVE_URL)"
     fi
 else
     echo "  [WARN] curl not found; get fullsnes manually: $FULLSNES_URL -> docs/reference/fullsnes.htm"
