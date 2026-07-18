@@ -20,7 +20,12 @@ jobs:
 
   build-and-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 90, not 30: the emulator suite alone is ~35-45 min on a 4-core
+    # runner (37 min measured locally), plus ~6 min of Mesen build on
+    # every run until a fully-green job finally saves the cache.
+    # CI run #2 (2026-07-18) proved the math: suite CANCELLED at the
+    # 30-minute job timeout with zero test failures.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
