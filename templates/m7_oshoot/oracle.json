@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "template": "m7_oshoot",
+  "rom": "build/m7_oshoot.sfc",
+  "boot_seconds": 0.3,
+  "boot": {
+    "magic_addr": "0xE000",
+    "heartbeat_addr": "0xE010"
+  },
+  "scenario": [
+    {
+      "name": "boots_into_textured_rotating_mode7_arena",
+      "description": "Under RANDOM power-on the ROM boots ($7E:E000=SFDB) into a TEXTURED rotating Mode 7 overhead-shooter arena: the floor is the Mode 7 BG (one uniform affine matrix), the hero is an OBJ pinned at screen centre. The hero (OAM slot 0, tile 0) renders screen-centred at (120,104) — a 16x16 sprite centred on screen (128,112) — and UPRIGHT (attr 0x20, no H/V flip; the affine matrix never touches OBJ). A screenshot blob (>=4 distinct colours) proves a REAL TEXTURED floor rendered (blue checker + terracotta wall ring + pillar cover), not a flat fill or a black band. The heartbeat at $E010 advances (the 60fps game loop is live). Reads the rendered framebuffer + OAM bytes, never a proxy.",
+      "drive": { "kind": "settle", "frames": 8 },
+      "assert": [
+        { "kind": "oam_entry", "slot": 0, "tile": 0, "x": 120, "y": 104, "attr": 32 },
+        { "kind": "screenshot_blob", "region": "full", "distinct_min": 4 },
+        { "kind": "heartbeat_advances", "frames": 8 }
+      ]
+    },
+    {
+      "name": "eight_way_input_rotates_the_rendered_floor",
+      "description": "8-WAY aim/move (model A): holding a D-pad direction snaps R_ANGLE to its compass heading, which drives the floor matrix so the player's facing reads 'up' and the floor visibly ROTATES. Unlike an animated floor, this static-affine plane does not move without input, so a before/after screenshot diff under a turn is a TRUE rotation signal. axis_sweep holds LEFT then DOWN (each a large heading change from boot heading 0), captures before/after, and screenshot_changed asserts >=20% of the floor pixels changed for BOTH. The hero stays screen-centred at (120,104). Reads the rendered framebuffer + OAM.",
+      "drive": { "kind": "axis_sweep", "axes": ["left", "down"], "frames": 24, "screenshot": true },
+      "assert": [
+        { "kind": "screenshot_changed", "axis": "left", "region": "full", "min_frac": 0.20 },
+        { "kind": "screenshot_changed", "axis": "down", "region": "full", "min_frac": 0.20 },
+        { "kind": "oam_entry", "slot": 0, "tile": 0, "x": 120, "y": 104 }
+      ]
+    },
+    {
+      "name": "fired_bullet_renders_yellow_on_the_floor",
+      "description": "Fire (A, rising edge) spawns a bullet at the hero world pos with a velocity along the facing; the bullet is PROJECTED onto the rotating floor via the transpose matrix (the same path the enemies use) and DRAWS in its own bright-yellow palette (bullet_pal[1]=(255,230,40)). The 'yellow' predicate (r>150,g>150,b<90) matches the bullet bolt but REJECTS the red enemy and the cyan hero and the floor. A script fires one bullet and lets it travel a few frames; >=10 bullet-yellow pixels render on the framebuffer (an invisible / wrong-palette / mis-projected bullet yields 0). Reads RENDERED PIXELS. (The per-angle rendered-floor binding guard + the -DBULLET_PROJ_FORWARD non-vacuity control live in tests/test_m7_oshoot.py.)",
+      "drive": {
+        "kind": "script",
+        "steps": [
+          { "buttons": ["a"], "frames": 1 },
+          { "buttons": [], "frames": 6 }
+        ]
+      },
+      "assert": [
+        { "kind": "screenshot_blob", "region": "full", "color": "yellow", "count_min": 10 },
+        { "kind": "oam_entry", "slot": 7, "tile": 32 }
+      ]
+    },
+    {
+      "name": "enemy_wave_chaser_renders_red_on_the_floor",
+      "description": "Timed enemy WAVES (sf_pool, shmup cadence) spawn chasers at a world ring around the player; each is projected onto the rotating floor and DRAWS in its red palette (enemy_pal[1]=(200,30,30)). After ~3 wave periods (settle 180f) at least one chaser is on screen and renders red. The 'red' predicate (r>150,g<90,b<90) matches the enemy body but rejects the floor + the cyan hero + the yellow bullet, so a count of red pixels is enemy-specific. >=20 enemy-red pixels render on the framebuffer (an invisible / off-screen / mis-projected chaser yields 0). Reads RENDERED PIXELS.",
+      "drive": { "kind": "settle", "frames": 180 },
+      "assert": [
+        { "kind": "screenshot_blob", "region": "full", "color": "red", "count_min": 20 }
+      ]
+    }
+  ]
+}

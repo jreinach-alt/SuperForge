@@ -1,0 +1,64 @@
+name: CI — build, gates, suite
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  cleanroom:
+    # Fast, dependency-free, release-blocking: no commercial names, no
+    # eliminated-lineage vocabulary, no forbidden file classes (.sfc/.rsn/
+    # .spc/emulator cores/fullsnes), no oversized media. Keep this gate
+    # FIRST so a licensing leak fails in seconds, not after a Mesen build.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clean-room gate
+        run: bash tools/cleanroom_check.sh
+
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cc65 libsdl2-dev libasound2-dev
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install pytest pillow
+
+      - name: Cache Mesen2 build
+        id: cache-mesen2
+        uses: actions/cache@v4
+        with:
+          path: /tmp/Mesen2
+          key: mesen2-core-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
+
+      - name: Build Mesen2 native core (cold cache only, ~10 min)
+        if: steps.cache-mesen2.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 https://github.com/SourMesen/Mesen2.git /tmp/Mesen2
+          cd /tmp/Mesen2 && make -j$(nproc) core
+
+      - name: Width gate (the platform's #1 silent-corruption class)
+        run: make width-check
+
+      - name: Build every ROM (zero warnings expected)
+        run: |
+          make all 2>&1 | tee /tmp/build.log
+          if grep -qiE 'warning|error' /tmp/build.log; then
+            echo "build produced warnings/errors (above)"; exit 1
+          fi
+
+      - name: Full suite (every template's done-conditions on the emulator)
+        run: PYTHONPATH=. python3 -m pytest tests/ -v --tb=short

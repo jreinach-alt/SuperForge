@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "template": "platformer_stream",
+  "rom": "build/platformer_stream.sfc",
+  "boot_seconds": 0.3,
+  "boot": { "magic_addr": "0xE000" },
+  "scenario": [
+    {
+      "name": "boots_with_dusk_sky_and_player",
+      "description": "No input, ~12 frames: the believable Four Seasons level boots with a DUSK-SKY backdrop (sf_gradient_rgb on the backdrop, CH3..CH5, ADD color math) — NOT bare flat purple. A sky pixel near the TOP (200,20) is the warm-orange end of the ramp (247,82,107); a sky pixel near the BOTTOM (200,200) is the deep blue-purple end (115,41,173) — the two ends DIFFER, proving the vertical gradient renders, not a flat fill. The player OBJ sprite (OAM slot 0) renders, follow-camera-centred at screen X 124, while falling through the shaft. A blob (>=3 distinct colors) proves a real composited scene. Reads rendered screenshot pixels + OAM, not a proxy.",
+      "drive": { "kind": "settle", "frames": 12 },
+      "assert": [
+        { "kind": "screenshot_pixel", "x": 200, "y": 20,  "rgb": [247, 82, 107], "tolerance": 40 },
+        { "kind": "screenshot_pixel", "x": 200, "y": 200, "rgb": [115, 41, 173], "tolerance": 40 },
+        { "kind": "oam_entry", "slot": 0, "x": 124 },
+        { "kind": "screenshot_blob", "region": "full", "distinct_min": 3 }
+      ]
+    },
+    {
+      "name": "gravity_lands_player_on_floor",
+      "description": "No input, long settle (~220 frames): the player spawns airborne in the shaft mouth and GRAVITY alone carries it down ~5 screens to the bedrock floor. At rest the player OBJ sprite (OAM slot 0) renders standing on the floor, follow-camera-centred at screen (124,145) — feet on the grass-capped floor, the camera clamped at the world bottom. A blob (>=3 distinct colors) proves the floor region rendered (the grass/brick/sky composite, not a black/uniform frame). Reads OAM + screenshot, not a proxy. (The byte-exact vertical-streaming correctness as it falls is in tests/test_platformer_stream.py::test_fall_down_streams_vertical.)",
+      "drive": { "kind": "settle", "frames": 220 },
+      "assert": [
+        { "kind": "oam_entry", "slot": 0, "x": 124, "y": 145 },
+        { "kind": "screenshot_blob", "region": "full", "distinct_min": 3 }
+      ]
+    },
+    {
+      "name": "player_runs_right_camera_follows",
+      "description": "Land the player (settle), then HOLD RIGHT for a sustained run east along the floor. The FOLLOW camera tracks the player, so the OBJ sprite stays CENTRED on screen (OAM slot 0 X = 124, the follow-centre) while the level scrolls UNDER it — i.e. the player is NOT left behind at the world-left edge and NOT run off-screen-right (the camera-follow DP-collision bug this sprint fixed did exactly that). A blob (>=3 distinct colors) confirms a real composited scene still renders at the new camera position. Reads the rendered OAM X + screenshot. (The byte-exact horizontal-streaming forward-AND-reverse correctness — the world genuinely scrolling new authored columns past the 64-col ring — is in tests/test_platformer_stream.py::test_walk_right_then_left_streams_horizontal.)",
+      "drive": { "kind": "script", "steps": [
+        { "buttons": [], "frames": 220 },
+        { "buttons": ["right"], "frames": 150 }
+      ] },
+      "assert": [
+        { "kind": "oam_entry", "slot": 0, "x": 124 },
+        { "kind": "screenshot_blob", "region": "full", "distinct_min": 3 }
+      ]
+    }
+  ]
+}

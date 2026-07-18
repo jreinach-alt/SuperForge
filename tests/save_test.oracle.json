@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "template": "save_test",
+  "rom": "build/save_test.sfc",
+  "boot_seconds": 1.5,
+  "boot": {
+    "magic_addr": "0xE000"
+  },
+  "scenario": [
+    {
+      "name": "battery_persists_across_power_cycle",
+      "description": "virgin boot saves a 64-byte payload to SRAM slot 0; a power cycle (reload -> .srm flush+reseed) restores it byte-identically with a valid CRC, while the deliberately-corrupted slot 1 and the cleared slot 2 stay rejected (B.6 row 5: sram_bytes + independent CRC + power_cycle + corrupt/clear rejection)",
+      "drive": {
+        "kind": "power_cycle",
+        "fresh_sram": true,
+        "frames": 0
+      },
+      "assert": [
+        { "kind": "sram_bytes", "addr": "0x0000", "ascii": "SF" },
+        { "kind": "sram_bytes", "addr": "0x0008",
+          "bytes": [3, 10, 17, 24, 31, 38, 45, 52, 59, 66, 73, 80, 87, 94, 101,
+                    108, 115, 122, 129, 136, 143, 150, 157, 164, 171, 178, 185,
+                    192, 199, 206, 213, 220, 227, 234, 241, 248, 255, 6, 13, 20,
+                    27, 34, 41, 48, 55, 62, 69, 76, 83, 90, 97, 104, 111, 118,
+                    125, 132, 139, 146, 153, 160, 167, 174, 181, 188] },
+        { "kind": "sram_bytes", "addr": "0x0000", "crc16": true },
+        { "kind": "sram_bytes", "addr": "0x080D", "bytes": [217] },
+        { "kind": "sram_bytes", "addr": "0x1000", "bytes": [0, 0] }
+      ]
+    }
+  ]
+}

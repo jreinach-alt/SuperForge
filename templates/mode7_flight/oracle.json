@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "template": "mode7_flight",
+  "rom": "build/mode7_flight.sfc",
+  "boot_seconds": 2.0,
+  "boot": { "magic_addr": "0xE000", "heartbeat_addr": "0xE010" },
+  "scenario": [
+    {
+      "name": "boots_airship_over_floor",
+      "description": "boots into flight over the textured wrapping plane: the airship OBJ (slot 0, fixed-screen 32x32) and the ground-shadow OBJ (slot 1) are on-screen over a multi-color Mode-7 perspective floor (A4 boot).",
+      "drive": { "kind": "settle", "frames": 12 },
+      "assert": [
+        { "kind": "oam_entry", "slot": 0, "x": 112, "y": 96, "size": 1 },
+        { "kind": "oam_entry", "slot": 1, "x": 112 },
+        { "kind": "screenshot_blob", "region": "floor", "distinct_min": 3 }
+      ]
+    },
+    {
+      "name": "turn_rotates_floor",
+      "description": "heading turn rotates the rendered Mode-7 floor: from one shared baseline, branch LEFT vs RIGHT and diff the endpoint floor screenshots (axis_branch equalizes boot jitter; control_branches rejects render-phase bucket noise — the rail has no independent floor animation, so a large diff IS the steer-direction difference). Mirrors the racer's steer gate (A2/A4 rotate).",
+      "drive": {
+        "kind": "axis_branch", "axes": ["left", "right"], "frames": 30,
+        "align_frame": 130, "control_branches": true, "control_eps": 0.02,
+        "max_retries": 3
+      },
+      "assert": [
+        { "kind": "screenshot_axis_diff", "axes": ["left", "right"], "region": "floor", "min_frac": 0.15,
+          "control_axes": { "left": "left__ctl", "right": "right__ctl" }, "control_eps": 0.02 }
+      ]
+    },
+    {
+      "name": "descend_approaches_ground",
+      "description": "hold L (descend): altitude falls to the floor, the perspective scale grows so the ground APPROACHES (big near cells), and the altitude-scaled shadow OBJ becomes its BIG 32x32 frame (tile 128, size bit set) close under the airship — the rendered OAM altitude readout (A1 descend / A3 shadow / A4 approaches).",
+      "drive": { "kind": "hold", "buttons": ["l"], "frames": 160 },
+      "assert": [
+        { "kind": "oam_entry", "slot": 1, "tile": 128, "size": 1 },
+        { "kind": "screenshot_blob", "region": "floor", "distinct_min": 3 }
+      ]
+    },
+    {
+      "name": "climb_recedes_ground",
+      "description": "hold R (climb): altitude rises, the perspective scale shrinks so the ground RECEDES (fine cells packed to the horizon), and the shadow OBJ becomes its SMALL 16x16 frame (tile 192, size bit clear) lower toward the horizon — the rendered OAM altitude readout (A1 climb / A3 shadow / A4 recedes).",
+      "drive": { "kind": "hold", "buttons": ["r"], "frames": 120 },
+      "assert": [
+        { "kind": "oam_entry", "slot": 1, "tile": 192, "size": 0 },
+        { "kind": "screenshot_blob", "region": "floor", "distinct_min": 3 }
+      ]
+    }
+  ]
+}

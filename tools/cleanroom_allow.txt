@@ -1,0 +1,22 @@
+# cleanroom_allow.txt — REVIEWED clean-room name-tripwire exemptions.
+# ---------------------------------------------------------------------------
+# Each non-comment line is `relpath<TAB>fixed-substring`. A name-tripwire hit on
+# `relpath` is dropped ONLY if the hit line contains the substring. Adding a line
+# here is a CONSCIOUS REVIEW act: it asserts "I read this line and it is a
+# MECHANISM / GENRE / PLATFORM description or a documented fixture, NOT branding,
+# a copied identifier, or copied content." It does NOT exempt assets — those are
+# the provenance gate's job (tools/provenance_check.py). See docs/cleanroom_policy.md.
+#
+# This list is intentionally SMALL. If it grows, that is a signal the clean tree
+# is accreting retail-name references and should be cleaned, not exempted.
+#
+# Use a literal TAB between the path and the substring (editors: keep the tab).
+
+# --- Platform name in the project tagline (not branding of a retail title) ---
+README.md	Super Nintendo games in
+
+# NOTE: the "Contra III" rail-doc exemptions and the reject-fixture-zip exemption
+# that lived here were removed once recovery R1 scrubbed those references to
+# mechanism-only phrasing — there is nothing left to exempt, and a dead "allowed"
+# entry would silently permit re-introduction. If a retail name reappears, fix the
+# source (mechanism-only), don't re-add an exemption.

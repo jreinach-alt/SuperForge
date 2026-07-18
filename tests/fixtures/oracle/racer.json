@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "template": "racer",
+  "rom": "build/racer.sfc",
+  "boot_seconds": 2.0,
+  "boot": { "magic_addr": "0xE000", "heartbeat_addr": "0xE010" },
+  "scenario": [
+    {
+      "name": "boots_kart_and_floor",
+      "description": "kart sprite + multi-color perspective floor render at standstill",
+      "drive": { "kind": "settle", "frames": 10 },
+      "assert": [
+        { "kind": "oam_entry", "slot": 0, "x": 112, "y": 168, "tile": 0 },
+        { "kind": "oam_entry", "slot": 1, "tile": 10 },
+        { "kind": "screenshot_blob", "region": "floor", "distinct_min": 3 }
+      ]
+    },
+    {
+      "name": "accelerate_lights_speed_bar",
+      "description": "holding B builds speed: the speed-bar tick lights (dim 0x0A -> lit 0x08)",
+      "drive": { "kind": "hold", "buttons": ["b"], "frames": 60 },
+      "assert": [
+        { "kind": "oam_entry", "slot": 1, "tile": 8 }
+      ]
+    },
+    {
+      "name": "steer_rotates_floor",
+      "description": "after accelerating, steering each way rotates the rendered Mode-7 floor",
+      "drive": {
+        "kind": "axis_sweep", "axes": ["left", "right"], "frames": 30,
+        "reset_each": false, "screenshot": true,
+        "prelude": { "buttons": ["b"], "frames": 60 }
+      },
+      "assert": [
+        { "kind": "screenshot_changed", "axis": "left", "region": "floor", "min_frac": 0.05 },
+        { "kind": "screenshot_changed", "axis": "right", "region": "floor", "min_frac": 0.05 }
+      ]
+    }
+  ]
+}

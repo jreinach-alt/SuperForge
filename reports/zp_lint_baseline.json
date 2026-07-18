@@ -1,0 +1,130 @@
+[
+  {
+    "file": "engine/text_engine.asm",
+    "line": 700,
+    "rule": "undeclared-dp-byte",
+    "message": "DP byte $10 touched by raw operand `$10` but no covering ES_*/ZP-* symbol is declared in engine_state.inc (or include'd files); add a declaration or apply `; ZP-LINT: ok \u2014 <reason>` if intentional",
+    "byte": 16,
+    "operand": "$10"
+  },
+  {
+    "file": "engine/text_engine.asm",
+    "line": 704,
+    "rule": "undeclared-dp-byte",
+    "message": "DP byte $11 touched by raw operand `$11` but no covering ES_*/ZP-* symbol is declared in engine_state.inc (or include'd files); add a declaration or apply `; ZP-LINT: ok \u2014 <reason>` if intentional",
+    "byte": 17,
+    "operand": "$11"
+  },
+  {
+    "file": "engine/text_engine.asm",
+    "line": 712,
+    "rule": "undeclared-dp-byte",
+    "message": "DP byte $10 touched by raw operand `$10` but no covering ES_*/ZP-* symbol is declared in engine_state.inc (or include'd files); add a declaration or apply `; ZP-LINT: ok \u2014 <reason>` if intentional",
+    "byte": 16,
+    "operand": "$10"
+  },
+  {
+    "file": "engine/text_engine.asm",
+    "line": 713,
+    "rule": "undeclared-dp-byte",
+    "message": "DP byte $12 touched by raw operand `$12` but no covering ES_*/ZP-* symbol is declared in engine_state.inc (or include'd files); add a declaration or apply `; ZP-LINT: ok \u2014 <reason>` if intentional",
+    "byte": 18,
+    "operand": "$12"
+  },
+  {
+    "file": "engine/text_engine.asm",
+    "line": 714,
+    "rule": "undeclared-dp-byte",
+    "message": "DP byte $11 touched by raw operand `$11` but no covering ES_*/ZP-* symbol is declared in engine_state.inc (or include'd files); add a declaration or apply `; ZP-LINT: ok \u2014 <reason>` if intentional",
+    "byte": 17,
+    "operand": "$11"
+  },
+  {
+    "file": "engine/text_engine.asm",
+    "line": 716,
+    "rule": "undeclared-dp-byte",
+    "message": "DP byte $10 touched by raw operand `$10` but no covering ES_*/ZP-* symbol is declared in engine_state.inc (or include'd files); add a declaration or apply `; ZP-LINT: ok \u2014 <reason>` if intentional",
+    "byte": 16,
+    "operand": "$10"
+  },
+  {
+    "file": "engine/text_engine.asm",
+    "line": 717,
+    "rule": "undeclared-dp-byte",
+    "message": "DP byte $13 touched by raw operand `$13` but no covering ES_*/ZP-* symbol is declared in engine_state.inc (or include'd files); add a declaration or apply `; ZP-LINT: ok \u2014 <reason>` if intentional",
+    "byte": 19,
+    "operand": "$13"
+  },
+  {
+    "file": "engine/text_engine.asm",
+    "line": 718,
+    "rule": "undeclared-dp-byte",
+    "message": "DP byte $11 touched by raw operand `$11` but no covering ES_*/ZP-* symbol is declared in engine_state.inc (or include'd files); add a declaration or apply `; ZP-LINT: ok \u2014 <reason>` if intentional",
+    "byte": 17,
+    "operand": "$11"
+  },
+  {
+    "file": "engine/text_engine.asm",
+    "line": 723,
+    "rule": "undeclared-dp-byte",
+    "message": "DP byte $12 touched by raw operand `$12` but no covering ES_*/ZP-* symbol is declared in engine_state.inc (or include'd files); add a declaration or apply `; ZP-LINT: ok \u2014 <reason>` if intentional",
+    "byte": 18,
+    "operand": "$12"
+  },
+  {
+    "file": "engine/text_engine.asm",
+    "line": 749,
+    "rule": "undeclared-dp-byte",
+    "message": "DP byte $13 touched by raw operand `$13` but no covering ES_*/ZP-* symbol is declared in engine_state.inc (or include'd files); add a declaration or apply `; ZP-LINT: ok \u2014 <reason>` if intentional",
+    "byte": 19,
+    "operand": "$13"
+  },
+  {
+    "file": "engine/text_engine.asm",
+    "line": 756,
+    "rule": "undeclared-dp-byte",
+    "message": "DP byte $10 touched by raw operand `$10` but no covering ES_*/ZP-* symbol is declared in engine_state.inc (or include'd files); add a declaration or apply `; ZP-LINT: ok \u2014 <reason>` if intentional",
+    "byte": 16,
+    "operand": "$10"
+  },
+  {
+    "file": "engine/text_engine.asm",
+    "line": 757,
+    "rule": "undeclared-dp-byte",
+    "message": "DP byte $12 touched by raw operand `$12` but no covering ES_*/ZP-* symbol is declared in engine_state.inc (or include'd files); add a declaration or apply `; ZP-LINT: ok \u2014 <reason>` if intentional",
+    "byte": 18,
+    "operand": "$12"
+  },
+  {
+    "file": "engine/text_engine.asm",
+    "line": 758,
+    "rule": "undeclared-dp-byte",
+    "message": "DP byte $11 touched by raw operand `$11` but no covering ES_*/ZP-* symbol is declared in engine_state.inc (or include'd files); add a declaration or apply `; ZP-LINT: ok \u2014 <reason>` if intentional",
+    "byte": 17,
+    "operand": "$11"
+  },
+  {
+    "file": "engine/text_engine.asm",
+    "line": 760,
+    "rule": "undeclared-dp-byte",
+    "message": "DP byte $13 touched by raw operand `$13` but no covering ES_*/ZP-* symbol is declared in engine_state.inc (or include'd files); add a declaration or apply `; ZP-LINT: ok \u2014 <reason>` if intentional",
+    "byte": 19,
+    "operand": "$13"
+  },
+  {
+    "file": "engine/text_engine.asm",
+    "line": 779,
+    "rule": "undeclared-dp-byte",
+    "message": "DP byte $12 touched by raw operand `$12` but no covering ES_*/ZP-* symbol is declared in engine_state.inc (or include'd files); add a declaration or apply `; ZP-LINT: ok \u2014 <reason>` if intentional",
+    "byte": 18,
+    "operand": "$12"
+  },
+  {
+    "file": "engine/text_engine.asm",
+    "line": 800,
+    "rule": "undeclared-dp-byte",
+    "message": "DP byte $13 touched by raw operand `$13` but no covering ES_*/ZP-* symbol is declared in engine_state.inc (or include'd files); add a declaration or apply `; ZP-LINT: ok \u2014 <reason>` if intentional",
+    "byte": 19,
+    "operand": "$13"
+  }
+]

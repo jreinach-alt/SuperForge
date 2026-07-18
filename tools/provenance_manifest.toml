@@ -1,0 +1,639 @@
+# =============================================================================
+# provenance_manifest.toml — SSoT for every committed asset blob + data table.
+# =============================================================================
+# Enforced by tools/provenance_check.py (the reproducible-assets gate). Every
+# binary/asset blob and every large `.byte`/`.word` data table in the
+# MATERIALIZED kit MUST match exactly one `[[asset]]` entry below; an enumerated
+# blob with no entry FAILS the gate (the rip-detector). See the policy doc
+# docs/cleanroom_policy.md (ships in the kit) for the risk model + control stack.
+#
+# Entry shape:
+#   path          glob (fnmatch) matched against the posix rel-path.
+#   kind          one of:
+#                   "generator"   — reproducible from a committed generator.
+#                                   With `regenerate`: the gate re-runs that
+#                                   command in a sandbox copy and byte-diffs
+#                                   the `produces` outputs (the STRONG proof).
+#                                   Without `regenerate`: coverage-only — the
+#                                   `generator` file must exist in-tree and the
+#                                   asset carries a generated-by header (used
+#                                   where in-gate regen needs external zip
+#                                   extraction; the chain is still complete via
+#                                   the third-party source zip + the header).
+#                   "third-party" — vendored; must have a matching NOTICE entry
+#                                   (verified against `notice_token`).
+#                   "attested"    — known-non-regenerable first-party content
+#                                   (hand-authored config/art); requires `note`.
+#                   "artifact"    — committed verification render/screenshot
+#                                   (proof of a build, not a shipping asset);
+#                                   requires `note`.
+#   regenerate    shell command, run from the kit root with PYTHONPATH=. set.
+#   produces      globs the command writes (default: [path]); each is diffed.
+#   generator     (coverage-only) the in-tree generator file that must exist.
+#   notice_token  (third-party) substring that must appear in NOTICE.
+#   note          (attested/artifact) provenance explanation.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# REPRODUCIBLE — first-party generators re-run + byte-diffed in the gate.
+# Each was verified to reproduce byte-for-byte (see the gate's sandbox regen).
+# -----------------------------------------------------------------------------
+
+[[asset]]
+path = "templates/boss/assets/boss.png"
+kind = "generator"
+regenerate = "python3 templates/boss/assets/make_boss.py"
+produces = ["templates/boss/assets/boss.png", "templates/boss/assets/boss_map.bin"]
+
+[[asset]]
+path = "templates/boss/assets/boss_map.bin"
+kind = "generator"
+regenerate = "python3 templates/boss/assets/make_boss.py"
+produces = ["templates/boss/assets/boss.png", "templates/boss/assets/boss_map.bin"]
+
+[[asset]]
+path = "templates/boss/assets/sprites.inc"
+kind = "generator"
+regenerate = "python3 templates/boss/assets/make_sprites.py"
+
+[[asset]]
+path = "templates/boss_saucer/assets/saucer.png"
+kind = "generator"
+regenerate = "python3 templates/boss_saucer/assets/make_saucer.py"
+produces = ["templates/boss_saucer/assets/saucer.png", "templates/boss_saucer/assets/saucer_map.bin"]
+
+[[asset]]
+path = "templates/boss_saucer/assets/saucer_map.bin"
+kind = "generator"
+regenerate = "python3 templates/boss_saucer/assets/make_saucer.py"
+produces = ["templates/boss_saucer/assets/saucer.png", "templates/boss_saucer/assets/saucer_map.bin"]
+
+[[asset]]
+path = "templates/boss_saucer/assets/sprites.inc"
+kind = "generator"
+regenerate = "python3 templates/boss_saucer/assets/make_sprites.py"
+
+[[asset]]
+path = "templates/racer/assets/track.png"
+kind = "generator"
+regenerate = "python3 templates/racer/assets/make_track.py"
+produces = ["templates/racer/assets/track.png", "templates/racer/assets/track_map.bin"]
+
+[[asset]]
+path = "templates/racer/assets/track_map.bin"
+kind = "generator"
+regenerate = "python3 templates/racer/assets/make_track.py"
+produces = ["templates/racer/assets/track.png", "templates/racer/assets/track_map.bin"]
+
+[[asset]]
+path = "templates/racer/assets/vehicle.inc"
+kind = "generator"
+regenerate = "python3 templates/racer/assets/make_vehicle.py"
+
+# railshooter/vehicle.inc is the racer kart art, reused verbatim; reproduce it
+# by running the racer generator and copying (its header points at make_vehicle).
+[[asset]]
+path = "templates/railshooter/assets/vehicle.inc"
+kind = "generator"
+regenerate = "python3 templates/racer/assets/make_vehicle.py && cp templates/racer/assets/vehicle.inc templates/railshooter/assets/vehicle.inc"
+
+[[asset]]
+path = "templates/railshooter/assets/ground.png"
+kind = "generator"
+regenerate = "python3 templates/railshooter/assets/make_ground.py"
+produces = ["templates/railshooter/assets/ground.png", "templates/railshooter/assets/ground_map.bin"]
+
+[[asset]]
+path = "templates/railshooter/assets/ground_map.bin"
+kind = "generator"
+regenerate = "python3 templates/railshooter/assets/make_ground.py"
+produces = ["templates/railshooter/assets/ground.png", "templates/railshooter/assets/ground_map.bin"]
+
+[[asset]]
+path = "templates/railshooter/assets/obstacles.inc"
+kind = "generator"
+regenerate = "python3 templates/railshooter/assets/make_obstacles.py"
+
+[[asset]]
+path = "templates/m7_dungeon/assets/dungeon.png"
+kind = "generator"
+regenerate = "python3 templates/m7_dungeon/assets/make_dungeon.py"
+produces = ["templates/m7_dungeon/assets/dungeon.png", "templates/m7_dungeon/assets/dungeon_map.bin", "templates/m7_dungeon/assets/dungeon_terrain.bin"]
+
+[[asset]]
+path = "templates/m7_dungeon/assets/dungeon_map.bin"
+kind = "generator"
+regenerate = "python3 templates/m7_dungeon/assets/make_dungeon.py"
+produces = ["templates/m7_dungeon/assets/dungeon.png", "templates/m7_dungeon/assets/dungeon_map.bin", "templates/m7_dungeon/assets/dungeon_terrain.bin"]
+
+[[asset]]
+path = "templates/m7_dungeon/assets/dungeon_terrain.bin"
+kind = "generator"
+regenerate = "python3 templates/m7_dungeon/assets/make_dungeon.py"
+produces = ["templates/m7_dungeon/assets/dungeon.png", "templates/m7_dungeon/assets/dungeon_map.bin", "templates/m7_dungeon/assets/dungeon_terrain.bin"]
+
+[[asset]]
+path = "templates/m7_dungeon/assets/enemy.inc"
+kind = "generator"
+regenerate = "python3 templates/m7_dungeon/assets/make_enemy.py"
+
+[[asset]]
+path = "templates/m7_dungeon/assets/hero.inc"
+kind = "generator"
+regenerate = "python3 templates/m7_dungeon/assets/make_hero.py"
+
+[[asset]]
+path = "templates/m7_oshoot/assets/dungeon.png"
+kind = "generator"
+regenerate = "python3 templates/m7_oshoot/assets/make_arena.py"
+produces = ["templates/m7_oshoot/assets/dungeon.png", "templates/m7_oshoot/assets/dungeon_map.bin", "templates/m7_oshoot/assets/dungeon_terrain.bin"]
+
+[[asset]]
+path = "templates/m7_oshoot/assets/dungeon_map.bin"
+kind = "generator"
+regenerate = "python3 templates/m7_oshoot/assets/make_arena.py"
+produces = ["templates/m7_oshoot/assets/dungeon.png", "templates/m7_oshoot/assets/dungeon_map.bin", "templates/m7_oshoot/assets/dungeon_terrain.bin"]
+
+[[asset]]
+path = "templates/m7_oshoot/assets/dungeon_terrain.bin"
+kind = "generator"
+regenerate = "python3 templates/m7_oshoot/assets/make_arena.py"
+produces = ["templates/m7_oshoot/assets/dungeon.png", "templates/m7_oshoot/assets/dungeon_map.bin", "templates/m7_oshoot/assets/dungeon_terrain.bin"]
+
+[[asset]]
+path = "templates/m7_oshoot/assets/enemy.inc"
+kind = "generator"
+regenerate = "python3 templates/m7_oshoot/assets/make_enemy.py"
+
+[[asset]]
+path = "templates/m7_oshoot/assets/hero.inc"
+kind = "generator"
+regenerate = "python3 templates/m7_oshoot/assets/make_hero.py"
+
+[[asset]]
+path = "templates/mode7_chamber/assets/chamber.png"
+kind = "generator"
+regenerate = "python3 templates/mode7_chamber/assets/make_chamber.py"
+produces = ["templates/mode7_chamber/assets/chamber.png", "templates/mode7_chamber/assets/chamber_map.bin"]
+
+[[asset]]
+path = "templates/mode7_chamber/assets/chamber_map.bin"
+kind = "generator"
+regenerate = "python3 templates/mode7_chamber/assets/make_chamber.py"
+produces = ["templates/mode7_chamber/assets/chamber.png", "templates/mode7_chamber/assets/chamber_map.bin"]
+
+[[asset]]
+path = "templates/mode7_chamber/assets/chamber_tables.inc"
+kind = "generator"
+regenerate = "python3 templates/mode7_chamber/assets/make_chamber_tables.py"
+
+[[asset]]
+path = "templates/mode7_flight/assets/shadow.inc"
+kind = "generator"
+regenerate = "python3 templates/mode7_flight/assets/make_shadow.py"
+
+[[asset]]
+path = "templates/meteor_event/assets/meteor_map.bin"
+kind = "generator"
+regenerate = "python3 templates/meteor_event/assets/make_assets.py"
+produces = ["templates/meteor_event/assets/meteor_map.bin", "templates/meteor_event/assets/obj_assets.inc"]
+
+[[asset]]
+path = "templates/meteor_event/assets/obj_assets.inc"
+kind = "generator"
+regenerate = "python3 templates/meteor_event/assets/make_assets.py"
+produces = ["templates/meteor_event/assets/meteor_map.bin", "templates/meteor_event/assets/obj_assets.inc"]
+
+[[asset]]
+path = "templates/railshooter/assets/*project*lut*.inc"
+kind = "generator"
+regenerate = "python3 templates/railshooter/assets/make_project_lut.py"
+
+[[asset]]
+path = "templates/rpg/assets/ovw.png"
+kind = "generator"
+regenerate = "python3 templates/rpg/assets/make_rpg_assets.py"
+produces = ["templates/rpg/assets/ovw.png", "templates/rpg/assets/ovw_map.bin", "templates/rpg/assets/ovw_collision.inc", "templates/rpg/assets/town_assets.inc"]
+
+[[asset]]
+path = "templates/rpg/assets/ovw_map.bin"
+kind = "generator"
+regenerate = "python3 templates/rpg/assets/make_rpg_assets.py"
+produces = ["templates/rpg/assets/ovw.png", "templates/rpg/assets/ovw_map.bin", "templates/rpg/assets/ovw_collision.inc", "templates/rpg/assets/town_assets.inc"]
+
+[[asset]]
+path = "templates/rpg/assets/ovw_collision.inc"
+kind = "generator"
+regenerate = "python3 templates/rpg/assets/make_rpg_assets.py"
+produces = ["templates/rpg/assets/ovw.png", "templates/rpg/assets/ovw_map.bin", "templates/rpg/assets/ovw_collision.inc", "templates/rpg/assets/town_assets.inc"]
+
+[[asset]]
+path = "templates/rpg/assets/town_assets.inc"
+kind = "generator"
+regenerate = "python3 templates/rpg/assets/make_rpg_assets.py"
+produces = ["templates/rpg/assets/ovw.png", "templates/rpg/assets/ovw_map.bin", "templates/rpg/assets/ovw_collision.inc", "templates/rpg/assets/town_assets.inc"]
+
+[[asset]]
+path = "templates/mode7_explore/assets/explore_flat_bank*.bin"
+kind = "generator"
+regenerate = "python3 templates/mode7_explore/assets/make_explore_world.py"
+produces = ["templates/mode7_explore/assets/explore_flat_bank*.bin", "templates/mode7_explore/assets/explore_seed.bin", "templates/mode7_explore/assets/explore_obj.inc"]
+
+[[asset]]
+path = "templates/mode7_explore/assets/explore_seed.bin"
+kind = "generator"
+regenerate = "python3 templates/mode7_explore/assets/make_explore_world.py"
+produces = ["templates/mode7_explore/assets/explore_flat_bank*.bin", "templates/mode7_explore/assets/explore_seed.bin", "templates/mode7_explore/assets/explore_obj.inc"]
+
+[[asset]]
+path = "templates/mode7_explore/assets/explore_obj.inc"
+kind = "generator"
+regenerate = "python3 templates/mode7_explore/assets/make_explore_world.py"
+produces = ["templates/mode7_explore/assets/explore_flat_bank*.bin", "templates/mode7_explore/assets/explore_seed.bin", "templates/mode7_explore/assets/explore_obj.inc", "templates/mode7_explore/assets/explore_world.inc"]
+
+[[asset]]
+path = "templates/mode7_explore/assets/explore_world.inc"
+kind = "generator"
+regenerate = "python3 templates/mode7_explore/assets/make_explore_world.py"
+produces = ["templates/mode7_explore/assets/explore_flat_bank*.bin", "templates/mode7_explore/assets/explore_seed.bin", "templates/mode7_explore/assets/explore_obj.inc", "templates/mode7_explore/assets/explore_world.inc"]
+
+# --- engine + macro LUTs (numeric, deterministic, no external input) ---
+[[asset]]
+path = "lib/macros/sf_math_luts.inc"
+kind = "generator"
+regenerate = "python3 tools/gen_math_luts.py"
+
+[[asset]]
+path = "engine/hdma_bend_luts.inc"
+kind = "generator"
+regenerate = "python3 tools/gen_bend_luts.py"
+
+# --- test fixtures with self-contained generators (no external input) ---
+[[asset]]
+path = "tests/fixtures/mode7/checker_map.bin"
+kind = "generator"
+regenerate = "python3 tests/fixtures/mode7/gen_checker_map.py"
+
+[[asset]]
+path = "tests/fixtures/mode7_stream/world_*.bin"
+kind = "generator"
+regenerate = "python3 tests/fixtures/mode7_stream/gen_stream_world.py"
+produces = ["tests/fixtures/mode7_stream/world_seed.bin", "tests/fixtures/mode7_stream/world_flat_bank*.bin", "tests/fixtures/mode7_stream/world_collision_bank*.bin"]
+
+# --- normal-BG streaming fixtures (level_pipeline_bg.py + committed CC0 zip) ---
+# The CC0 Four Seasons tileset zip is registered third-party below; the gate
+# byte-diffs the regenerated tilemaps/CHR/collision against the committed ones.
+[[asset]]
+path = "tests/fixtures/bg_stream/level_*.bin"
+kind = "generator"
+regenerate = "python3 tools/level_pipeline_bg.py --tileset-zip 'examples/itch_cc0/Four Seasons Platformer Tileset [16x16][FREE] - RottingPixels.zip' --out-dir tests/fixtures/bg_stream"
+produces = ["tests/fixtures/bg_stream/level_flat.bin", "tests/fixtures/bg_stream/level_chr.bin", "tests/fixtures/bg_stream/level_collision.bin"]
+
+[[asset]]
+path = "tests/fixtures/bg_stream2d/level_*.bin"
+kind = "generator"
+regenerate = "python3 tools/level_pipeline_bg.py --tileset-zip 'examples/itch_cc0/Four Seasons Platformer Tileset [16x16][FREE] - RottingPixels.zip' --out-dir tests/fixtures/bg_stream2d --tall"
+produces = ["tests/fixtures/bg_stream2d/level_flat.bin", "tests/fixtures/bg_stream2d/level_flat_row.bin", "tests/fixtures/bg_stream2d/level_chr.bin", "tests/fixtures/bg_stream2d/level_collision.bin"]
+
+[[asset]]
+path = "tests/fixtures/platformer_stream/level_*.bin"
+kind = "generator"
+regenerate = "python3 tools/level_pipeline_bg.py --tileset-zip 'examples/itch_cc0/Four Seasons Platformer Tileset [16x16][FREE] - RottingPixels.zip' --out-dir tests/fixtures/platformer_stream --tall --seasons"
+produces = ["tests/fixtures/platformer_stream/level_flat.bin", "tests/fixtures/platformer_stream/level_flat_row.bin", "tests/fixtures/platformer_stream/level_chr.bin", "tests/fixtures/platformer_stream/level_collision.bin"]
+
+# -----------------------------------------------------------------------------
+# REPRODUCIBLE (coverage-only) — generated by tools/png2snes.py from the CC0
+# art packs (registered third-party below). In-gate byte-diff is impractical
+# because png2snes reads extracted-zip image paths that vary per environment;
+# the provenance chain is complete via (a) the in-tree png2snes.py generator,
+# (b) the asset's committed `; cmd: png2snes.py ...` header recording the exact
+# conversion, and (c) the registered CC0 source zip. tests/test_png2snes.py
+# proves these regenerate byte-identically against the extracted packs.
+# -----------------------------------------------------------------------------
+
+[[asset]]
+path = "templates/brawler/assets/*.inc"
+kind = "generator"
+generator = "tools/png2snes.py"
+
+[[asset]]
+path = "templates/shmup/assets/*.inc"
+kind = "generator"
+generator = "tools/png2snes.py"
+
+[[asset]]
+path = "templates/platformer/assets/*.inc"
+kind = "generator"
+generator = "tools/png2snes.py"
+
+[[asset]]
+path = "templates/platformer_stream/assets/hero.inc"
+kind = "generator"
+generator = "tools/png2snes.py"
+
+[[asset]]
+path = "tests/fixtures/png2snes/*.inc"
+kind = "generator"
+generator = "tools/png2snes.py"
+
+# gen_obj_font.py emits this from the kit's built-in font (no external input).
+# Coverage-only: the committed copy currently differs from a fresh run by a
+# single OBSEL-comment character ($62 vs $02) — a pre-existing generator/artifact
+# drift in rail-owned macro source, out of this gate's edit scope. The generator
+# ships and the file carries its "GENERATED by tools/gen_obj_font.py" header, so
+# the provenance chain is intact; flip to a `regenerate` entry once the drift is
+# reconciled by the macro-layer owner.
+[[asset]]
+path = "lib/macros/sf_obj_text_data.inc"
+kind = "generator"
+generator = "tools/gen_obj_font.py"
+
+# -----------------------------------------------------------------------------
+# THIRD-PARTY — vendored; verified against NOTICE via notice_token.
+# (The attribution chain goes green once the NOTICE/THIRDPARTY fixes land; the
+#  gate VERIFIES the chain, it does not author NOTICE.)
+# -----------------------------------------------------------------------------
+
+# Brad Smith (rainwarrior) Mode 7 Z-reciprocal LUT, CC BY 4.0 — dizworld.
+# The file's own header declares this; NOTICE must carry a matching entry.
+[[asset]]
+path = "engine/mode7_pv_ztable.inc"
+kind = "third-party"
+notice_token = "rainwarrior"
+
+# CC0 art packs (source material for png2snes / level_pipeline). Per-pack author
+# + source URL are in examples/itch_cc0/LICENSES.md; NOTICE summarizes the dir.
+[[asset]]
+path = "examples/itch_cc0/*.zip"
+kind = "third-party"
+notice_token = "itch_cc0"
+
+# -----------------------------------------------------------------------------
+# ATTESTED — known-non-regenerable first-party (hand-authored config/art) OR a
+# vendored-but-attributed blob with no generator. Each carries a provenance note.
+# -----------------------------------------------------------------------------
+
+# TAD example song set — the canonical known-non-regenerable-but-attributed blob.
+# Built once by `tad-compiler ca65-export` from the upstream TAD example project;
+# rebuilding needs tad-compiler (not vendored). Attributed in NOTICE.
+[[asset]]
+path = "assets/audio/tad_audio_data.bin"
+kind = "attested"
+note = "Compiled TAD example song set; built by tad-compiler ca65-export from the upstream Terrific Audio Driver example project. Not regenerable without tad-compiler. Attributed in NOTICE (Terrific Audio Driver, zlib + Unlicense wrapper)."
+
+# Hand-authored 32 KB SNES ROM header template (title/cart/region/checksum
+# fields) — config, not a game asset; consumed by every ROM's link step.
+[[asset]]
+path = "infrastructure/rom_template/header.inc"
+kind = "attested"
+note = "Hand-authored LoROM cartridge header field template (title bytes, map mode, cart type, ROM/RAM size, region, checksum placeholders). First-party config, not a generated or copied game asset."
+
+# mode7_flight airship sprite art — committed authored pixel data (sanctioned
+# art reuse per docs/sprints/free_flight_dod.md); no generator, no parent
+# toolchain needed. Sibling palette/world data tables are authored alongside.
+[[asset]]
+path = "templates/mode7_flight/assets/airship.inc"
+kind = "attested"
+note = "Hand-authored airship OBJ CHR + palette (4bpp 32x32 frames). Committed first-party pixel data; sanctioned art reuse, no generator (free_flight_dod.md section 3)."
+
+[[asset]]
+path = "templates/mode7_flight/assets/ground_map.bin"
+kind = "generator"
+regenerate = "python3 templates/mode7_flight/assets/make_shadow.py"
+produces = ["templates/mode7_flight/assets/ground_map.bin", "templates/mode7_flight/assets/shadow.inc"]
+
+# mode_showcase per-mode PPU-register parameter pages — hand-authored .byte
+# register tuples (first-party demo source code, not converted art).
+[[asset]]
+path = "templates/mode_showcase/assets/*.inc"
+kind = "attested"
+note = "Hand-authored mode-showcase parameter pages: .byte/.word PPU-register tuples + demo layout tables. First-party demo source code, not converted/copied art."
+
+# Engine Z-table (Brad's) is third-party above. The remaining engine LUT is the
+# perspective sine table — numeric, authored.
+[[asset]]
+path = "engine/mode7_sin_lut.inc"
+kind = "attested"
+note = "Mode 7 perspective sine LUT, emitted by toolchain/mode7_lut.py (header records it) — deterministic first-party numeric math content. Classified attested rather than generator because the committed file is NOT byte-reproducible from the generator: a hand-added `.ifndef SIN_LUT_PROVIDED / SIN_LUT_PROVIDED = 1 / .endif` assembler guard (Phase 17-4, tells offset_engine.asm the sin_lut label is available) was added on top of the generator's pure .word output, so a fresh `python3 toolchain/mode7_lut.py` run would not match the committed bytes."
+
+# Macro-library built-in font + text data tables (first-party source).
+[[asset]]
+path = "lib/macros/sf_text_data.inc"
+kind = "attested"
+note = "First-party built-in 2bpp font glyph data + text-engine routines (macro library source, not converted art)."
+
+[[asset]]
+path = "lib/macros/sf_obj_text.inc"
+kind = "attested"
+note = "First-party OBJ sprite-font HUD renderer macros + small glyph-index data (macro library source)."
+
+# -----------------------------------------------------------------------------
+# ARTIFACT — committed verification renders/screenshots (build proof, not a
+# shipping game asset). Output of the kit's own ROMs under the test harness.
+# -----------------------------------------------------------------------------
+
+[[asset]]
+path = "templates/mode_showcase/renders/*.png"
+kind = "artifact"
+note = "Verification renders captured from the mode_showcase ROM under the Mesen2 test harness (committed build proof per AGENTS.md arc-template convention)."
+
+[[asset]]
+path = "templates/mode7_flight/renders/*.png"
+kind = "artifact"
+note = "Verification renders captured from the mode7_flight ROM under the test harness (committed build proof)."
+
+[[asset]]
+path = "docs/audit/**/*.png"
+kind = "artifact"
+note = "Audit filmstrip captured from a kit ROM under the test harness (committed build proof for the m7_oshoot coldstart audit)."
+
+[[asset]]
+path = "docs/**/*.png"
+kind = "artifact"
+note = "Documentation render captured from a kit ROM under the test harness."
+
+# -----------------------------------------------------------------------------
+# split_h_2p_demo — 2-player split-screen rail assets (all generator-reproduced;
+# gen_assets.py drives tools/gen_pose_tables.py for the pose tables).
+# -----------------------------------------------------------------------------
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/checker_map.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_assets.py"
+produces = ["templates/split_h_2p_demo/assets/checker_map.bin", "templates/split_h_2p_demo/assets/poses1_ab.bin", "templates/split_h_2p_demo/assets/poses1_cd.bin", "templates/split_h_2p_demo/assets/pose_rot45_ab.bin", "templates/split_h_2p_demo/assets/pose_rot45_cd.bin", "templates/split_h_2p_demo/assets/poses64_ab.bin", "templates/split_h_2p_demo/assets/poses64_cd.bin", "templates/split_h_2p_demo/assets/move64.bin", "templates/split_h_2p_demo/assets/poses256_ab.bin", "templates/split_h_2p_demo/assets/poses256_cd.bin", "templates/split_h_2p_demo/assets/move256.bin"]
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/poses1_ab.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_assets.py"
+produces = ["templates/split_h_2p_demo/assets/poses1_ab.bin"]
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/poses1_cd.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_assets.py"
+produces = ["templates/split_h_2p_demo/assets/poses1_cd.bin"]
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/pose_rot45_ab.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_assets.py"
+produces = ["templates/split_h_2p_demo/assets/pose_rot45_ab.bin"]
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/pose_rot45_cd.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_assets.py"
+produces = ["templates/split_h_2p_demo/assets/pose_rot45_cd.bin"]
+
+# -----------------------------------------------------------------------------
+# split-mode family assets shipped by earlier increments without manifest
+# entries (found by the persp-series independent review: the audit trail's
+# "gates clean" never ran provenance-check). All are first-party generator
+# output; the persp/persp3 maps were byte-diff verified in that review.
+# -----------------------------------------------------------------------------
+
+[[asset]]
+path = "templates/split_h_demo/assets/floor.png"
+kind = "generator"
+regenerate = "python3 templates/split_h_demo/assets/make_floor.py"
+produces = ["templates/split_h_demo/assets/floor.png", "templates/split_h_demo/assets/floor_map.bin"]
+
+[[asset]]
+path = "templates/split_h_demo/assets/floor_map.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_demo/assets/make_floor.py"
+produces = ["templates/split_h_demo/assets/floor.png", "templates/split_h_demo/assets/floor_map.bin"]
+
+[[asset]]
+path = "templates/split_h_matrix_demo/assets/checker_map.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_matrix_demo/assets/gen_map.py"
+produces = ["templates/split_h_matrix_demo/assets/checker_map.bin"]
+
+[[asset]]
+path = "templates/split_h_persp_demo/assets/checker_map.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_persp_demo/assets/gen_map.py"
+produces = ["templates/split_h_persp_demo/assets/checker_map.bin"]
+
+[[asset]]
+path = "templates/split_h_persp3_demo/assets/checker_map.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_persp3_demo/assets/gen_map.py"
+produces = ["templates/split_h_persp3_demo/assets/checker_map.bin"]
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/poses64_ab.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_assets.py"
+produces = ["templates/split_h_2p_demo/assets/poses64_ab.bin"]
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/poses64_cd.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_assets.py"
+produces = ["templates/split_h_2p_demo/assets/poses64_cd.bin"]
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/move64.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_assets.py"
+produces = ["templates/split_h_2p_demo/assets/move64.bin"]
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/poses256_ab.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_assets.py"
+produces = ["templates/split_h_2p_demo/assets/poses256_ab.bin"]
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/poses256_cd.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_assets.py"
+produces = ["templates/split_h_2p_demo/assets/poses256_cd.bin"]
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/move256.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_assets.py"
+produces = ["templates/split_h_2p_demo/assets/move256.bin"]
+
+# -----------------------------------------------------------------------------
+# split_h_2p_demo SPRITE STRESS RAIL assets (sprite-projection LUTs, tier
+# ladder, disc CHR variants, worlds + waypoint loops) — all deterministic
+# seeded generator output; the S(k) ramp is imported from the pose tool.
+# -----------------------------------------------------------------------------
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/sp_sincos.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_sprite_assets.py"
+produces = ["templates/split_h_2p_demo/assets/sp_sincos.bin"]
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/sp_vk.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_sprite_assets.py"
+produces = ["templates/split_h_2p_demo/assets/sp_vk.bin"]
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/sp_recip_lo.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_sprite_assets.py"
+produces = ["templates/split_h_2p_demo/assets/sp_recip_lo.bin"]
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/sp_recip_hi.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_sprite_assets.py"
+produces = ["templates/split_h_2p_demo/assets/sp_recip_hi.bin"]
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/sp_tier_lut.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_sprite_assets.py"
+produces = ["templates/split_h_2p_demo/assets/sp_tier_lut.bin"]
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/sp_tier_nocull.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_sprite_assets.py"
+produces = ["templates/split_h_2p_demo/assets/sp_tier_nocull.bin"]
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/sp_chr.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_sprite_assets.py"
+produces = ["templates/split_h_2p_demo/assets/sp_chr.bin"]
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/sp_world_main.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_sprite_assets.py"
+produces = ["templates/split_h_2p_demo/assets/sp_world_main.bin"]
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/sp_way.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_sprite_assets.py"
+produces = ["templates/split_h_2p_demo/assets/sp_way.bin"]
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/sp_world_vis.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_sprite_assets.py"
+produces = ["templates/split_h_2p_demo/assets/sp_world_vis.bin"]
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/sp_world_far.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_sprite_assets.py"
+produces = ["templates/split_h_2p_demo/assets/sp_world_far.bin"]
+
+[[asset]]
+path = "templates/split_h_2p_demo/assets/sp_world_tier.bin"
+kind = "generator"
+regenerate = "python3 templates/split_h_2p_demo/assets/gen_sprite_assets.py"
+produces = ["templates/split_h_2p_demo/assets/sp_world_tier.bin"]

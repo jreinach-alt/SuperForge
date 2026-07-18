@@ -1,0 +1,796 @@
+{
+  "schema_version": 1,
+  "template": "rpg",
+  "rom": "build/rpg.sfc",
+  "boot_seconds": 1.0,
+  "boot": {
+    "magic_addr": "0xE000",
+    "state_addr": "0xE016"
+  },
+  "state": {
+    "addr": "0xE016",
+    "values": {
+      "overworld": 0,
+      "town": 1,
+      "battle": 2
+    }
+  },
+  "scenario": [
+    {
+      "name": "boots_into_mode7_overworld_with_sky",
+      "description": "From VIRGIN battery SRAM (no save) the ROM boots ($7E:E000=SFDB) into a Mode 7 PERSPECTIVE overworld with a REAL SKY above the horizon: a pixel at y=24 (above the y~43 horizon) is SKY blue (the sky-split reveals the hazed CGRAM[0]), a pixel at y=160 (the grass meadow) is the green grass floor. The fresh_sram drive deletes the .srm first so the boot-load hook finds no valid save and starts on the overworld (a contaminating prior save would boot into the town and fail the sky pixel). Reads rendered framebuffer pixels, not a proxy.",
+      "drive": {
+        "kind": "settle",
+        "frames": 14,
+        "fresh_sram": true
+      },
+      "assert": [
+        {
+          "kind": "screenshot_pixel",
+          "x": 128,
+          "y": 24,
+          "rgb": [
+            99,
+            115,
+            123
+          ],
+          "tolerance": 40
+        },
+        {
+          "kind": "screenshot_pixel",
+          "x": 40,
+          "y": 24,
+          "rgb": [
+            99,
+            115,
+            123
+          ],
+          "tolerance": 40
+        },
+        {
+          "kind": "screenshot_pixel",
+          "x": 128,
+          "y": 160,
+          "rgb": [
+            37,
+            111,
+            49
+          ],
+          "tolerance": 50
+        },
+        {
+          "kind": "screenshot_blob",
+          "region": "full",
+          "distinct_min": 3
+        }
+      ]
+    },
+    {
+      "name": "absent_save_boots_fresh_overworld",
+      "description": "Absent/garbage-save fallback: fresh_sram resets to VIRGIN battery SRAM (power-on GARBAGE, no valid 'SF' magic) \u2014 exactly an absent or never-written save. The boot-load hook's sf_save_exists rejects it (magic gate), so the ROM boots a FRESH overworld (state mirror == overworld) with the Mode 7 sky (sky-blue pixel at y=24, green floor at y=160). Reads the rendered frame + state. NOTE: this exercises the ABSENT/garbage path, NOT a valid-magic/bad-CRC record \u2014 the CRC-reject path is covered by tests/test_rpg_corrupt_save.py (which plants a valid save and flips one payload byte). Renamed from corrupt_save_falls_back_to_fresh_overworld (audit-1 L3: the old name over-claimed; garbage SRAM never reaches the CRC check).",
+      "drive": {
+        "kind": "settle",
+        "frames": 14,
+        "fresh_sram": true
+      },
+      "assert": [
+        {
+          "kind": "state_is",
+          "value": "overworld"
+        },
+        {
+          "kind": "screenshot_pixel",
+          "x": 128,
+          "y": 24,
+          "rgb": [
+            99,
+            115,
+            123
+          ],
+          "tolerance": 40
+        },
+        {
+          "kind": "screenshot_pixel",
+          "x": 128,
+          "y": 160,
+          "rgb": [
+            37,
+            111,
+            49
+          ],
+          "tolerance": 50
+        }
+      ]
+    },
+    {
+      "name": "transition_pixelates_through_black",
+      "description": "Pressing A at the overworld spawn (not adjacent to an NPC) arms the MOSAIC SCENE WIPE: the Mode 7 floor pixelates (mosaic size = 15 - brightness) + darkens toward black, the avatar (OBJ) is DROPPED (OBJ has no HW mosaic), then the town de-pixelates in. This scenario captures a frame in the BLACK swap window (~A+12, the deepest darkness where the scene swap runs): (1) the screen CENTRE (128,104) \u2014 where the bright avatar (blue body / cream head) would render if OBJ were not dropped \u2014 is near-BLACK, proving BOTH darkened AND OBJ-gone; (2) an off-centre floor pixel (64,160) is also near-black, proving the WHOLE Mode 7 floor dissolved to black (not a partial fade). A torn/un-masked swap would show bright floor or the avatar here. fresh_sram so the A actually enters the town (no prior save).",
+      "drive": {
+        "kind": "script",
+        "fresh_sram": true,
+        "steps": [
+          {
+            "buttons": [],
+            "frames": 14
+          },
+          {
+            "buttons": [
+              "a"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 22
+          }
+        ]
+      },
+      "assert": [
+        {
+          "kind": "screenshot_pixel",
+          "x": 128,
+          "y": 104,
+          "rgb": [
+            0,
+            0,
+            0
+          ],
+          "tolerance": 24
+        },
+        {
+          "kind": "screenshot_pixel",
+          "x": 64,
+          "y": 160,
+          "rgb": [
+            0,
+            0,
+            0
+          ],
+          "tolerance": 24
+        }
+      ]
+    },
+    {
+      "name": "transition_darkens_mid_dissolve",
+      "description": "DARKENING proof (a frame partway through the OUT dissolve, before full black): the Mode 7 floor is DIMMED + mosaiced. The screen CENTRE (128,104) \u2014 normally the bright avatar (blue body b>150) on the overworld \u2014 is a DARK, dimmed value (the avatar is already dropped and the floor under it is fading), well below the bright avatar's blue: the target is a dim ~(40,40,20) with a tolerance that matches the whole mid-OUT dim range but EXCLUDES the bright avatar that would render there without the wipe. Proves the dissolve is darkening the scene AND the OBJ is gone, partway through (the companion to the all-black swap frame). fresh_sram boots the overworld.",
+      "drive": {
+        "kind": "script",
+        "fresh_sram": true,
+        "steps": [
+          {
+            "buttons": [],
+            "frames": 14
+          },
+          {
+            "buttons": [
+              "a"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 16
+          }
+        ]
+      },
+      "assert": [
+        {
+          "kind": "screenshot_pixel",
+          "x": 128,
+          "y": 104,
+          "rgb": [
+            40,
+            40,
+            20
+          ],
+          "tolerance": 60
+        }
+      ]
+    },
+    {
+      "name": "transition_lands_in_town_after_wipe",
+      "description": "After the full wipe completes (OUT -> black swap -> IN de-pixelate) the screen is the Mode 1 TOWN, fully bright and de-pixelated. From a fresh boot, A + a long settle lands in the town: the avatar (OAM 0, tile 5) renders at the plaza spawn (16*8,16*8)=(128,128), the villager NPC (OAM 1) at (16*8,8*8)=(128,64); a screenshot blob (>=3 distinct colours) proves a real room rendered (not the black swap frame). State mirror == town. Completes the wipe state cycle (overworld -> [pixelate->black->swap->de-pixelate] -> town).",
+      "drive": {
+        "kind": "script",
+        "fresh_sram": true,
+        "steps": [
+          {
+            "buttons": [],
+            "frames": 14
+          },
+          {
+            "buttons": [
+              "a"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 32
+          }
+        ]
+      },
+      "assert": [
+        {
+          "kind": "state_is",
+          "value": "town"
+        },
+        {
+          "kind": "oam_entry",
+          "slot": 0,
+          "tile": 5,
+          "x": 128,
+          "y": 128
+        },
+        {
+          "kind": "oam_entry",
+          "slot": 1,
+          "tile": 5,
+          "x": 128,
+          "y": 64
+        },
+        {
+          "kind": "screenshot_blob",
+          "region": "full",
+          "distinct_min": 3
+        }
+      ]
+    },
+    {
+      "name": "overworld_npc_no_floating_prompt",
+      "description": "REMEDIATION INVARIANT (overworld NPC, preserved): from a fresh boot, at spawn the player is NOT adjacent to any NPC; one step RIGHT lands on (65,64) adjacent to NPC0 (65,65). There is NO floating '!' prompt either far OR adjacent (period-accuracy), so OAM slot 1 stays CULLED (Y=$F0=240) throughout. The avatar (slot 0, tile 5) is centred. Reads OAM low-table bytes directly. fresh_sram so the boot is the overworld.",
+      "drive": {
+        "kind": "script",
+        "fresh_sram": true,
+        "steps": [
+          {
+            "buttons": [],
+            "frames": 14
+          },
+          {
+            "buttons": [
+              "right"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 14
+          }
+        ]
+      },
+      "assert": [
+        {
+          "kind": "oam_entry",
+          "slot": 0,
+          "tile": 5,
+          "x": 120,
+          "y": 104
+        },
+        {
+          "kind": "oam_entry",
+          "slot": 1,
+          "y": 240
+        }
+      ]
+    },
+    {
+      "name": "overworld_npc_sprite_text_on_A",
+      "description": "Continuing while adjacent to the NPC: pressing A (INTERACT, not a scene change) toggles the 'HELLO' sprite-text strip ON at OAM slots 1-5 (the avatar owns slot 0). slot 1='H' (tile 9) at (96,72), slot 2='E' (tile 10), slot 5='O' (tile 12) at (128,72). Reads the glyph OAM entries directly. The state mirror stays overworld (A near an NPC interacts, never transitions). State cycle: adjacent -> talking.",
+      "continue_from_previous": true,
+      "drive": {
+        "kind": "script",
+        "steps": [
+          {
+            "buttons": [
+              "a"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 10
+          }
+        ]
+      },
+      "assert": [
+        {
+          "kind": "state_is",
+          "value": "overworld"
+        },
+        {
+          "kind": "oam_entry",
+          "slot": 1,
+          "tile": 9,
+          "x": 96,
+          "y": 72
+        },
+        {
+          "kind": "oam_entry",
+          "slot": 2,
+          "tile": 10,
+          "x": 104,
+          "y": 72
+        },
+        {
+          "kind": "oam_entry",
+          "slot": 5,
+          "tile": 12,
+          "x": 128,
+          "y": 72
+        }
+      ]
+    },
+    {
+      "name": "overworld_npc_text_gone_after_walking_away",
+      "description": "Continuing from the talking state: walking AWAY (several steps left) leaves the NPC's adjacency, dismissing the dialog. The whole 'HELLO' strip (slots 1-5) is culled (Y=$F0=240) again \u2014 the full approach -> interact -> walk-away -> gone cycle closed. The avatar (slot 0, tile 5) stays centred. Reads OAM directly.",
+      "continue_from_previous": true,
+      "drive": {
+        "kind": "script",
+        "steps": [
+          {
+            "buttons": [
+              "left"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 10
+          },
+          {
+            "buttons": [
+              "left"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 10
+          },
+          {
+            "buttons": [
+              "left"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 12
+          }
+        ]
+      },
+      "assert": [
+        {
+          "kind": "oam_entry",
+          "slot": 0,
+          "tile": 5,
+          "y": 104
+        },
+        {
+          "kind": "oam_entry",
+          "slot": 1,
+          "y": 240
+        },
+        {
+          "kind": "oam_entry",
+          "slot": 5,
+          "y": 240
+        }
+      ]
+    },
+    {
+      "name": "town_renders_with_npc_and_save_point",
+      "description": "From a fresh boot, A at the overworld spawn wipes into the Mode 1 TOWN. The town is a designed dry cobble plaza with brick walls, torches, a villager NPC, a gated EXIT, and a SAVE POINT attendant. Three OBJ sprites render: avatar (OAM 0, tile 5) at the plaza spawn (128,128), the villager NPC (OAM 1, tile 5) at (128,64), and the SAVE POINT attendant (OAM 2, tile 5) at (10*8,18*8)=(80,144). Reads the OAM low-table bytes (the rendered sprites) + a screenshot blob (>=3 distinct colours = a real room). Settle 32 frames for the full wipe.",
+      "drive": {
+        "kind": "script",
+        "fresh_sram": true,
+        "steps": [
+          {
+            "buttons": [],
+            "frames": 14
+          },
+          {
+            "buttons": [
+              "a"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 32
+          }
+        ]
+      },
+      "assert": [
+        {
+          "kind": "state_is",
+          "value": "town"
+        },
+        {
+          "kind": "oam_entry",
+          "slot": 0,
+          "tile": 5,
+          "x": 128,
+          "y": 128
+        },
+        {
+          "kind": "oam_entry",
+          "slot": 1,
+          "tile": 5,
+          "x": 128,
+          "y": 64
+        },
+        {
+          "kind": "oam_entry",
+          "slot": 2,
+          "tile": 5,
+          "x": 80,
+          "y": 144
+        },
+        {
+          "kind": "screenshot_blob",
+          "region": "full",
+          "distinct_min": 3
+        }
+      ]
+    },
+    {
+      "name": "town_dialog_box_renders_opaque_on_BG3",
+      "description": "Sprint 3 HEADLINE (sf_dialog): continuing in the town, walk UP to the villager NPC at (16,8) and press A to OPEN the sf_dialog panel on BG3. It is a REAL OPAQUE windowed nine-patch (navy fill + steel border), not the prior ASCII frame. (1) the BG3 text tilemap (VRAM byte $C000) spells 'WELCOME' from row 19 col 5 (font base tile 160, 'W'=215) \u2014 the rendered glyph cells, NOT a proxy. (2) the box BODY is OPAQUE: a screenshot pixel at (120,159) and (120,174) \u2014 clean gap rows BETWEEN the text lines, mid-box \u2014 is the box-FILL navy ~(16,24,82), NOT the gray cobble/red brick town behind it. A transparent/ASCII box would show town tiles here and FAIL. The avatar (slot 0) stays at the adjacency tile (128,72). The save attendant (slot 2) is off to the side. State cycle: town -> walk to NPC -> talk (opaque dialog rendered).",
+      "continue_from_previous": true,
+      "drive": {
+        "kind": "script",
+        "steps": [
+          {
+            "buttons": [
+              "up"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 8
+          },
+          {
+            "buttons": [
+              "up"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 8
+          },
+          {
+            "buttons": [
+              "up"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 8
+          },
+          {
+            "buttons": [
+              "up"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 8
+          },
+          {
+            "buttons": [
+              "up"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 8
+          },
+          {
+            "buttons": [
+              "up"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 8
+          },
+          {
+            "buttons": [
+              "up"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 8
+          },
+          {
+            "buttons": [
+              "up"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 8
+          },
+          {
+            "buttons": [
+              "a"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 12
+          }
+        ]
+      },
+      "assert": [
+        {
+          "kind": "oam_entry",
+          "slot": 0,
+          "tile": 5,
+          "x": 128,
+          "y": 72
+        },
+        {
+          "kind": "bg3_text",
+          "base": 49152,
+          "row": 19,
+          "col": 5,
+          "text": "WELCOME",
+          "glyph_base": 15360,
+          "ascii_offset": 160
+        },
+        {
+          "kind": "screenshot_pixel",
+          "x": 120,
+          "y": 159,
+          "rgb": [
+            16,
+            24,
+            82
+          ],
+          "tolerance": 30
+        },
+        {
+          "kind": "screenshot_pixel",
+          "x": 120,
+          "y": 174,
+          "rgb": [
+            16,
+            24,
+            82
+          ],
+          "tolerance": 30
+        }
+      ]
+    },
+    {
+      "name": "town_dialog_closes_clean",
+      "description": "Continuing with the dialog open: pressing A again closes the sf_dialog panel (sf_dialog_close clears the BG3 panel rect \u2014 fill, border, AND the text). The screenshot at the former box-body pixel (120,159) \u2014 which was the box-FILL navy while open \u2014 is back to the town COBBLE gray (~(96,99,115)), NOT navy: the box and its town-occlusion are gone, the scene restored. This is the SABOTAGE-verify of the opacity test (the navy came from the box, not an always-navy background). A blob (>=3 colours) confirms the town re-rendered. Reads the composited screenshot directly. State cycle: talk -> close (scene restored).",
+      "continue_from_previous": true,
+      "drive": {
+        "kind": "script",
+        "steps": [
+          {
+            "buttons": [
+              "a"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 12
+          }
+        ]
+      },
+      "assert": [
+        {
+          "kind": "screenshot_pixel",
+          "x": 120,
+          "y": 159,
+          "rgb": [
+            99,
+            99,
+            115
+          ],
+          "tolerance": 35
+        },
+        {
+          "kind": "screenshot_blob",
+          "region": "full",
+          "distinct_min": 3
+        }
+      ]
+    },
+    {
+      "name": "save_at_save_point_writes_sram",
+      "description": "Save point: from a fresh boot, enter the town, walk to the SAVE POINT attendant at (10,18) and press A. do_save_town stages {scene=town, tx, ty, ver} and sf_save writes it to SRAM slot 0 in the engine format (magic 'SF' + version + length + CRC-16 + payload). Reads the DESTINATION SRAM region directly: the magic 'SF' at offset 0, a self-validating CRC-16 over the slot, AND the payload bytes {scene=1, tx=11, ty=18} at offset 8 (the player walks 6 left taps -- the first post-transition tap is eaten by the stale edge latch -- + 2 down taps from spawn (16,16) to (11,18), adjacent east of the save tile (10,18)). A 'GAME SAVED.' sf_dialog panel renders (navy box pixel at (120,156)). NOT a proxy flag -- the SRAM bytes are the real persisted output.",
+      "drive": {
+        "kind": "script",
+        "fresh_sram": true,
+        "steps": [
+          {
+            "buttons": [],
+            "frames": 14
+          },
+          {
+            "buttons": [
+              "a"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 32
+          },
+          {
+            "buttons": [
+              "left"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 8
+          },
+          {
+            "buttons": [
+              "left"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 8
+          },
+          {
+            "buttons": [
+              "left"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 8
+          },
+          {
+            "buttons": [
+              "left"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 8
+          },
+          {
+            "buttons": [
+              "left"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 8
+          },
+          {
+            "buttons": [
+              "left"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 8
+          },
+          {
+            "buttons": [
+              "down"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 8
+          },
+          {
+            "buttons": [
+              "down"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 8
+          },
+          {
+            "buttons": [
+              "a"
+            ],
+            "frames": 2
+          },
+          {
+            "buttons": [],
+            "frames": 14
+          }
+        ]
+      },
+      "assert": [
+        {
+          "kind": "state_is",
+          "value": "town"
+        },
+        {
+          "kind": "sram_bytes",
+          "addr": 0,
+          "ascii": "SF"
+        },
+        {
+          "kind": "sram_bytes",
+          "addr": 0,
+          "crc16": true
+        },
+        {
+          "kind": "sram_bytes",
+          "addr": 8,
+          "bytes": [
+            1,
+            11,
+            0,
+            18,
+            0
+          ]
+        },
+        {
+          "kind": "screenshot_pixel",
+          "x": 120,
+          "y": 190,
+          "rgb": [
+            16,
+            24,
+            82
+          ],
+          "tolerance": 30
+        }
+      ]
+    },
+    {
+      "name": "save_persists_after_power_cycle",
+      "description": "Save -> reset -> load: continuing from the save above (slot 0 now holds {town,11,18}), POWER-CYCLE the ROM (reload \u2014 Mesen flushes the live SRAM to .srm on unload and reseeds the fresh boot from it, a real battery power cycle). The boot-load hook (try_boot_load -> sf_save_exists magic+CRC) restores the saved scene+position BEFORE the first frame: the ROM boots into the TOWN (state mirror == town) and the avatar renders at the SAVED tile from the RENDERED OAM \u2014 slot 0 at (11*8,18*8)=(88,144), tile 5 \u2014 not the town spawn (128,128). A screenshot blob (>=3 colours) proves the town rendered. This is the restored-position-from-rendered-output proof (OAM bytes, not the loaded variable).",
+      "continue_from_previous": true,
+      "drive": {
+        "kind": "power_cycle",
+        "frames": 22
+      },
+      "assert": [
+        {
+          "kind": "state_is",
+          "value": "town"
+        },
+        {
+          "kind": "oam_entry",
+          "slot": 0,
+          "tile": 5,
+          "x": 88,
+          "y": 144
+        },
+        {
+          "kind": "screenshot_blob",
+          "region": "full",
+          "distinct_min": 3
+        }
+      ]
+    }
+  ]
+}

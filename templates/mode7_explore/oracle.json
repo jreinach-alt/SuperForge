@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "template": "mode7_explore",
+  "rom": "build/mode7_explore.sfc",
+  "boot_seconds": 0.5,
+  "boot": {
+    "magic_addr": "0xE000"
+  },
+  "scenario": [
+    {
+      "name": "boots_into_streaming_mode7_overworld",
+      "description": "Under RANDOM power-on the ROM boots ($7E:E000=SFDB) into a static top-down Mode 7 overworld streamed from the large authored 512x512 world (F1 remediation — several windows wide AND tall). The initial 128x128 seed window centred on the spawn (258,258) renders REAL authored terrain: the screen lower-left (60,180) is the GRASS meadow floor (a green, BGR midpoint of the dark/light grass checker — tolerance spans both checker shades since the fine 8x8 texture flips dark<->light with sub-pixel scroll). A screenshot blob (>=4 distinct colours) proves a real TEXTURED world rendered (grass + road + mountain + forest), not a flat fill or a black band. The avatar (OAM 0, the 16x16 explorer, tile 16) renders screen-centred at (120,104). Reads rendered framebuffer pixels + OAM bytes, not a proxy.",
+      "drive": {
+        "kind": "settle",
+        "frames": 12
+      },
+      "assert": [
+        {
+          "kind": "oam_entry",
+          "slot": 0,
+          "tile": 16,
+          "x": 120,
+          "y": 104
+        },
+        {
+          "kind": "screenshot_pixel",
+          "x": 60,
+          "y": 180,
+          "rgb": [37, 111, 49],
+          "tolerance": 55
+        },
+        {
+          "kind": "screenshot_blob",
+          "region": "full",
+          "distinct_min": 4
+        }
+      ]
+    },
+    {
+      "name": "avatar_walks_east_world_streams_new_content",
+      "description": "Continuing from boot, holding RIGHT walks the avatar EAST across several tiles; the Mode 7 CAMERA scrolls under the screen-centred avatar and NEW world content streams into the VRAM window (no pop-in / black band). The avatar (OAM 0, tile 16) stays screen-centred at (120,104) — the world moves, not the sprite (camera-follows-player). A screenshot blob (>=4 distinct colours) confirms a real streamed world still renders after walking past the seed window. Reads OAM bytes + rendered framebuffer, not a proxy.",
+      "continue_from_previous": true,
+      "drive": {
+        "kind": "script",
+        "steps": [
+          { "buttons": ["right"], "frames": 90 },
+          { "buttons": [], "frames": 8 }
+        ]
+      },
+      "assert": [
+        {
+          "kind": "oam_entry",
+          "slot": 0,
+          "tile": 16,
+          "x": 120,
+          "y": 104
+        },
+        {
+          "kind": "screenshot_blob",
+          "region": "full",
+          "distinct_min": 4
+        }
+      ]
+    },
+    {
+      "name": "avatar_blocked_by_mountain_wall",
+      "description": "The two spawn axes are open authored road corridors (so the avatar can traverse several windows each way); collision is exercised by stepping OFF a corridor into a BLOCKED mountain range. The avatar is STOPPED by tile collision — it cannot walk into the mountain. The avatar (OAM 0, tile 16) stays screen-centred at (120,104) (the camera carries world position; the sprite never moves), and the world still renders (blob >=4 distinct colours) with the mountain wall on screen. Collision is LUT-derived from the flat tilemap byte (tile_terrain_lut) — there is no separate collision table (F1 remediation). Collision correctness against the world position is asserted byte-exact in tests/test_mode7_explore.py (MX-010, walks a few tiles east off the spawn column then north into the wall, reads the camera world tile from WRAM).",
+      "drive": {
+        "kind": "script",
+        "steps": [
+          { "buttons": [], "frames": 12 },
+          { "buttons": ["right"], "frames": 40 },
+          { "buttons": [], "frames": 8 },
+          { "buttons": ["up"], "frames": 150 },
+          { "buttons": [], "frames": 8 }
+        ]
+      },
+      "assert": [
+        {
+          "kind": "oam_entry",
+          "slot": 0,
+          "tile": 16,
+          "x": 120,
+          "y": 104
+        },
+        {
+          "kind": "screenshot_blob",
+          "region": "full",
+          "distinct_min": 4
+        }
+      ]
+    }
+  ]
+}

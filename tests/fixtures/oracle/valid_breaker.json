@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "template": "breaker",
+  "rom": "build/breaker.sfc",
+  "boot_seconds": 0.5,
+  "boot": { "magic_addr": "0xE000", "heartbeat_addr": "0x010C" },
+  "state": {
+    "addr": "0xE016",
+    "region": "wram",
+    "values": { "wait": 0, "play": 1, "game_over": 2, "win": 3 },
+    "win": "win",
+    "lose": "game_over"
+  },
+  "scenario": [
+    {
+      "name": "boots_field_rendered",
+      "description": "no input; the wall, bricks and HUD render",
+      "drive": { "kind": "settle", "frames": 30 },
+      "assert": [
+        { "kind": "vram_tilemap_count", "base": "0xB000", "row_stride": 64,
+          "rows": [5,6,7,8,9,10], "cols": "1..31", "tile_in": [2,3,4,5],
+          "expect_count": 180 },
+        { "kind": "cgram_palette", "palette": 0,
+          "colors": { "1": "0x39CE", "2": "0x001F" } },
+        { "kind": "oam_entry", "slot": 3, "tile": 1, "x": 124, "y": 192 }
+      ]
+    },
+    {
+      "name": "paddle_both_directions",
+      "drive": { "kind": "axis_sweep", "axes": ["left", "right"], "frames": 20 },
+      "assert": [
+        { "kind": "oam_delta", "slot": 0, "field": "x", "axis": "right", "min": 25 }
+      ]
+    },
+    {
+      "name": "reach_win",
+      "drive": { "kind": "bot", "policy": "breaker_winbot",
+                 "frame_cap": 40000, "wall_cap": 400 },
+      "assert": [
+        { "kind": "state_is", "value": "win" },
+        { "kind": "vram_tilemap_count", "base": "0xB000", "row_stride": 64,
+          "rows": [5,6,7,8,9,10], "cols": "1..31", "tile_in": [2,3,4,5],
+          "expect_count": 0 },
+        { "kind": "bg3_text", "base": "0xC000", "row": 16, "col": 12,
+          "text": "YOU WIN!", "glyph_base": "0x3C00", "ascii_offset": 160 }
+      ]
+    }
+  ]
+}

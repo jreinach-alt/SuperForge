@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "template": "meteor_event",
+  "rom": "build/meteor_event.sfc",
+  "boot_seconds": 1.0,
+  "boot": { "magic_addr": "0xE000", "heartbeat_addr": "0xE010" },
+  "scenario": [
+    {
+      "name": "boots_into_mode1_platformer",
+      "description": "boots ($7E:E000=SFDB), the heartbeat advances, and the Mode-1 platformer slice renders: a full-width green ground band at the bottom + a white player sprite (OAM slot 0) on top. State 0 = ST_PLAY.",
+      "drive": { "kind": "settle", "frames": 30 },
+      "assert": [
+        { "kind": "screenshot_blob", "region": "full", "distinct_min": 3 },
+        { "kind": "oam_entry", "slot": 0, "tile": 2 }
+      ]
+    },
+    {
+      "name": "meteor_scene_composites",
+      "description": "holding RIGHT walks the player to the TRIGGER -> freeze -> capture -> swap; the cutscene runs the LOCKED two-phase meteor (sprite far-approach grow -> crossover -> Mode-7 zoom+slide+tumble + red glow). hold=220 frames lands just after the crossover, in the Mode-7 phase while the cratered-rock meteor is textured (>=4 distinct colours: yellow core, orange shell, grey body, red rim) with the captured platforms+player composited as OBJ on top, before the red glow washes it. The python gate (test_meteor_event.py) covers the full sprite/crossover/Mode-7/glow/restore timeline.",
+      "drive": { "kind": "hold", "buttons": ["right"], "frames": 220 },
+      "assert": [
+        { "kind": "screenshot_blob", "region": "full", "distinct_min": 4 }
+      ]
+    }
+  ]
+}

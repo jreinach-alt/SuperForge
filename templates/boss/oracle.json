@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "template": "boss",
+  "rom": "build/boss.sfc",
+  "boot_seconds": 1.0,
+  "boot": { "magic_addr": "0xE000", "heartbeat_addr": "0xE010" },
+  "scenario": [
+    {
+      "name": "boots_and_reveals_boss",
+      "description": "the boss is the Mode 7 BG: it boots ($7E:E000=SFDB), the heartbeat advances, and during the REVEAL the affine matrix scales the whole plane so the on-screen boss grows from tiny to full (the boss-is-BG scaling invariant). The player sprite (OAM slot 0) composites in front once the fight begins.",
+      "drive": { "kind": "settle", "frames": 50 },
+      "assert": [
+        { "kind": "screenshot_blob", "region": "full", "distinct_min": 4 }
+      ]
+    },
+    {
+      "name": "hp_hud_renders_over_boss",
+      "description": "the boss HP bar is a row of 8 segment sprites (OAM slots 9-16) drawn at the top of the screen with priority 2, so it composites IN FRONT of the Mode 7 boss BG. At full HP all 8 segments are the lit tile (SPR_HP_LIT = 6).",
+      "drive": { "kind": "settle", "frames": 95 },
+      "assert": [
+        { "kind": "oam_entry", "slot": 9, "y": 12, "tile": 6 },
+        { "kind": "oam_entry", "slot": 16, "y": 12, "tile": 6 }
+      ]
+    }
+  ]
+}

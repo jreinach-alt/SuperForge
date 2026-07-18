@@ -1,0 +1,30 @@
+# Build outputs — ROMs are rebuilt on demand (blanket *.sfc keeps the
+# clean-room gate simple: ANY committed .sfc is a finding).
+build/
+*.sfc
+*.o
+
+# Emulator core — GPLv3, fetched/built by tools/setup.sh, never committed.
+tools/Mesen/
+MesenCore.so
+MesenCore.dll
+
+# fullsnes (Nocash SNES specs, (c) Martin Korth) — all-rights-reserved;
+# fetched on demand by tools/setup.sh, NEVER committed (same posture as
+# the GPLv3 Mesen core).
+docs/reference/fullsnes.htm
+docs/reference/fullsnes.txt
+
+# Music rips / commercial audio classes — defensive (clean-room gate also
+# blocks these).
+*.rsn
+*.spc
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Editor noise
+*.swp
+.DS_Store

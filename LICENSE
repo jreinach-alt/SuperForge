@@ -1,0 +1,50 @@
+SuperForge is licensed per component:
+
+  - ALL first-party code                            : zlib License (below)
+      engine/ (65816 assembly engine), lib/macros/, templates/ (code),
+      examples/ (code), toolchain/, tools/, infrastructure/, tests/
+      Shipped ROMs carry NO obligations (zlib's conditions apply to
+      source distributions only; an acknowledgment is appreciated but
+      never required).
+      EXCEPT the dizworld-derived Mode 7 perspective files, which are
+      Creative Commons Attribution 4.0 International (CC BY 4.0):
+        engine/mode7_hdma.asm
+        engine/mode7_math.asm  (group-2 perspective math helpers only;
+                                group-1 lut_multiply_* is kit zlib)
+        engine/mode7_pv_ztable.inc  (verbatim vendor)
+      https://creativecommons.org/licenses/by/4.0/
+      (c) Brad Smith (rainwarrior) — attribution per NOTICE / docs/THIRDPARTY.md.
+      A game ROM built on the per-scanline perspective path embeds this
+      CC BY code and must credit Brad Smith — one line is enough; see JAM.md.
+  - docs/                                           : CC0 1.0
+      https://creativecommons.org/publicdomain/zero/1.0/
+      (public-domain dedication — reuse freely, no credit required)
+  - shipped art & audio assets (examples/itch_cc0/,
+    templates/*/assets/, assets/)                   : CC0 1.0
+      https://creativecommons.org/publicdomain/zero/1.0/
+      (per-pack provenance: examples/itch_cc0/LICENSES.md — one source
+      pack and its converted terrain tiles ship under a recorded
+      no-strings permissive grant instead of literal CC0; see that file)
+  - vendored third-party code                       : see NOTICE
+      (lib/tad/ — Terrific Audio Driver ca65 API, zlib, headers intact)
+
+-------------------------------------------------------------------------------
+zlib License (all first-party code)
+
+Copyright (c) 2026 jreinach-alt
+
+This software is provided 'as-is', without any express or implied warranty.
+In no event will the authors be held liable for any damages arising from the
+use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not
+   claim that you wrote the original software. If you use this software in a
+   product, an acknowledgment in the product documentation would be
+   appreciated but is not required.
+2. Altered source versions must be plainly marked as such, and must not be
+   misrepresented as being the original software.
+3. This notice may not be removed or altered from any source distribution.

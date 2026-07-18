@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "template": "sprite_game",
+  "rom": "build/sprite_game.sfc",
+  "boot_seconds": 0.5,
+  "boot": { "magic_addr": "0xE000" },
+  "scenario": [
+    {
+      "name": "boots_both_sprites",
+      "description": "no input: red player + yellow dot render at their spawns",
+      "drive": { "kind": "settle", "frames": 30 },
+      "assert": [
+        { "kind": "oam_entry", "slot": 0, "x": 120, "y": 100 },
+        { "kind": "oam_entry", "slot": 1, "x": 200 },
+        { "kind": "screenshot_blob", "color": "red", "count_min": 56, "count_max": 72 },
+        { "kind": "screenshot_blob", "color": "yellow", "count_min": 56, "count_max": 72 }
+      ]
+    },
+    {
+      "name": "four_directions",
+      "description": "the player sprite moves in all four directions (both axes)",
+      "drive": { "kind": "axis_sweep", "axes": ["up", "down", "left", "right"], "frames": 20 },
+      "assert": [
+        { "kind": "oam_delta", "slot": 0, "field": "y", "axis": "up", "min": 15 },
+        { "kind": "oam_delta", "slot": 0, "field": "y", "axis": "down", "min": 15 },
+        { "kind": "oam_delta", "slot": 0, "field": "x", "axis": "left", "min": 15 },
+        { "kind": "oam_delta", "slot": 0, "field": "x", "axis": "right", "min": 15 }
+      ]
+    },
+    {
+      "name": "catch_relocates_dot",
+      "description": "drive onto the dot (right then up): it relocates to preset 1",
+      "drive": { "kind": "script", "steps": [
+        { "buttons": ["right"], "frames": 40 },
+        { "buttons": ["up"], "frames": 25 }
+      ] },
+      "assert": [
+        { "kind": "oam_entry", "slot": 1, "x": 60, "y": 60 }
+      ]
+    }
+  ]
+}

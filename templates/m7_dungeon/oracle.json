@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "template": "m7_dungeon",
+  "rom": "build/m7_dungeon.sfc",
+  "boot_seconds": 0.3,
+  "boot": {
+    "magic_addr": "0xE000",
+    "heartbeat_addr": "0xE010"
+  },
+  "scenario": [
+    {
+      "name": "boots_into_textured_rotating_mode7_dungeon",
+      "description": "Under RANDOM power-on the ROM boots ($7E:E000=SFDB) into a TEXTURED rotating-floor Mode 7 dungeon: the floor is the Mode 7 BG (one uniform affine matrix), the hero is an OBJ pinned at screen centre. The hero (OAM slot 0, tile 0) renders screen-centred at (120,104) — a 16x16 sprite centred on screen (128,112) — and UPRIGHT (attr 0x20, no H/V flip; the affine matrix never touches OBJ). A screenshot blob (>=4 distinct colours) proves a REAL TEXTURED floor rendered (blue checker + terracotta wall bands), not a flat fill or a black band. The heartbeat at $E010 advances (the 60fps game loop is live). Reads the rendered framebuffer + OAM bytes, never a proxy.",
+      "drive": {
+        "kind": "settle",
+        "frames": 8
+      },
+      "assert": [
+        {
+          "kind": "oam_entry",
+          "slot": 0,
+          "tile": 0,
+          "x": 120,
+          "y": 104,
+          "attr": 32
+        },
+        {
+          "kind": "screenshot_blob",
+          "region": "full",
+          "distinct_min": 4
+        },
+        {
+          "kind": "heartbeat_advances",
+          "frames": 8
+        }
+      ]
+    },
+    {
+      "name": "near_start_enemy_renders_red_on_the_floor",
+      "description": "At boot the near-start enemy (E0) is projected onto the rotating floor and DRAWS in its own red palette (make_enemy.py PAL[1]=(200,30,30); rendered ~(206,24,24)). The named 'red' predicate (r>150,g<90,b<90) matches the enemy body but REJECTS the terracotta wall (181,90,57: g not <90) and the cyan hero — so a count of red pixels on the framebuffer is enemy-specific. >=20 enemy-red pixels render (boot measures 56), all in the RIGHT half where E0 projects (east of the spawn-centred hero). This reads RENDERED PIXELS: an invisible / wrong-palette / off-screen enemy yields 0 and FAILS. (The per-enemy projection-vs-OAM oracle + the rendered-floor binding guard live in tests/test_m7_dungeon.py.)",
+      "drive": {
+        "kind": "settle",
+        "frames": 8
+      },
+      "assert": [
+        {
+          "kind": "screenshot_blob",
+          "region": "full",
+          "color": "red",
+          "count_min": 20
+        },
+        {
+          "kind": "oam_entry",
+          "slot": 1,
+          "tile": 32
+        }
+      ]
+    },
+    {
+      "name": "tank_turn_rotates_the_rendered_floor",
+      "description": "TANK CONTROLS: holding LEFT vs RIGHT rotates the heading (R_ANGLE), which drives the floor matrix so the player's facing reads 'up' and the floor visibly ROTATES under the turn. Unlike an animated racer floor (palette-cycled / scrolling on its own), this dungeon floor is a STATIC affine plane — with no input it does not move — so a before/after screenshot diff under a turn is a TRUE rotation signal (the spurious-animation confounder the racer's axis_branch had to defeat does not exist here). axis_sweep reloads per axis (reset_each default) + captures a before (boot) and after (post-turn) screenshot; screenshot_changed asserts >=20% of the floor pixels changed for BOTH directions (boot measures ~43%). Both axes are driven so the rotation is proven left AND right. Reads the rendered framebuffer.",
+      "drive": {
+        "kind": "axis_sweep",
+        "axes": ["left", "right"],
+        "frames": 40,
+        "screenshot": true
+      },
+      "assert": [
+        {
+          "kind": "screenshot_changed",
+          "axis": "left",
+          "region": "full",
+          "min_frac": 0.20
+        },
+        {
+          "kind": "screenshot_changed",
+          "axis": "right",
+          "region": "full",
+          "min_frac": 0.20
+        },
+        {
+          "kind": "oam_entry",
+          "slot": 0,
+          "tile": 0,
+          "x": 120,
+          "y": 104
+        }
+      ]
+    },
+    {
+      "name": "drive_forward_scrolls_the_rendered_floor",
+      "description": "Throttle: B/UP advances the WORLD position (the moving pivot) along the facing vector, so the floor SCROLLS in the faced direction under the screen-centred hero; Y/DOWN reverses. axis_sweep holds UP (forward) then DOWN (reverse), capturing a before/after screenshot each; screenshot_changed asserts >=15% of the floor pixels changed under each (boot forward measures ~49%) — the rendered floor scrolled, proving the pivot moved. The hero (OAM slot 0, tile 0) stays screen-centred at (120,104): the WORLD moves, not the sprite (camera-follows-player). Both throttle directions are driven. Reads the rendered framebuffer + OAM.",
+      "drive": {
+        "kind": "axis_sweep",
+        "axes": ["up", "down"],
+        "frames": 40,
+        "screenshot": true
+      },
+      "assert": [
+        {
+          "kind": "screenshot_changed",
+          "axis": "up",
+          "region": "full",
+          "min_frac": 0.15
+        },
+        {
+          "kind": "screenshot_changed",
+          "axis": "down",
+          "region": "full",
+          "min_frac": 0.15
+        },
+        {
+          "kind": "oam_entry",
+          "slot": 0,
+          "tile": 0,
+          "x": 120,
+          "y": 104
+        }
+      ]
+    },
+    {
+      "name": "far_enemy_is_culled_offscreen_at_boot",
+      "description": "CULLING by visibility: the enemies are SPREAD along the START->GOAL route, so the NEAR-EXIT enemy (E2, world ~(316,276), far from the spawn) projects OFF the visible window at boot and is PARKED off-screen at the kit cull Y ($F0=240) — its OAM slot 3 Y is the parked sentinel, NOT a wrapped on-screen position. This is read straight from the rendered OAM table (the hardware sprite the PPU draws). It stays parked through the settle (E2 paces near the exit, never reaching the spawn-centred window). The complement of the near-start enemy that DOES render (the red-on-floor scenario above): together they prove far enemies drop and near ones draw. The full drop-then-pop (drive to the goal, E2 pops back in) is covered byte-exact in tests/test_m7_dungeon.py (test_s4_culling_by_visibility_drop_then_pop).",
+      "drive": {
+        "kind": "settle",
+        "frames": 12
+      },
+      "assert": [
+        {
+          "kind": "oam_entry",
+          "slot": 3,
+          "y": 240
+        },
+        {
+          "kind": "screenshot_blob",
+          "region": "full",
+          "distinct_min": 4
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "template": "railshooter",
+  "rom": "build/railshooter.sfc",
+  "boot_seconds": 1.0,
+  "boot": { "magic_addr": "0xE000", "heartbeat_addr": "0xE010" },
+  "scenario": [
+    {
+      "name": "boots_ship_and_grid",
+      "description": "ship sprite (OAM slot 0, centered) + the Mode-7 grid terrain render at the rail start (the camera auto-advances, but the ship is centered with no input and the grid stays multi-color)",
+      "drive": { "kind": "settle", "frames": 10 },
+      "assert": [
+        { "kind": "oam_entry", "slot": 0, "x": 112, "y": 150, "tile": 0 },
+        { "kind": "screenshot_blob", "region": "floor", "distinct_min": 3 }
+      ]
+    },
+    {
+      "name": "reticle_and_obstacles_render",
+      "description": "the upgrade build: a lock-on reticle (OAM slot 11, the reticle CHR tile 76 = OBS_TILE_BASE 64 + obs_reticle $0C, small size) marks the aim point every frame, and approaching hazard obstacles render across the floor (extra distinct colors beyond the grid)",
+      "drive": { "kind": "settle", "frames": 12 },
+      "assert": [
+        { "kind": "oam_entry", "slot": 11, "tile": 76, "size": 0 },
+        { "kind": "screenshot_blob", "region": "floor", "distinct_min": 4 }
+      ]
+    }
+  ]
+}
