@@ -31,7 +31,7 @@ instead of hallucinated registers.
 Linux (or WSL). Requires `git`, `python3`, and `sudo` for apt packages.
 
 ```bash
-git clone <this-repo> superforge && cd superforge
+git clone https://github.com/jreinach-alt/SuperForge && cd SuperForge
 bash tools/setup.sh     # cc65 + Python deps + Mesen2 core + end-to-end smoke ROM
 make check              # width gate + build every ROM + run the full test suite
 ```
@@ -59,13 +59,15 @@ real hardware via a flashcart.
 
 ## What the templates look like
 
-Every screenshot below is captured from the committed template ROM booting
-headlessly on Mesen2 (`docs/screenshots/` has the full set — one per rail):
+Every clip below is **recorded gameplay** — scripted controller input driving
+the committed template ROM headlessly on Mesen2, frames captured from the
+rendered output (`docs/screenshots/` has stills for every rail):
 
-| | | |
-|---|---|---|
-| ![Mode 7 racer](docs/screenshots/racer.png) `racer` | ![platformer](docs/screenshots/platformer.png) `platformer` | ![2-camera split](docs/screenshots/split_h_2p_demo.png) `split_h_2p_demo` |
-| ![rotating dungeon](docs/screenshots/m7_dungeon.png) `m7_dungeon` | ![scaling boss](docs/screenshots/boss_saucer.png) `boss_saucer` | ![streaming overworld](docs/screenshots/mode7_explore.png) `mode7_explore` |
+| | |
+|---|---|
+| ![platformer gameplay](docs/screenshots/gifs/platformer.gif) `platformer` — the flagship: run, jump, coins, enemies | ![seamless 2P fight split](docs/screenshots/gifs/split_v_fight.gif) `split_v_fight` — one camera splits in two and merges back, seamlessly |
+| ![rotating-floor dungeon](docs/screenshots/gifs/m7_dungeon.gif) `m7_dungeon` — tank-control Mode 7, enemies glued to the spinning floor | ![two rotating Mode 7 cameras](docs/screenshots/gifs/split_h_2p_rotate.gif) `split_h_2p_demo` — two per-scanline cameras, 256-pose per-frame rotation |
+| ![streaming overworld](docs/screenshots/gifs/mode7_explore.gif) `mode7_explore` — walking a world far bigger than VRAM | ![vertical shmup](docs/screenshots/gifs/shmup.gif) `shmup` — pools, autoscroll, converted CC0 art |
 
 ## Working with an AI agent
 
