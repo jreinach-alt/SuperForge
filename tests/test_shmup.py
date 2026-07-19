@@ -25,6 +25,8 @@ PX, PY, SCORE = 0x32, 0x34, 0x36
 SPAWN_IX_ADDR, HURTLOCK = 0x3A, 0x54
 BUL_ALIVE, BUL_X, BUL_Y = 0x1800, 0x1810, 0x1820
 ENE_ALIVE, ENE_X, ENE_Y = 0x1830, 0x1840, 0x1850
+BUR_ALIVE, BUR_X, BUR_Y = 0x1860, 0x1870, 0x1880   # kill-burst pool
+EXPL_BASE = 80                                      # OBJ tile base of the burst CHR
 LIVES, GAMEOVER = 0x1858, 0x185A
 VOFS = 0x0122
 SHIP_SPAWN_X, SHIP_SPAWN_Y = 120, 180
@@ -69,6 +71,20 @@ def _region_colors(img, x0, y0, x1, y1):
 def _white_count(img, x0, y0, x1, y1):
     return sum(1 for y in range(y0, y1) for x in range(x0, x1)
                if all(c > 200 for c in img.getpixel((x, y))))
+
+
+def _warm_count(img, x0, y0, x1, y1):
+    """Bright warm pixels (the explosion's yellow/orange fire: R>=G>B, R hot,
+    B cold). Sampled inside the burst OBJ's own 16x16 box, so this reads the
+    explosion the sprite is painting, not the distant planets."""
+    x1 = min(x1, 256); y1 = min(y1, 239)
+    n = 0
+    for y in range(max(0, y0), y1):
+        for x in range(max(0, x0), x1):
+            r, g, b = img.getpixel((x, y))
+            if r > 200 and g > 120 and b < 160 and r >= g > b:
+                n += 1
+    return n
 
 
 def _fly_into_ghost(r, max_frames=900):
@@ -309,3 +325,54 @@ def test_bullet_pool_never_overflows_under_mashing(runner):
         peak = max(peak, n)
         assert n <= 6, f"bullet pool overflowed ({n} > 6)"
     assert peak == 6, f"pool never filled to its 6-slot ceiling (peak={peak})"
+
+
+def test_kill_spawns_and_renders_explosion_burst(runner):
+    """A kill spawns a warm explosion on its own burst pool, drawn in OAM slots
+    11-14. Rendered + non-vacuous: with no kill the burst OBJs are parked at
+    y=$F0; a kill draws the explosion CHR (tile >= EXPL_BASE, OBJ palette 3) at
+    the kill site while it burns, with warm fire pixels there, and re-parks when
+    it frees. Reads OAM + the screenshot, never a bare 'it spawned' flag."""
+    runner.load_rom(_rom(), run_seconds=0.4)
+    burst_live = lambda: sum(1 for i in range(4)
+                             if runner.read_u16(WR, BUR_ALIVE + i * 2) == 1)
+    # control — no kill yet: the pool is empty and every burst slot is parked.
+    runner.run_frames(45)
+    assert burst_live() == 0, "a burst existed before any kill"
+    for s in range(11, 15):
+        assert _oam(runner, s)[1] == 0xF0, f"burst OAM slot {s} not parked pre-kill"
+    # park under the first spawn column (24) and fire until a kill lands
+    runner.set_input(0, left=True)
+    _wait(runner, lambda: runner.read_u16(WR, PX) <= 24, 120, what="ship at x<=24")
+    runner.set_input(0)
+    runner.run_frames(2)
+    deadline = time.time() + 12
+    while runner.read_u16(WR, SCORE) == 0 and time.time() < deadline:
+        runner.set_input(0, a=True)
+        runner.run_frames(2)
+        runner.set_input(0)
+        runner.run_frames(4)
+    assert runner.read_u16(WR, SCORE) >= 1, "no kill to burst on"
+    # ground truth: the kill seeded a burst in the dedicated pool
+    assert burst_live() >= 1, "kill did not spawn a burst"
+    # RENDERED: OAM slot 11 (burst pool slot 0) draws the explosion CHR at the
+    # kill site on OBJ palette 3, with warm fire pixels in its 16x16 box. The
+    # tile range (>= EXPL_BASE) is the explosion's alone — ship 0-31, ghost
+    # 32-63, bullet 64 all sit below it, and the planets are BG, not OAM.
+    saw_expl_tile = warm_seen = 0
+    for _ in range(10):
+        ox, oy, tile, attr = _oam(runner, 11)
+        if oy < 0xE0 and tile >= EXPL_BASE:
+            saw_expl_tile += 1
+            assert (attr >> 1) & 7 == 3, \
+                f"burst OBJ not on OBJ palette 3 (attr {attr:#04x})"
+            img = _shot(runner)
+            if _warm_count(img, ox, oy, ox + 16, oy + 16) >= 8:
+                warm_seen += 1
+        runner.run_frames(1)
+    assert saw_expl_tile >= 3, "burst never drew an explosion-range tile at slot 11"
+    assert warm_seen >= 1, "no warm explosion pixels rendered at the burst OBJ"
+    # it plays out and frees: the pool empties and slot 11 re-parks offscreen
+    _wait(runner, lambda: burst_live() == 0, 60, what="burst frees")
+    runner.run_frames(2)
+    assert _oam(runner, 11)[1] == 0xF0, "burst OAM slot 11 did not re-park after clearing"

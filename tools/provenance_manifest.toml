@@ -348,12 +348,12 @@ path = "templates/brawler/assets/*.inc"
 kind = "generator"
 generator = "tools/png2snes.py"
 
-# shmup terrain: RE-AUTHORED seamless grass-capped island (the pack's raw cells
-# are free-standing outlined blocks, not tileable terrain — a raw conversion
-# borders every island). Its own in-tree generator reads the registered Four
-# Seasons zip DIRECTLY for the palette and emits the CHR/map/pal + the HUD-bar
-# tile — deterministic, so the gate re-runs it and byte-diffs (strong proof).
-# (hero.inc/ghost.inc below stay png2snes conversions.)
+# shmup terrain: the streamed BG "obstacle chunks" are PLANETS downscaled from
+# the registered CC0 Spaceship Pack (planet_1/2/4/6 -> four 4x4-tile blocks in a
+# strip, quantized to one shared BG palette + the HUD-bar tile). Its own in-tree
+# generator reads the pack zip DIRECTLY and is deterministic, so the gate re-runs
+# it and byte-diffs (strong proof). (hero.inc/ghost.inc/explosion.inc below stay
+# png2snes conversions.)
 [[asset]]
 path = "templates/shmup/assets/terrain.inc"
 kind = "generator"

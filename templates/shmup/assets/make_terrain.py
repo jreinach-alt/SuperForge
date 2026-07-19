@@ -1,27 +1,32 @@
 #!/usr/bin/env python3
-"""make_terrain.py — a SEAMLESS grass-capped floating island for the shmup rail.
+"""make_terrain.py — the shmup's streamed PLANET field, from the CC0 AlcWilliam
+"Spaceship Pack" (examples/itch_cc0/Spaceship Pack.zip).
 
-Why this generator exists (the border fix)
--------------------------------------------
-The shmup scatters an 8x6 terrain patch as "islands" over the night sky. That
-patch was a raw png2snes conversion of Four Seasons region 0,0,64,48 — but the
-pack authors every 16x16 cell as a FREE-STANDING platform block (dark outline +
-shaded corners on all four edges; the region even includes "?"/"!" item blocks).
-Tiled into an island, each cell showed its own border, so every island read as a
-GRID of bordered bricks, not a landmass. That is the "sprite edge problem" the
-owner reported.
+Why this generator exists (the space reskin)
+--------------------------------------------
+The shmup streams a field of BG "obstacle chunks" down the night sky as its
+scrolling terrain. Those chunks used to be grass-capped dirt ISLANDS — a
+platformer leftover the owner flagged: green grass + brown dirt has no place in
+a space shooter. This generator replaces the island ART with PLANETS from the
+same pack the ships came from, so the whole rail reads as one space scene. The
+chunk ROLE is unchanged (streamed BG blocks over the sky) — only the art is.
 
-An island wants an outline only where an edge is REAL — its own silhouette
-against the sky — and a SEAMLESS interior. This generator authors that: a
-64x48 island image (rounded grass-capped dirt: a grass lip on top, a speckled
-dirt body, a soft shaded underside, softened corners), then slices it into 8x8
-BG tiles exactly like png2snes bg (blank tile #0 reserved, content-deduped,
-mset-ready map words). The palette is DERIVED from the pack's own grass/dirt
-column (region 0,0,16,32) so the island keeps the Four Seasons look.
+Each planet is a native 48x48 pack sprite BOX-downscaled to a 32x32 (4x4-tile)
+BG block — edge-bled first so the smooth shading survives the reduction — then
+the four planets are quantized to ONE shared 13-colour BG palette. The round
+silhouettes keep transparent corners, so the night sky shows through and each
+block reads as a discrete planet. The four 4x4 blocks are concatenated into a
+strip map; main.asm's scatter loop stamps them at staggered origins, cycling
+all four designs so the streamed field shows variety.
 
-The 8x6 map is what main.asm's island-scatter loop stamps at five staggered
-origins; the transparent (tile 0) cells outside the island silhouette let the
-night sky show through, so each stamp reads as a discrete floating island.
+The palette reserves index 0 (transparent — sky) and index 8 (the HUD backing
+bar, unchanged from the island build); the 13 planet colours take indices 1-7
+and 9-14. The solid HUD-backing tile is appended after the planet tiles exactly
+as before, so main.asm's BG2 HUD band needs no change.
+
+Four planets, in strip order:
+    planet_1  ringed gas giant     planet_2  orange banded gas giant
+    planet_4  magenta cratered     planet_6  blue-green earth-like world
 
 Regenerate (from a materialized kit root, or the parent monorepo root — same
 import path; needs the registered CC0 pack zip under examples/itch_cc0/):
@@ -30,48 +35,43 @@ Deterministic output: same script + same pack, same bytes.
 """
 from __future__ import annotations
 
-import random
 import sys
 import zipfile
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageEnhance
 
 from tools.png2snes import (
-    build_palette,
     emit_bytes,
     emit_words,
     encode_tile_4bpp,
-    opaque_colors,
+    rgb_to_bgr15,
 )
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent.parent
-ZIP_NAME = "Four Seasons Platformer Tileset [16x16][FREE] - RottingPixels.zip"
-PAL_REGION = (0, 0, 16, 32)   # the pack's grass-block-over-dirt-block column
+ZIP_NAME = "Spaceship Pack.zip"
 OUT = HERE / "terrain.inc"
 
-MAP_W, MAP_H = 8, 6            # 8x6 cells -> 64x48 px (main.asm hard-codes 8 x 6)
-W, H = MAP_W * 8, MAP_H * 8
+# the four planet designs, in strip order (main.asm cycles them across stamps)
+PLANET_PNGS = ["planet_1.png", "planet_2.png", "planet_4.png", "planet_6.png"]
+PLANET_DESC = "ringed / orange banded / magenta cratered / blue-green earth"
 
-# palette-index roles in the pack's luminance-sorted grass/dirt order (0 transp)
-EDGE = 1             # pack outline / dark-neutral — the island's shaded rim + lip
-DIRT_SHADOW = 2      # dark brown (underside + specks)
-GRASS_DARK = 3       # dark green (grass tips / roots)
-DIRT_MID = 4         # mid brown (dirt fill base)
-GRASS_BRIGHT = 5     # bright green
-DIRT_LIGHT = 6       # light brown (dirt highlight speck)
-GRASS_LIGHT = 7      # light green
+BOX = 32                      # planet block: 32x32 px = 4x4 BG tiles
+TILES = BOX // 8              # 4 tiles per side (main.asm hard-codes 4)
+N_COLORS = 13                 # shared planet palette (0=transp, 8=HUD reserved)
 
-EXPECTED_PAL = [0x0000, 0x14A6, 0x1D0E, 0x1DE3, 0x21D7, 0x1B0B, 0x329B, 0x2373]
+# CGRAM slots the planet colours may occupy: 0 is transparent (the sky shows
+# through), 8 is the HUD backing bar (below) — planets take the other 13.
+SLOTS = [1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14]
 
-# HUD backing: a dark slate bar tile (palette 0, colour index 8 — free; the
-# island uses 1..7) placed on the fixed BG2 layer behind the BG3 HUD text so
-# SCORE/LIVES stay legible when a bright island scrolls under the top row. The
-# colour is far darker than any terrain tone and reads as a deliberate UI bar
+# HUD backing: a dark slate bar tile (palette 0, colour index 8 — reserved; the
+# planets use 1-7 + 9-14) placed on the fixed BG2 layer behind the BG3 HUD text
+# so SCORE/LIVES stay legible when a bright planet scrolls under the top row.
+# The colour is far darker than any planet tone and reads as a deliberate UI bar
 # over the night sky. See main.asm (BG12NBA share + the mset #2 band).
 HUD_BACK_IDX = 8
-HUD_BACK_COLOR = 0x10A3   # BGR15 dark slate-blue (R24 G16 B64) — cool, low-luma
+HUD_BACK_COLOR = 0x10A3       # BGR15 dark slate-blue (R24 G16 B64) — cool, low-luma
 
 
 def find_zip():
@@ -82,113 +82,151 @@ def find_zip():
     raise SystemExit("make_terrain: pack zip not found under examples/itch_cc0/")
 
 
-def derive_palette():
-    """png2snes's BG palette build over the pack's grass/dirt column -> the same
-    band-friendly grass+dirt ramp split_v_fight uses (so the two rails match)."""
+def load_pack():
+    imgs = []
     with zipfile.ZipFile(find_zip()) as zf:
-        name = next(n for n in zf.namelist()
-                    if n.endswith("four-seasons-tileset.png"))
-        with zf.open(name) as fh:
-            img = Image.open(fh).convert("RGBA").copy()
-    x, y, w, h = PAL_REGION
-    words, _ = build_palette(opaque_colors(img.crop((x, y, x + w, y + h))))
-    if words[:len(EXPECTED_PAL)] != EXPECTED_PAL:
-        raise SystemExit("make_terrain: derived grass/dirt palette drifted:\n"
-                         f"  {[f'${w:04X}' for w in words[:8]]}")
-    words[HUD_BACK_IDX] = HUD_BACK_COLOR   # the fixed BG2 HUD-bar colour
+        for name in PLANET_PNGS:
+            with zf.open(name) as fh:
+                imgs.append(Image.open(fh).convert("RGBA").copy())
+    return imgs
+
+
+def bleed_rgb(img: Image.Image) -> Image.Image:
+    """Fill transparent pixels with the mean of opaque neighbours (iterative
+    dilation) so a smooth downscale does not pull black from (0,0,0,0). Same
+    technique make_ships.py uses on the ships — the smooth planet shading needs
+    it too, or the round rim darkens into the sky."""
+    img = img.convert("RGBA").copy()
+    px = img.load()
+    w, h = img.size
+    opaque = [[px[x, y][3] >= 128 for x in range(w)] for y in range(h)]
+    for _ in range(max(w, h)):
+        add = {}
+        for y in range(h):
+            for x in range(w):
+                if opaque[y][x]:
+                    continue
+                acc = [0, 0, 0]
+                n = 0
+                for dy in (-1, 0, 1):
+                    for dx in (-1, 0, 1):
+                        xx, yy = x + dx, y + dy
+                        if 0 <= xx < w and 0 <= yy < h and opaque[yy][xx]:
+                            r, g, b, _ = px[xx, yy]
+                            acc[0] += r; acc[1] += g; acc[2] += b; n += 1
+                if n:
+                    add[(x, y)] = (acc[0] // n, acc[1] // n, acc[2] // n, 0)
+        if not add:
+            break
+        for (x, y), c in add.items():
+            px[x, y] = c
+            opaque[y][x] = True
+    return img
+
+
+def downscale(img: Image.Image) -> Image.Image:
+    """Crop to opaque content, edge-bleed, BOX-downscale to the 32x32 block,
+    a gentle contrast+sharpen so the bands/craters survive the reduction. The
+    alpha is downscaled and re-thresholded separately, keeping the round
+    silhouette (transparent corners) crisp."""
+    img = img.convert("RGBA")
+    a = img.getchannel("A").point(lambda v: 255 if v >= 128 else 0)
+    bb = a.getbbox()
+    img = img.crop(bb)
+    a = a.crop(bb)
+    small = bleed_rgb(img).resize((BOX, BOX), Image.BOX)
+    small = ImageEnhance.Contrast(small).enhance(1.12)
+    small = ImageEnhance.Sharpness(small).enhance(1.2)
+    small.putalpha(a.resize((BOX, BOX), Image.BOX).point(lambda v: 255 if v >= 110 else 0))
+    return small
+
+
+def shared_quantize(frames):
+    """Reduce all four planets to ONE shared N_COLORS palette (median-cut, no
+    dither — deterministic). Returns (per-frame index grids using the reserved
+    CGRAM SLOTS, palette as a list of RGB tuples in SLOTS order)."""
+    strip = Image.new("RGB", (sum(f.width for f in frames), BOX), (0, 0, 0))
+    x = 0
+    for f in frames:
+        strip.paste(f.convert("RGB"), (x, 0))
+        x += f.width
+    pal_img = strip.quantize(colors=N_COLORS, dither=Image.Dither.NONE)
+    flat = pal_img.getpalette()
+    pal_rgb = [tuple(flat[i * 3:i * 3 + 3]) for i in range(N_COLORS)]
+    grids = []
+    for f in frames:
+        q = f.convert("RGB").quantize(palette=pal_img, dither=Image.Dither.NONE)
+        idx = list(q.getdata())
+        alpha = list(f.getchannel("A").point(lambda v: 255 if v >= 128 else 0).getdata())
+        w, h = f.size
+        grid = [[0] * w for _ in range(h)]
+        for yy in range(h):
+            for xx in range(w):
+                if alpha[yy * w + xx] >= 128:
+                    grid[yy][xx] = SLOTS[idx[yy * w + xx]]
+        grids.append(grid)
+    return grids, pal_rgb
+
+
+def build_palette(pal_rgb):
+    """16-word BG palette: 0 transparent, 8 the HUD bar, the 13 planet colours
+    mapped onto the reserved SLOTS, the rest 0."""
+    words = [0x0000] * 16
+    words[HUD_BACK_IDX] = HUD_BACK_COLOR
+    for c, rgb in enumerate(pal_rgb):
+        words[SLOTS[c]] = rgb_to_bgr15(rgb)
     return words
 
 
-# ---- author the island as a 64x48 index image ------------------------------
-
-def in_island(x, y):
-    """Rounded-rectangle silhouette (standard test): clamp the pixel to the
-    rectangle inset by R and keep it if within R of that point — so the four
-    corners round off to quarter-circles and a stamp reads as an island."""
-    R = 6
-    cx = min(max(x, R), W - 1 - R)
-    cy = min(max(y, R), H - 1 - R)
-    return (x - cx) ** 2 + (y - cy) ** 2 <= R * R
-
-
-def _dirt_px(x, y):
-    """Deterministic per-pixel dirt speckle (a filled field, so it tiles)."""
-    v = random.Random((x * 73856 + y * 19349) & 0xFFFFFFFF).random()
-    if v < 0.11:
-        return DIRT_SHADOW
-    if v < 0.26:
-        return DIRT_LIGHT
-    return DIRT_MID
-
-
-def author_island():
-    grid = [[0] * W for _ in range(H)]
-    dirt = _dirt_px
-
-    for y in range(H):
-        for x in range(W):
-            if not in_island(x, y):
-                continue
-            top_edge = not in_island(x, y - 1)
-            bot_edge = not in_island(x, y + 1)
-            if y <= 1:                       # grass cap
-                if top_edge or y == 0:
-                    grid[y][x] = GRASS_DARK  # the darker grass lip (real top edge)
-                else:
-                    grid[y][x] = GRASS_LIGHT if (x + y) % 2 else GRASS_BRIGHT
-            elif y == 2:                     # grass roots melting into dirt
-                grid[y][x] = GRASS_DARK if (x % 4 == 0) else dirt(x, y)
-            else:                            # dirt body
-                grid[y][x] = dirt(x, y)
-            # soft shaded underside + side rim: 1 px of dirt-shadow on the real edge
-            if y >= 2 and (bot_edge or not in_island(x - 1, y)
-                           or not in_island(x + 1, y)):
-                grid[y][x] = DIRT_SHADOW
-    return grid
-
-
-# ---- slice to tiles + dedup (png2snes bg semantics) ------------------------
-
-def slice_tiles(grid):
+def slice_planets(grids):
+    """Slice each 32x32 planet into 8x8 tiles, dedup across ALL planets (blank
+    tile #0 reserved, like png2snes bg). Returns (CHR blob, per-planet 4x4 map
+    word lists, tile count incl. blank)."""
     chr_blobs = [bytes(32)]                  # tile 0 reserved blank
     cache = {bytes(32): 0}
-    map_words = []
-    for ty in range(MAP_H):
-        for tx in range(MAP_W):
-            cell = [grid[ty * 8 + y][tx * 8:tx * 8 + 8] for y in range(8)]
-            if not any(v for row in cell for v in row):
-                map_words.append(0)          # blank cell, palette 0
-                continue
-            enc = encode_tile_4bpp(cell)
-            if enc not in cache:
-                cache[enc] = len(chr_blobs)
-                chr_blobs.append(enc)
-            map_words.append(cache[enc] & 0x3FF)   # palette 0
-    return b"".join(chr_blobs), map_words, len(chr_blobs)
+    maps = []
+    for grid in grids:
+        mw = []
+        for ty in range(TILES):
+            for tx in range(TILES):
+                cell = [grid[ty * 8 + y][tx * 8:tx * 8 + 8] for y in range(8)]
+                if not any(v for row in cell for v in row):
+                    mw.append(0)             # blank cell, palette 0
+                    continue
+                enc = encode_tile_4bpp(cell)
+                if enc not in cache:
+                    cache[enc] = len(chr_blobs)
+                    chr_blobs.append(enc)
+                mw.append(cache[enc] & 0x3FF)   # palette 0
+        maps.append(mw)
+    return b"".join(chr_blobs), maps, len(chr_blobs)
 
 
 def main():
-    pal_words = derive_palette()
-    grid = author_island()
-    blob, map_words, n_tiles = slice_tiles(grid)
+    frames = [downscale(p) for p in load_pack()]
+    grids, pal_rgb = shared_quantize(frames)
+    pal_words = build_palette(pal_rgb)
+    blob, maps, n_tiles = slice_planets(grids)
+    map_words = [w for planet in maps for w in planet]   # strip: 4 planets stacked
     # append the solid HUD-backing tile (all pixels = HUD_BACK_IDX) after the
-    # island tiles; main.asm stamps it on the fixed BG2 layer behind the HUD.
+    # planet tiles; main.asm stamps it on the fixed BG2 layer behind the HUD.
     hud_tile = n_tiles
     blob = blob + encode_tile_4bpp([[HUD_BACK_IDX] * 8 for _ in range(8)])
     n_tiles += 1
     lines = [
         "; Generated by templates/shmup/assets/make_terrain.py — DO NOT EDIT BY HAND",
         "; Regenerate: PYTHONPATH=. python3 templates/shmup/assets/make_terrain.py",
-        "; source-pack: Four Seasons Platformer Tileset [16x16][FREE] — Rotting Pixels",
-        ";   (examples/itch_cc0/; grant: custom permissive — free + commercial use,",
-        ";    modification, credit optional; see examples/itch_cc0/LICENSES.md). The",
-        ";    PALETTE is derived byte-for-byte from pack region 0,0,16,32 (its grass/",
-        ";    dirt column); the island TILES + MAP are RE-AUTHORED seamless — a",
-        ";    grass-capped rounded dirt island — because the pack's raw cells are",
-        ";    free-standing outlined blocks, not tileable terrain (a raw conversion",
-        ";    borders every island cell). See the generator docstring.",
-        f"; {MAP_W}x{MAP_H} cells, {n_tiles} unique tiles (incl. reserved blank #0), "
-        "1 BG palette(s)",
+        "; source-pack: Spaceship Pack (planet_1/2/4/6) — AlcWilliam",
+        ";   (examples/itch_cc0/; grant: CC0 — see examples/itch_cc0/LICENSES.md).",
+        ";   Four native 48x48 planet sprites BOX-DOWNSCALED to 32x32 (4x4-tile)",
+        ";   BG blocks, edge-bled so the smooth shading survives, then quantized to",
+        ";   ONE shared 13-colour BG palette. Round silhouettes keep transparent",
+        ";   corners so the night sky reads through; main.asm stamps the four",
+        ";   blocks across the streamed field. Pre-authored by this generator (the",
+        ";   pack ships no tileable terrain — planets are the space-native chunks).",
+        f"; planets: {PLANET_DESC}",
+        f"; {TILES}x{TILES}-tile blocks x {len(frames)} planets, {n_tiles} unique "
+        "tiles (incl. reserved blank #0 + HUD bar), 1 BG palette",
         "; LOAD CONTRACT: sf_load_bg_chr 0, terrain_chr, terrain_chr_bytes",
         "; then sf_load_bg_pals 0, terrain_pal, terrain_pal_count — map words",
         "; already carry tile index (base 0 baked in) and palette bits;",
@@ -198,20 +236,24 @@ def main():
         f"terrain_chr_tiles = {n_tiles}",
         f"terrain_chr_bytes = {len(blob)}",
         "terrain_pal_count = 1",
-        f"terrain_map_w = {MAP_W}",
-        f"terrain_map_h = {MAP_H}",
+        f"terrain_planet_count = {len(frames)}   ; distinct planet blocks in the strip",
+        f"terrain_planet_tiles = {TILES}   ; tiles per planet side (main.asm stamps {TILES}x{TILES})",
+        f"terrain_map_w = {TILES}",
+        f"terrain_map_h = {TILES * len(frames)}   ; the {len(frames)} blocks stacked into a strip",
         f"terrain_hud_tile = {hud_tile}   ; solid dark bar tile (palette 0 idx "
         f"{HUD_BACK_IDX}); main.asm stamps it on the fixed BG2 HUD band",
         "",
         emit_words("terrain_pal", pal_words),
         "",
-        emit_words("terrain_map", map_words),
+        "; strip map: planet p occupies words p*16 .. p*16+15 (4x4, row-major)",
+        emit_words("terrain_map", map_words, per_line=TILES),
         "",
         emit_bytes("terrain_chr", blob),
         "",
     ]
     OUT.write_text("\n".join(lines))
-    print(f"make_terrain: {n_tiles} tiles ({len(blob)} CHR bytes) -> {OUT}")
+    print(f"make_terrain: {len(frames)} planets, {n_tiles} tiles "
+          f"({len(blob)} CHR bytes) -> {OUT}")
 
 
 if __name__ == "__main__":

@@ -9,8 +9,10 @@
 ;               8-frame idle is the flame alternation — see assets/make_ships.py)
 ;   - enemies = AlcWilliam Spaceship Pack ship_5 fighter, nosed DOWN at the
 ;               player (48x48 -> 16x16, own OBJ palette, blue thrusters)
-;   - terrain = Four Seasons tileset spring patch (8x6 metacells, 1 BG palette,
-;               mset-ready map words)
+;   - burst   = AlcWilliam Spaceship Pack explosion sheet, frames 0-3 downscaled
+;               to 16x16 (own warm OBJ palette) — plays on kills (assets/make_ships.py)
+;   - terrain = AlcWilliam Spaceship Pack planets (planet_1/2/4/6 -> 4x4-tile BG
+;               blocks, 1 shared palette) streamed as the obstacle field
 ; Composes: sf_pool (bullets + enemies), sf_autoscroll_v (terrain drift),
 ; col_box (bullet hits + ship damage), sf_anim (frame cycling), sf_audio (TAD
 ; music + SFX), sf_text (HUD), the OBJ/BG blob loaders.
@@ -29,7 +31,7 @@
 ; STABLE OAM SLOTS (the sf_pool draw idiom): every pool slot is drawn every
 ; frame — live actors at their position, dead slots parked at y=$F0 — so OAM
 ; slot k always belongs to the same actor: 0 = ship, 1-6 = bullets, 7-10 =
-; ghosts. Tests (and your debugging) can identify actors by OAM slot.
+; ghosts, 11-14 = kill-bursts. Tests (and your debugging) identify actors by slot.
 ;
 ; File layout (top to bottom; the major === section banners):
 ;   INIT         — RESET: one-time uploads, PPU, game state, then boot the loop
@@ -120,6 +122,16 @@ NIGHT_SKY    = $1C61            ; deep midnight blue instead of void black (spri
 HERO_BASE   = 0                 ; tiles 0-31   (fHero, 2 VRAM rows)
 GHOST_BASE  = 32                ; tiles 32-63  (ghost, 2 VRAM rows)
 BULLET_TILE = 64                ; one 8x8 tile
+EXPL_BASE   = 80                ; tiles 80-87 + 96-103 (kill-burst, 4x 16x16, 2 VRAM rows)
+
+; --- terrain planet field ---
+; The scrolling BG "obstacle chunks" are PLANETS (assets/make_terrain.py): four
+; 4x4-tile blocks in the terrain strip, stamped at staggered origins so a varied
+; planet field streams down the night sky. PLANET_STAMPS origins are listed in
+; the island_xs/ys/pl tables (DATA section); each stamp names one of the four
+; blocks by its word base in the strip. (Symbols keep the "island" name the
+; scatter code + tests already use — same role, planets are just the new art.)
+PLANET_STAMPS = 10              ; planet blocks scattered across the 32x32 map
 
 ; --- DP state ($30-$5F, the template convention; API block owns $60+) ---
 PX       = $32                  ; ship x (pixels, top-left of 16x16)
@@ -142,6 +154,8 @@ SDIRTY   = $52                  ; 1 = score/lives changed, reprint the HUD
 HURTLOCK = $54                  ; i-frames after a ghost hit (invuln + blink countdown)
 ATICK    = $56                  ; shared animation clock: frame-rate divider
 AFRAME   = $58                  ;   ...and the current step index (0..7)
+ISLP     = $5A                  ; planet-stamp base: word offset of this stamp's
+                                ;   block into the terrain strip (island-build scratch)
 
 ; --- pools (the $1800-$1DFF game-array region — see sf_pool.inc) ---
 BULLET_N  = 6
@@ -157,6 +171,15 @@ ENE_Y     = $1850               ; y[4]
 LIVES     = $1858               ; ships remaining (START_LIVES down to 0)
 GAMEOVER  = $185A               ; 1 = terminal state: world frozen, START restarts
 LIVES_STR = $185C               ; 2-byte HUD buffer: LIVES as one ASCII digit + NUL
+; kill-burst pool: a short-lived explosion spawned at each kill site. A dedicated
+; pool (not the enemy slots) keeps the burst purely additive — it never touches
+; the bullet/enemy/collision logic, only the two kill sites spawn into it.
+BURST_N    = 4
+BUR_ALIVE  = $1860              ; alive[4]
+BUR_X      = $1870              ; x[4]  (kill-site top-left, 16x16)
+BUR_Y      = $1880              ; y[4]
+BUR_T      = $1890              ; life timer[4], counts BURST_LIFE down to 0
+BURST_LIFE = 16                 ; frames a burst plays (4 expl frames x 4 frames each)
 
 .segment "CODE"
 
@@ -180,8 +203,10 @@ RESET:
     sf_text_init                ; font -> BG3 tiles (and white text colour)
     sf_load_obj_chr HERO_BASE,  hero_chr,  hero_chr_bytes
     sf_load_obj_chr GHOST_BASE, ghost_chr, ghost_chr_bytes
+    sf_load_obj_chr EXPL_BASE,  expl_chr,  expl_chr_bytes   ; kill-burst frames
     sf_load_obj_pal 0, hero_pal
     sf_load_obj_pal 1, ghost_pal
+    sf_load_obj_pal 3, expl_pal ; burst = its own warm palette (OBJ palette 3)
     sf_load_obj_tile BULLET_TILE, bullet_tile
     sf_obj_color 2, 1, $03FF    ; bullet = yellow, OBJ palette 2
     sf_bg_color 0, 0, NIGHT_SKY ; backdrop (CGRAM 0): a night sky, not a black void
@@ -232,12 +257,13 @@ RESET:
     .a16
     .i16
 
-    ; --- scatter terrain ISLANDS over the black backdrop ---
-    ; The converted 8x6-cell patch is stamped at staggered origins (the
-    ; islands table); everything else stays tile 0 = transparent over the
-    ; black backdrop, so sprites read clearly against the sky (a busy
-    ; full-screen tilemap buries the gameplay). The 32-high map wraps as it
-    ; autoscrolls, so the island field loops seamlessly.
+    ; --- scatter terrain PLANETS over the night-sky backdrop ---
+    ; Each stamp copies one 4x4-tile planet BLOCK (chosen per stamp from the
+    ; terrain strip by its word base) to a staggered origin; everything else
+    ; stays tile 0 = transparent over the sky, so the round planets read as
+    ; discrete chunks and the sprites stay clear of a busy tilemap. The 32-high
+    ; map wraps as it autoscrolls, so the planet field loops seamlessly.
+    .assert terrain_planet_tiles = 4, error, "stamp loop hardcodes 4x4 planet blocks (the ty*4 shift + cmp #4)"
     rep #$30
     .a16                        ; 16-bit A/X/Y here. The 65816's register width is set
                                 ;   at RUNTIME by sep/rep; the .a16/.i16 directives tell
@@ -245,21 +271,25 @@ RESET:
                                 ;   each op right (the width linter checks the match).
     stz ISL
 isl_loop:
+    ldx ISL
+    lda f:island_pl, x          ; this stamp's planet block: word base into the strip
+    sta ISLP
     stz TY
 isl_row:
     stz TX
 isl_col:
     lda TY
     asl a
-    asl a
-    asl a                       ; py * 8
+    asl a                       ; ty * 4 (each planet block is 4 tiles wide)
     clc
     adc TX
+    clc
+    adc ISLP                    ; + planet base -> word index into the terrain strip
     asl a                       ; word index -> byte offset
     tax
     lda f:terrain_map, x
     sta TT
-    ; dest cell = island origin + patch cell, wrapped into the 32x32 map
+    ; dest cell = planet origin + block cell, wrapped into the 32x32 map
     ldx ISL
     lda f:island_xs, x
     clc
@@ -275,18 +305,18 @@ isl_col:
     lda TX
     inc a
     sta TX
-    cmp #8
+    cmp #4                      ; 4 columns per planet block
     bne isl_col
     lda TY
     inc a
     sta TY
-    cmp #6
+    cmp #4                      ; 4 rows per planet block
     bne isl_row
     lda ISL
     inc a
     inc a
     sta ISL
-    cmp #(2 * 5)                ; 5 islands
+    cmp #(2 * PLANET_STAMPS)
     bne isl_loop
 
     ; --- HUD ---
@@ -297,6 +327,7 @@ isl_col:
     ; --- game state ---
     sf_pool_init BUL_ALIVE, BULLET_N
     sf_pool_init ENE_ALIVE, ENEMY_N
+    sf_pool_init BUR_ALIVE, BURST_N
     rep #$30
     .a16
     .i16
@@ -484,6 +515,26 @@ ene_next:
     cpx #(2 * ENEMY_N)
     bne ene_loop
 
+    ; ---------------- kill-bursts: count down each live burst, free at zero --
+    ; (bursts are spawned below at the two kill sites; this only ages them.
+    ; X-resident like the bullet/enemy loops — sf_pool_kill_x preserves X.)
+    ldx #$0000
+bur_loop:
+    .a16
+    lda BUR_ALIVE, x
+    beq bur_next
+    lda BUR_T, x
+    dec a
+    sta BUR_T, x
+    bne bur_next                ; still burning
+    sf_pool_kill_x BUR_ALIVE    ; burst played out -> free the slot
+bur_next:
+    .a16
+    inx
+    inx
+    cpx #(2 * BURST_N)
+    bne bur_loop
+
     ; ---------------- collisions: each live bullet vs each live ghost -------
     stz BOFF
 col_b_loop:
@@ -523,6 +574,7 @@ col_hit:
     sta SCORE
     lda #1
     sta SDIRTY
+    jsr spawn_burst             ; explosion at the ghost (EX,EY still hold it)
     sf_sfx #SFX::noise          ; ghost explodes (kill feedback)
     jmp col_b_next              ; this bullet is spent
 col_e_next:
@@ -580,6 +632,7 @@ dmg_hit:
     .a16
     ldx EOFF
     sf_pool_kill_x ENE_ALIVE    ; the colliding ghost bursts too
+    jsr spawn_burst             ; explosion at the ghost (EX,EY still hold it)
     sf_sfx #SFX::player_hurt
     lda #SHIP_SPAWN_X
     sta PX
@@ -697,6 +750,49 @@ draw_e_put:
 draw_e_done:
     .a16
 
+    ; slots 11-14: kill-bursts (16x16 large, OBJ palette 3). Every slot every
+    ; frame (stable slots); dead slots park at y=$F0. The burst frame steps from
+    ; the per-slot timer: (BURST_LIFE - T) >> 2 walks the 4 frames once. Drawn
+    ; every frame (GAME OVER too) so an in-flight burst finishes on the freeze.
+    stz EOFF
+draw_bur_loop:
+    ldx EOFF
+    lda BUR_ALIVE, x
+    beq draw_bur_dead
+    lda BUR_X, x
+    sta EX
+    lda BUR_Y, x
+    sta EY
+    lda #BURST_LIFE
+    sec
+    sbc BUR_T, x                ; frames elapsed since spawn (X still the offset)
+    lsr a
+    lsr a                       ; / 4 -> burst frame index 0..3
+    sta TX                      ; frame-index scratch (island-build DP, free here)
+    sf_anim_tile expl_anim_burst, TX
+    clc
+    adc #EXPL_BASE
+    sta TT                      ; burst tile this frame (map-build scratch, free)
+    bra draw_bur_put
+draw_bur_dead:
+    .a16
+    stz TT
+    stz EX
+    lda #$00F0
+    sta EY
+draw_bur_put:
+    .a16
+    spr TT, EX, EY, #$86, #2    ; large 16x16, OBJ palette 3 ((flags>>1)&7 = 3)
+    lda EOFF
+    inc a
+    inc a
+    sta EOFF
+    cmp #(2 * BURST_N)
+    bcs draw_bur_done
+    jmp draw_bur_loop
+draw_bur_done:
+    .a16
+
     ; ---------------- GAME OVER: START begins a fresh game ------------------
     lda GAMEOVER
     beq frame_tail
@@ -724,6 +820,28 @@ draw_lives:
     print LIVES_STR, #200, #8
     rts
 
+; spawn_burst — start a kill-burst at (EX, EY). Claims a BURST pool slot and
+; seeds its life timer; a full pool silently drops the burst (visual only, no
+; gameplay effect). Both kill sites (bullet-vs-ghost and ghost-vs-ship) jsr here
+; with the dead ghost's position already in EX/EY. Clobbers A, X.
+; WIDTH-RISK: enters/exits A16/I16 (sf_pool_spawn asserts A16/I16 on entry).
+spawn_burst:
+    rep #$30
+    .a16
+    .i16
+    sf_pool_spawn BUR_ALIVE, BURST_N
+    bmi @full                   ; pool full ($FFFF) -> drop it (slot offsets are +)
+    lda EX
+    sta BUR_X, x                ; X = the claimed slot's byte offset
+    lda EY
+    sta BUR_Y, x
+    lda #BURST_LIFE
+    sta BUR_T, x
+@full:
+    .a16
+    .i16
+    rts
+
 ; restart_game — soft restart to a fresh game after GAME OVER. Never re-runs
 ; sf_coldstart or sf_audio_init (the S-SMP is live, past IPL); it rebuilds only
 ; the game's own state, and the music keeps playing across the restart.
@@ -733,6 +851,7 @@ restart_game:
     .i16
     sf_pool_init BUL_ALIVE, BULLET_N
     sf_pool_init ENE_ALIVE, ENEMY_N
+    sf_pool_init BUR_ALIVE, BURST_N
     lda #SHIP_SPAWN_X
     sta PX
     lda #SHIP_SPAWN_Y
@@ -767,11 +886,19 @@ restart_str:
 spawn_xs:
     .word 24, 120, 200, 64, 168, 88, 216, 40
 
-; terrain island origins (tilemap cells, staggered; patch is 8x6)
+; terrain planet-stamp origins (tilemap cells, staggered; each block is 4x4)
+; and per-stamp planet block (word base into the terrain strip: planet p -> p*16,
+; p = 0 ringed, 1 orange, 2 magenta, 3 earth). Kept non-overlapping so no stamp
+; clips another; spread across x AND the wrapping 32-row map for a full field.
+; The three tables run parallel and MUST stay the same length (asserted below).
 island_xs:
-    .word 2, 14, 24, 8, 20
+    .word  2, 20, 11, 26,  4, 17, 24,  9, 19,  6
 island_ys:
-    .word 2, 9, 18, 22, 28
+    .word  1,  3,  6,  9, 12, 15, 19, 22, 26, 29
+island_pl:
+    .word  0, 16, 32, 48, 16,  0, 32, 48, 16, 32
+.assert (island_ys - island_xs) = PLANET_STAMPS * 2, error, "island_xs length != PLANET_STAMPS"
+.assert (island_pl - island_ys) = PLANET_STAMPS * 2, error, "island_ys length != PLANET_STAMPS"
 
 ; one 8x8 bullet: a 4px-wide column, colour index 1 (OBJ palette 2 slot 1)
 bullet_tile:
@@ -783,6 +910,7 @@ bullet_tile:
 ; --- converted art (committed png2snes output; see headers for the commands) ---
 .include "assets/hero.inc"
 .include "assets/ghost.inc"
+.include "assets/explosion.inc"
 .include "assets/terrain.inc"
 
 .include "ppu_init.inc"

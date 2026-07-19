@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""make_ships.py — the shmup hero + enemy spaceships, converted from the CC0
-AlcWilliam "Spaceship Pack" (examples/itch_cc0/Spaceship Pack.zip).
+"""make_ships.py — the shmup hero + enemy spaceships + kill-burst explosion,
+converted from the CC0 AlcWilliam "Spaceship Pack" (examples/itch_cc0/Spaceship
+Pack.zip).
 
 Why this preprocessing generator exists
 ---------------------------------------
@@ -58,6 +59,15 @@ HERO_FLAME = "turbo_blue.png"
 ENEMY_SHIP = "ship_5.png"
 ENEMY_FLAME = "turbo_blue.png"
 
+# explosion: the kill-burst, from the pack's 7-frame 48x48 blast sheet. Frames
+# 0-3 are the bright arc (spark -> peak fireball -> break-up -> embers); frames
+# 4-6 go too dark to read at 16px, so the burst uses the first four. They get a
+# UNIFORM 3x downscale (not the ships' content-fit) so the blast's grow-then-fade
+# size arc survives, and their OWN warm OBJ palette (the hero/enemy palettes are
+# blue and set). main.asm plays them on a small burst pool at each kill site.
+EXPLOSION_SHEET = "Space Ships Explosion.png"
+EXPL_FRAMES = 4
+
 # intermediate 16x16 frames png2snes reads (working dir, not committed — same
 # convention as the extracted-zip `art/` paths in the other .inc `; cmd:` lines).
 ART = ROOT / "art" / "spaceship"
@@ -74,7 +84,8 @@ def find_zip() -> Path:
 def load_pack():
     imgs = {}
     with zipfile.ZipFile(find_zip()) as zf:
-        for name in (HERO_SHIP, HERO_FLAME, ENEMY_SHIP, ENEMY_FLAME):
+        for name in (HERO_SHIP, HERO_FLAME, ENEMY_SHIP, ENEMY_FLAME,
+                     EXPLOSION_SHEET):
             with zf.open(name) as fh:
                 imgs[name] = Image.open(fh).convert("RGBA").copy()
     return imgs
@@ -162,6 +173,22 @@ def compose(ship_img, flame_img, *, nose_down: bool) -> list[Image.Image]:
     return frames
 
 
+def explosion_frames(sheet: Image.Image) -> list[Image.Image]:
+    """The kill-burst frames: sheet frames 0..EXPL_FRAMES-1, each UNIFORMLY
+    downscaled 48->16 (a flat 3x reduction — a per-frame content-fit would scale
+    every frame to fill the box and flatten the blast's grow-then-fade size arc).
+    Edge-bled so the smooth fireball does not pull black from the surround."""
+    frames = []
+    for f in range(EXPL_FRAMES):
+        cell = sheet.crop((f * 48, 0, f * 48 + 48, 48))
+        small = bleed_rgb(cell).resize((BOX, BOX), Image.BOX)
+        a = (cell.getchannel("A").point(lambda v: 255 if v >= 110 else 0)
+             .resize((BOX, BOX), Image.BOX).point(lambda v: 255 if v >= 90 else 0))
+        small.putalpha(a)
+        frames.append(small)
+    return frames
+
+
 def shared_quantize(frames: list[Image.Image], ncolors: int) -> list[Image.Image]:
     """Reduce all frames to ONE shared <=ncolors palette, alpha preserved."""
     strip = Image.new("RGB", (sum(f.width for f in frames), BOX), (0, 0, 0))
@@ -206,6 +233,14 @@ SOURCE_BLOCK = {
         ";   pack's turbo_blue plume (its two frames alternate across the 8 steps).",
         ";   Pre-authored by templates/shmup/assets/make_ships.py; png2snes.py encoded it.",
     ],
+    "expl": [
+        "; source-pack: Spaceship Pack (Space Ships Explosion, frames 0-3) — AlcWilliam",
+        ";   (examples/itch_cc0/; grant: CC0 — see examples/itch_cc0/LICENSES.md).",
+        ";   The 7-frame 48x48 blast sheet's bright arc (spark -> peak fireball ->",
+        ";   break-up -> embers) UNIFORMLY downscaled 3x to the rail's 16x16 OBJ box,",
+        ";   quantized to its own warm OBJ palette (the ships' palettes are blue).",
+        ";   Pre-authored by templates/shmup/assets/make_ships.py; png2snes.py encoded it.",
+    ],
 }
 
 
@@ -235,15 +270,19 @@ def main() -> int:
         compose(pack[HERO_SHIP], pack[HERO_FLAME], nose_down=False), 15)
     enemy = shared_quantize(
         compose(pack[ENEMY_SHIP], pack[ENEMY_FLAME], nose_down=True), 15)
+    expl = shared_quantize(explosion_frames(pack[EXPLOSION_SHEET]), 15)
 
     hero_dir = save_frames(hero, "hero", "idle")
     enemy_dir = save_frames(enemy, "ghost", "idleWalkRun")
+    expl_dir = save_frames(expl, "expl", "burst")
 
     run_png2snes(hero_dir, "hero", "templates/shmup/assets/hero.inc")
     run_png2snes(enemy_dir, "ghost", "templates/shmup/assets/ghost.inc")
+    run_png2snes(expl_dir, "expl", "templates/shmup/assets/explosion.inc")
 
     inject_source_block(HERE / "hero.inc", "hero")
     inject_source_block(HERE / "ghost.inc", "ghost")
+    inject_source_block(HERE / "explosion.inc", "expl")
 
     # The 16x16 frames are a transient conversion input (the same status as the
     # extracted-zip `art/<pack>/` paths in the other conversions' `; cmd:` lines):
@@ -253,7 +292,8 @@ def main() -> int:
         (ROOT / "art").rmdir()          # remove the now-empty parent, if it is
     except OSError:
         pass
-    print("make_ships: hero.inc + ghost.inc regenerated from the Spaceship Pack")
+    print("make_ships: hero.inc + ghost.inc + explosion.inc regenerated "
+          "from the Spaceship Pack")
     return 0
 
 

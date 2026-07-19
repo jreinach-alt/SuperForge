@@ -3,12 +3,15 @@
 ## What it is
 
 A vertical shmup in one ROM, built entirely from converted CC0 art: fly a
-spaceship over a drifting island field, shoot the enemy fighters that descend at
-you, and don't get touched. It is the kit's **proof-of-pipeline** template — the
-hero + enemy ships (AlcWilliam's CC0 Spaceship Pack, downscaled to 16x16 by
-`assets/make_ships.py`) and the terrain all came through `tools/png2snes.py` from
-the packs in `examples/itch_cc0/` (each `assets/*.inc` header records the exact
-command; the enemy pool is still named `ghost` in the code and tests).
+spaceship over a drifting planet field, shoot the enemy fighters that descend at
+you (each kill bursts into a warm explosion), and don't get touched. It is the
+kit's **proof-of-pipeline** template — the hero + enemy ships, the kill-burst
+explosion (AlcWilliam's CC0 Spaceship Pack, downscaled to 16x16 by
+`assets/make_ships.py`), and the planet terrain (the pack's planets, downscaled
+to 4x4-tile BG blocks by `assets/make_terrain.py`) all came through
+`tools/png2snes.py` from the packs in `examples/itch_cc0/` (each `assets/*.inc`
+header records the exact command; the enemy pool is still named `ghost` in the
+code and tests).
 
 | Button | Action |
 | --- | --- |
@@ -16,7 +19,8 @@ command; the enemy pool is still named `ghost` in the code and tests).
 | A | Fire — one bullet per press (rising edge) |
 | START | On GAME OVER, begin a fresh game |
 
-Rules: bullets fly up and a hit bursts a ghost for one point on the SCORE HUD. A
+Rules: bullets fly up and a hit bursts a ghost — a warm explosion plays at the
+kill site — for one point on the SCORE HUD. A
 ghost that touches the ship costs one of your 3 lives — the ship respawns at
 spawn and blinks while invulnerable; at zero lives it is GAME OVER and the world
 freezes until you press START. (SCORE is a 16-bit counter and wraps at 65536 —
@@ -27,14 +31,18 @@ about 65k kills away, so you will never see it in normal play.)
 Open `main.asm` at `game_loop` (the once-per-frame heartbeat) and read down. It
 composes:
 
-- **Object pools** (`sf_pool`, `lib/macros/sf_pool.inc`): fixed-slot bullet and
-  enemy arrays, spawned/killed by index, drawn with the **stable-OAM-slot** idiom
-  — every slot is drawn every frame (dead ones parked at `y=$F0`), so OAM slot k
-  always belongs to the same actor (0 = ship, 1–6 = bullets, 7–10 = ghosts).
+- **Object pools** (`sf_pool`, `lib/macros/sf_pool.inc`): fixed-slot bullet,
+  enemy, and kill-burst arrays, spawned/killed by index, drawn with the
+  **stable-OAM-slot** idiom — every slot is drawn every frame (dead ones parked
+  at `y=$F0`), so OAM slot k always belongs to the same actor (0 = ship, 1–6 =
+  bullets, 7–10 = ghosts, 11–14 = explosion bursts).
 - **Box collision** (`col_box`, `lib/macros/sf_collision.inc`): bullet-vs-ghost
-  for the kill, and ship-vs-ghost for the player-damage hit.
-- **Vertical autoscroll** (`sf_autoscroll_v`, `lib/macros/sf_bg.inc`): the island
-  tilemap drifts down and wraps seamlessly (a 32-row map stamped from an 8×6 patch).
+  for the kill, and ship-vs-ghost for the player-damage hit. Each kill seeds a
+  short explosion on the burst pool (a per-slot timer walks its 4 frames, then
+  frees) — a minimal, additive death-effect that never touches the hit logic.
+- **Vertical autoscroll** (`sf_autoscroll_v`, `lib/macros/sf_bg.inc`): the planet
+  field drifts down and wraps seamlessly (a 32-row map stamped with 4×4-tile
+  planet blocks at ten staggered origins).
 - **Sprite animation** (`sf_anim`, `lib/macros/sf_anim.inc`): a shared frame clock
   cycles the hero and the ghosts through all 8 of their resident VRAM frames.
 - **Damage feedback**: i-frames + a blink (`HURTLOCK` & `BLINK_PHASE`), respawn at
@@ -72,7 +80,8 @@ python -m pytest tests/test_shmup.py -q
 `tests/test_shmup.py` boots the ROM and asserts the rendered result: terrain +
 ship + HUD render, the terrain autoscrolls, the ship moves in all four directions
 (clamped), a fired bullet travels up and expires, a ghost spawns at its table
-column and descends, a bullet kills a ghost and the SCORE HUD re-renders, a ghost
+column and descends, a bullet kills a ghost and the SCORE HUD re-renders, the
+kill draws an explosion burst (its own CHR + palette) at the kill site, a ghost
 that touches the ship costs a life with an i-frame blink and a spawn respawn, and
 zero lives freezes into GAME OVER that START restarts.
 
