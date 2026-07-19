@@ -66,7 +66,7 @@ rendered output (`docs/screenshots/` has stills for every rail):
 | | |
 |---|---|
 | ![platformer gameplay](docs/screenshots/gifs/platformer.gif) `platformer` — the flagship: run, jump, coins, enemies | ![seamless 2P fight split](docs/screenshots/gifs/split_v_fight.gif) `split_v_fight` — one camera splits in two and merges back, seamlessly |
-| ![rotating-floor dungeon](docs/screenshots/gifs/m7_dungeon.gif) `m7_dungeon` — tank-control Mode 7, enemies glued to the spinning floor | ![two rotating Mode 7 cameras](docs/screenshots/gifs/split_h_2p_rotate.gif) `split_h_2p_demo` — two per-scanline cameras, 256-pose per-frame rotation |
+| ![rotating-floor dungeon](docs/screenshots/gifs/m7_dungeon.gif) `m7_dungeon` — tank-control Mode 7, enemies glued to the spinning floor | ![sprite swarm on two rotating cameras](docs/screenshots/gifs/split_h_2p_sprites.gif) `split_h_2p_demo` — a swarm of AI followers projected onto two independently rotating per-scanline cameras (the measured sprite-stress rail) |
 | ![streaming overworld](docs/screenshots/gifs/mode7_explore.gif) `mode7_explore` — walking a world far bigger than VRAM | ![vertical shmup](docs/screenshots/gifs/shmup.gif) `shmup` — pools, autoscroll, converted CC0 art |
 
 ## Working with an AI agent
