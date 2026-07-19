@@ -1,20 +1,38 @@
 ; =============================================================================
 ; meteor_event — an in-level "meteor event" cutscene that swaps Mode-1 <-> Mode-7
 ; =============================================================================
-; PHASE 1: the HARD HALF — trigger + freeze + input-gate, the BG->OBJ platform-
-; capture crux, and the forced-blank swap into a STATIC Mode-7 meteor scene.
+; A tiny Mode-1 platformer slice that becomes a cutscene and returns: you walk the
+; player right until a meteor event triggers, the screen freezes and captures the
+; platforms as sprites, forced-blank-swaps to a STATIC Mode-7 meteor scene, plays
+; the meteor's approach, then swaps back and hands control back. The whole thing
+; is one state machine:
+;   PLAY -> FREEZE -> CAPTURE -> SCENE(grow->fall->glow->recede) -> RESTORE -> PLAY.
 ;
-; PHASE 2 (this build): the cutscene PAYOFF + the round trip back.
-;   S4  meteor zoom/scale/FALL  — ramp g_scale so the meteor GROWS, then drive
-;       the Mode-7 pivot DOWN (sf_boss_center Y) so the meteor EXITS the bottom.
-;   S5  red impact glow         — a red ADD gradient that RISES to occupy the
-;       lower band BEHIND the OBJ sprites (OBJ excluded from color math, so the
-;       captured green ground + white player stay un-tinted), HOLDS, then RECEDES.
-;   S6  swap back + restore     — sf_swap_to_mode1_begin/end re-builds the Mode-1
-;       level (BG CHR + tilemap + shared palette), drops the captured OBJ ground,
-;       UNFREEZES and RELEASES control (the D-pad walks the player again).
-; The full state machine sequences PLAY->FREEZE->CAPTURE->SCENE(grow->fall->glow
-; ->recede)->RESTORE->PLAY(released).
+; The Mode-7 payoff runs three stages, each its own subroutine below:
+;   meteor zoom/scale/FALL  — ramp g_scale so the meteor GROWS, then drive the
+;                             Mode-7 pivot DOWN (sf_boss_center Y) so it EXITS the
+;                             bottom.
+;   red impact glow         — a red ADD gradient that RISES to occupy the lower
+;                             band BEHIND the OBJ sprites (OBJ excluded from color
+;                             math, so the captured green ground + white player
+;                             stay un-tinted), HOLDS, then RECEDES.
+;   swap back + restore     — sf_swap_to_mode1_begin/end re-builds the Mode-1
+;                             level (BG CHR + tilemap + shared palette), drops the
+;                             captured OBJ ground, UNFREEZES and RELEASES control.
+;
+; Controls:  D-pad RIGHT walks the player right (toward the trigger). During the
+;            cutscene the D-pad is GATED (the player does not move); control is
+;            released again after the meteor event ends.
+;
+; File layout (major banners, top to bottom):
+;   INIT         — RESET: OBJ + Mode-1 BG upload under forced blank, arm the red
+;                  glow, paint the level, seed the state machine
+;   MAIN LOOP    — game_loop: the state jump table (do_play .. do_restore)
+;   SUBROUTINES  — the state helpers + scene stages (enter_scene, scene_glow,
+;                  exit_scene) + the BG->OBJ platform capture
+;   ENGINE+DATA  — engine link partners, the capture row table, the assets + map
+;
+; game_loop is the once-per-frame heartbeat — start reading there.
 ;
 ; THE STORY (a real, tiny Mode-1 platformer slice that becomes a cutscene):
 ;
@@ -35,19 +53,19 @@
 ;             (drop BG from TM) so only the captured OBJ ground remains — it
 ;             lands on the SAME pixels the BG tiles occupied (the alignment proof).
 ;
-;   ST_SCENE  Forced-blank SWAP to the Mode-7 meteor scene via the promoted
+;   ST_SCENE  Forced-blank SWAP to the Mode-7 meteor scene via the
 ;             sf_swap_to_mode7 primitive: blank, re-upload the meteor map,
 ;             re-stage its palette, switch to whole-plane affine Mode 7, unblank.
 ;             A STATIC meteor on the Mode-7 BG with the captured platforms+player
-;             composited as OBJ on top. (Phase 2 grows/falls the meteor here.)
+;             composited as OBJ on top. (The scene stages grow/fall it here.)
 ;
-; Bricks (file:line in the final report):
+; Kit macros used:
 ;   sf_coldstart / sf_engine_init        boot baseline (sf_core / sf_frame)
 ;   gfxmode / mset / sf_load_bg_chr      Mode 1 BG ground + platforms (sf_bg/sf_video)
 ;   spr / spr_clear                      OBJ player + the captured platform sprites
 ;   sf_load_obj_chr / sf_load_obj_pal    OBJ CHR/pal at the Mode-7-safe base $4000
 ;   btn (BTN_RIGHT)                      D-pad walk + the gated-input proof (sf_input)
-;   sf_swap_to_mode7  (NEW, promoted)    the forced-blank Mode-1->Mode-7 swap
+;   sf_swap_to_mode7                     the forced-blank Mode-1->Mode-7 swap
 ;   sf_boss_mode7_on / center / matrix   whole-plane affine meteor (sf_mode7_affine)
 ;   sf_mode7_load_map                    the meteor VRAM blob DMA (sf_mode7)
 ;
@@ -65,6 +83,9 @@
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "METEOR EVENT"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic
 .include "sf_frame.inc"         ; sf_engine_init, sf_frame_begin/end
@@ -75,7 +96,7 @@
 .include "sf_mode7.inc"         ; sf_mode7_load_map
 .include "sf_mode7_affine.inc"  ; sf_boss_mode7_on / sf_boss_center / sf_boss_matrix
 .include "sf_fx.inc"            ; sf_gradient_rgb/_update/_ease + sf_colormath_on/off
-.include "sf_scene_mode.inc"    ; sf_blank_enter/exit + sf_swap_to_mode7/_mode1 (NEW)
+.include "sf_scene_mode.inc"    ; sf_blank_enter/exit + sf_swap_to_mode7/_mode1
 .include "engine_state.inc"
 
 ; --- state machine ---
@@ -83,7 +104,7 @@ ST_PLAY    = 0
 ST_FREEZE  = 1
 ST_CAPTURE = 2
 ST_SCENE   = 3
-ST_RESTORE = 4          ; (Phase 2) swap Mode-7 -> Mode-1, rebuild the level
+ST_RESTORE = 4          ; swap Mode-7 -> Mode-1, rebuild the level
 ; after ST_RESTORE the machine returns to ST_PLAY with control RELEASED.
 
 ; =============================================================================
@@ -274,6 +295,10 @@ NMI:
 NMI_STUB:
     rti
 
+; =============================================================================
+; INIT — power-on setup: upload OBJ + Mode-1 BG CHR/palettes under forced blank,
+; arm the red-glow gradient, paint the level, seed the state machine, screen + NMI.
+; =============================================================================
 RESET:
     sf_coldstart
     sf_engine_init
@@ -313,7 +338,7 @@ RESET:
     sep #$20
     .a8
     lda #$80
-    sta $2100                   ; force blank ON (port-stable uploads)
+    sta $2100                   ; INIDISP (display control): force blank ON (port-stable)
     rep #$30
     .a16
     .i16
@@ -324,10 +349,10 @@ RESET:
 
     jsr paint_bg_level          ; flat ground + two platforms
 
-    ; --- S5: ARM the red glow gradient NOW, while Mode 7 is INACTIVE. The
+    ; --- ARM the red glow gradient NOW, while Mode 7 is INACTIVE. The
     ;     builder (sf_gradient_rgb) REFUSES once M7_PV_ACTIVE=1; once armed the
     ;     guard-free sf_gradient_update rebuilds it in place during the scene.
-    ;     Armed with bottom red = 0 (invisible) until S5 ramps g_glow up. Top
+    ;     Armed with bottom red = 0 (invisible) until the glow ramps g_glow up. Top
     ;     black -> bottom red so the red concentrates in the LOWER band. ---
     sf_gradient_ease #0                          ; linear ramp
     sf_gradient_rgb #0, #0, #0,  #0, #0, #0      ; all black for now (no visible red)
@@ -336,12 +361,12 @@ RESET:
     .a8
     lda #$11                    ; TM: BG1 + OBJ only (BG2/BG3 off — uninit CHR)
     sta SHADOW_TM
-    sta $212C
+    sta $212C                   ; TM (main-screen layer enable): BG1 + OBJ
     lda #$0F                    ; screen ON, full brightness
     sta $2100
     sta SHADOW_INIDISP
     lda #$81
-    sta $4200                   ; NMI on + auto-joypad (gfxmode left NMI off)
+    sta $4200                   ; NMITIMEN (interrupt enable): NMI on + auto-joypad
     rep #$30
     .a16
     .i16
@@ -368,6 +393,9 @@ RESET:
     stz g_event_done
     stz g_angle                 ; meteor starts unrotated
 
+; =============================================================================
+; MAIN LOOP — game_loop dispatches the cutscene state machine through state_jmp:
+; ST_PLAY/FREEZE/CAPTURE/SCENE/RESTORE (do_play .. do_restore), then loop_tail.
 ; =============================================================================
 game_loop:
     .a16
@@ -402,7 +430,7 @@ do_play:
     scroll #1, g_camx, #0       ; BG1 HOFS = camera X
     jsr draw_play_sprites
     ; trigger check: world X reached the event point AND the event hasn't fired
-    ; yet (after S6 releases control, walking right must NOT re-trigger).
+    ; yet (after the restore releases control, walking right must NOT re-trigger).
     lda g_event_done
     bne dp_no_trigger
     lda g_worldx
@@ -554,7 +582,7 @@ ds_stay:
     jmp loop_tail
 
 ; ------------------------------------------------------------------ ST_RESTORE
-; S6: swap Mode-7 -> Mode-1, rebuild the level, drop the captured OBJ ground,
+; swap Mode-7 -> Mode-1, rebuild the level, drop the captured OBJ ground,
 ; UNFREEZE and RELEASE control -> back to ST_PLAY (the D-pad walks again).
 do_restore:
     .a16
@@ -592,6 +620,12 @@ loop_tail:
     sta f:$7E0000 + DBG_BGMODE, x
     sf_frame_end
     jmp game_loop
+
+; =============================================================================
+; ============================== SUBROUTINES ==================================
+; The state handlers' helpers (input, sprite draw, the BG->OBJ capture) and the
+; Mode-7 scene stages: enter_scene, the grow/fall stage, scene_glow, exit_scene.
+; =============================================================================
 
 ; =============================================================================
 ; play_input — D-pad RIGHT advances the player world X (the walk).
@@ -716,7 +750,7 @@ pbl_pb:
     .a8
     lda #$10                    ; TM bit4 = OBJ only
     sta SHADOW_TM
-    sta $212C
+    sta $212C                   ; TM: OBJ only (BG1 dropped)
     rep #$30
     .a16
     .i16
@@ -843,7 +877,7 @@ dcs_rows_done:
 
 ; =============================================================================
 ; enter_scene — forced-blank SWAP to the Mode-7 meteor scene (guarded, once).
-; Uses the promoted sf_swap_to_mode7 primitive (handles blank/map/palette/mode).
+; Uses the sf_swap_to_mode7 primitive (handles blank/map/palette/mode).
 ; Pins the affine pivot at the meteor art centre (so the Mode-7 zoom/tumble are
 ; centred) and parks the plane OFF-FIELD for the opening SPRITE phase (black
 ; backdrop). A16/I16. Clobbers A,X,Y.
@@ -1127,7 +1161,7 @@ dms_no_vflip:
 .endproc
 
 ; =============================================================================
-; scene_glow (S5) — the red impact glow, SYNCHRONISED to the meteor's descent.
+; scene_glow — the red impact glow, SYNCHRONISED to the meteor's descent.
 ; A top-black -> bottom-red ADD gradient (armed at boot, OBJ excluded from color
 ; math) whose bottom-red intensity TRACKS the meteor's on-screen Y as it falls
 ; (deeper = redder), then RECEDES after the flight ends.
@@ -1239,7 +1273,7 @@ sgl_write:
 .endproc
 
 ; =============================================================================
-; exit_scene (S6) — forced-blank SWAP BACK Mode-7 -> Mode-1 (guarded, once).
+; exit_scene — forced-blank SWAP BACK Mode-7 -> Mode-1 (guarded, once).
 ; Uses sf_swap_to_mode1_begin/end: leave Mode 7, gfxmode #1, re-raise blank,
 ; then re-build the Mode-1 level under the blank (re-upload BG CHR — it lived in
 ; the $0000-$3FFF Mode-7 region and was clobbered — re-stage the shared BG
@@ -1306,8 +1340,8 @@ mode7_sin_lut:
     .include "mode7_sin_lut.inc"
 .include "hdma_alloc.asm"
 .include "hdma_engine.asm"          ; HDMA channel wrappers (gradient_rgb partner)
-.include "hdma_color_engine.asm"    ; S5 red gradient COLDATA builder/rebuild
-.include "colormath_engine.asm"     ; engine_color_math_on/off (S5 OBJ-excluded ADD)
+.include "hdma_color_engine.asm"    ; red-glow gradient COLDATA builder/rebuild
+.include "colormath_engine.asm"     ; engine_color_math_on/off (OBJ-excluded ADD)
 .include "palette_engine.asm"
 .include "mode7_math.asm"
 

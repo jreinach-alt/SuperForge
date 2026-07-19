@@ -85,6 +85,12 @@ kind = "generator"
 regenerate = "python3 templates/racer/assets/make_track.py"
 produces = ["templates/racer/assets/track.png", "templates/racer/assets/track_map.bin"]
 
+# track CGRAM palette — the third make_track.py output (sibling of track_map.bin).
+[[asset]]
+path = "templates/racer/assets/track_palette.inc"
+kind = "generator"
+regenerate = "python3 templates/racer/assets/make_track.py"
+
 [[asset]]
 path = "templates/racer/assets/vehicle.inc"
 kind = "generator"
@@ -132,15 +138,29 @@ kind = "generator"
 regenerate = "python3 templates/m7_dungeon/assets/make_dungeon.py"
 produces = ["templates/m7_dungeon/assets/dungeon.png", "templates/m7_dungeon/assets/dungeon_map.bin", "templates/m7_dungeon/assets/dungeon_terrain.bin"]
 
+# m7_dungeon hero/enemy are png2snes conversions of the dungeonSprites CC0 pack
+# (registered third-party zip below). make_hero/make_enemy read the EXTRACTED
+# png under art/dungeonSprites_v1.0/, so the self-contained regen unzips the pack
+# into art/ first (multi-step shell chain, mirroring the railshooter vehicle.inc
+# `&& cp` entry). The gate's sandbox is a throwaway tree copy that carries the
+# committed zip, so the extraction + byte-diff both run inside it. Verified to
+# reproduce byte-for-byte from a fresh materialization.
 [[asset]]
 path = "templates/m7_dungeon/assets/enemy.inc"
 kind = "generator"
-regenerate = "python3 templates/m7_dungeon/assets/make_enemy.py"
+regenerate = "unzip -o -q examples/itch_cc0/dungeonSprites_v1.0.zip -d art/ && python3 templates/m7_dungeon/assets/make_enemy.py"
 
 [[asset]]
 path = "templates/m7_dungeon/assets/hero.inc"
 kind = "generator"
-regenerate = "python3 templates/m7_dungeon/assets/make_hero.py"
+regenerate = "unzip -o -q examples/itch_cc0/dungeonSprites_v1.0.zip -d art/ && python3 templates/m7_dungeon/assets/make_hero.py"
+
+# Wave-D goal win-card: original kit UI art (4-point gold sparkle star), no pack
+# source. Deterministic stdlib-only generator; reproduces byte-for-byte.
+[[asset]]
+path = "templates/m7_dungeon/assets/win.inc"
+kind = "generator"
+regenerate = "python3 templates/m7_dungeon/assets/make_win.py"
 
 [[asset]]
 path = "templates/m7_oshoot/assets/dungeon.png"
@@ -232,6 +252,14 @@ path = "templates/rpg/assets/town_assets.inc"
 kind = "generator"
 regenerate = "python3 templates/rpg/assets/make_rpg_assets.py"
 produces = ["templates/rpg/assets/ovw.png", "templates/rpg/assets/ovw_map.bin", "templates/rpg/assets/ovw_collision.inc", "templates/rpg/assets/town_assets.inc"]
+
+# overworld CGRAM palette — another make_rpg_assets.py output (self-contained: the
+# generator reads the CC0 Four Seasons tileset zip directly). Reproduces byte-exact.
+[[asset]]
+path = "templates/rpg/assets/ovw_palette.inc"
+kind = "generator"
+regenerate = "python3 templates/rpg/assets/make_rpg_assets.py"
+produces = ["templates/rpg/assets/ovw_palette.inc"]
 
 [[asset]]
 path = "templates/mode7_explore/assets/explore_flat_bank*.bin"
@@ -328,6 +356,18 @@ generator = "tools/png2snes.py"
 
 [[asset]]
 path = "templates/platformer_stream/assets/hero.inc"
+kind = "generator"
+generator = "tools/png2snes.py"
+
+# split_v_fight fighters + stage: png2snes conversions of the camelot (Arthur
+# Pendragon, CC0) + Four Seasons Tileset packs (registered zips below). The CHR /
+# palette DATA regenerates byte-identically (verified with unzip + png2snes), but
+# each file carries a hand-authored `source-pack:` attribution comment block that
+# png2snes does not emit, so a raw byte-diff regen is not clean — coverage-only,
+# matching the other png2snes-from-pack entries. Chain is complete via the in-tree
+# generator, the `; cmd: png2snes.py ...` header, and the registered source zips.
+[[asset]]
+path = "templates/split_v_fight/assets/*.inc"
 kind = "generator"
 generator = "tools/png2snes.py"
 
@@ -451,6 +491,11 @@ note = "Audit filmstrip captured from a kit ROM under the test harness (committe
 path = "docs/**/*.png"
 kind = "artifact"
 note = "Documentation render captured from a kit ROM under the test harness."
+
+[[asset]]
+path = "docs/screenshots/gifs/*.gif"
+kind = "artifact"
+note = "Recorded-gameplay gallery clips captured from the kit's own template ROMs driven under the Mesen2 test harness (frame-stepped/held input + take_screenshot every 3rd frame, assembled with Pillow). Build proof of the shipping rails, not a shipping game asset — no third-party content, every pixel is the kit's own ROM output."
 
 # -----------------------------------------------------------------------------
 # split_h_2p_demo — 2-player split-screen rail assets (all generator-reproduced;

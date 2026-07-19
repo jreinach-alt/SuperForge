@@ -1,8 +1,10 @@
 ; =============================================================================
-; split_v_seamtrial — SEAMLESS-collapse trial (Phase-1 of the fight rearchitecture)
+; split_v_seamtrial — SEAMLESS-collapse trial (the split_v_fight precursor)
 ; =============================================================================
-; Proves the DBZ-style seamless separation on real PPU output, in isolation from
-; the fighting rail. The insight (confirmed against the SNESdev window docs): the
+; A trial rail. It proves the DBZ-style seamless separation on real PPU output,
+; in isolation, so the composed fighting rail (templates/split_v_fight) can build
+; on a mechanism already shown to work. The insight (confirmed against the SNESdev
+; window docs): the
 ; window split is a SINGLE-PIXEL boundary with no inherent gap, so if the two
 ; camera views are IDENTICAL the ever-present split is invisible. Separation is
 ; therefore NOT a state you toggle — it is a continuous divergence:
@@ -24,7 +26,21 @@
 ;
 ; Self-running: `spread` sweeps 0 -> SPREAD_MAX -> 0 (triangle) so the collapse
 ; and the re-merge both play out on their own. No HDMA (straight centre split) —
-; this isolates the seamless mechanism; the diagonal port is Phase 2.
+; this isolates the seamless mechanism; a diagonal port would come later.
+;
+; Controls: none — autonomous. The default build sweeps `spread` on its own.
+;   Compile-time knobs: -DHOLD=n freezes spread at n px (race-free framebuffer
+;   proofs); -DNOWIN is the no-split reference (window off, single camera).
+;
+; File layout (top to bottom, matching the major ; === banners below):
+;   INIT         RESET: stage tiles (BG1), the beveled BG3 divider, the always-on
+;                split-window recipe, and the camera + sweep state.
+;   MAIN LOOP    game_loop — the once-per-frame heartbeat: sweep spread, diverge
+;                the two cameras, ramp the divider band, scroll the halves.
+;   DATA         stage tiles, terrain height map, beveled-bar tiles (baked in ROM).
+;   SUBROUTINES  engine modules (PPU init, input, DMA, sprite, BG) via .include.
+;
+; Frame loop: `game_loop` is the once-per-frame heartbeat — start reading there.
 ;
 ; Build: make split_v_seamtrial   (default 32K cfg; no HDMA engine)
 ; =============================================================================
@@ -32,6 +48,9 @@
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "SEAM V TRIAL"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"
 .include "sf_bg.inc"
@@ -69,6 +88,12 @@ NMI:
 NMI_STUB:
     rti
 
+; =============================================================================
+; INIT — one-time setup at RESET: stage tiles (BG1), the beveled BG3 divider,
+;        the always-on split-window recipe, and the camera/sweep state. Runs
+;        once; VRAM/CGRAM writes are safe because the engine boots under forced
+;        blank until gfxmode turns the screen on.
+; =============================================================================
 RESET:
     sf_coldstart
     sf_engine_init
@@ -77,16 +102,16 @@ RESET:
     sep #$20
     .a8
     lda #$80
-    sta $2115
+    sta $2115                   ; VMAIN (VRAM port mode): +1 word per high-byte write
     rep #$30
     .a16
     .i16
     lda #$2010
-    sta $2116
+    sta $2116                   ; VMADD (VRAM word address): BG1 CHR, start at tile 1
     ldx #$0000
 @chr:
     lda f:solid_tiles, x
-    sta $2118
+    sta $2118                   ; VMDATA (VRAM data): write a CHR word; addr auto-advances
     inx
     inx
     cpx #(4*32)
@@ -123,9 +148,9 @@ RESET:
     sep #$20
     .a8
     lda #$58
-    sta $2108
+    sta $2108                       ; BG2SC (BG2 tilemap addr): reuse BG1's map at word $5800
     lda #$22
-    sta $210B
+    sta $210B                       ; BG12NBA (BG1/BG2 CHR base): both at word $2000
     lda #$07                        ; BG34NBA: BG3 CHR word $7000 (see upload note)
     sta $210C                       ; direct write, held (engine never re-commits it)
     rep #$30
@@ -209,7 +234,7 @@ RESET:
     sep #$20
     .a8
     lda #$8F                        ; forced blank ON (brightness 15)
-    sta $2100
+    sta $2100                       ; INIDISP (display control): blank PPU so VRAM writes land
     lda #$80                        ; VMAIN: +1 word after high-byte write
     sta $2115
     rep #$30
@@ -291,11 +316,17 @@ RESET:
     sep #$20
     .a8
     lda #$81
-    sta $4200
+    sta $4200                       ; NMITIMEN: enable VBlank NMI + auto-joypad read
     rep #$30
     .a16
     .i16
 
+; =============================================================================
+; MAIN LOOP — game_loop: the once-per-frame heartbeat. sf_frame_begin waits for
+;   VBlank; then the body sweeps `spread`, diverges the two cameras, ramps the
+;   divider band from that spread, and scrolls the halves. No input is read —
+;   the sweep drives everything (PER-FRAME UPDATE folded in below).
+; =============================================================================
 game_loop:
     sf_frame_begin
 
@@ -395,6 +426,10 @@ game_loop:
     sf_frame_end
     jmp game_loop
 
+; =============================================================================
+; DATA — stage tiles, terrain height map, and the beveled-bar tiles (baked in ROM).
+; =============================================================================
+
 ; --- 4 solid stage tiles (sky/grass/mountain/dirt via colour index 1..4) ------
 solid_tiles:
 .repeat 4, I
@@ -425,6 +460,10 @@ bg3_bar_tiles:
         .word $C03F                 ; tile2 barR cols[2,2,1,1,1,1,1,1] p0=$3F p1=$C0
     .endrepeat
 
+; =============================================================================
+; SUBROUTINES — engine modules (PPU init, input, DMA, sprite, BG) pulled in by
+;   .include at the file end.
+; =============================================================================
 .include "ppu_init.inc"
 .include "input_handler.asm"
 .include "dma_scheduler.asm"

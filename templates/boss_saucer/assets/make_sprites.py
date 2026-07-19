@@ -38,7 +38,8 @@ CHR layout (32 bytes/tile, 16 tiles per VRAM row):
                                 projectile (4), shot (5), hp_lit (6),
                                 hp_dim (7), beam (8)
     VRAM row 1 (tiles 16..31):  player F0 bot (16,17), player F1 bot (18,19)
-The blob is 2 VRAM rows = 32 tiles x 32 bytes = 1024 bytes.
+    VRAM rows 2-3 (tiles 32..): the 8x8 text-glyph font (result/title cards)
+The blob is 4 VRAM rows = 64 tiles x 32 bytes = 2048 bytes.
 
 Output (committed): sprites.inc — sprite_chr (1024-byte blob), sprite_chr_bytes,
 sprite_pal (16 BGR555 words, OBJ palette), and base-tile equates relative to
@@ -172,6 +173,76 @@ BEAM = [
 ]
 BEAM = [(r + "........")[:8] for r in BEAM]
 
+# 8x8 card-banner backing — a solid dark tile (index 1). A row of these draws
+# behind the result/title text so the bright glyphs read at HIGH contrast over
+# ANY scene (the near-apex saucer hull is bright; INIDISP dims text + hull
+# equally, so white-on-hull needs its own dark bed).
+CARDBG = ["11111111"] * 8
+
+# 8x8 thruster-exhaust flames (blue index 3 + white-hot core index 4), a short
+# and a tall frame. Drawn just below the player during the fight and alternated
+# every few frames so the engine pulses — the ship reads as powered, not static.
+EXHAUST_LO = [
+    "..3443..",
+    "..3443..",
+    "...34...",
+    "........",
+    "........",
+    "........",
+    "........",
+    "........",
+]
+EXHAUST_HI = [
+    "..3443..",
+    "..3443..",
+    "..3443..",
+    "...34...",
+    "...3....",
+    "........",
+    "........",
+    "........",
+]
+
+# --- 8x8 text-glyph font (the result/title cards) -----------------------------
+# A minimal 5x7 uppercase font in an 8x8 cell (glyph pixels = index 4, the bright
+# near-white already in the palette; pixels sit in cols 0-4 so a 6px pen advance
+# leaves a clean 1px inter-letter gap). Only the letters the cards spell + two
+# strafe arrows are cut, laid out in GLYPH_ORDER at consecutive tiles from
+# FONT_BASE; main.asm spells words as runs of these SPR_G_* tiles. Drawing them
+# as 8x8 SMALL sprites is exactly why the OBJ size pair is 0 (8x8 / 16x16).
+GLYPH_ROWS = {
+    "A": [".444.", "4...4", "4...4", "44444", "4...4", "4...4", "4...4"],
+    "C": [".4444", "4....", "4....", "4....", "4....", "4....", ".4444"],
+    "D": ["4444.", "4...4", "4...4", "4...4", "4...4", "4...4", "4444."],
+    "E": ["44444", "4....", "4....", "4444.", "4....", "4....", "44444"],
+    "F": ["44444", "4....", "4....", "4444.", "4....", "4....", "4...."],
+    "I": ["44444", "..4..", "..4..", "..4..", "..4..", "..4..", "44444"],
+    "M": ["4...4", "44.44", "4.4.4", "4.4.4", "4...4", "4...4", "4...4"],
+    "N": ["4...4", "44..4", "4.4.4", "4.4.4", "4..44", "4...4", "4...4"],
+    "O": [".444.", "4...4", "4...4", "4...4", "4...4", "4...4", ".444."],
+    "R": ["4444.", "4...4", "4...4", "4444.", "4.4..", "4..4.", "4...4"],
+    "S": [".4444", "4....", "4....", ".444.", "....4", "....4", "4444."],
+    "T": ["44444", "..4..", "..4..", "..4..", "..4..", "..4..", "..4.."],
+    "U": ["4...4", "4...4", "4...4", "4...4", "4...4", "4...4", ".444."],
+    "V": ["4...4", "4...4", "4...4", "4...4", "4...4", ".4.4.", "..4.."],
+    "W": ["4...4", "4...4", "4...4", "4.4.4", "4.4.4", "44.44", "4...4"],
+    "Y": ["4...4", "4...4", ".4.4.", "..4..", "..4..", "..4..", "..4.."],
+    "LARR": ["...4.", "..44.", ".444.", "4444.", ".444.", "..44.", "...4."],
+    "RARR": [".4...", ".44..", ".444.", ".4444", ".444.", ".44..", ".4..."],
+}
+# fixed tile order (SPR_G_<name> = FONT_BASE + index); keep stable for the ROM
+GLYPH_ORDER = ["A", "C", "D", "E", "F", "I", "M", "N", "O", "R",
+               "S", "T", "U", "V", "W", "Y", "LARR", "RARR"]
+FONT_BASE = 32                  # glyph tiles start on VRAM row 2 (clear of actors)
+
+
+def glyph_tile(name: str) -> bytes:
+    """Encode one 8x8 font glyph (5x7 art, index 4) padded into an 8x8 cell."""
+    rows = [(r + "........")[:8] for r in GLYPH_ROWS[name]]
+    while len(rows) < 8:
+        rows.append("........")
+    return encode_tile_4bpp(rows, 0, 0)
+
 
 def encode_tile_4bpp(rows: list[str], ox: int, oy: int) -> bytes:
     """One 8x8 tile at (ox, oy) of a character grid -> 32 bytes SNES 4bpp
@@ -209,10 +280,11 @@ def main() -> None:
     player_f0 = PLAYER_F0
     player_f1 = hit_frame(PLAYER_F0)
 
-    # 32-tile blob (2 VRAM rows x 16 tiles x 32 bytes). A 16x16 sprite's four
+    # 64-tile blob (4 VRAM rows x 16 tiles x 32 bytes). A 16x16 sprite's four
     # 8x8 tiles live at {N, N+1, N+16, N+17}: top row in VRAM row 0, bottom
-    # row in VRAM row 1 (+16 tile numbers — the hardware layout).
-    tiles = [bytes(32)] * 32
+    # row in VRAM row 1 (+16 tile numbers — the hardware layout). Rows 0-1 hold
+    # the battle actors; rows 2-3 (tiles 32+) hold the 8x8 text-glyph font.
+    tiles = [bytes(32)] * 64
     for base, art in ((0, player_f0), (2, player_f1)):   # F0 at tile 0, F1 at 2
         for ty in range(2):                              # 16x16 = 2x2 subtiles
             for tx in range(2):
@@ -221,9 +293,14 @@ def main() -> None:
     tiles[5] = encode_tile_4bpp(SHOT, 0, 0)              # player shot (8x8)
     tiles[6] = encode_tile_4bpp(HP_LIT, 0, 0)            # HP-HUD lit pip (8x8)
     tiles[7] = encode_tile_4bpp(HP_DIM, 0, 0)            # HP-HUD dim pip (8x8)
-    tiles[8] = encode_tile_4bpp(BEAM, 0, 0)              # NEW beam segment (8x8)
+    tiles[8] = encode_tile_4bpp(BEAM, 0, 0)              # beam segment (8x8)
+    tiles[9] = encode_tile_4bpp(CARDBG, 0, 0)            # card-banner backing (8x8)
+    tiles[10] = encode_tile_4bpp(EXHAUST_LO, 0, 0)       # thruster flame, short (8x8)
+    tiles[11] = encode_tile_4bpp(EXHAUST_HI, 0, 0)       # thruster flame, tall (8x8)
+    for i, name in enumerate(GLYPH_ORDER):               # text font (8x8, tiles 32+)
+        tiles[FONT_BASE + i] = glyph_tile(name)
     blob = b"".join(tiles)
-    assert len(blob) == 1024, len(blob)
+    assert len(blob) == 2048, len(blob)
 
     lines = [
         "; =============================================================================",
@@ -233,18 +310,20 @@ def main() -> None:
         "; Actors: PLAYER 16x16 (2 frames: neutral + hit), PROJECTILE 8x8 (kept",
         "; from the boss template, unused by the saucer), SHOT 8x8 (player",
         "; bullet), HP_LIT/HP_DIM 8x8 (HUD pips), BEAM 8x8 (saucer's stacking",
-        "; vertical beam segment). 2 VRAM tile rows, 1024 bytes.",
+        "; vertical beam segment), a card-banner tile + thruster flames, and an",
+        "; 8x8 text-glyph font (tiles 32+, the result/title cards). 4 VRAM tile",
+        "; rows, 2048 bytes.",
         "; LOAD CONTRACT: upload sprite_chr at a 16-aligned OBJ tile index. The",
         "; template uses the OBJ name base = VRAM word $4000 = tile 1024",
         "; (Mode 7 owns VRAM $0000..$3FFF):",
         ";     sf_load_obj_chr 1024, sprite_chr, sprite_chr_bytes",
         ";     sf_load_obj_pal 0, sprite_pal",
-        "; A frame's OAM tile = 1024 + SPR_<actor>. The 16x16 player reads its",
-        "; lower tile row at +16 tile numbers; use OBSEL size pair 3 (16x16",
-        "; small / 32x32 large) and set the 16x16-small size flag for the player",
-        "; and the 8x8 entries (a 16x16-small slot renders 8x8 art with the",
-        "; other 3 subtiles transparent). Stack a column of SPR_BEAM 8x8 slots",
-        "; (8px vertical pitch) to draw the continuous descending beam.",
+        "; A frame's OAM tile = 1024 + SPR_<actor>. Use OBSEL size pair 0 (8x8",
+        "; small / 16x16 large): the player draws as a 16x16 LARGE sprite (its",
+        "; four 8x8 tiles at {N,N+1,N+16,N+17}, the lower row at +16 tile numbers",
+        "; = the hardware layout); every 8x8 actor draws as a SMALL sprite (one",
+        "; tile, no neighbor bleed). Stack a column of SPR_BEAM 8x8 slots (8px",
+        "; vertical pitch) to draw the continuous descending beam.",
         "; =============================================================================",
         "",
         "SPR_PLAYER_T0   = $00      ; player frame 0 (neutral); 16x16 at {0,1,16,17}",
@@ -254,6 +333,17 @@ def main() -> None:
         "SPR_HP_LIT      = $06      ; boss HP-bar segment, filled (8x8, green)",
         "SPR_HP_DIM      = $07      ; boss HP-bar segment, depleted (8x8, slate)",
         "SPR_BEAM        = $08      ; saucer beam segment (8x8); stack vertically",
+        "SPR_CARDBG      = $09      ; solid dark banner tile behind result/title text",
+        "SPR_EXH_LO      = $0A      ; thruster flame, short frame (8x8)",
+        "SPR_EXH_HI      = $0B      ; thruster flame, tall frame (8x8)",
+        "",
+        "; text-glyph font (8x8, tiles 32+): result/title cards spell words as",
+        "; runs of these. main.asm draws each as an 8x8 SMALL sprite.",
+    ]
+    for i, name in enumerate(GLYPH_ORDER):
+        lines.append(f"SPR_G_{name:<8} = ${FONT_BASE + i:02X}"
+                     f"      ; glyph '{name}' (8x8)")
+    lines += [
         f"sprite_chr_bytes = {len(blob)}",
         "SPRITE_PAL_COUNT = 16",
         "",

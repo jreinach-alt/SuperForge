@@ -67,6 +67,8 @@ Never dress reference-recall as tested experience. "Let me verify that on the em
 |---|---|
 | `lib/macros/` | the API — the front door for writing games |
 | `docs/troubleshooting.md` | symptom-indexed fixes — go here FIRST when something misbehaves |
+| `EXPECTATIONS.md` | the honest-expectations page — why the width/latch churn is normal, the declared gaps, when to suspect the kit vs your code. Point a user here at their first ghost bug |
+| `docs/lessons/` | the intro-to-SNES lesson course (L00-L10) — teach a newcomer the platform by running and probing the kit's own examples; every claim tiered, every command doc-tested |
 | `docs/snes_vs_modern_engines.md` | the idiom guardrail — read before writing code if your instincts are Unity/Godot-shaped |
 | `docs/reference/hardware/` | the knowledgebase — SNES hardware facts, confidence-tiered |
 | `scenarios/` | what you can build and answer — the rails + the acceptance bar |

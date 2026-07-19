@@ -21,15 +21,19 @@
 #         the split follows a side-switch: blue (left fighter) in the LEFT half,
 #         red (right fighter) in the RIGHT half — colours swapped, framing correct.
 set -euo pipefail
-INC="-I infrastructure/rom_template -I lib/macros -I engine -I templates/split_v_fight/assets"
-CFG=infrastructure/rom_template/lorom_64k.cfg
+# TAD-audio link shape (matches the LDCFG: lorom_tad.cfg sentinel in main.asm):
+# the audio include path (driver API + song data) and the two TAD objects are
+# required, exactly as the generic `make` rule does for a *_tad*.cfg template.
+INC="-I infrastructure/rom_template -I lib/macros -I engine -I templates/split_v_fight/assets -I lib/tad/audio-driver/ca65-api -I assets/audio"
+CFG=infrastructure/rom_template/lorom_tad.cfg
+TAD_OBJS="build/tad_audio_wrapper.o build/tad_audio_data.o"
 SRC=templates/split_v_fight/main.asm
 mkdir -p build
 
 build_variant() {
     local name="$1"; shift
     ca65 --cpu 65816 $INC "$@" $SRC -o "build/$name.o"
-    ld65 -C $CFG "build/$name.o" -o "build/$name.sfc"
+    ld65 -C $CFG "build/$name.o" $TAD_OBJS -o "build/$name.sfc"
     echo "built build/$name.sfc"
 }
 

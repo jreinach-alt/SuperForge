@@ -20,8 +20,12 @@ is race-free (freeze the swept variable — no capture-timing race):
                        reference (near-0 diff) — the split adds NOTHING at merge.
                        Non-vacuity: the SPLIT frame differs from the reference by
                        thousands of pixels, so the metric is not trivially zero.
-  S2 bar ramps       : the beveled divider is ABSENT at merge (0 white-core px)
-                       and PRESENT + full-height when split (many white-core px).
+  S2 bar ramps       : the beveled divider is ABSENT at merge (no highlight core,
+                       no shadow edge) and, when split, renders the AUTHORED 3-tone
+                       bar — a bright core AND a dark shadow edge, full height. The
+                       shadow tone is the calibration anchor: it is 0 on the pre-fix
+                       bug (dropped palette -> white-backdrop divider), so this test
+                       fails on the bug it was written to catch.
   S3 fighters halves : split -> red fighter in the left half, blue in the right;
                        merge -> both fighters on screen (near centre).
   S4 dynamic (auto)  : over the self-running cross-over the view reaches BOTH a
@@ -70,7 +74,20 @@ def _u16(runner, addr):
 
 
 # --- pixel predicates -------------------------------------------------------
+# The beveled bar is a 3-tone greyscale ramp authored into BG3 CHR + CGRAM 9/10/11:
+#   highlight core  CGRAM 11 = $7FFF -> white (248+)
+#   mid             CGRAM 10 = $4E73 -> mid grey (~156)
+#   shadow edge     CGRAM  9 = $18C6 -> dark grey (~49)
+# The shadow tone is the load-bearing calibration signal: nothing else on screen
+# (backdrop $7FFF white, sky/grass/mountain/dirt, red/blue fighters) is a dark
+# near-neutral grey, so shadow pixels appear ONLY when the authored bar renders.
+# The pre-fix bug uploaded the CHR + palette with the display on, so hardware
+# dropped them; the visible "divider" was the WHITE BACKDROP through the masked
+# band -> highlight-core ~1085 px but shadow ZERO. See test_s2 for the recal.
 def _is_white(p):  return p[0] > 230 and p[1] > 230 and p[2] > 230   # bevel highlight core
+def _is_shadow(p):                                                   # bevel shadow edge ($18C6)
+    return p[0] < 90 and p[1] < 90 and p[2] < 90 and \
+           abs(p[0] - p[1]) < 24 and abs(p[1] - p[2]) < 24 and max(p) > 24
 def _is_red(p):    return p[0] > 150 and p[1] < 80 and p[2] < 80
 def _is_blue(p):   return p[2] > 150 and p[0] < 80 and p[1] < 80
 
@@ -92,11 +109,24 @@ def _frame_diff(a, b):
 
 
 def _bar_core(img):
-    """White-core divider pixels in the centre band [118,138) — the beveled bar's
-    highlight tile ($7FFF). 0 at merge (divider absent), many when split."""
+    """Highlight-core divider pixels in the centre band [118,138) — the beveled
+    bar's bright tone ($7FFF). 0 at merge (divider absent); ~1 column tall-strip
+    (~217 px on a 224-line field) when split. NOTE: the pre-fix bug flooded this
+    to ~1085 px (the whole masked band was white backdrop), so a LOWER bound alone
+    can't tell the authored bar from the bug — pair it with _bar_shadow / a ceiling."""
     px = img.load()
     w, h = img.size
     return sum(1 for y in range(Y_TOP, h - 8) for x in range(118, 138) if _is_white(px[x, y]))
+
+
+def _bar_shadow(img):
+    """Shadow-edge divider pixels in the centre band [118,138) — the beveled bar's
+    DARK tone ($18C6). This is the non-vacuous bevel signal: it is 0 at merge AND
+    was 0 under the pre-fix bug (the dropped palette left a white-backdrop divider
+    with no dark tone), and only becomes non-zero when the AUTHORED bar renders."""
+    px = img.load()
+    w, h = img.size
+    return sum(1 for y in range(Y_TOP, h - 8) for x in range(118, 138) if _is_shadow(px[x, y]))
 
 
 def _bar_span(img):
@@ -161,19 +191,40 @@ def test_s1_merge_is_seamless(roms, runner):
         f"non-vacuity failed: SPLIT frame should differ from the reference, got {d_split}"
 
 
-# --- S2: the divider bar ramps from ZERO -----------------------------------
+# --- S2: the divider bar ramps from ZERO, rendering the AUTHORED bevel -------
 def test_s2_bar_ramps_from_zero(roms, runner):
-    """The beveled divider is ABSENT at merge (zero-width -> no white core) and
-    PRESENT + full-height when split."""
+    """The beveled divider is ABSENT at merge (no highlight core, no shadow edge)
+    and, when split, renders the AUTHORED 3-tone bar: a bright highlight core AND
+    a dark shadow edge.
+
+    Calibration (this asserts the render, not a proxy): the pre-fix bug uploaded
+    the BG3 CHR + bevel palette with the display on, so the PPU dropped them and
+    the visible "divider" was only the WHITE BACKDROP through the masked band —
+    highlight-core ~1085 px but shadow ZERO. A bare `core > 600` therefore PASSED
+    the bug (the backdrop is white) and FAILED the authored bar (its bright core
+    is ~217 px). The recal instead requires the SHADOW tone (which the backdrop
+    can never produce -> 0 on the pre-fix ROM) and BOUNDS the highlight core so a
+    backdrop flood also fails. Both sub-asserts fail on the pre-fix render."""
     merge = _grab(runner, roms["merge"], name="fight_merge")
     split = _grab(runner, roms["split"], name="fight_split")
 
-    core_merge = _bar_core(merge)
-    core_split = _bar_core(split)
-    assert core_merge == 0, f"divider must be invisible at merge, saw {core_merge} core px"
-    assert core_split > 600, f"divider should be visible when split, saw {core_split} core px"
+    # merge: the divider is fully gone — no bright core AND no dark shadow edge.
+    assert _bar_core(merge) == 0, f"highlight core must be absent at merge, saw {_bar_core(merge)}"
+    assert _bar_shadow(merge) == 0, f"shadow edge must be absent at merge, saw {_bar_shadow(merge)}"
 
-    # full height: the white core must span nearly the whole visible field (the
+    # split: the authored bar renders. The shadow edge is the bug-proof signal
+    # (pre-fix: 0); the highlight core is present but BOUNDED (pre-fix backdrop
+    # flood was ~1085, the authored bright core is ~217).
+    core_split = _bar_core(split)
+    shadow_split = _bar_shadow(split)
+    assert shadow_split > 150, \
+        f"authored bevel shadow edge missing when split, saw {shadow_split} px " \
+        f"(pre-fix bug renders 0 — the dropped palette left a white-backdrop divider)"
+    assert 150 < core_split < 700, \
+        f"bevel highlight core absent or backdrop-flooded, saw {core_split} px " \
+        f"(authored core ~217; pre-fix backdrop flood ~1085)"
+
+    # full height: the highlight core must span nearly the whole visible field (the
     # VBlank multi-tilemap DMA truncation used to cut the bar's bottom rows)
     ymin, ymax = _bar_span(split)
     assert ymin is not None and ymin <= Y_TOP + 12, f"divider top missing (ymin={ymin})"
@@ -207,22 +258,28 @@ def test_s4_autodemo_reaches_merge_and_split(roms, runner):
     runner.load_rom(str(roms["autodemo"]), run_seconds=0.4)
     assert runner.read_bytes(WR, 0xE000, 4) == b"SFDB", "autodemo did not boot"
     runner.run_frames(20)
-    cores = []
+    shadows, whites = [], []
     for _ in range(130):                      # ~390 frames spans a full wall-to-close
         runner.run_frames(3)                  # ping-pong incl. the dwell at each extreme
         runner.take_screenshot("/tmp/e2e_screenshots/fight_auto.png")
         img = Image.open("/tmp/e2e_screenshots/fight_auto.png").convert("RGB")
-        cores.append(_bar_core(img))
-    assert min(cores) <= 20, f"never reached a merged (divider-free) frame; min core={min(cores)}"
-    assert max(cores) > 600, f"never reached a split (divider-present) frame; max core={max(cores)}"
+        shadows.append(_bar_shadow(img))      # authored bevel shadow edge (bug-proof)
+        whites.append(_bar_core(img))         # highlight core; also floods if the band balloons
+    # reaches a MERGED frame (bevel gone) and a SPLIT frame where the AUTHORED bar
+    # renders — the shadow edge is present (the pre-fix bug renders shadow 0 for
+    # the whole cycle, so this would fail on it too, not just S2).
+    assert min(shadows) <= 20, f"never reached a merged (divider-free) frame; min shadow={min(shadows)}"
+    assert max(shadows) > 150, f"never reached a split frame with the authored bevel; max shadow={max(shadows)}"
     # bounded width: the band half-width is hw = spread>>4 with spread <= SPREAD_MAX
-    # (48) -> hw <= 3 -> a ~7 px reveal; a full 20 px sample band going white means
-    # `spread` blew past its clamp (the ease-down underflow). Cap well under that.
-    assert max(cores) < 2000, f"divider ballooned past its design max (core={max(cores)})"
-    # seamless RE-merge: after the first split, the divider must return to ~0
-    peak = cores.index(max(cores))
-    assert min(cores[peak:]) <= 20, \
-        f"view never re-merged after splitting (min core after peak={min(cores[peak:])})"
+    # (48) -> hw <= 3, so the reveal never exceeds the 16 px bar; the ease-down
+    # underflow used to balloon `spread` past its clamp, widening the band until
+    # the transparent BG3 outside the bar flooded the WHITE BACKDROP across the
+    # sample. The authored highlight core peaks ~450 px; cap well under a flood.
+    assert max(whites) < 1200, f"divider ballooned past its design max (white core={max(whites)})"
+    # seamless RE-merge: after the first split, the bevel must return to ~0
+    peak = shadows.index(max(shadows))
+    assert min(shadows[peak:]) <= 20, \
+        f"view never re-merged after splitting (min shadow after peak={min(shadows[peak:])})"
 
 
 # --- S5: fighters stay in the arena under adversarial input (F-1 regression) -
@@ -264,8 +321,10 @@ def test_s6_crossed_state_frames_correctly(roms, runner):
     # half's inner region, mirroring the normal split (~68 / ~196), not ~11 / ~251
     assert 40 < blue < CENTRE and CENTRE < red < 216, \
         f"crossed fighters stranded at the outer edges (blue={blue:.0f}, red={red:.0f})"
-    # divider still full and present (the swap doesn't break the seamless split)
-    assert _bar_core(crossed) > 600, "divider missing in the crossed split"
+    # divider still full and present (the swap doesn't break the seamless split):
+    # the authored bevel's shadow edge is present (bug-proof) and its highlight
+    # core is full-height. (Pre-fix, shadow was 0 here too.)
+    assert _bar_shadow(crossed) > 150, "authored bevel shadow edge missing in the crossed split"
     ymin, ymax = _bar_span(crossed)
     assert ymin is not None and ymin <= Y_TOP + 12 and ymax >= 220, \
         f"crossed divider not full-height (span {ymin}..{ymax})"

@@ -1,46 +1,39 @@
-"""Acceptance gate for the m7_dungeon rail (S1 + S2 + S3 subsets).
+"""Acceptance gate for the m7_dungeon rail.
 
 m7_dungeon is a Mode 7 rotating-floor top-down dungeon: the floor is the Mode 7
 BG, scaled+rotated by a single uniform affine matrix; the hero is an OBJ pinned
 at screen centre while the world spins + scrolls underneath (TANK CONTROLS).
 
-S1 proved the static-affine MOVING PIVOT WHILE ROTATING with SCRIPTED motion.
-S2 replaces the scripted motion with TANK-CONTROL PLAYER INPUT:
-  - D-pad LEFT / RIGHT rotate the heading (R_ANGLE), which drives the floor matrix
-    so the player's facing reads "up" and the floor rotates under turns.
-  - B / UP throttle forward along the facing vector; Y / DOWN reverse (signed 8.8
-    R_SPEED -> the same sincos->smul16 integrator). Release -> coast to hover.
-  - The heading-resolved step advances the world position (the moving pivot), so
-    the floor scrolls in the faced direction under the centred hero.
-S3 adds WORLD-SPACE WALL COLLISION — the hero must NOT pass walls:
+What these checks cover, all on REAL rendered/hardware output (framebuffer pixels,
+OAM/CGRAM bytes, recorded WAV — never a proxy game variable):
+
+  TANK CONTROLS
+  - Boots (SFDB magic) into a TEXTURED Mode 7 floor (>= 4 distinct colours).
+  - The hero OBJ stays screen-centred + upright across turning and driving.
+  - LEFT vs RIGHT give OPPOSITE heading deltas AND the rendered floor rotates the
+    matching way; B/UP drive advances the world pos + scrolls the floor, Y/DOWN
+    reverses, release coasts to a stop.
+
+  WORLD-SPACE WALL COLLISION
   - dungeon_terrain.bin (128x128 byte LUT, 1=solid/0=floor) is emitted from the
-    SAME is_wall() predicate that paints the wall art, so the terrain LUT is the
-    GROUND-TRUTH oracle. The test mirrors is_wall() in Python and asserts the
-    hero's world-space footprint NEVER occupies a solid cell.
-  - Per-axis candidate-test-commit: drive into a wall from many facings/locations,
-    the hero STOPS adjacent; push diagonally into an axis-aligned wall, the
-    UNBLOCKED axis still advances (slide); at the speed cap, no frame tunnels.
-  - Negative control: a -DNO_COLLISION variant WALKS THROUGH walls (footprint
-    enters solid cells) — proving the collision assertion is not vacuous.
-NO enemies (S4/S5). World pos is CLAMPED to the 0..1023 walkable bounds.
+    SAME is_wall() predicate that paints the wall art (make_dungeon.py), so it is
+    the GROUND-TRUTH oracle (mirrored in Python below). The hero footprint NEVER
+    occupies a solid cell: driving into a wall stops adjacent; a diagonal push
+    slides along the unblocked axis; at the speed cap no frame tunnels.
+  - Negative control: a -DNO_COLLISION variant WALKS THROUGH walls — proving the
+    collision assertion is not vacuous.
 
-Every visual assertion is on REAL rendered/hardware output — the framebuffer
-pixels and the OAM bytes — never a proxy game variable. The debug-region mirrors
-(the WRAM the ROM writes each frame: R_POSX/R_POSY world px, R_ANGLE heading) are
-read to SEQUENCE captures and to show the WORLD/ANGLE moved in the input
-direction; the rotation/scroll itself is always confirmed on the framebuffer.
+  ENEMIES (project + cull + patrol + contact)
+  - Enemies live in world space and project onto the rotating floor, staying glued
+    to their tile under rotation + translation and culling when off-screen; they
+    patrol their corridors (wall-turn) and knock the hero back on contact with a
+    screen flash. Rendered-floor checks confirm each enemy sits on FLOOR pixels
+    (the forward-matrix control build FAILS them).
 
-S2 done-conditions:
-  1. Boots (SFDB magic) into a TEXTURED Mode 7 floor (screenshot >= 4 distinct
-     colours — a real textured plane, not a flat fill or a black band).
-  2. The hero OBJ is screen-centred (OAM slot 0 at the centred box) and STAYS
-     centred + upright across input (turning + driving).
-  3. TURN: holding LEFT vs RIGHT produces OPPOSITE angle deltas (angle mirror)
-     AND the rendered floor orientation rotates the corresponding way (frame
-     compare).
-  4. FORWARD/REVERSE: from a known heading, B/UP advances R_POSX/Y along the
-     facing vector and the floor scrolls (frame compare); Y/DOWN moves it the
-     opposite way. Release -> speed decays to hover (world pos stops advancing).
+The debug-region mirrors (the WRAM the ROM writes each frame: R_POSX/R_POSY world
+px, R_ANGLE heading, DBG_ENE_* live enemy pos, DBG_HITS) are read to SEQUENCE
+captures and to know where things are; the rotation / scroll / sprite is always
+confirmed on the framebuffer.
 """
 from pathlib import Path
 
@@ -62,7 +55,7 @@ DBG_ANGLE = 0xE016   # heading (low byte 0..255)
 
 # S4 per-enemy debug mirrors (main.asm DBG_ENE_BASE; 8 bytes each):
 #   +0 world_x  +2 world_y  +4 projected screen_x  +6 projected screen_y
-# S5: the world (x,y) at +0/+2 is now the LIVE patrol position (enemies MOVE);
+# the world (x,y) at +0/+2 is now the LIVE patrol position (enemies MOVE);
 # tests read it per frame via _enemy_mirror, NOT the static seed table below.
 DBG_ENE_BASE = 0xE020
 DBG_ENE_STRIDE = 8
@@ -82,7 +75,8 @@ ENE_DIR_BASE = 0xE040  # ENEMY_COUNT*2: signed patrol step direction per enemy
 PATROL_SPEED = 1     # main.asm PATROL_SPEED (world px/frame per enemy)
 CONTACT_HALF = 4     # main.asm CONTACT_HALF (8x8 world contact box)
 GRACE_FRAMES = 40    # main.asm GRACE_FRAMES (post-respawn contact suppression)
-DBG_BLOCK = 0xE018   # S3: count of blocked axis-steps (collision proof)
+DBG_BLOCK = 0xE018   # count of blocked axis-steps (collision proof)
+DBG_PAUSED = 0xE048  # main.asm: 0 = running, 1 = paused (START toggles)
 
 # --- S3 collision ground-truth oracle. MIRRORS make_dungeon.py's is_wall() (the
 #     SINGLE source of truth for both the wall art and dungeon_terrain.bin), so a
@@ -205,14 +199,19 @@ def variants():
         "nocol": BUILD / "m7_dungeon_nocol.sfc",
         "far": BUILD / "m7_dungeon_far.sfc",
         "goalspawn": BUILD / "m7_dungeon_goalspawn.sfc",
-        # S4-fix2 non-vacuity control: OLD forward-matrix projection (enemies drift
+        # non-vacuity control: OLD forward-matrix projection (enemies drift
         # onto the WALLS under rotation) — the rendered-floor test must FAIL on it.
         "projfwd": BUILD / "m7_dungeon_projfwd.sfc",
         # sprite-size non-vacuity control: OLD 32x32 size bit (bit7 SET) on the hero
         # + enemies. The 32x32 hero reads tile 32 (enemy CHR) into its lower-left
-        # quadrant -> the phantom yellow diamond. The sprite-size regression test
+        # quadrant -> a phantom diamond (the demon CHR rendered in the KNIGHT hero
+        # palette = grey/bone pixels below the hero). The sprite-size regression test
         # must FAIL on it (size bit SET + hero-palette pixels below the hero).
         "bigspr": BUILD / "m7_dungeon_bigspr.sfc",
+        # enemy-colour non-vacuity control: -DENEMY_MISCOLOR renders the demon in a
+        # COOL (floor-blue) OBJ palette, so the enemy-warm band reads 0 -> proves the
+        # enemy colour tests are not vacuous (see test_enemy_colour_regression_*).
+        "miscolor": BUILD / "m7_dungeon_miscolor.sfc",
     }
 
 
@@ -254,11 +253,35 @@ def _grace(runner):
     return runner.read_u16(WR, DBG_GRACE) & 0xFFFF
 
 
+def _paused(runner):
+    return runner.read_u16(WR, DBG_PAUSED) & 0xFFFF
+
+
 def _hold(runner, frames, **buttons):
     """Latch the given buttons and advance `frames` frames, then release."""
     runner.set_input(0, **buttons)
     runner.run_frames(frames)
     runner.set_input(0)
+
+
+# The boot music streams to the SPC over the first ~25 frames; while it does, the
+# heavy Mode 7 frame can skip a frame (a sub-perceptible boot-second stutter, the
+# cost of booting straight into gameplay instead of a title screen). A drive that
+# counts exact frames must start AFTER that settles: from a mid-frame wall-clock
+# boot the transient desyncs it (a held button latched N vs N+1 times, or a few
+# skipped drive frames). Frame-stepping past the load — with NO input, so the
+# hero just hovers at spawn — makes the start state deterministic (spawn, angle 0)
+# on a clean 60fps budget, independent of the wall-clock boot phase. This is a
+# determinism fix, not a tolerance change: the drive assertions are unchanged.
+_AUDIO_SETTLE_FRAMES = 45
+
+
+def _boot_settled(runner, rom):
+    """load_rom + frame-step past the song-load transient (see _AUDIO_SETTLE_FRAMES)
+    so a following exact frame-count drive is deterministic. No input during the
+    settle, so the world stays at the spawn state."""
+    runner.load_rom(str(rom), run_seconds=0.3)
+    runner.run_frames(_AUDIO_SETTLE_FRAMES)
 
 
 def _grid_samples(path, step=8):
@@ -305,22 +328,45 @@ def _frac_changed(a, b, thresh=24):
     return diff / n
 
 
-# The enemy body colour rendered on screen: make_enemy.py PAL[1] = (200,30,30)
-# (the red diamond body). We match a RED cluster with a tolerance band that
-# accepts the body + outline (PAL[2] dark red 70,0,0) but REJECTS the cyan hero
-# (PAL hero ~ 88,200,248) and the floor. This reads the rendered FRAMEBUFFER
-# (pixels), not OAM — so an invisible / wrong-palette sprite cannot pass.
-_ENEMY_RED = (200, 30, 30)
+def _frame_brightness(path, step=8):
+    """Mean per-channel brightness of a coarse framebuffer grid. The get-hit flash
+    dims the WHOLE screen (INIDISP brightness), so a dark frame here is the rendered
+    proof the hit fired — a non-vacuous, whole-view change (unlike the hero OAM,
+    which is pinned at centre and never moves)."""
+    img = Image.open(path).convert("RGB")
+    w, h = img.size
+    px = img.load()
+    tot = n = 0
+    for y in range(0, h, step):
+        for x in range(0, w, step):
+            r, g, b = px[x, y]
+            tot += r + g + b
+            n += 1
+    return tot / (3 * n) if n else 0.0
+
+
+# The enemy body colour rendered on screen: the dungeonSprites DEMON's orange-red
+# body (CC0 pack sprite; enemy.inc palette body ~ (224,104,72), rendered ~
+# (231,107,74)). We match a WARM/BRIGHT cluster (Wave-D dressing retune) whose
+# key separator is BRIGHTNESS: the demon body is r>=205, brighter than any brick
+# wall tone (WALL_LT rendered ~ (189,123,82)), so the band accepts the demon and
+# REJECTS the warm brick walls, the cool flagstone floor, the grey/white knight
+# hero, and the green goal. This reads the rendered FRAMEBUFFER (pixels), not OAM
+# — so an invisible / wrong-palette sprite cannot pass (see the -DENEMY_MISCOLOR
+# non-vacuity control, which renders the enemy cool and reads 0 here).
+_ENEMY_RED = (224, 104, 72)
 
 
 def _is_enemy_red(rgb):
-    """True iff rgb is the enemy's PURE red body (rendered ~ (206,24,24) for
-    PAL[1]=(200,30,30)). Bands tuned on the emulator to REJECT the floor's
-    terracotta (~ (181,90,57): G/B too high) and the cyan hero — so only a real
-    enemy pixel passes. Verified non-vacuous: 0 hits at enemy centres on the
-    broken (invisible-enemy) build, 56 each on the fixed build."""
+    """True iff rgb is the enemy DEMON's bright warm body (rendered ~ (231,107,74)).
+    Retuned on the emulator (measured rendered values) to separate the demon from
+    the WARM brick wall by BRIGHTNESS: r>=205 clears the demon (231) but rejects
+    every wall tone (WALL_LT 189, WALL 148, WALL_MO 107); g<=130 rejects the bone
+    highlight; b<=110 + r-b>=120 reject the cool floor + the grey knight hero. Only
+    a real demon-body pixel passes. Non-vacuity: -DENEMY_MISCOLOR reads 0 (see
+    test_enemy_colour_regression_fails_on_miscolor)."""
     r, g, b = rgb
-    return r >= 150 and g <= 60 and b <= 70 and (r - max(g, b)) >= 90
+    return r >= 205 and g <= 130 and b <= 110 and (r - b) >= 120
 
 
 def _count_enemy_red_near(path, cx, cy, radius=12):
@@ -352,22 +398,27 @@ def _count_enemy_red_total(path):
     return sum(1 for y in range(h) for x in range(w) if _is_enemy_red(px[x, y]))
 
 
-# --- RENDERED-FLOOR classification (the S4-fix2 binding guard). These read the
+# --- RENDERED-FLOOR classification (the forward-matrix-projection binding guard). These read the
 #     ACTUAL rendered Mode 7 plane and tell FLOOR from WALL so we can assert each
 #     enemy sits on the FLOOR under rotation — an oracle-FREE check (it does not
 #     reuse the projection formula, so it catches a wrong-direction projection
 #     that the OAM-vs-_project oracle and the distance-only orbit check both miss).
-#     Bands measured on the emulator across angles 0/40/96/160/220:
-#       wall = terracotta ~ (181,90,57): r>130, g<120, b<95, r>b+40
-#       floor = blue checker ~ (66,74,107)/(41,41,57): bluish/dark, b >= r
+#     Wave-D dressing retune — bands MEASURED on the emulator across angles
+#     0/40/96/160/220 for the camelot-themed stone palette:
+#       wall  = warm brick, rendered WALL_LT (189,123,82) / WALL (148,90,57) /
+#               WALL_MO mortar (107,66,41): warm (r>b+40), r in (100,210), g<130, b<95
+#       floor = cool flagstone, rendered FLOOR_B (74,90,132) / FLOOR_A (33,41,66) /
+#               FLOOR_M seam (49,66,99): bluish/dark, b >= r, NOT wall
+#     The r<210 ceiling keeps the BRIGHT demon enemy (r~231) out of the wall band.
 def _is_wall_px_rgb(rgb):
-    """Rendered WALL (terracotta) pixel test."""
+    """Rendered WALL (warm brick) pixel test — accepts every brick tone (body,
+    highlight, mortar) and rejects the cool floor, the bright demon, the grey hero."""
     r, g, b = rgb
-    return r > 130 and g < 120 and b < 95 and r > b + 40
+    return 100 < r < 210 and g < 130 and b < 95 and r > b + 40
 
 
 def _is_floor_px_rgb(rgb):
-    """Rendered FLOOR (blue checker) pixel test — bluish/dark, and NOT wall."""
+    """Rendered FLOOR (cool flagstone) pixel test — bluish/dark, and NOT wall."""
     r, g, b = rgb
     return (b >= r - 10) and not _is_wall_px_rgb(rgb)
 
@@ -462,7 +513,7 @@ def test_turn_left_right_opposite_and_floor_rotates(runner):
     rom = BUILD / "m7_dungeon.sfc"
 
     # --- baseline orientation at angle 0 (no input) ---
-    runner.load_rom(str(rom), run_seconds=0.3)
+    _boot_settled(runner, rom)      # frame-step past the song load -> deterministic drive
     assert _angle(runner) == 0, "spawn heading should be 0"
     base = "/tmp/m7dungeon_turn_base.png"
     runner.take_screenshot(base)
@@ -477,7 +528,7 @@ def test_turn_left_right_opposite_and_floor_rotates(runner):
     frac_left = _frac_changed(s_base, s_left)
 
     # --- RIGHT from a fresh spawn: angle decreases (opposite sign) ---
-    runner.load_rom(str(rom), run_seconds=0.3)
+    _boot_settled(runner, rom)      # same deterministic settle as the LEFT drive
     _hold(runner, 40, right=True)
     a_right = _angle(runner)
 
@@ -621,11 +672,11 @@ def _drive_scan_frames(runner, frames, step=2, **buttons):
 
 
 # =============================================================================
-# S3 done-condition 1 — blocked from MULTIPLE FACINGS at MULTIPLE LOCATIONS:
+# blocked from MULTIPLE FACINGS at MULTIPLE LOCATIONS:
 # drive forward into a wall; the hero stops adjacent and the footprint NEVER
 # enters a solid cell (frames_in_wall == 0), checked against the LUT oracle.
 # =============================================================================
-def test_s3_collision_blocks_from_all_facings(runner):
+def test_collision_blocks_from_all_facings(runner):
     """From the spawn room, rotate to several headings (cardinals + diagonals) and
     drive FORWARD into a wall. At every sampled frame the hero's 8px footprint must
     be CLEAR of solid cells (ground-truth LUT), it must end adjacent to a wall, and
@@ -661,10 +712,10 @@ def test_s3_collision_blocks_from_all_facings(runner):
 
 
 # =============================================================================
-# S3 done-condition 1b — collision holds in a FAR room (not just at spawn).
+# collision holds in a FAR room (not just at spawn).
 # =============================================================================
-def test_s3_collision_blocks_in_far_room(runner, variants):
-    """The far-room variant (-DSPAWN_TX=72 -DSPAWN_TY=40) spawns far from the
+def test_collision_blocks_in_far_room(runner, variants):
+    """The far-room variant (-DSPAWN_TX=43 -DSPAWN_TY=20) spawns far from the
     origin; collision must hold there too — the footprint never enters a solid cell
     and the blocked-count registers. Proves collision is world-position-general."""
     rom = variants["far"]
@@ -672,7 +723,7 @@ def test_s3_collision_blocks_in_far_room(runner, variants):
     runner.load_rom(str(rom), run_seconds=0.3)
     assert not _footprint_solid(_posx(runner), _posy(runner)), "far spawn is solid"
     for turn in (0, 64, 128, 192):
-        runner.load_rom(str(rom), run_seconds=0.3)
+        _boot_settled(runner, rom)  # frame-step past the song load -> deterministic drive
         _turn_to(runner, turn, "left")
         bad = _drive_scan_frames(runner, 260, b=True)
         px, py = _posx(runner), _posy(runner)
@@ -681,10 +732,10 @@ def test_s3_collision_blocks_in_far_room(runner, variants):
 
 
 # =============================================================================
-# S3 done-condition 2 — SLIDE: push diagonally into an axis-aligned wall; the
+# SLIDE: push diagonally into an axis-aligned wall; the
 # UNBLOCKED axis still advances (the hero slides along, doesn't dead-stop).
 # =============================================================================
-def test_s3_diagonal_push_slides_along_wall(runner):
+def test_diagonal_push_slides_along_wall(runner):
     """Drive forward at a SHALLOW heading into the top (axis-aligned) wall: the Y
     component blocks (hero pins against the wall) but the X component keeps
     advancing — the hero SLIDES along the wall instead of dead-stopping at the
@@ -722,10 +773,10 @@ def test_s3_diagonal_push_slides_along_wall(runner):
 
 
 # =============================================================================
-# S3 done-condition 3 — NO TUNNELING at the speed cap: drive at max speed straight
+# NO TUNNELING at the speed cap: drive at max speed straight
 # into a wall; assert NO sampled frame lands the footprint inside a solid cell.
 # =============================================================================
-def test_s3_no_tunneling_at_speed_cap(runner):
+def test_no_tunneling_at_speed_cap(runner):
     """Hold B long enough to reach the +1.25 px/frame speed cap, then keep driving
     straight into a wall. Sampling EVERY frame, the footprint must never be inside a
     solid cell — the <=1.25px/f cap must hold even at a 2-tile (16px) wall band.
@@ -743,11 +794,11 @@ def test_s3_no_tunneling_at_speed_cap(runner):
 
 
 # =============================================================================
-# S3 done-condition 4 — NEGATIVE CONTROL: prove the test is NOT vacuous. The
+# NEGATIVE CONTROL: prove the test is NOT vacuous. The
 # -DNO_COLLISION variant has the wall reject compiled out, so the hero WALKS
 # THROUGH walls — the same scan that passes on the real ROM must FAIL here.
 # =============================================================================
-def test_s3_negative_control_walks_through_walls(runner, variants):
+def test_negative_control_walks_through_walls(runner, variants):
     """The -DNO_COLLISION ROM disables the wall reject. Driving forward into a wall,
     the hero's footprint MUST enter solid cells (frames_in_wall > 0) — proving the
     collision assertion in the real tests can fail, i.e. it is not vacuous. The
@@ -824,7 +875,7 @@ def test_maze_route_reaches_goal(runner):
 
 
 # =============================================================================
-# S4 — ENEMY SPRITE PROJECTION onto the rotating Mode 7 floor.
+# ENEMY SPRITE PROJECTION onto the rotating Mode 7 floor.
 # =============================================================================
 # Static enemies live at fixed WORLD positions and are projected each frame onto
 # the rotating + scrolling Mode 7 plane so they stay GLUED to their world tile.
@@ -835,10 +886,10 @@ def test_maze_route_reaches_goal(runner):
 # B=sin*scale>>8, C=-B, D=A with scale=$0100 (1.0). This Python mirror is a CHEAP
 # OAM SANITY oracle: it replicates the ROM's sincos LUT + 8.8 arithmetic, so it
 # verifies the OAM bytes match the SAME formula — but because it IS that formula
-# it CANNOT catch a wrong-rotation-direction projection (the S4-fix2 defect: a
+# it CANNOT catch a wrong-rotation-direction projection (the forward-matrix-projection defect: a
 # forward-matrix projection drifted enemies onto the WALLS yet passed this oracle
 # AND the distance-only orbit check). The BINDING correctness guard is the
-# rendered-FLOOR regression test below (test_s4_enemies_on_rendered_floor), which
+# rendered-FLOOR regression test below (test_enemies_on_rendered_floor), which
 # reads the actual framebuffer and asserts each enemy sits on FLOOR, not WALL,
 # pixels at multiple rotation angles. Every assertion reads the OAM bytes / the
 # rendered frame (the hardware output) — never a proxy variable.
@@ -882,7 +933,7 @@ def _project(enemy_world, pivot, angle, scale=0x0100):
     # match main.asm's fixed proj_dot calls (M7A,M7C then M7B,M7D). NOTE: this is a
     # cheap OAM sanity oracle, NOT the real guard — it is the same formula as the
     # ASM, so it can't catch a wrong-direction projection. The rendered-FLOOR
-    # regression test (test_s4_enemies_on_rendered_floor) is the binding check.
+    # regression test (test_enemies_on_rendered_floor) is the binding check.
     sx = ((dx * A + dy * C) >> 8) + _SCREEN_CX
     sy = ((dx * B + dy * D) >> 8) + _SCREEN_CY
     return sx, sy
@@ -930,10 +981,10 @@ def _pivot(runner):
 
 
 # =============================================================================
-# S4 done-condition 1 — BOOT PLACEMENT: an enemy near the player projects
+# BOOT PLACEMENT: an enemy near the player projects
 # on-screen; its OAM x/y matches the Python projection within a tight tolerance.
 # =============================================================================
-def test_s4_boot_placement_matches_projection(runner):
+def test_boot_placement_matches_projection(runner):
     """At boot (angle 0, pivot = spawn 116,116) the enemies are SPREAD along the
     route: E0 (near-start) projects on-screen east of centre, while E1 (mid-path)
     and E2 (near-exit) are far enough to project OFF-screen (culled). Read each
@@ -951,7 +1002,7 @@ def test_s4_boot_placement_matches_projection(runner):
     on_count = 0
     for i in range(ENEMY_COUNT):
         wx, wy, sx, sy = _enemy_mirror(runner, i)
-        # S5: enemies patrol, so the live world pos has drifted from the seed by
+        # enemies patrol, so the live world pos has drifted from the seed by
         # boot; assert it stayed ON the seed's pace AXIS (the perpendicular coord
         # is unchanged) — i.e. it is moving along its corridor, not teleporting.
         seed = ENEMY_SEED[i]
@@ -986,21 +1037,21 @@ def test_s4_boot_placement_matches_projection(runner):
 
 
 # =============================================================================
-# S4 done-condition 1b — ENEMIES ACTUALLY RENDER (pixel-level): correct OAM is
-# NOT enough — the enemy CHR must be visible on the framebuffer in its OWN red
+# ENEMIES ACTUALLY RENDER (pixel-level): correct OAM is
+# NOT enough — the enemy CHR must be visible on the framebuffer in its OWN warm
 # palette, at each projected centre. This reads RENDERED PIXELS, closing the gap
 # where the original build had perfect OAM coords but 0 enemy pixels on screen
-# (name/tile-high bit set -> empty VRAM tile 288; palette 0 -> hero cyan). This
-# test FAILS on that broken build (red count == 0); see the inline non-vacuity
+# (name/tile-high bit set -> empty VRAM tile 288; palette 0 -> hero colours). This
+# test FAILS on that broken build (warm count == 0); see the inline non-vacuity
 # note. It complements (does NOT replace) the OAM-coordinate oracle checks.
 # =============================================================================
-def test_s4_enemies_render_red_at_projected_centres(runner):
-    """Boot, screenshot the frame, and assert the enemy's RED body colour is
+def test_enemies_render_red_at_projected_centres(runner):
+    """Boot, screenshot the frame, and assert the enemy DEMON's warm body colour is
     actually PRESENT at each on-screen enemy's projected sprite centre (OAM x+8,
-    y+8). Sampling a patch around the centre tolerates the diamond shape. The
-    whole-frame red count must be > 0 (it is 0 on the invisible-enemy defect),
-    and the hero (slot 0, cyan) must NOT be counted as red — proving the match
-    band is enemy-specific, not "any bright sprite"."""
+    y+8). Sampling a patch around the centre tolerates the sprite shape. The
+    whole-frame warm count must be > 0 (it is 0 on the invisible-enemy defect and on
+    the -DENEMY_MISCOLOR control), and the grey/bone KNIGHT hero (slot 0) must NOT be
+    counted — proving the match band is enemy-specific, not "any bright sprite"."""
     rom = BUILD / "m7_dungeon.sfc"
     assert rom.exists(), f"{rom} not built — run `make m7_dungeon` first"
     runner.load_rom(str(rom), run_seconds=0.3)
@@ -1020,7 +1071,7 @@ def test_s4_enemies_render_red_at_projected_centres(runner):
     ang = _angle(runner)
     centres_checked = 0
     for i in range(ENEMY_COUNT):
-        world = _live_world(runner, i)               # S5: live patrol pos
+        world = _live_world(runner, i)               # live patrol pos
         state, exp_x, exp_y = _expected_oam(world, pivot, ang)
         if state != "on":
             continue
@@ -1036,20 +1087,46 @@ def test_s4_enemies_render_red_at_projected_centres(runner):
         f"expected >=1 on-screen enemy at boot (E0 near-start), checked " \
         f"{centres_checked}"
 
-    # Negative control: the hero box (centre ~128,112) is CYAN, must read ~0 red,
-    # proving the red band does not just match any sprite.
+    # Negative control: the hero box (centre ~128,112) is the grey/bone KNIGHT,
+    # must read ~0 enemy-warm px, proving the band does not just match any sprite.
     hero_red = _count_enemy_red_near(shot, 128, 112, radius=8)
     assert hero_red == 0, \
-        f"hero box matched {hero_red} 'enemy-red' px — the colour band is not " \
-        f"enemy-specific (would let the cyan hero pass as red)"
+        f"hero box matched {hero_red} 'enemy-warm' px — the colour band is not " \
+        f"enemy-specific (would let the grey knight hero pass as the demon)"
 
 
 # =============================================================================
-# S4 done-condition 1c — RENDERED ENEMIES ORBIT WITH ROTATION (pixels, not OAM):
+# ENEMY-COLOUR NON-VACUITY: the -DENEMY_MISCOLOR control ROM renders the demon in
+# a COOL palette, so the enemy-warm band must read ZERO — proving the enemy colour
+# tests are a real guard (they CAN fail), not a tautology.
+# =============================================================================
+def test_enemy_colour_regression_fails_on_miscolor(runner, variants):
+    """NON-VACUITY for the retuned enemy colour band: -DENEMY_MISCOLOR loads a COOL
+    (floor-blue) OBJ palette for the enemy, so the demon renders BLUE and the whole
+    frame reads 0 enemy-warm pixels. The real demon build reads >0 (see
+    test_enemies_render_red_at_projected_centres) — so the enemy colour tests are
+    not vacuous. Reads the rendered framebuffer."""
+    rom = variants["miscolor"]
+    assert rom.exists(), f"{rom} not built (variant build did not run)"
+    runner.load_rom(str(rom), run_seconds=0.3)
+    assert runner.read_bytes(WR, 0xE000, 4) == b"SFDB", "did not boot"
+    shot = str(BUILD / "_enemy_miscolor.png")
+    runner.take_screenshot(shot)
+    total = _count_enemy_red_total(shot)
+    assert total == 0, \
+        f"non-vacuity FAILED: -DENEMY_MISCOLOR rendered {total} enemy-warm px — the " \
+        f"enemy colour band would match a COOL (non-demon) sprite, making the enemy " \
+        f"colour tests vacuous. shot={shot}"
+    print(f"\nenemy-colour non-vacuity OK: miscolor build = {total} enemy-warm px "
+          f"(real demon build > 0). shot={shot}")
+
+
+# =============================================================================
+# RENDERED ENEMIES ORBIT WITH ROTATION (pixels, not OAM):
 # after rotating the heading, the red clusters must MOVE and still sit at the new
 # projected centres — the enemy diamonds visibly orbit with the floor.
 # =============================================================================
-def test_s4_rendered_enemies_orbit_under_rotation(runner):
+def test_rendered_enemies_orbit_under_rotation(runner):
     """Screenshot at heading 0, rotate LEFT, screenshot again. The enemy-red must
     still render (>0) and follow the OAM centres at the new heading, and at least
     one enemy's rendered centre must have MOVED (proving the pixels orbit with the
@@ -1076,7 +1153,7 @@ def test_s4_rendered_enemies_orbit_under_rotation(runner):
     pivot = _pivot(runner)
     ang = _angle(runner)
     for i in range(ENEMY_COUNT):
-        world = _live_world(runner, i)               # S5: live patrol pos
+        world = _live_world(runner, i)               # live patrol pos
         state, _, _ = _expected_oam(world, pivot, ang)
         if state != "on":
             continue
@@ -1092,12 +1169,12 @@ def test_s4_rendered_enemies_orbit_under_rotation(runner):
 
 
 # =============================================================================
-# S4 done-condition 2 — GLUED UNDER ROTATION (the anti-"swim" test): rotate the
+# GLUED UNDER ROTATION (the anti-"swim" test): rotate the
 # heading; the enemy's OAM must track the projection at every heading — it ORBITS
 # screen centre (constant radius) consistent with the floor, never swims off its
 # world tile. STRICT: OAM == oracle within <=2 px across many headings.
 # =============================================================================
-def test_s4_glued_under_rotation_does_not_swim(runner):
+def test_glued_under_rotation_does_not_swim(runner):
     """Hold LEFT/RIGHT to sweep the heading through many values. At EACH heading,
     every on-screen enemy's OAM (x,y) must equal the Python projection (<=2 px) AND
     its screen distance from centre (128,112) must equal the LIVE world distance
@@ -1123,7 +1200,7 @@ def test_s4_glued_under_rotation_does_not_swim(runner):
             f"pivot drifted under pure rotation: {_pivot(runner)} != {pivot}"
         ang = _angle(runner)
         for i in range(ENEMY_COUNT):
-            world = _live_world(runner, i)           # S5: live patrol pos
+            world = _live_world(runner, i)           # live patrol pos
             state, exp_x, exp_y = _expected_oam(world, pivot, ang)
             if state != "on":
                 continue
@@ -1158,10 +1235,10 @@ def test_s4_glued_under_rotation_does_not_swim(runner):
 
 
 # =============================================================================
-# S4 done-condition 3 — GLUED UNDER TRANSLATION: drive forward/back; the enemy's
+# GLUED UNDER TRANSLATION: drive forward/back; the enemy's
 # OAM shifts per the projection (it stays on its world spot as the floor scrolls).
 # =============================================================================
-def test_s4_glued_under_translation(runner):
+def test_glued_under_translation(runner):
     """Drive FORWARD (the pivot/world pos moves), then the enemies — fixed in the
     world — must shift on screen exactly per the projection (the floor scrolls
     under them). At several points along the drive, every on-screen enemy's OAM
@@ -1179,7 +1256,7 @@ def test_s4_glued_under_translation(runner):
         pivot = _pivot(runner)
         ang = _angle(runner)
         for i in range(ENEMY_COUNT):
-            world = _live_world(runner, i)           # S5: live patrol pos
+            world = _live_world(runner, i)           # live patrol pos
             state, exp_x, exp_y = _expected_oam(world, pivot, ang)
             if state != "on":
                 continue
@@ -1193,10 +1270,10 @@ def test_s4_glued_under_translation(runner):
 
 
 # =============================================================================
-# S4 done-condition 4 — CULLING: drive far enough that an enemy leaves the visible
+# CULLING: drive far enough that an enemy leaves the visible
 # window; its OAM entry must be PARKED off-screen (Y=$F0), not wrapped on-screen.
 # =============================================================================
-def test_s4_offscreen_enemy_is_culled(runner, variants):
+def test_offscreen_enemy_is_culled(runner, variants):
     """The goal-spawn variant places the player in the GOAL cell (px 356,356). The
     enemies are SPREAD along the route, so from the goal the FAR ones cull: E0
     (near-start px 156,116, ~312px away) and E1 (mid-path px 276,196, ~179px away)
@@ -1215,7 +1292,7 @@ def test_s4_offscreen_enemy_is_culled(runner, variants):
         ang = _angle(runner)
         culled_any = False
         for i in range(ENEMY_COUNT):
-            world = _live_world(runner, i)           # S5: live patrol pos
+            world = _live_world(runner, i)           # live patrol pos
             state, exp_x, exp_y = _expected_oam(world, pivot, ang)
             ox, oy, tile, attr = _enemy_oam(runner, i)
             if state == "park":
@@ -1239,7 +1316,7 @@ def test_s4_offscreen_enemy_is_culled(runner, variants):
 
 
 # =============================================================================
-# S4 done-condition 4b — CULLING BY VISIBILITY (rendered-output drop-then-pop):
+# CULLING BY VISIBILITY (rendered-output drop-then-pop):
 # the enemies are SPREAD along the route, so the NEAR-EXIT enemy (E2, px 356,316,
 # ~312px from spawn) is OFF the visible window at spawn and only pops in when the
 # player approaches the GOAL. This reads the RENDERED FRAMEBUFFER + OAM (never a
@@ -1249,7 +1326,7 @@ def test_s4_offscreen_enemy_is_culled(runner, variants):
 # which E2 is DRAWN (OAM un-parked + enemy-red pixels at its projected centre).
 # This proves culling drops far enemies and visibility pops them back in.
 # =============================================================================
-def test_s4_culling_by_visibility_drop_then_pop(runner):
+def test_culling_by_visibility_drop_then_pop(runner):
     """At spawn the near-exit enemy E2 is CULLED (OAM y==CULL_Y AND no enemy-red
     pixels where it would project — it is genuinely not rendered) while the
     near-start enemy E0 is ON-screen (rendered red). Then drive the committed
@@ -1268,7 +1345,7 @@ def test_s4_culling_by_visibility_drop_then_pop(runner):
     pivot, ang = _pivot(runner), _angle(runner)
 
     # the oracle must agree the spread is non-vacuous: E2 off, E0 on at spawn.
-    # S5: read the LIVE world pos (enemies patrol; at spawn-boot they have barely
+    # read the LIVE world pos (enemies patrol; at spawn-boot they have barely
     # drifted, but use live so the oracle matches the ROM's actual position).
     w2_spawn = _live_world(runner, E2_IDX)
     w0_spawn = _live_world(runner, E0_IDX)
@@ -1305,11 +1382,16 @@ def test_s4_culling_by_visibility_drop_then_pop(runner):
         f"clearly drawn on-screen while E2 is dropped"
 
     # ---- PHASE 2: replay the route to the goal; E2 POPS IN (drawn) -------------
+    # Replay FRAME-BY-FRAME (re-latch input each frame), the same way the route was
+    # recorded and the way test_maze_route_reaches_goal drives it. A chunked replay
+    # (set_input once, run_frames(N)) latches on a different sub-frame phase and
+    # drifts the enemy-dodge timing off the recorded path.
     route = json.loads(ROUTE_PATH.read_text())
     for st in route:
         btns = {b: True for b in st["buttons"]}
-        runner.set_input(0, **btns)
-        runner.run_frames(int(st["frames"]))
+        for _ in range(int(st["frames"])):
+            runner.set_input(0, **btns)
+            runner.run_frames(1)
     runner.set_input(0)
     runner.run_frames(2)
 
@@ -1342,11 +1424,11 @@ def test_s4_culling_by_visibility_drop_then_pop(runner):
 
 
 # =============================================================================
-# S4 done-condition 5 — VISUAL: the enemy sprite sits ON the floor at its world
+# VISUAL: the enemy sprite sits ON the floor at its world
 # tile at TWO different player headings (proving it rotates around with the floor).
 # Saves screenshots for owner inspection; asserts the rendered frame is textured.
 # =============================================================================
-def test_s4_visual_enemy_on_floor_two_headings(runner):
+def test_visual_enemy_on_floor_two_headings(runner):
     """Capture the rendered frame at two headings. Each shows the red enemy
     sprite(s) sitting on the rotating floor at their world tile (the orbit moves
     them between the two shots). Saved to /tmp for owner inspection; the floor is
@@ -1368,7 +1450,7 @@ def test_s4_visual_enemy_on_floor_two_headings(runner):
         pivot, ang = _pivot(runner), _angle(runner)
         on = 0
         for i in range(ENEMY_COUNT):
-            world = _live_world(runner, i)           # S5: live patrol pos
+            world = _live_world(runner, i)           # live patrol pos
             state, exp_x, exp_y = _expected_oam(world, pivot, ang)
             if state != "on":
                 continue
@@ -1395,7 +1477,7 @@ def test_s4_visual_enemy_on_floor_two_headings(runner):
 
 
 # =============================================================================
-# S4-fix2 done-condition — RENDERED-FLOOR REGRESSION (the BINDING correctness
+# done-condition — RENDERED-FLOOR REGRESSION (the BINDING correctness
 # guard). The S4 defect (2nd): the enemy projection used the FORWARD (screen->
 # texel) matrix instead of its INVERSE, so under floor ROTATION the enemies
 # drifted onto the WALLS. The OAM-vs-_project oracle missed it (it is the SAME
@@ -1405,7 +1487,7 @@ def test_s4_visual_enemy_on_floor_two_headings(runner):
 # each on-screen enemy's DRAWN sprite centre and asserts that ring sits on FLOOR-
 # coloured pixels, NOT WALL pixels — proving the enemy is glued to the floor it
 # is standing on at EVERY angle (angle 0 is the on-floor calibration).
-#   Non-vacuity is proven by test_s4_floor_regression_fails_on_forward_build
+#   Non-vacuity is proven by test_floor_regression_fails_on_forward_build
 #   below: the -DENEMY_PROJ_FORWARD build (old buggy projection) FAILS this same
 #   floor check (enemies land on WALLS at rotated angles).
 # =============================================================================
@@ -1461,7 +1543,7 @@ def _assert_enemies_on_floor(runner, rom, tag, require_on_floor=True):
         assert _distinct_floor_colours(shot) >= 4, \
             f"{tag} a{target}: floor not textured — capture is not a real render"
         any_on = False
-        for i in range(ENEMY_COUNT):           # S5: drawn-sprite-centre is read
+        for i in range(ENEMY_COUNT):           # drawn-sprite-centre is read
             ox, oy, tile, attr = _enemy_oam(runner, i)  # straight from live OAM
             if oy == _CULL_Y:
                 continue                       # parked off-screen this angle
@@ -1485,10 +1567,10 @@ def _assert_enemies_on_floor(runner, rom, tag, require_on_floor=True):
     return results
 
 
-def test_s4_enemies_on_rendered_floor(runner):
+def test_enemies_on_rendered_floor(runner):
     """ORACLE-FREE binding guard: at angles 0/40/96/160/220 (LEFT-driven from
     boot, player at spawn), every on-screen enemy's DRAWN sprite centre sits on
-    FLOOR pixels (blue checker), NOT WALL pixels (terracotta). Reads the rendered
+    FLOOR pixels (cool flagstone), NOT WALL pixels (warm brick). Reads the rendered
     framebuffer — never the projection formula or a proxy var. This is what the
     self-referential OAM oracle + distance-only orbit check could not catch."""
     rom = BUILD / "m7_dungeon.sfc"
@@ -1499,10 +1581,10 @@ def test_s4_enemies_on_rendered_floor(runner):
         print(f"  angle {ang:3d}  E{i}  floor={nf:3d}  wall={nw:3d}")
 
 
-def test_s4_floor_regression_fails_on_forward_build(variants):
+def test_floor_regression_fails_on_forward_build(variants):
     """NON-VACUITY: the -DENEMY_PROJ_FORWARD build (the OLD buggy forward-matrix
     projection) must FAIL the rendered-floor check — its enemies drift onto the
-    WALLS at rotated angles. Proves test_s4_enemies_on_rendered_floor is a real
+    WALLS at rotated angles. Proves test_enemies_on_rendered_floor is a real
     guard, not a tautology. Same harness, require_on_floor=False to MEASURE, then
     assert at least one rotated angle shows an enemy on a WALL (floor<wall)."""
     rom = variants["projfwd"]
@@ -1537,33 +1619,36 @@ def test_s4_floor_regression_fails_on_forward_build(variants):
 
 # =============================================================================
 # SPRITE-SIZE REGRESSION — the hero is a 16x16 sprite with NO tile bleed (no
-# phantom yellow diamond below it).
+# phantom diamond below it).
 #
 # THE BUG: OBSEL ($2101)=$62 selects size pair 3 = 16x16 small / 32x32 LARGE.
 # The hero spr flags ($0080) + ENEMY_ATTR ($0082) SET the OAM size bit, picking
 # the 32x32 LARGE size. A 32x32 hero at tile 0 reads a 4x4 tile block (tiles
 # 0..3, 16..19, 32..35, 48..51); tile 32 is the ENEMY CHR (added in S4), so the
-# enemy diamond rendered in the hero's lower-LEFT quadrant in the HERO's palette
-# -> a phantom yellow/cyan diamond below the hero. Latent since S1 (tile 32 was
-# blank until S4 added the enemy art). FIX: clear the size bit (16x16 small).
+# enemy (demon) shape renders in the hero's lower-LEFT quadrant in the HERO's
+# palette -> a phantom grey/bone diamond below the hero. Latent since S1 (tile 32
+# was blank until S4 added the enemy art). FIX: clear the size bit (16x16 small).
 #
 # These read the rendered OUTPUT (OAM high table + framebuffer pixels), never a
 # proxy. Non-vacuity is proven by test_sprite_size_regression_fails_on_big_build
 # below: the -DBUGGY_SPRITE_SIZE build (size bit SET = 32x32) FAILS both checks.
 # =============================================================================
-# The hero sprite's own palette: cyan body ~ (88,200,248) and, when a 32x32
-# hero pulls in tile 32 (the enemy CHR) rendered in the HERO palette, a bright
-# yellow diamond-fill. Both are "hero-palette sprite pixels" that must NOT appear
-# in the floor region directly below the hero. Bands REJECT the floor (terracotta
-# wall ~ (181,90,57) and blue checker ~ (66,74,107)/(41,41,57)).
+# The hero sprite's own palette (Wave-D dressing: the hero is now the dungeonSprites
+# KNIGHT, a CC0 pack sprite): steel-grey body rendered ~ (148,140,140) and a bone
+# highlight ~ (239,231,222). When a 32x32 hero pulls in tile 32 (the enemy CHR)
+# rendered in the HERO palette, that phantom diamond fills the lower quadrant with
+# these SAME grey/bone hero-palette pixels — which must NOT appear in the floor
+# region directly below a correct 16x16 hero. A KNIGHT-palette pixel is BRIGHT and
+# DESATURATED (grey/white): r,g,b all >= ~110 and near-equal. That REJECTS the cool
+# flagstone floor (too dark, blue-biased) and the warm brick wall (b too low).
 def _is_hero_sprite_px(rgb):
-    """True iff rgb is a HERO-palette sprite pixel: the cyan body OR the bright
-    yellow tile-bleed fill. Tuned on the emulator to REJECT the floor (blue
-    checker is too dark/low-R for cyan; terracotta is too low-G/B for yellow)."""
+    """True iff rgb is a KNIGHT-hero-palette sprite pixel: the bright, low-saturation
+    steel-grey / bone-white body. Retuned on measured rendered values to REJECT the
+    floor (dark/blue) and the brick wall (low blue), so only a real hero-palette
+    pixel (or its 32x32 phantom-diamond bleed) passes."""
     r, g, b = rgb
-    cyan = (g >= 150 and b >= 170 and r <= 150 and b >= r + 40)
-    yellow = (r >= 170 and g >= 150 and b <= 120 and min(r, g) - b >= 60)
-    return cyan or yellow
+    return (r >= 120 and g >= 115 and b >= 110
+            and (max(r, g, b) - min(r, g, b)) <= 40)
 
 
 def _count_hero_px_below(path, x0=120, x1=136, y0=120, y1=134):
@@ -1606,13 +1691,13 @@ def _active_slots(runner, max_slots=8):
 
 
 def test_sprite_size_hero_is_16x16_no_diamond(runner):
-    """REGRESSION (phantom yellow diamond): the hero is a 16x16 sprite and there
+    """REGRESSION (phantom diamond): the hero is a 16x16 sprite and there
     is NO hero-palette tile bleed below it. Two rendered-output checks:
       (1) OAM size: every ACTIVE sprite's size bit (OAM high table) is CLEAR
           (16x16 small — with OBSEL pair $62). A SET bit = 32x32, the bug.
       (2) Framebuffer: the region just BELOW the hero (logical ~122..134 x,
           120..134 y — where the phantom diamond appeared) has ZERO hero-palette
-          sprite pixels (it must be floor, not a cyan/yellow diamond).
+          sprite pixels (it must be floor, not a grey/bone knight-palette diamond).
     Reads OAM + the rendered frame; the buggy 32x32 build FAILS both (see
     test_sprite_size_regression_fails_on_big_build)."""
     rom = BUILD / "m7_dungeon.sfc"
@@ -1627,7 +1712,7 @@ def test_sprite_size_hero_is_16x16_no_diamond(runner):
         assert _oam_size_bit(runner, s) == 0, \
             f"slot {s} OAM size bit SET -> 32x32 (with OBSEL $62); expected 16x16 " \
             f"(size bit CLEAR). A 32x32 hero pulls tile 32 (enemy CHR) into its " \
-            f"lower quadrant -> the phantom yellow diamond."
+            f"lower quadrant -> the phantom grey/bone diamond."
 
     # (2) No hero-palette sprite pixels in the floor region below the hero.
     shot = str(BUILD / "_sprsize_hero.png")
@@ -1670,7 +1755,7 @@ def test_sprite_size_regression_fails_on_big_build(runner, variants):
 
 
 # =============================================================================
-# S5 — ENEMY PATROL (world-space wall-turn) + hero-enemy CONTACT.
+# ENEMY PATROL (world-space wall-turn) + hero-enemy CONTACT.
 # =============================================================================
 # The enemies now PACE their corridor in world space at PATROL_SPEED px/frame,
 # reversing when the next-step footprint would enter a wall (the SAME S3
@@ -1695,11 +1780,11 @@ def _turn_to_heading(runner, target):
 
 
 # =============================================================================
-# S5 done-condition 1 — PATROL MOVES + WALL-TURNS: each enemy's LIVE world pos
+# PATROL MOVES + WALL-TURNS: each enemy's LIVE world pos
 # paces along its beat and REVERSES, never entering a solid cell; the rendered
 # red diamond visibly moves on the floor.
 # =============================================================================
-def test_s5_patrol_moves_and_wall_turns(runner):
+def test_patrol_moves_and_wall_turns(runner):
     """Over many frames read each enemy's LIVE world pos (DBG_ENE_BASE): it must
     MOVE along its pace AXIS (E0/E2 X, E1 Y), REVERSE direction at least once
     (wall-turn), and its footprint must NEVER occupy a solid cell (ground-truth
@@ -1751,7 +1836,7 @@ def test_s5_patrol_moves_and_wall_turns(runner):
         assert reversed_[i], f"E{i} never reversed (no wall-turn)"
 
 
-def test_s5_rendered_red_diamond_moves(runner):
+def test_rendered_red_diamond_moves(runner):
     """The rendered enemy-red diamond visibly MOVES on the floor between two time
     points — reads the FRAMEBUFFER (the OUTPUT), not OAM/WRAM. Tracks the enemy's
     drawn sprite centre via OAM (live) and asserts enemy-red pixels are present at
@@ -1781,12 +1866,12 @@ def test_s5_rendered_red_diamond_moves(runner):
 
 
 # =============================================================================
-# S5 done-condition 2 — CONTACT -> KNOCKBACK + HITS: drive the hero into a
+# CONTACT -> KNOCKBACK + HITS: drive the hero into a
 # patrolling enemy; HITS increments and the hero world pos RESETS to spawn AND
 # the hero sprite renders back at screen-centre on the spawn tile. Then hold the
 # hero clear of all beats and assert HITS does NOT increment.
 # =============================================================================
-def test_s5_contact_knockback_and_hits(runner):
+def test_contact_knockback_and_hits(runner):
     """Drive the hero HEAD-ON (no wall-hug) east into E0's pace line: HITS (WRAM
     mirror DBG_HITS) must INCREMENT and the hero world pos must RESET to the spawn
     cell (SPAWN_PX). The hero sprite must render at screen-centre (OAM slot 0 at
@@ -1796,6 +1881,12 @@ def test_s5_contact_knockback_and_hits(runner):
     assert rom.exists(), f"{rom} not built — run `make m7_dungeon` first"
     runner.load_rom(str(rom), run_seconds=0.3)
     assert runner.read_bytes(WR, 0xE000, 4) == b"SFDB", "did not boot"
+
+    # baseline brightness at full display (no hit yet) — the flash is measured
+    # against this so the assertion cannot pass on an always-dark capture.
+    base_shot = "/tmp/m7dungeon_contact_base.png"
+    runner.take_screenshot(base_shot)
+    base_bright = _frame_brightness(base_shot)
 
     h0 = _hits(runner)
     # face pure EAST (heading 192) and drive straight into E0 on the centreline,
@@ -1825,14 +1916,33 @@ def test_s5_contact_knockback_and_hits(runner):
     assert tile == 0 and attr == HERO_ATTR, \
         f"hero sprite wrong after knockback: tile={tile} attr={attr:#04x}"
 
-    # rendered proof: the hero (cyan) is drawn at screen centre on the spawn tile
-    shot = "/tmp/m7dungeon_s5_postcontact.png"
-    runner.take_screenshot(shot)
-    print(f"\nS5 contact: HITS {h0}->{_hits(runner)}, hero knocked back to "
-          f"{(px, py)} == spawn {SPAWN_PX}, sprite re-centred. shot: {shot}")
+    # RENDERED get-hit FLASH (the non-vacuous rendered proof). The knockback-to-
+    # spawn is invisible when the hero was already near spawn (its OAM is pinned at
+    # centre — the old assert was vacuous). The visible cue is the whole screen
+    # flashing DARK on contact (INIDISP dip), then fading back. Read the frame right
+    # after the hit: it must be far darker than the pre-hit baseline; a build
+    # without the flash stays at full brightness and fails this.
+    runner.run_frames(1)              # let the NMI commit the flash brightness
+    flash_shot = "/tmp/m7dungeon_contact_flash.png"
+    runner.take_screenshot(flash_shot)
+    flash_bright = _frame_brightness(flash_shot)
+    assert flash_bright < base_bright * 0.4, \
+        f"no get-hit flash: post-hit brightness {flash_bright:.1f} not << baseline " \
+        f"{base_bright:.1f} (the screen must flash dark on contact)"
+    # ...and it recovers to (near) full brightness as the fade completes.
+    runner.run_frames(30)
+    rec_shot = "/tmp/m7dungeon_contact_recovered.png"
+    runner.take_screenshot(rec_shot)
+    rec_bright = _frame_brightness(rec_shot)
+    assert rec_bright > base_bright * 0.8, \
+        f"flash did not recover: brightness {rec_bright:.1f} still low vs baseline " \
+        f"{base_bright:.1f}"
+    print(f"\ncontact: HITS {h0}->{_hits(runner)}, hero knocked back to {(px, py)} "
+          f"== spawn {SPAWN_PX}; flash brightness {base_bright:.0f}->{flash_bright:.0f}"
+          f"->{rec_bright:.0f}. shots: {flash_shot} {rec_shot}")
 
 
-def test_s5_standing_clear_no_hit(runner):
+def test_standing_clear_no_hit(runner):
     """Drive the hero to a SAFE cell clear of every enemy beat (the GOAL cell via
     the committed route) and idle there: HITS must NOT increment. Proves contact
     only fires on a real overlap, not spuriously. Reads the WRAM HITS counter."""
@@ -1857,11 +1967,11 @@ def test_s5_standing_clear_no_hit(runner):
 
 
 # =============================================================================
-# S5 done-condition 3 — GOAL IS SAFE: drive the committed maze_route.json to the
+# GOAL IS SAFE: drive the committed maze_route.json to the
 # goal; reaching the goal triggers NO hit (E2 relocated off the goal-adjacent
 # cell). The route dodges the patrolling enemies by wall-hugging (S3 slide).
 # =============================================================================
-def test_s5_goal_route_is_safe(runner):
+def test_goal_route_is_safe(runner):
     """Replay the committed maze_route.json: the hero reaches the GOAL cell with
     ZERO hits the whole way (the route wall-hugs past each patrolling enemy) AND
     every frame the hero footprint stays clear of solid cells. Asserts HITS == 0
@@ -1900,3 +2010,134 @@ def test_s5_goal_route_is_safe(runner):
         f"supposed to dodge every enemy and the goal cell is supposed to be safe"
     print(f"\nS5 goal-safe: route reached goal {(px, py)} with HITS={_hits(runner)} "
           f"(0 hits, footprint clear on all {frame} frames)")
+
+
+# =============================================================================
+# GOAL WIN-CARD — reaching the GOAL cell draws a 3-star banner overlay (OAM slots
+# 4-6) at screen top. NON-VACUOUS rendered check: absent at spawn, present at goal.
+# =============================================================================
+def _is_win_gold(rgb):
+    """The win-card's gold sparkle-star body (rendered ~ (248,200,64)): bright +
+    warm-YELLOW (high green), so it never collides with the enemy-warm band (g>130)
+    or the grey knight hero. Measured on the emulator."""
+    r, g, b = rgb
+    return r >= 200 and g >= 150 and b <= 150 and (r - b) >= 70
+
+
+def _count_win_gold_top(path, y_max=60):
+    """Count win-card gold pixels in the top banner region (logical y < y_max)."""
+    img = Image.open(path).convert("RGB")
+    w, h = img.size
+    px = img.load()
+    n = 0
+    for y in range(h):
+        if y * 224 // h > y_max:
+            continue
+        for x in range(w):
+            if _is_win_gold(px[x, y]):
+                n += 1
+    return n
+
+
+def test_goal_win_card_overlay(runner):
+    """Reaching the GOAL draws a 3-star win-card banner (OAM slots 4-6) at screen
+    top. NON-VACUOUS rendered check: at spawn the banner is ABSENT (slots 4-6 parked
+    at CULL_Y AND 0 gold pixels in the top region); after replaying the committed
+    route to the goal it is PRESENT (slots un-parked AND gold star pixels render at
+    the top). An OVERLAY only — no state/input change — so the route/collision/pause
+    suites are undisturbed. Reads OAM + the rendered framebuffer."""
+    rom = BUILD / "m7_dungeon.sfc"
+    assert rom.exists(), f"{rom} not built — run `make m7_dungeon` first"
+    assert ROUTE_PATH.exists(), f"{ROUTE_PATH} missing"
+
+    # PHASE 1: at spawn the win-card is ABSENT (parked slots + no gold pixels).
+    runner.load_rom(str(rom), run_seconds=0.3)
+    assert runner.read_bytes(WR, 0xE000, 4) == b"SFDB", "did not boot"
+    runner.run_frames(4)
+    spawn_shot = "/tmp/m7dungeon_win_spawn.png"
+    runner.take_screenshot(spawn_shot)
+    for s in (4, 5, 6):
+        _, y, _, _ = _oam(runner, s)
+        assert y == _CULL_Y, f"win slot {s} not parked at spawn (y={y}) — the card " \
+            f"should only show on the goal"
+    assert _count_win_gold_top(spawn_shot) == 0, \
+        "win-card gold rendered at spawn — the card should appear only at the goal"
+
+    # PHASE 2: replay the committed route to the goal; the win-card APPEARS.
+    route = json.loads(ROUTE_PATH.read_text())
+    for st in route:
+        btns = {b: True for b in st["buttons"]}
+        for _ in range(int(st["frames"])):
+            runner.set_input(0, **btns)
+            runner.run_frames(1)
+    runner.set_input(0)
+    runner.run_frames(2)
+    gx, gy = GOAL_PX
+    px, py = _posx(runner), _posy(runner)
+    assert abs(px - gx) <= 10 and abs(py - gy) <= 10, \
+        f"route did not reach the goal: {(px, py)} vs {(gx, gy)}"
+    goal_shot = "/tmp/m7dungeon_win_goal.png"
+    runner.take_screenshot(goal_shot)
+    active = [s for s in (4, 5, 6) if _oam(runner, s)[1] != _CULL_Y]
+    assert len(active) == 3, \
+        f"win-card banner not drawn at the goal (un-parked win slots: {active})"
+    gold = _count_win_gold_top(goal_shot)
+    assert gold >= 20, \
+        f"win-card gold not rendered at the goal (only {gold} gold px in the banner)"
+    print(f"\nwin-card: absent at spawn (0 gold) -> present at goal ({gold} gold px, "
+          f"slots {active}). shots: {spawn_shot} {goal_shot}")
+
+
+# =============================================================================
+# PAUSE — START freezes the world + enemies (the frame still renders); a second
+# START resumes. The enemies patrol continuously, so their live world pos is the
+# motion witness: it advances while running, holds while paused.
+# =============================================================================
+def test_start_pauses_and_resumes(runner):
+    """START toggles pause. While RUNNING the enemies pace (live world pos moves)
+    and a held throttle drives the hero; while PAUSED both freeze and the rendered
+    frame does not change; a second START resumes. Reads the WRAM pause flag +
+    live enemy/hero mirrors + the framebuffer."""
+    rom = BUILD / "m7_dungeon.sfc"
+    assert rom.exists(), f"{rom} not built — run `make m7_dungeon` first"
+    _boot_settled(runner, rom)
+    assert _paused(runner) == 0, "should boot unpaused"
+
+    # RUNNING: the enemy paces over 40 frames (motion witness).
+    e_run0 = _live_world(runner, 0)
+    runner.run_frames(40)
+    assert _live_world(runner, 0) != e_run0, "enemy did not pace while running"
+
+    # tap START -> PAUSED
+    _hold(runner, 2, start=True)
+    runner.run_frames(2)
+    assert _paused(runner) == 1, "START did not pause"
+
+    p_pause = (_posx(runner), _posy(runner))
+    e_pause = _live_world(runner, 0)
+    shot_a = "/tmp/m7dungeon_pause_a.png"
+    runner.take_screenshot(shot_a)
+    sa = _grid_samples(shot_a)
+
+    # while paused: hold the throttle AND let time pass — nothing moves, frame holds
+    runner.set_input(0, b=True)
+    runner.run_frames(50)
+    runner.set_input(0)
+    assert (_posx(runner), _posy(runner)) == p_pause, \
+        f"hero moved while paused: {p_pause} -> {(_posx(runner), _posy(runner))}"
+    assert _live_world(runner, 0) == e_pause, \
+        f"enemy moved while paused: {e_pause} -> {_live_world(runner, 0)}"
+    shot_b = "/tmp/m7dungeon_pause_b.png"
+    runner.take_screenshot(shot_b)
+    frac = _frac_changed(sa, _grid_samples(shot_b))
+    assert frac < 0.03, f"rendered frame changed while paused ({frac:.1%} of samples)"
+
+    # tap START -> RESUME; the enemy paces again
+    _hold(runner, 2, start=True)
+    runner.run_frames(2)
+    assert _paused(runner) == 0, "second START did not resume"
+    e_res0 = _live_world(runner, 0)
+    runner.run_frames(40)
+    assert _live_world(runner, 0) != e_res0, "world did not resume after unpause"
+    print(f"\npause: enemy paced running, froze at {e_pause} while paused "
+          f"(frame delta {frac:.1%}), paced again on resume. shots: {shot_a} {shot_b}")

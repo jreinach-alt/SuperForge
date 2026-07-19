@@ -46,8 +46,10 @@ the line; it costs one sentence.
 - **Start from the nearest rail**, not from zero: `scenarios/README.md`
   is the routing table (platformer, shmup, brawler, racer, Mode 7
   dungeon/overhead-shooter/flight, boss fights, split-screen, RPG, …).
-- **ROM title:** the header ships as `"SUPERFORGE TEST      "` — put your
-  game's name in the 21-byte title field (see `header.inc`); emulators,
+- **ROM title:** the header defaults to `"SUPERFORGE TEST      "` — set your
+  game's name (≤21 chars) with the `SF_HDR_TITLE` opt-in, two coupled lines
+  above the header include (do **not** edit `header.inc`):
+  `.define SF_HDR_TITLE "MY GAME"` then `SF_HDR_TITLE_SET = 1`. Emulators,
   flashcarts, and the jam's multicart menu display it.
 - **Checksum:** the header ships placeholder checksum bytes; emulators
   tolerate that. Multicart/flashcart tooling usually fixes checksums
@@ -59,3 +61,6 @@ the line; it costs one sentence.
 - **Deadline sanity:** `make check` re-verifies every template and macro
   group end-to-end. Run it before you submit; a green suite plus a
   `SF_REGION=pal` boot is the kit's definition of "ready".
+- **Before your first bad debugging evening:** read `EXPECTATIONS.md` — the
+  churn that is normal on this platform (width flags, write-twice latches),
+  the 10-minute path through it, and when to suspect the kit vs your code.

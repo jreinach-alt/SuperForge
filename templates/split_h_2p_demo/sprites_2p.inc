@@ -8,12 +8,13 @@
 ;   sprite:  (u,v) = R(-th) * (W - P)
 ;            k     = sp_vk[-v]                  (build-time inverse LUT)
 ;            tier  = sp_tier[k]                 (size ladder + seam-margin cull)
-;            sx    = 128 + u * recip(k) >> 8    (recip(k) = 65536/S8.8(k))
+;            sx    = 128 + u * recip(k) >> 8    (recip(k) = 65536 / s8.8(k))
 ;            sy    = band_top + k
 ;
-; THE MEASURED-FIRST CORE (this sprint's cold-start extension — the trial's
-; naive 4x-smul16 core cost 8,522 mc/sprite/visible-band and, critically,
-; 6,965 mc for CULLED sprites because both dots ran before the v-cull):
+; THE MEASURED-FIRST CORE (the cost was measured on the emulator, not
+; estimated). The obvious naive core — four signed 16x16 multiplies per sprite
+; — cost 8,522 mc/sprite/visible-band, and 6,965 mc even for CULLED sprites,
+; because both dot products ran before the v-cull. This core cuts both:
 ;   1. CULL ORDER: wrap-sub dx -> |dx|>176 out; dy likewise (Chebyshev
 ;      pre-cull, no multiplies) -> v dot -> v/d/k/tier culls -> ONLY THEN
 ;      the u dot. Culled sprites cost cycles, not multiplies.
@@ -29,7 +30,7 @@
 ;      culled sprites cost NO park store. The tail is parked only up to the
 ;      previous frame's watermark. 544-B shadow -> one GP-DMA in VBlank.
 ;
-; Shared snapshot (trial-proven, kept): ONE VBlank commits OAM + pose
+; Shared snapshot (measured and kept): ONE VBlank commits OAM + pose
 ; pointers/banks + origins from the SAME H/POS values; state then advances
 ; and the next frame's projection runs during active display (WRAM-only).
 ;
@@ -59,7 +60,8 @@
 ; DP SCRATCH REUSE ($B0-$CF): the engine math-wrapper block ($B0-$BD,
 ; ES_ATAN2_*) and the hires-box/M7-PV block ($C0-$CF) are QUIESCENT in this
 ; rail — it never calls atan2/sqrt, never arms the PV renderer or hires box
-; (same reuse the audited trial documented). No new persistent DP state.
+; (so borrowing their scratch bytes is safe by construction). No new
+; persistent DP state.
 ; WRAM: engine-free demo gap $7E:C0C0-$C7FF (below the allocator's $C800+).
 ; CLEAN-ROOM: mechanism only.
 ; =============================================================================
@@ -123,12 +125,13 @@ SP_MIRBASE  = $E400             ; SP_MIR: (sx,sy) words per sprite per band
 ; sp_init — one-time setup under FORCED BLANK: OBJ CHR upload, OBSEL, OBJ
 ; palettes, TM, parked OAM shadow, entity copy-in, first projection + commit
 ; (frame 1 shows a consistent snapshot).
-; WIDTH-RISK: entry/exit .a16/.i16; sep/rep pairs balanced inside.
+; WIDTH-RISK: 16-bit in and out, dropping to 8-bit only for the byte-wide
+; PPU/DMA register stores, each in a balanced sep/rep.
 ; =============================================================================
 sp_init:
     .a16
     .i16
-    ; --- disc CHR -> VRAM word $4000 (OBJ name base; Mode 7 owns $0000-$3FFF)
+    ; --- character-token CHR -> VRAM word $4000 (OBJ name base; Mode 7 owns $0000-$3FFF)
     sep #$20
     .a8
     lda #$80
@@ -153,7 +156,7 @@ sp_init:
     sta $4304
     rep #$20
     .a16
-    lda #2048                   ; 64 names (5 disc variants, 4x4 blocks padded)
+    lda #2048                   ; 64 names (5 character-token variants, 4x4 blocks padded)
     sta $4305
     sep #$20
     .a8
@@ -272,7 +275,8 @@ sp_init:
 ; =============================================================================
 ; sp_oam_commit — OAMADD=0 + 544-byte GP-DMA (ch0) of the WRAM shadow to $2104.
 ; Caller guarantees VBlank window or forced blank.
-; WIDTH-RISK: entry/exit .a16/.i16; sep/rep pairs balanced.
+; WIDTH-RISK: 16-bit in and out; the 8-bit windows are the DMA-register byte
+; stores, each in a balanced sep/rep.
 ; =============================================================================
 sp_oam_commit:
     .a16
@@ -310,8 +314,8 @@ sp_oam_commit:
 ; sp_cmag/sp_smag (magnitudes, <= 255 by LUT clamp) + sp_mc/sp_ms (sign masks).
 ; INVERSE rotation is the default; -DSP_FORWARD negates sin = the FORWARD
 ; floor matrix (the wrong-math non-vacuity control).
-; WIDTH-RISK: entry/exit .a16/.i16; sep/rep balanced (A8 magnitude stores).
-; Clobbers A, X.
+; WIDTH-RISK: 16-bit in and out; it dips to 8-bit only to store the two
+; magnitude bytes, each in a balanced sep/rep. Clobbers A, X.
 ; =============================================================================
 sp_band_coeffs:
     .a16
@@ -846,16 +850,17 @@ sp_project_band:
 
 .ifdef SP_ALTFRAME
 ; =============================================================================
-; sp_alt_toggle / sp_project_all_alt — ALTERNATE-FRAME REPROJECTION (probe;
-; owner feel-test question, NOT the default): the entity set splits into two
+; sp_alt_toggle / sp_project_all_alt — ALTERNATE-FRAME REPROJECTION (an
+; optional probe, NOT the default — it trades motion smoothness for sprite
+; headroom, a look-and-feel tradeoff): the entity set splits into two
 ; INDEX HALVES, each owning a fixed 64-entry OAM shadow REGION (region =
 ; half*256 bytes; hi-table bytes half*16..+15 — disjoint by construction).
 ; Each frame ONE half re-projects (compacting within its region, tail parked
 ; to that half's own watermark) while the other region HOLDS its 1-frame-old
 ; sprites: display stays 60 Hz, each sprite re-projects at 30 Hz. Players keep
 ; 60 Hz camera input; their MARKERS ride the half rate like everything else.
-; WIDTH-RISK: .a16/.i16 throughout both routines (sep/rep balanced in the
-; hi re-arm store loop). Clobbers A, X + DP scratch.
+; WIDTH-RISK: 16-bit throughout both routines; the only 8-bit window is the
+; hi-table re-arm store loop, balanced by sep/rep. Clobbers A, X + DP scratch.
 ; =============================================================================
 sp_alt_toggle:
     .a16
@@ -905,10 +910,9 @@ sp_project_all_alt:
     lda f:$7E0000 + SP_HALF
     xba                         ; half * 256
     and #$FF00
-    sta f:$7E0000 + SP_SLOT
-    sta f:$7E0000 + SP_OVER     ; (reuse as scratch is unsafe — keep count 0)
+    sta f:$7E0000 + SP_SLOT     ; region cursor = half * 256
     lda #$0000
-    sta f:$7E0000 + SP_OVER
+    sta f:$7E0000 + SP_OVER     ; overflow count starts at 0 for this pass
     lda f:$7E0000 + SP_SLOT
     clc
     adc #256
@@ -978,7 +982,8 @@ sp_project_all_alt:
 ; copy of the shipping loop's pointer math; the sprite loop commits floor(S)
 ; and sprites(S) in the same VBlank before advancing S).
 ; ptr(h) = slice_base + (h & 63)*448; banks via stamp_pose_banks.
-; WIDTH-RISK: .a16/.i16 throughout. Clobbers A.
+; WIDTH-RISK: pure 16-bit accumulator/index throughout — no width change for a
+; 16-bit caller. Clobbers A.
 ; =============================================================================
 sp_pose_ptrs:
     .a16
@@ -1033,7 +1038,8 @@ sp_pose_ptrs:
 ; sp_move_auto — both cameras drive FORWARD along their headings (verbatim
 ; copy of the shipping POSES=256 movement: move_lut 8.8 + per-axis fraction
 ; accumulators, constant 2.0 px/frame). Used when SP_INPUT is absent.
-; WIDTH-RISK: .a16/.i16 throughout. Clobbers A, X.
+; WIDTH-RISK: pure 16-bit throughout — no width change for a 16-bit caller.
+; Clobbers A, X.
 ; =============================================================================
 sp_move_auto:
     .a16
@@ -1121,7 +1127,8 @@ sp_move_auto:
 ; the auto-joypad bit set in SP_INPUT builds (the composed $81 store); the
 ; $4212 bit-0 poll guards the auto-read window (it usually completes before
 ; the VBlank commits finish — the poll is the safety, verified on emulator).
-; WIDTH-RISK: entry/exit .a16/.i16; sep/rep balanced around the A8 poll.
+; WIDTH-RISK: 16-bit in and out; the auto-read poll is the one 8-bit window,
+; wrapped in a balanced sep/rep.
 ; =============================================================================
 sp_read_pads:
     .a16
@@ -1144,10 +1151,11 @@ sp_read_pads:
 ; =============================================================================
 ; sp_players — joypad-driven cameras, matching the 256-pose step-per-frame
 ; model: D-pad Right/Left = heading +1/-1 per frame HELD (one pose step per
-; frame — the rotation-smoothness DoD rate), B = forward 2.0 px/f via the
-; move256 8.8 fractional accumulators (identical math to the auto drive).
+; frame — the rate at which the rotation reads smooth), B = forward 2.0 px/f
+; via the move256 8.8 fractional accumulators (identical math to the auto drive).
 ; Player 1 -> camera 1 (port $4218), player 2 -> camera 2 (port $421A).
-; WIDTH-RISK: .a16/.i16 throughout. Clobbers A, X.
+; WIDTH-RISK: pure 16-bit throughout — no width change for a 16-bit caller.
+; Clobbers A, X.
 ; =============================================================================
 sp_players:
     .a16
@@ -1284,7 +1292,8 @@ sp_players:
 ; sp_sync_players — entities 0/1 mirror the camera positions so each player's
 ; marker renders in the OTHER band (in its OWN band the marker projects to
 ; v = 0 = behind the pivot row and self-culls by construction).
-; WIDTH-RISK: .a16/.i16 throughout. Clobbers A.
+; WIDTH-RISK: pure 16-bit accumulator/index throughout — no width change for a
+; 16-bit caller. Clobbers A.
 ; =============================================================================
 sp_sync_players:
     .a16
@@ -1677,7 +1686,7 @@ sp_ai_tick:
     cmp #$8000
     ror a
 .endif
-    sta z:sp_ady                ;  steering rate halves — feel-test item)
+    sta z:sp_ady                ;  the steering rate halves as a side effect)
     plx
     ; x axis: s = fracx + vx2; pos += s>>8 (sign-extended); fracx = s & $FF
     lda f:$7E0000 + SP_ENTS + 6, x  ; fracy<<8 | fracx
@@ -1889,7 +1898,7 @@ sp_hi_pos:     .byte $00, $01, $02, $03
                .byte $00, $04, $08, $0C
                .byte $00, $10, $20, $30
                .byte $00, $40, $80, $C0
-sp_chr:       .incbin "assets/sp_chr.bin"      ; 64 names: 5 disc variants
+sp_chr:       .incbin "assets/sp_chr.bin"      ; 64 names: 5 character-token variants
 .ifdef SP_VISWORLD
 sp_world:     .incbin "assets/sp_world_vis.bin"  ; instrument: all visible
 .elseif .defined(SP_FARWORLD)

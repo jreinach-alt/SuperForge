@@ -1,25 +1,35 @@
 ; =============================================================================
-; m7_oshoot — Mode 7 rotating-floor OVERHEAD SHOOTER (rotating Mode 7 floor) — S1..S6
+; m7_oshoot — Mode 7 rotating-floor OVERHEAD SHOOTER
 ; =============================================================================
-; The genre rail for a top-down run-and-gun on a ROTATING Mode 7 ground plane
-; (rotating-floor overhead-stage run-and-gun). FORKED from m7_dungeon: it
-; keeps the static-affine rotating floor + the world->screen TRANSPOSE-matrix
-; sprite projection + the world-space gameplay model, and swaps the dungeon's
-; tank controls for "face-where-you-move" 8-WAY aim/move (model A), adds a
-; sf_pool BULLET pool projected onto the spinning floor, timed enemy WAVES, and
-; world-space bullet<->enemy collision.
+; The genre rail for a top-down run-and-gun on a ROTATING Mode 7 ground plane.
+; FORKED from m7_dungeon: it keeps the static-affine rotating floor + the
+; world->screen TRANSPOSE-matrix sprite projection + the world-space gameplay
+; model, and swaps the dungeon's tank controls for "face-where-you-move" 8-WAY
+; aim/move, adds a sf_pool BULLET pool projected onto the spinning floor, timed
+; enemy WAVES, and world-space bullet<->enemy collision.
 ;
-; CONTROL MODEL A (owner-locked): the D-pad picks one of 8 compass headings and
-; moves the player's WORLD position along it; R_ANGLE snaps to that heading so
-; the floor rotates and the player's facing always reads "up". Fire (A) shoots
-; FORWARD along the facing (up on screen = along the heading in world). The last
-; facing PERSISTS when stationary, so stand-and-shoot works.
+; Controls:
+;   D-pad (8 ways)  pick a compass heading and move the player's WORLD position
+;                   along it; the floor rotates so the facing always reads "up".
+;                   The last facing PERSISTS when you stop (stand-and-shoot works).
+;   A               fire FORWARD along the facing (up on screen = along the heading)
 ;
 ; The floor is the Mode 7 BG, scaled+rotated as one rigid image by a single
 ; UNIFORM affine matrix (sf_mode7_affine.inc — the same static-affine path the
 ; boss rail uses). The hero is an OBJ composited over it at screen centre; the
 ; affine matrix never touches OBJ, so the hero stays pinned + upright while the
 ; world spins beneath.
+;
+; File layout (major banners, top to bottom):
+;   INIT         — upload the floor map / CHR / palettes under forced blank, turn
+;                  Mode 7 on, seed the world + pools, start the screen
+;   MAIN LOOP    — game_loop: aim/move, fire + advance bullets, spawn/chase enemies,
+;                  collide, then project + draw the floor, bullets, enemies, hero
+;   SUBROUTINES  — per-axis wall collision, world->screen projection, the pools'
+;                  spawn/chase/collision helpers
+;   DATA         — the heading table, bullet/enemy palettes, wave ring, the map blob
+;
+; game_loop is the once-per-frame heartbeat — start reading there.
 ;
 ; THE ARCHITECTURE (static-affine, ~no HDMA):
 ;   - sf_boss_mode7_on installs Mode 7 with M7_PV_ACTIVE=1 so the STOCK engine
@@ -29,42 +39,35 @@
 ;   - sf_boss_center world_x, world_y  pins the player's WORLD (x,y) to screen
 ;     centre (128,112) every frame: a per-frame MOVING PIVOT. The pivot is the
 ;     centre of rotation, so pinning it to the player keeps the player centred as
-;     the floor spins. (Net-new vs the boss, which pins the pivot ONCE — here it
+;     the floor spins. (Unlike the boss rail, which pins the pivot ONCE — here it
 ;     moves each frame. It is just a shadow write the stock NMI already commits.)
 ;   - sf_boss_matrix #SCALE, angle  rotates the whole plane uniformly so the
 ;     player's facing reads "up". SCALE=$0100 (1.0) = flat, no zoom. Call FIRST
 ;     after sf_frame_begin so the whole visible frame reads one matrix.
 ;
-; S1 SCOPE: 8-WAY aim/move (control model A) over the m7_dungeon spine —
-;   - The D-pad picks one of 8 compass headings (dir8_angle table) and snaps
-;     R_ANGLE to it; the SAME R_ANGLE drives sf_boss_matrix, so the floor rotates
-;     and the player's facing always reads "up". Facing PERSISTS when no direction
-;     is held (R_MOVING=0) so stand-and-shoot works.
-;   - While a direction is held the world advances FORWARD along the facing at a
-;     fixed MOVE_SPEED (pos -= sincos*speed: DX=-sina, DY=-cosa, the m7_dungeon
-;     sign convention), so the floor SCROLLS in the faced direction.
-; MOVE_SPEED is capped SLOW (<= ~1.25 px/frame) so per-step collision cannot
-; tunnel a 2-tile (16px) wall in a single step.
-;
-; WORLD-SPACE WALL COLLISION (kept from m7_dungeon) — the hero must NOT pass
-; walls. Collision is done in WORLD space, independent of the render rotation:
-;   - dungeon_terrain.bin (128x128 byte LUT, 1=solid/0=floor) is emitted from the
-;     SAME is_wall() predicate that paints the wall art, so "what you see is what
-;     blocks you" by construction. A world pixel (wx,wy) maps to tile (wx>>3,
-;     wy>>3) and reads terrain[ty*128+tx].
-;   - CANDIDATE-TEST-COMMIT + PER-AXIS SLIDE: each axis is committed only if its
-;     candidate footprint is clear, so a diagonal push into an axis-aligned wall
-;     SLIDES along it (the unblocked axis still progresses).
-;   - HERO FOOTPRINT: an 8px box (HALF=4) whose 4 world corners are sampled.
-; DBG_BLOCK_CT mirrors the blocked-axis count.
-;
-; S2 SCOPE: sf_pool BULLETS fired along the facing, advanced in WORLD space.
-; S3 SCOPE: bullet PROJECTION onto the rotating floor (draw_bullets, transpose
-;   matrix, shared M7A_SAV..D snapshot) — THE CRUX (the projection 3-time-bug
-;   class). S4 SCOPE: timed enemy WAVES (sf_pool) chasing the player in world
-;   space, projected onto the floor. S5 SCOPE: bullet<->enemy WORLD-SPACE box
-;   collision (rotation-invariant, never reads the matrix) + hero CONTACT
-;   knockback+HITS (kept from m7_dungeon).
+; MECHANICS:
+;   - 8-WAY aim/move: the D-pad picks one of 8 compass headings (dir8_angle table)
+;     and snaps R_ANGLE to it; the SAME R_ANGLE drives sf_boss_matrix, so the floor
+;     rotates and the facing reads "up". While a direction is held the world
+;     advances FORWARD along the facing at a fixed MOVE_SPEED (pos -= sincos*speed:
+;     DX=-sina, DY=-cosa, the m7_dungeon sign convention). MOVE_SPEED is capped SLOW
+;     (<= ~1.25 px/frame) so per-step collision cannot tunnel a 16px wall in a step.
+;   - WORLD-SPACE WALL COLLISION (kept from m7_dungeon): collision runs in WORLD
+;     space, independent of the render rotation. dungeon_terrain.bin (128x128 byte
+;     LUT, 1=solid/0=floor) is emitted from the SAME is_wall() predicate that paints
+;     the wall art, so "what you see is what blocks you". A world pixel (wx,wy) maps
+;     to tile (wx>>3, wy>>3) and reads terrain[ty*128+tx]. Each axis is
+;     candidate-tested and committed only if its footprint is clear, so a diagonal
+;     push into a wall SLIDES along the unblocked axis. The hero footprint is an 8px
+;     box (HALF=4) whose 4 world corners are sampled; DBG_BLOCK_CT mirrors the
+;     blocked-axis count.
+;   - BULLETS: a sf_pool of shots fired along the facing, advanced in WORLD space,
+;     then PROJECTED onto the rotating floor (draw_bullets, the transpose matrix, the
+;     shared M7A_SAV..D snapshot) — the projection is the trickiest math in the rail.
+;   - ENEMIES: timed WAVES (sf_pool) chase the player in world space, projected onto
+;     the floor. Bullet<->enemy collision is a WORLD-SPACE box test (rotation-
+;     invariant, never reads the matrix), and a hero<->enemy CONTACT knocks the hero
+;     back and ticks HITS (kept from m7_dungeon).
 ;
 ; OBJ-OVER-MODE-7 (baked in): the Mode 7 map fills VRAM words $0000-$3FFF, so the
 ; OBJ name base moves to word $4000 (OBSEL=$62); the hero CHR uploads there and
@@ -72,13 +75,16 @@
 ;
 ; Build:  make m7_oshoot   (the generic templates rule reads the LDCFG sentinel)
 ; LDCFG: lorom_64k.cfg
-;   ^ Linker-config sentinel (GAP-2): 64KB image, the 32KB floor-map blob fills
-;     BANK1. The generic build/%.sfc rule reads this and links lorom_64k.cfg.
+;   ^ Linker-config sentinel: 64KB image, the 32KB floor-map blob fills BANK1. The
+;     generic build/%.sfc rule reads this and links lorom_64k.cfg.
 ; =============================================================================
 
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "SPIN GUNNER"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic
 .include "sf_frame.inc"         ; sf_engine_init, sf_frame_begin/end
@@ -116,28 +122,28 @@ HERO_SIZE_BIT  = $0080          ; bit7 SET -> 32x32 LARGE (the phantom-diamond b
 ENEMY_SIZE_BIT = $0080
 .endif
 
-; --- S3 bullet-projection NON-VACUITY toggle. Build with -DBULLET_PROJ_FORWARD=1
+; --- bullet-projection NON-VACUITY toggle. Build with -DBULLET_PROJ_FORWARD=1
 ;     to project bullets with the FORWARD (screen->texel) matrix [[A,B],[C,D]]
 ;     instead of its inverse (the TRANSPOSE [[A,C],[B,D]]). Bullets then rotate
 ;     the WRONG way and SWIM onto the walls under floor rotation. The rendered-
-;     floor S3 test must FAIL on this build (a held bullet lands on WALL pixels at
+;     floor test must FAIL on this build (a held bullet lands on WALL pixels at
 ;     rotated angles) and PASS on the default — proving the floor test is not
 ;     vacuous. Default = the correct TRANSPOSE projection. ---
 .ifndef BULLET_PROJ_FORWARD
 BULLET_PROJ_FORWARD = 0
 .endif
 
-; --- S5 bullet<->enemy collision toggle (negative control). Build with
+; --- bullet<->enemy collision toggle (negative control). Build with
 ;     -DNO_BULLET_COLLISION=1 to DISABLE the world-space bullet<->enemy overlap
-;     so bullets pass THROUGH enemies (enemies survive at every angle). The S5
+;     so bullets pass THROUGH enemies (enemies survive at every angle). The
 ;     hit-through-rotation test must FAIL on this build (enemy not killed) —
 ;     proving the collision assertion is not vacuous. Default = collision ON. ---
 .ifndef NO_BULLET_COLLISION
 NO_BULLET_COLLISION = 0
 .endif
 
-; --- S3 FROZEN-BULLET test hook. Build with -DDBG_FROZEN_BULLET=1 to freeze
-;     bullets at their spawn world spot (velocity ignored). The S3 glue-through-
+; --- FROZEN-BULLET test hook. Build with -DDBG_FROZEN_BULLET=1 to freeze
+;     bullets at their spawn world spot (velocity ignored). The glue-through-
 ;     rotation test (#3) fires ONE bullet at a known floor spot, then snaps the
 ;     plane through a heading sweep; the frozen bullet (fixed WORLD pos) must stay
 ;     glued to the SAME rendered FLOOR spot at every angle (it orbits screen-
@@ -147,15 +153,15 @@ DBG_FROZEN_BULLET = 0
 .endif
 
 ; --- world geometry ---
-SCALE_VIEW = $0100              ; 1.0 screen->texel (FLAT, no zoom — per S1 spec)
+SCALE_VIEW = $0100              ; 1.0 screen->texel (FLAT, no zoom)
 WORLD_MAX  = 1023               ; walkable plane is 0..1023 px (128 tiles * 8)
 HERO_HALF  = 4                  ; footprint half-extent: 8px box (near pos-4 .. far pos+3)
 
-; --- 8-WAY aim/move tuning (S1: control model A) -----------------------------
+; --- 8-WAY aim/move tuning ---------------------------------------------------
 ; The D-pad picks one of 8 compass headings (R_ANGLE in 32-unit steps) and the
 ; player MOVES forward along it at a FIXED speed (8.8). Facing = move direction,
 ; so the floor rotates to read "up" and the last facing persists when idle.
-; Speed is capped SLOW (<= ~1.25 px/frame) so S3's per-step collision can't
+; Speed is capped SLOW (<= ~1.25 px/frame) so the per-step collision can't
 ; tunnel a 2-tile (16px) wall in a single step.
 MOVE_SPEED = $0140              ; +1.25 px/frame world move along the heading (8.8)
 
@@ -167,7 +173,7 @@ JOY_UP    = $0800
 JOY_Y     = $4000
 JOY_B     = $8000
 
-; --- 8-way heading table: a D-pad direction code 0..8 -> R_ANGLE (model A). The
+; --- 8-way heading table: a D-pad direction code 0..8 -> R_ANGLE. The
 ;     code is a bitfield UDLR built below (U=8 D=4 L=2 R=1); the table maps each
 ;     valid single/diagonal combination to the compass heading whose FORWARD
 ;     world motion (pos -= sincos*speed: DX=-sina, DY=-cosa) points that way:
@@ -198,7 +204,7 @@ HERO_X = 128 - 8
 HERO_Y = 112 - 8
 
 ; --- game DP state (kit contract: $32-$5F; matches the mode7_flight register
-;     file so S2 can splice the tank integrator in over this layout) ---
+;     file so later code can splice the tank integrator in over this layout) ---
 R_POSX   = $32                   ; world x, 16.16 (frac word @ +0, integer px @ +2)
 R_POSY   = $36                   ; world y, 16.16
 R_ANGLE  = $3A                   ; heading (low byte 0..255), drives the matrix
@@ -207,7 +213,7 @@ R_MOVING = $3C                   ; 1 = a direction is held this frame (commit th
 DIR_BITS = $3D                   ; one-frame UDLR bitfield scratch (built each frame
                                  ;     from the D-pad, indexes dir8_angle)
 
-; --- S3 collision scratch (game DP $3E-$4F; one-frame scratch, not persistent.
+; --- collision scratch (game DP $3E-$4F; one-frame scratch, not persistent.
 ;     $50+ is engine-owned Mode 7 HDMA state — do NOT spill collision scratch
 ;     there). ----------------------------------------------------------------
 STEP_FX  = $3E                   ; this-frame X step 16.16 frac (sina*speed)
@@ -220,7 +226,7 @@ CAND_PY  = $4A                   ; candidate world y integer px (footprint centr
 T_PTR    = $4C                   ; 3-byte 24-bit pointer into terrain LUT
 SCR_TX   = $4F                   ; scratch: tile x for a corner probe (0..127)
 
-; --- S4 enemy sprite projection -------------------------------------------
+; --- enemy sprite projection ----------------------------------------------
 ; STATIC enemies live at fixed WORLD positions and are PROJECTED onto the
 ; rotating Mode 7 plane each frame, so they stay glued to their world tile as
 ; the floor rotates AND scrolls. world->screen needs the INVERSE of the Mode 7
@@ -232,7 +238,7 @@ SCR_TX   = $4F                   ; scratch: tile x for a corner probe (0..127)
 ; and A,B,C,D are the SAME M7A-M7D sf_boss_matrix just committed this frame —
 ; we read them straight out of the API block ($60-$66) BEFORE any spr clobbers
 ; that DP, then save them in scratch for the per-enemy loop.
-; S4: enemies are now a sf_pool of WAVE chasers (timed spawns at a world ring,
+; enemies are now a sf_pool of WAVE chasers (timed spawns at a world ring,
 ; chase toward the player). ENEMY_COUNT = the pool size (slots managed every
 ; frame for stable OAM). The per-slot LIVE world pos lives in the DBG_ENE_BASE
 ; mirror (now pool-indexed; dead slots are parked). The enemy pool ALIVE array +
@@ -263,11 +269,11 @@ OBJ_HALF   = 8                   ; 16x16 sprite: OAM (x,y) = centre - 8
 CULL_Y     = $00F0               ; park off-screen Y (kit convention)
 CULL_MARGIN = 16                 ; px slack so a 16px sprite half-on-screen still shows
 
-; --- S2 BULLET POOL (sf_pool) ----------------------------------------------
+; --- BULLET POOL (sf_pool) -------------------------------------------------
 ; Fire (A, rising edge) spawns a bullet at the hero WORLD pos with a velocity
 ; along the facing (forward = -(sincos)*speed, the m7_dungeon step convention).
 ; Bullets travel in WORLD space and despawn at max range (a TTL countdown).
-; S3 projects them onto the rotating floor via the SAME transpose matrix the
+; draw_bullets projects them onto the rotating floor via the SAME transpose matrix the
 ; enemies use (the shared M7A_SAV..D snapshot).
 ;
 ; WRAM POOL-ARRAY MAP (the $1800-$1DFF game-array region; sf_pool.inc requires
@@ -278,7 +284,7 @@ CULL_MARGIN = 16                 ; px slack so a 16px sprite half-on-screen stil
 ;   BUL_VX    $1830  world step x[8] per frame (signed, set at fire)
 ;   BUL_VY    $1840  world step y[8] per frame (signed)
 ;   BUL_TTL   $1850  frames-to-live[8] (max-range despawn)
-;   -> bullets occupy $1800-$185F. The enemy pool (S4) takes $1860-$18BF
+;   -> bullets occupy $1800-$185F. The enemy pool takes $1860-$18BF
 ;      (disjoint). OAM slots are disjoint too (see OAM SLOT MAP below).
 BULLET_N   = 8
 BUL_ALIVE  = $1800
@@ -308,7 +314,7 @@ BULLET_ATTR = $0004              ; OBJ palette 2 (PPP=%010 -> bits3:1=%010=$04),
                                  ;   name bit 0, size bit7 CLEAR (16x16)
 BULLET_PRI  = 2
 
-; --- S4 projection scratch (REUSES the S3 collision DP $3E-$4F: that scratch is
+; --- projection scratch (REUSES the collision DP $3E-$4F: that scratch is
 ;     one-frame and DEAD by the time projection runs — after move_x/move_y AND
 ;     after the matrix is committed. No new ES_* needed; zp-check stays clean). --
 M7A_SAV  = $3E                   ; saved M7A (cos*scale>>8) for this frame
@@ -325,7 +331,7 @@ PRJ_SY   = $4E                   ; projected screen y (signed, pre-cull); then O
 ; projection — no new game-DP slot needed (keeps zp-check clean).
 proj_sum = $BC
 
-; --- S5 patrol/contact scratch (REUSES the same one-frame $46-$4F scratch).
+; --- patrol/contact scratch (REUSES the same one-frame $46-$4F scratch).
 ;     patrol_enemies + contact_enemies run AFTER the matrix snapshot (so M7A_SAV
 ;     ..M7D_SAV $3E-$44 must survive) and BEFORE draw_enemies (which re-inits its
 ;     own ENE_IDX/PRJ_* scratch). The footprint test reuses CAND_PX/CAND_PY
@@ -341,14 +347,14 @@ DBG_POSY      = $E014            ; 2B world y integer px
 DBG_ANGLE     = $E016            ; 2B heading
 DBG_BLOCK_CT  = $E018            ; 2B count of blocked axis-steps (collision proof)
 DBG_LASTTERR  = $E01A            ; 2B last terrain class read (footprint corner)
-; S4 per-enemy mirrors: world (x,y) then projected screen (sx,sy), 8 bytes each.
+; Per-enemy mirrors: world (x,y) then projected screen (sx,sy), 8 bytes each.
 ; The test reads these as the projection OUTPUT oracle (computed vs ROM).
 DBG_ENE_BASE  = $E020            ; ENEMY_COUNT * 8 bytes:
                                  ;   +0 world_x  +2 world_y  +4 screen_x  +6 screen_y
 DBG_ENE_STRIDE = 8
 
-; --- S4 WAVE SPAWN + CHASE, S5 CONTACT -------------------------------------
-; S4 turns the enemies into a sf_pool of WAVE CHASERS:
+; --- WAVE SPAWN + CHASE + CONTACT ------------------------------------------
+; The enemies are a sf_pool of WAVE CHASERS:
 ;   - WAVE SPAWN: a SPAWN_T countdown (shmup cadence) spawns one enemy every
 ;     SPAWN_PERIOD frames at a world-RING position around the player (a few fixed
 ;     ring offsets cycled by a cursor), so enemies POP IN from off-screen.
@@ -359,7 +365,7 @@ DBG_ENE_STRIDE = 8
 ; This exercises projection under BOTH rotation (the floor) and translation (the
 ; chasers move + the player moves).
 ;
-; S5 CONTACT (kept from the dungeon brick): each frame, a WORLD-space box overlap
+; CONTACT (kept from the dungeon rail): each frame, a WORLD-space box overlap
 ; between the hero + each live enemy. On contact the hero is knocked back to spawn
 ; (R_POSX/Y = spawn) and a HITS counter ticks, with a post-respawn GRACE window.
 ENEMY_SPEED  = 1                 ; world px/frame each chaser steps toward the player
@@ -376,29 +382,29 @@ BULHIT_HALF  = 8                 ; bullet<->enemy world-box half-extent: overlap
                                  ;   the 16x16 sprites. WORLD-space (never reads the
                                  ;   matrix) -> the hit is ROTATION-INVARIANT.
 
-; --- S5 debug mirrors (in the free gap $E01C-$E01F between DBG_LASTTERR and
+; --- contact debug mirrors (in the free gap $E01C-$E01F between DBG_LASTTERR and
 ;     DBG_ENE_BASE) ---
 DBG_HITS      = $E01C            ; 2B hero-enemy contact (knockback) counter
 DBG_GRACE     = $E01E            ; 2B post-respawn grace countdown (frames left)
 ; (the old ENE_DIR_BASE patrol-state table is GONE — chasers steer toward the
 ;  player each frame, no persistent per-enemy direction is needed.)
 
-; --- S2 BULLET debug mirrors (read by the test; in the free $E050.. gap) ---
+; --- BULLET debug mirrors (read by the test; in the free $E050.. gap) ---
 DBG_BUL_COUNT = $E050            ; 2B live bullet count (sf_pool_count)
 DBG_BUL_BASE  = $E052            ; BULLET_N * 8 bytes per-bullet mirror:
                                  ;   +0 world_x  +2 world_y  +4 screen_x  +6 screen_y
-                                 ;   (screen_x/y written by draw_bullets in S3)
+                                 ;   (screen_x/y written by draw_bullets)
 DBG_BUL_STRIDE = 8
-DBG_KILLS     = $E092            ; 2B bullet<->enemy kill counter (S5)
+DBG_KILLS     = $E092            ; 2B bullet<->enemy kill counter
 
-; --- S4 PERSISTENT wave-spawn state (WRAM, like the mirrors; clear of the DP
+; --- PERSISTENT wave-spawn state (WRAM, like the mirrors; clear of the DP
 ;     contract). DBG_ENE_BASE spans $E020..$E04F (6 enemies * 8B); DBG_BUL_BASE
 ;     spans $E052..$E091 (8 bullets * 8B); DBG_KILLS = $E092. The wave state sits
 ;     just past it. ---
 WAVE_SPAWN_T  = $E094            ; 2B frames-until-next-spawn countdown
 WAVE_SPAWN_IX = $E096            ; 2B ring-offset cursor (0..RING_N-1)
 
-; --- S2/S3 BULLET one-frame DP scratch. The bullet update + projection run in
+; --- BULLET one-frame DP scratch. The bullet update + projection run in
 ;     the SAME frame window as the enemy patrol/projection, so they must use DP
 ;     that is dead at that point. The enemy projection owns $3E-$4F ($3E-$44 is
 ;     the live matrix snapshot M7A_SAV..D; $46-$4F is per-actor projection
@@ -417,6 +423,10 @@ NMI:
 NMI_STUB:
     rti
 
+; =============================================================================
+; INIT — power-on setup: upload the floor map / CHR / palettes under forced blank,
+; turn Mode 7 on, seed the world + enemy + bullet pools, then screen + NMI on.
+; =============================================================================
 RESET:
     sf_coldstart
     sf_engine_init
@@ -436,12 +446,12 @@ RESET:
     ; --- dungeon palette -> CGRAM 0.. (idx 0 = floor backdrop) ---
     sep #$20
     .a8
-    stz $2121                     ; CGADD = 0
+    stz $2121                     ; CGADD (CGRAM address): start at colour 0
     ldx #$0000
 dpal_loop:
     .a8
     lda f:dungeon_pal, x
-    sta $2122
+    sta $2122                     ; CGDATA (CGRAM data): write; index auto-advances
     inx
     cpx #(DUNGEON_PAL_COUNT * 2)
     bne dpal_loop
@@ -453,10 +463,10 @@ dpal_loop:
     ;     $4000 = tile 1024 via OBSEL=$62) ---
     sf_load_obj_pal 0, hero_pal
     sf_load_obj_chr 1024, hero_chr, HERO_CHR_BYTES
-    ; --- S4 enemy CHR (VRAM word $4200 = OBJ tile 32) + OBJ palette 1 ---
+    ; --- enemy CHR (VRAM word $4200 = OBJ tile 32) + OBJ palette 1 ---
     sf_load_obj_pal 1, enemy_pal
     sf_load_obj_chr ENEMY_OBJ_VTILE, enemy_chr, ENEMY_CHR_BYTES
-    ; --- S3 bullet OBJ palette 2 (reuses the enemy CHR shape, own bright palette
+    ; --- bullet OBJ palette 2 (reuses the enemy CHR shape, own bright palette
     ;     so a rendered bullet reads distinct from the red enemy + cyan hero) ---
     sf_load_obj_pal 2, bullet_pal
     sep #$20
@@ -485,13 +495,13 @@ dpal_loop:
     sf_boss_center R_POSX + 2, R_POSY + 2
     sf_boss_matrix #SCALE_VIEW, R_ANGLE
 
-    ; --- S5: seed LIVE enemy world pos (DBG_ENE_BASE +0/+2) from the ROM table,
+    ; --- seed LIVE enemy world pos (DBG_ENE_BASE +0/+2) from the ROM table,
     ;     init each enemy's patrol direction to +PATROL_SPEED, and zero the HITS /
     ;     GRACE counters. The enemies pace from here; the ROM table is the spawn
     ;     seed only (enemies MOVE, so the live pos lives in WRAM). ---
     jsr enemy_init
 
-    ; --- S2: bullet pool starts all-free (sf_coldstart zeroed WRAM, but init
+    ; --- bullet pool starts all-free (sf_coldstart zeroed WRAM, but init
     ;     explicitly on game start per the sf_pool contract) ---
     sf_pool_init BUL_ALIVE, BULLET_N
     rep #$30
@@ -504,21 +514,25 @@ dpal_loop:
     sep #$20
     .a8
     lda #$0F
-    sta $2100
+    sta $2100                     ; INIDISP (display control): brightness 15, blank off
     sta SHADOW_INIDISP
     lda #$81
-    sta $4200                     ; NMI + auto-joypad
+    sta $4200                     ; NMITIMEN (interrupt enable): VBlank NMI + auto-joypad read
     rep #$30
     .a16
     .i16
 
+; =============================================================================
+; MAIN LOOP — game_loop runs once per frame: aim/move, fire + advance bullets,
+; snapshot the matrix, spawn/chase enemies, collide, then project + draw the
+; floor, enemies, bullets, and the hero.
 ; =============================================================================
 game_loop:
     .a16
     .i16
     sf_frame_begin
 
-    ; ---------------- 8-WAY aim/move (control model A) -----------------------
+    ; ---------------- 8-WAY aim/move -----------------------------------------
     ; Build a UDLR bitfield from the held D-pad, look up the heading, and if a
     ; valid direction is held: snap R_ANGLE to it (the floor rotates to read
     ; "up") and set R_MOVING=1 so the step below advances the world. No direction
@@ -620,12 +634,12 @@ dir_idle:
 move_skip:
     .a16
 
-    ; ---------------- S2: fire (A rising edge) + advance bullets (world space) -
+    ; ---------------- fire (A rising edge) + advance bullets (world space) ----
     ; Fire spawns a bullet at the hero WORLD pos with a velocity along the facing
     ; (forward = -(sincos)*BULLET_SPEED — the SAME sign convention as the hero
     ; step). update_bullets advances every live bullet in WORLD space and
     ; despawns it at max range (TTL). Both run BEFORE the matrix snapshot (they do
-    ; not need the matrix — projection is S3); they only touch the bullet pool +
+    ; not need the matrix — projection is a later pass); they only touch the bullet pool +
     ; BUL_OFF scratch.
     jsr fire_bullet
     jsr update_bullets
@@ -634,7 +648,7 @@ move_skip:
     sf_boss_center R_POSX + 2, R_POSY + 2
     sf_boss_matrix #SCALE_VIEW, R_ANGLE
 
-    ; --- S4: snapshot the matrix THIS frame committed (API block $60-$66) into
+    ; --- snapshot the matrix THIS frame committed (API block $60-$66) into
     ;     scratch BEFORE any spr macro reuses that DP. M7A=$60 M7B=$62 M7C=$64
     ;     M7D=$66. The enemy projection reads these so it uses the EXACT matrix
     ;     the floor rendered with -> sprites stay glued (no swim). ---
@@ -647,7 +661,7 @@ move_skip:
     lda API_BLOCK_BASE + $06
     sta M7D_SAV
 
-    ; ---------------- S4: wave spawn + chase (world space) -------------------
+    ; ---------------- wave spawn + chase (world space) ----------------------
     ; Spawn a wave enemy on the SPAWN_PERIOD cadence at a world ring (pop-in), then
     ; step every live chaser toward the player. The live world pos in DBG_ENE_BASE
     ; +0/+2 is updated in place. Runs AFTER the matrix snapshot (M7A_SAV..D safe at
@@ -655,7 +669,7 @@ move_skip:
     jsr enemy_waves
     jsr chase_enemies
 
-    ; ---------------- S5: bullet<->enemy WORLD-SPACE collision -----------------
+    ; ---------------- bullet<->enemy WORLD-SPACE collision -------------------
     ; Nested AABB on world coords (never reads the matrix -> rotation-invariant).
     ; On overlap: kill both pool slots + tick KILLS. Gated out by
     ; -DNO_BULLET_COLLISION (the non-vacuity control: bullets pass through enemies).
@@ -663,7 +677,7 @@ move_skip:
     jsr bullet_enemy_collide
 .endif
 
-    ; ---------------- S5: hero-enemy CONTACT (world-box) ----------------------
+    ; ---------------- hero-enemy CONTACT (world-box) ------------------------
     ; Tick the grace countdown; if not graced, test the hero footprint vs each
     ; enemy in WORLD coords. On contact: knock the hero back to spawn, zero
     ; speed, tick HITS, and (re)arm the grace window so an enemy beat crossing
@@ -680,10 +694,10 @@ move_skip:
     ; so a phantom enemy diamond would bleed into the hero's lower quadrant.
     spr #HERO_TILE, #HERO_X, #HERO_Y, #(HERO_SIZE_BIT), #2  ; OBJ pal 0, prio 2, 16x16
 
-    ; ---------------- S4: project + draw the static enemies (slots 1+) --------
+    ; ---------------- project + draw the enemies (slots 1+) ------------------
     jsr draw_enemies
 
-    ; ---------------- S3: project + draw the bullets (slots BULLET_OAM0+) ------
+    ; ---------------- project + draw the bullets (slots BULLET_OAM0+) --------
     ; THE CRUX: project each live bullet onto the rotating floor via the SHARED
     ; M7A_SAV..D snapshot + the TRANSPOSE (same window/matrix as draw_enemies).
     jsr draw_bullets
@@ -701,6 +715,13 @@ move_skip:
 
     sf_frame_end
     jmp game_loop
+
+; =============================================================================
+; ============================== SUBROUTINES ==================================
+; Per-axis wall collision (move_x/move_y/clamp/footprint/px_to_tile/terr_at_world),
+; world->screen projection (draw_enemies/draw_bullets), and the bullet + enemy
+; pools' fire/advance/spawn/chase/collision helpers.
+; =============================================================================
 
 ; =============================================================================
 ; move_x — try to advance world X by STEP_X (pos -= step), with per-axis collision.
@@ -1010,7 +1031,7 @@ fb_done:
 ; update_bullets — advance every LIVE bullet in WORLD space by its per-frame
 ; velocity and despawn it when its TTL hits 0 (max range). Mirrors the live
 ; bullet count + each bullet's world pos to the debug region (DBG_BUL_COUNT /
-; DBG_BUL_BASE) so the S2 test can read motion without projection.
+; DBG_BUL_BASE) so the test can read bullet motion without projection.
 ; Entry/Exit: A16/I16, DB=0. Clobbers A, X, Y. Uses BUL_OFF.
 ; =============================================================================
 update_bullets:
@@ -1018,7 +1039,7 @@ update_bullets:
     .i16
 .if DBG_FROZEN_BULLET
     ; TEST BUILD (-DDBG_FROZEN_BULLET): freeze bullets at their spawn world spot
-    ; (velocity ignored, TTL not ticked) so the S3 rendered-floor sweep can prove
+    ; (velocity ignored, TTL not ticked) so the rendered-floor sweep can prove
     ; a FIXED world point stays glued to the SAME floor spot as the plane rotates.
     ; Still mirror the count + per-bullet world pos so the test reads them.
     sf_pool_count BUL_ALIVE, BULLET_N
@@ -1171,7 +1192,7 @@ draw_enemies:
 de_loop:
     .a16
     .i16
-    ; --- S4: skip DEAD pool slots -> park their OAM (stable slots). The pool
+    ; --- skip DEAD pool slots -> park their OAM (stable slots). The pool
     ;     ALIVE array is indexed by slot byte offset (idx*2). ---
     lda ENE_IDX
     asl a                         ; idx*2 (pool stride)
@@ -1703,7 +1724,7 @@ ce_hit:
     rts
 
 ; =============================================================================
-; bullet_enemy_collide — S5: each LIVE bullet vs each LIVE enemy in WORLD space
+; bullet_enemy_collide — each LIVE bullet vs each LIVE enemy in WORLD space
 ; (the shmup nested col_box idiom, done as an inline AABB on world coords — it
 ; NEVER reads the Mode 7 matrix, so the hit is ROTATION-INVARIANT). On overlap:
 ; kill BOTH pool slots (bullet + enemy) and tick the KILLS counter. One enemy per
@@ -1897,10 +1918,10 @@ dir8_angle:
     .word DIR_NONE          ; 14 UDL-  cancel
     .word DIR_NONE          ; 15 UDLR  cancel
 
-; --- S3 bullet OBJ palette (16 colours, BGR555). The bullet reuses the enemy
+; --- bullet OBJ palette (16 colours, BGR555). The bullet reuses the enemy
 ;     CHR (indices 1 body / 2 outline / 3 highlight) but a BRIGHT-YELLOW bolt
 ;     palette so a rendered bullet is plainly distinct from the red enemy and the
-;     cyan hero on the framebuffer (the S3 rendered-floor test reads bullet px).
+;     cyan hero on the framebuffer (the rendered-floor test reads bullet px).
 ;     idx0 transparent; 1 = bright yellow (255,230,40); 2 = orange (220,120,20);
 ;     3 = white hot (255,255,210). ---
 bullet_pal:
@@ -1912,7 +1933,7 @@ bullet_pal:
     .word $0000, $0000, $0000, $0000
     .word $0000, $0000, $0000, $0000
 
-; --- S4 wave-spawn ring offsets (RING_N entries, 2 words each: world dx, dy
+; --- wave-spawn ring offsets (RING_N entries, 2 words each: world dx, dy
 ;     relative to the player). ~120px out so a spawn POPS IN from off the visible
 ;     window (the player sees it appear and chase). Cycled by WAVE_SPAWN_IX so
 ;     successive waves come from the 8 compass directions. Signed (use .word with
@@ -1928,7 +1949,7 @@ ring_off:
     .word $FFAB, $FFAB          ; NW  (-85,-85)
 .segment "CODE"
 
-; (S4: the old fixed enemy_world SPAWN-SEED ROM table is GONE — enemies are now a
+; (the old fixed enemy_world SPAWN-SEED ROM table is GONE — enemies are now a
 ;  sf_pool of wave chasers spawned at runtime at ring offsets, see enemy_waves.)
 
 ; --- world terrain LUT (128x128 = 16384 bytes, row-major [ty*128+tx], 1=solid /

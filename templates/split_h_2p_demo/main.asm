@@ -2,9 +2,39 @@
 ; split_h_2p_demo — 2-PLAYER SPLIT SCREEN: two independently-positioned Mode-7
 ;                   cameras over ONE world, ~zero per-frame CPU
 ; =============================================================================
-; The C-horiz PERSPECTIVE family's budget-viable two-player rail. Both bands are
-; per-scanline perspective floors of the SAME world, each with a fully LIVE,
-; INDEPENDENT world position — and NO live matrix solve at all:
+; WHAT IT IS: a horizontal split screen. The top half is player 1's Mode-7
+; floor camera, the bottom half is player 2's — both looking at the SAME
+; wrapping checker world, each from its own position (and, in the rotate and
+; sprite builds, its own heading). The point of the rail: neither camera runs
+; a live perspective solve. Each band streams a ROM-resident, per-scanline
+; pose table straight through the HDMA engine, so the entire per-frame CPU is
+; ~40 register stores — which is what leaves budget for TWO cameras at 60 fps.
+;
+; CONTROLS: the DEFAULT build (make split_h_2p_demo) is a ZERO-INPUT autonomous
+; demo — the two cameras pan on their own, it reads no buttons, and it plays a
+; kit music track over the TAD driver (the other builds are silent). The PLAYABLE
+; build is `_sprites` (build_split_h_2p_variants.sh): pad 1 drives camera 1 and
+; pad 2 drives camera 2 — D-pad LEFT/RIGHT rotates that camera one step per
+; frame held, B drives it forward. (Full -D variant map: this rail's README.md.)
+;
+; FILE LAYOUT (top to bottom):
+;   INTERRUPTS   — NMI: re-arm HDMA + tick the display heartbeat (per VBlank).
+;   INIT (RESET) — upload the world/palettes/Mode-7 regs, allocate + bind the
+;                  matrix and origin HDMA channel pairs, screen on.
+;   MAIN LOOP    — game_loop: the once-per-frame heartbeat. START READING HERE.
+;   SUBROUTINES  — stamp_origins, bind_matrix_pair, stamp_pose_banks, and the
+;                  small mask/channel helpers the binds share.
+;   sprites_2p.inc — the optional sprite-stress rail (the SPRITES=N builds).
+;   DATA         — pose tables, the checker map, the rotate pose-bank slices.
+;
+; Build: make split_h_2p_demo   ·   variants: build_split_h_2p_variants.sh
+; LDCFG: lorom_tad_m7.cfg  (bank 0 = code + pose tables; BANK1 = 32 KB map;
+;        bank 2 = TAD audio — the autonomous showcase plays a kit track. The
+;        -D variants link lorom_64k.cfg / lorom_stream.cfg and are silent.)
+;
+; HOW IT WORKS: both bands are per-scanline perspective floors of the SAME
+; world, each with a fully LIVE, INDEPENDENT world position — and NO live
+; matrix solve at all:
 ;
 ;   MATRIX  — both bands stream ROM-resident pose tables via INDIRECT-mode HDMA
 ;             (DMAP $43: indirect + write-2-registers-twice). A template-owned
@@ -13,8 +43,9 @@
 ;             to another pose (heading) is ONE 2-byte pointer rewrite in VBlank.
 ;             Pose tables come from tools/gen_pose_tables.py (--angles 1/32/64/
 ;             128/256/512; 256 is the rotate default — one pose step PER FRAME
-;             at the demo turn rate; the default build runs the fixed-angle
-;             set per the owner ruling, 2026-07-02).
+;             at the demo turn rate. The default (non-rotating) build streams
+;             the single fixed-angle pose: both cameras share one heading, and
+;             position alone distinguishes the two bands.
 ;   ORIGIN  — per-band world position via the proven origin-splice channel pair
 ;             (NON-REPEAT DMAP $03): one channel streams M7X/M7Y ($211F), one
 ;             M7HOFS/M7VOFS ($210D). At fixed heading the per-band origin is
@@ -58,8 +89,9 @@
 ;   -DPOSES=256         (with ROTATE) the ROTATION-SMOOTHNESS DEFAULT: 256
 ;                       poses (1.40625 deg each), one pose step PER FRAME on
 ;                       both cameras (+1/-1, equal-and-opposite senses) =
-;                       pose-step interval 1 frame at sustained turn (the
-;                       owner DoD, 2026-07-02). Implies PERBAND (below). Blob
+;                       a pose step EVERY frame at the sustained turn rate (the
+;                       rotation-smoothness target: no visible pose stepping in
+;                       the floor). Implies PERBAND (below). Blob
 ;                       = 4 bank slices (BANK2..5 AB, BANK6..9 CD); per-frame
 ;                       ptr = $8000 + (h & 63)*448, bank = base + (h >> 6),
 ;                       DASB stamped per band per frame in VBlank
@@ -93,9 +125,8 @@
 ; stores/frame (+ ~30 for the 256 build's four DASB stamps), 448 B ROM per
 ; pose per channel. VRAM: one shared low-32KB map+CHR — no extra per camera.
 ;
-; Build:  make split_h_2p_demo
-;         bash templates/split_h_2p_demo/build_split_h_2p_variants.sh
-; LDCFG: lorom_64k.cfg   (bank 0 = code + 4 pose tables; BANK1 = 32KB map)
+; (Build + LDCFG are in the file-top map above; the -D switch effects on the
+; link shape are noted per-switch here.)
 ; CLEAN-ROOM: mechanism only, no game references.
 ; =============================================================================
 
@@ -134,14 +165,37 @@ PERBAND = 1                     ; 256 poses IMPLIES per-band matrix pairs
 .endif
 .endif
 
+; --- audio: the autonomous showcase build plays music ------------------------
+; The DEFAULT build (make split_h_2p_demo — neither FREEZE nor ROTATE defined)
+; is the zero-input showcase: it links a TAD-audio config and plays a kit
+; track. EVERY -D variant opts out — the stills/controls to keep their link
+; shape, and all the ROTATE/sprite instruments because their per-frame CADENCE
+; is MEASURED (an audio tick every frame would perturb the +1/+1 gate). This is
+; why the interactive `_sprites` build is silent by design. (The 256-pose
+; stream link has no spare bank for the TAD data either — a separate concern.)
+.ifndef FREEZE
+.ifndef ROTATE
+SF_AUDIO = 1                    ; showcase-only; gates the includes + calls below
+.endif
+.endif
+
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "SPLIT H 2P"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic
 .include "engine_api.inc"       ; API_BLOCK_BASE, ENGINE_A0
 .include "engine_state.inc"
+.ifdef SF_AUDIO
+.include "tad-audio.inc"        ; TAD ca65 API imports (-I .../ca65-api)
+.include "tad_audio_enums.inc"  ; Song:: / SFX:: ids (-I assets/audio)
+.include "sf_audio.inc"         ; kit audio macros (sf_audio_init/tick/sf_music)
+.endif
 
 ; --- band geometry ------------------------------------------------------------
 SEAM       = 112                ; band 1 = lines 0..111, band 2 = 112..223
-B_LINES    = 112
+B_LINES    = 112                ; scanlines per band (each floor is 112 tall);
+                                ; also the HDMA repeat/skip line count per entry
 
 ; --- camera start positions (world px; the map wraps at 1024) ------------------
 ; Camera 1 starts centred on the COOL stripe (world X 512), camera 2 on the WARM
@@ -154,12 +208,18 @@ P1_Y0      = 512
 P2_X0      = 768
 P2_Y0      = 512
 
-; --- CGRAM (15-bit BGR): cool pair = green only; warm pair = green + FULL RED --
-COLOR_BACKDROP    = $5400
-COLOR_COOL_DARK   = $01E0       ; G=15
-COLOR_COOL_LIGHT  = $03E0       ; G=31
-COLOR_WARM_DARK   = $01FF       ; G=15 + R=31
-COLOR_WARM_LIGHT  = $03FF       ; G=31 + R=31
+; --- CGRAM (15-bit BGR): "Four Seasons" terrain dressing. The two floors read
+;     as SUMMER (cool = greens, R=0) and AUTUMN (warm = oranges, R=31). The
+;     warm/cool split is the RED channel and is the per-band position oracle,
+;     so it is held at MAXIMUM separation on purpose: cool R=0, warm R=31
+;     (rendered red 0 vs 255) — the dressing recolours GREEN/BLUE freely but
+;     never touches that invariant, and the C1/seam red thresholds are
+;     re-derived from the render and confirmed unchanged (see test).
+COLOR_BACKDROP    = $5400       ; distant dusk backdrop (behind the floor)
+COLOR_COOL_DARK   = $0DA0       ; summer forest green  (R=0,  G=13, B=3)
+COLOR_COOL_LIGHT  = $1340       ; summer meadow green  (R=0,  G=26, B=4)
+COLOR_WARM_DARK   = $00DF       ; autumn burnt orange  (R=31, G=6,  B=0)
+COLOR_WARM_LIGHT  = $023F       ; autumn amber/pumpkin (R=31, G=17, B=0)
 
 FX_M7_MATRIX = $2B              ; allocator effect tags
 FX_M7_ORIGIN = $2C
@@ -235,7 +295,14 @@ G_FRAMES   = $7EE030            ; word: MAIN-LOOP iteration counter — the in-s
 ; -----------------------------------------------------------------------------
 ; NMI — minimal (persp3 pattern): re-arm HDMA, heartbeat, ack. The heartbeat is
 ; a DISPLAY/NMI liveness counter ONLY — the loop-rate gate is G_FRAMES.
-; WIDTH-RISK: NMI entry width unknown -> php/rep at top, plp at exit.
+; WIDTH-RISK: an interrupt can fire while the CPU is in EITHER register width,
+; so the handler must not assume 8- or 16-bit mode on entry. (The 65816 runs
+; its accumulator and index registers in 8- or 16-bit mode, chosen by two CPU
+; flags; the assembler needs the .a8/.a16 hints to size each instruction, and
+; if the two disagree the instruction stream desyncs.) So this handler saves
+; the caller's flags (php), forces a known 16-bit width for its own work
+; (rep #$30), then restores the exact entry width on the way out (plp) — the
+; interrupted code resumes in the width it expected.
 ; -----------------------------------------------------------------------------
 NMI:
     php
@@ -296,42 +363,47 @@ RESET:
     rep #$20
     .a16
     lda #.loword(checker_map)
-    sta $4302
+    sta $4302                   ; A1T0L/H (ch0 source address): map loword
     sep #$20
     .a8
     lda #^checker_map
-    sta $4304
+    sta $4304                   ; A1B0 (ch0 source bank): map bank
     rep #$20
     .a16
     lda #$8000
-    sta $4305
+    sta $4305                   ; DAS0L/H (ch0 byte count): the 32 KB map
     sep #$20
     .a8
     lda #$01
-    sta $420B                   ; fire
+    sta $420B                   ; MDMAEN (GP-DMA trigger): fire channel 0
 
-    ; --- CGRAM: backdrop + cool pair + warm pair (forced blank) ---------------
-    stz $2121
+    ; --- Load the floor palette into CGRAM, the PPU's colour memory: set the
+    ;     start index once, then stream 2 bytes (low, high) per 15-bit BGR
+    ;     colour. Safe now — the screen is force-blanked, so the PPU is not
+    ;     reading colours mid-frame. The checker map indexes these five entries;
+    ;     the warm/cool split (only the warm pair carries red) is the per-band
+    ;     world-position signal the tests read off the framebuffer. ---
+    stz $2121                   ; CGADD (CGRAM address): start at colour 0
     lda #<COLOR_BACKDROP
-    sta $2122
+    sta $2122                   ; CGDATA (CGRAM data): write byte; index auto-advances
     lda #>COLOR_BACKDROP
-    sta $2122
+    sta $2122                   ; colour 0: backdrop
     lda #<COLOR_COOL_DARK
     sta $2122
     lda #>COLOR_COOL_DARK
-    sta $2122
+    sta $2122                   ; colour 1: cool dark  (summer forest, R=0)
     lda #<COLOR_COOL_LIGHT
     sta $2122
     lda #>COLOR_COOL_LIGHT
-    sta $2122
+    sta $2122                   ; colour 2: cool light (summer meadow, R=0)
     lda #<COLOR_WARM_DARK
     sta $2122
     lda #>COLOR_WARM_DARK
-    sta $2122
+    sta $2122                   ; colour 3: warm dark  (autumn burnt orange, R=31)
     lda #<COLOR_WARM_LIGHT
     sta $2122
     lda #>COLOR_WARM_LIGHT
-    sta $2122
+    sta $2122                   ; colour 4: warm light (autumn amber, R=31)
 
     ; --- Mode-7 registers ONCE under forced blank (ValueLatch guard-safe).
     ;     M7X/Y + HOFS/VOFS get boot defaults here; per frame the ORIGIN HDMA
@@ -578,6 +650,14 @@ RESET:
 
     sf_debug_magic              ; "SFDB" at $7E:E000
 
+.ifdef SF_AUDIO
+    ; --- showcase audio: upload the SPC700 loader + driver under the coldstart
+    ;     forced blank (before NMI is enabled — the S-SMP is still in IPL), then
+    ;     start the track. It streams over the sf_audio_tick calls in game_loop.
+    sf_audio_init
+    sf_music #Song::ode_to_joy
+.endif
+
 .ifdef SPRITES
     rep #$30
     .a16
@@ -615,7 +695,8 @@ RESET:
     sep #$20
     .a8
     lda #$0F
-    sta $2100
+    sta $2100                   ; INIDISP (screen/brightness): full brightness,
+                                ; forced blank OFF — the display is now live
 .ifdef SP_INPUT
     ; COMPOSED $4200 value: NMI enable ($80) | auto-joypad read ($01). This
     ; store is a composition point — later features (e.g. the IRQ gradient
@@ -646,6 +727,10 @@ game_loop:
     lda f:G_FRAMES
     inc a
     sta f:G_FRAMES
+.ifdef SF_AUDIO
+    sf_audio_tick               ; drive the song transfer + command queue (this
+                                ; build has ample per-frame headroom for it)
+.endif
 
 .ifndef ROTATE
 .ifndef FREEZE
@@ -692,7 +777,8 @@ game_loop:
     ;     (1.40625°/frame each = the same angular rate as the 64-pose demo's
     ;     cam 1; equal-and-opposite senses — cam 2's old 0.94°/frame does not
     ;     divide into integer steps/frame). Pose-step interval = 1 frame at
-    ;     sustained turn: the rotation-smoothness DoD. No frame divider. ------
+    ;     sustained turn: the rotation stays smooth (no visible pose stepping),
+    ;     so there is no frame divider here. -----------------------------------
     lda f:$7E0000 + H1
     inc a
     and #$00FF                  ; 256 headings
@@ -708,8 +794,10 @@ game_loop:
     ; byte after the add is the frame's SIGNED integer delta (two's
     ; complement decomposition: value = high + frac/256), which moves the
     ; integer position; the fraction is kept. Constant 2.0 px/frame speed at
-    ; EVERY heading — no speed pulse, no direction staircase (the
-    ; translation-jerk fix, owner feedback 2026-07-02).
+    ; EVERY heading — no speed pulse, no direction staircase (keeping the
+    ; per-axis fraction is what removes the integer-velocity translation jerk).
+    ; The FOUR blocks below are this same accumulator step repeated once per
+    ; axis, in order: camera 1 X, camera 1 Y, camera 2 X, camera 2 Y.
     lda f:$7E0000 + H1
     asl a
     asl a
@@ -880,8 +968,9 @@ game_loop:
 ;   band N: M7X = posNx, M7Y = posNy, HOFS = posNx - 128,
 ;           VOFS = posNy - band_bottom  (band 1 bottom = line 112, band 2 = 224)
 ; Caller guarantees the VBlank window (or forced blank at boot).
-; WIDTH-RISK: entry A16/I16; exits A16/I16. Long addressing throughout (no DB
-; dependency). Clobbers A.
+; WIDTH-RISK: runs entirely in 16-bit accumulator/index mode and leaves it that
+; way, so a 16-bit caller needs no width change around the call. Long
+; addressing throughout (no data-bank dependency). Clobbers A.
 ; =============================================================================
 stamp_origins:
     .a16
@@ -915,7 +1004,8 @@ stamp_origins:
 ; split_mask — split a 2-channel allocator mask into its two single-bit masks.
 ; In:  A16 = mask (two bits set among bits 2..7)
 ; Out: API_BLOCK_BASE+8 = full mask, +10 = lowest bit, +12 = the other bit.
-; WIDTH-RISK: A16/I16 throughout. Clobbers A.
+; WIDTH-RISK: 16-bit accumulator/index the whole way in and out — no width
+; change for a 16-bit caller. Clobbers A.
 ; =============================================================================
 split_mask:
     .a16
@@ -938,7 +1028,8 @@ split_mask:
 ;     API_BLOCK_BASE+14/+15 = the AB / CD channels' data banks (caller-set:
 ;     the default build's poses sit in the code bank; -DROTATE's 64-pose blobs
 ;     sit in BANK2 / BANK3 — one bank per channel, $43x7 is per-channel).
-; WIDTH-RISK: entry A16/I16; exits A16/I16. Clobbers A, X.
+; WIDTH-RISK: enters and exits in 16-bit mode; the only 8-bit windows are the
+; single-byte DASB stores, each wrapped in a balanced sep/rep. Clobbers A, X.
 ; =============================================================================
 set_indirect_banks:
     .a16
@@ -991,8 +1082,8 @@ set_indirect_banks:
 ;      MP_CHXAB/MP_CHXCD = the channels' register offsets (ch * $10) for later
 ;      per-frame DASB stamping ($4307 + chx).
 ; AB lands on the pair's LOWER channel (split_mask low bit), CD on the higher.
-; WIDTH-RISK: entry A16/I16; exits A16/I16 (sep/rep internally, pairs balanced).
-; Clobbers A, X.
+; WIDTH-RISK: 16-bit in and out; it drops to 8-bit only to stage single bytes
+; (bank/DMAP fields) and every such window has a matched sep/rep. Clobbers A, X.
 ; =============================================================================
 bind_matrix_pair:
     .a16
@@ -1061,7 +1152,8 @@ bind_matrix_pair:
 ; mask_to_chx — derive a channel's register offset from its single-bit mask.
 ; In:  A16 = single-bit channel mask (exactly one of bits 0..7 set)
 ; Out: A16 = channel index * $10 (the $43x0 register block offset)
-; WIDTH-RISK: A16/I16 throughout. Clobbers A, X.
+; WIDTH-RISK: 16-bit accumulator/index the whole way — no width change for a
+; 16-bit caller. Clobbers A, X.
 ; =============================================================================
 mask_to_chx:
     .a16
@@ -1089,8 +1181,8 @@ mask_to_chx:
 ; see the channel-priority comment at the call site). Each stages its own
 ; index tables, data banks + effect tag, then delegates to bind_matrix_pair
 ; and records its mask (G_MSK3 = band 1, G_MSK = band 2) and channel offsets.
-; WIDTH-RISK: A16/I16 in and out (sep/rep balanced around bank staging).
-; Clobbers A, X.
+; WIDTH-RISK: 16-bit in and out; the only 8-bit windows stage single bank
+; bytes and each has a matched sep/rep. Clobbers A, X.
 ; =============================================================================
 bind_band1_pair:
     .a16
@@ -1125,7 +1217,8 @@ bind_band1_pair:
     sta f:$7E0000 + CHX_CD1
     rts
 
-; WIDTH-RISK: A16/I16 in and out (sep/rep balanced around bank staging).
+; WIDTH-RISK: 16-bit in and out; single-byte bank stages each carry a matched
+; sep/rep. Clobbers A, X.
 bind_band2_pair:
     .a16
     .i16
@@ -1168,9 +1261,10 @@ bind_band2_pair:
 ; into shared ROM data). Caller guarantees the VBlank window (or forced blank
 ; at boot). Mirrors the four stamped banks to G_BANKS+0..3 (AB1, CD1, AB2,
 ; CD2) so the test suite can read what the hardware was given.
-; WIDTH-RISK: entry A16/I16; exits A16/I16 (sep/rep pairs balanced). The A16
-; tax sites transfer ch*$10 register offsets (<= $70 — no dirty high byte).
-; Clobbers A, X.
+; WIDTH-RISK: 16-bit in and out; 8-bit only for the single-byte DASB stores,
+; each in a balanced sep/rep. The 16-bit `tax` sites carry channel offsets
+; (ch*$10 <= $70), so the accumulator high byte is always clean — no stale
+; high byte can leak into the index register. Clobbers A, X.
 ; =============================================================================
 stamp_pose_banks:
     .a16
@@ -1241,6 +1335,9 @@ stamp_pose_banks:
 ; =============================================================================
 .ifdef SPRITES
 .include "sprites_2p.inc"       ; sprite stress rail (players + AI + tiers)
+.endif
+.ifdef SF_AUDIO
+.include "tad_bridge.asm"       ; TAD bridge implementation (showcase build)
 .endif
 .include "hdma_alloc.asm"
 

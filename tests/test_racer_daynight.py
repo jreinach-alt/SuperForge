@@ -13,14 +13,13 @@ frames, so the day->night gate polls the $E014 phase mirror to land its
 screenshots inside the right phase windows (~20 s total).
 
 THE ROTATION-STATE TRAP (why screenshots carry a CGRAM state tag): the
-palette cycle permutes CGRAM entries 2..4 (white / stripe-red / road-gray)
-every 16 frames, swinging whole-floor brightness by 2x between rotation
-states (red in the road-checker slot vs white in it). Any day-vs-night
-pixel comparison must therefore match rotation states between the two
-phases — an unmatched comparison can pass or fail on rotation luck alone.
-Likewise the gradient-ramp gate classifies WHITE pixels (min channel high):
-the white COLOR exists somewhere on the floor in every rotation state, so
-the metric is rotation-proof.
+palette cycle swaps CGRAM entries 2..3 (kerb white / kerb red) every 16
+frames — the rumble stripes flash like trackside lights. Only the thin
+kerb areas swing with the rotation (the road checker and the start line
+own dedicated static indices — cycling them was the public whole-screen
+strobe, fixed and pinned by test_palette_cycle_kerbs_only_* below), but
+day-vs-night pixel comparisons still match rotation states between the
+two phases so the kerb pixels never tip a threshold on rotation luck.
 """
 from pathlib import Path
 
@@ -37,9 +36,10 @@ CG = MemoryType.SnesCgRam
 PHASE_MIRROR = 0xE014           # 0=DAY 1=TO_NIGHT 2=NIGHT 3=TO_DAY
 GRAD_CH_MIRROR = 0xE012         # first gradient HDMA channel (expect 3)
 
-# the template's cycled CGRAM range (entries 2..4) read as 6 bytes at addr 4
-CYCLED_COLORS = {"bd77", "ba14", "ad39"}    # white / stripe red / road gray B
-PALCYC_PERIOD = 48              # 3 entries x 16 frames/step
+# the template's cycled CGRAM range (kerb entries 2..3) read as 4 bytes at addr 4
+CYCLED_COLORS = {"bd77", "ba14"}            # kerb white / kerb red
+N_ROT_STATES = 2                # 2 cycled entries -> 2 rotation states
+PALCYC_PERIOD = 32              # 2 entries x 16 frames/step
 
 
 @pytest.fixture(scope="module")
@@ -62,9 +62,9 @@ def _region(data, w, h, y0, y1):
 
 
 def _cg_state(runner):
-    """Rotation state = hardware CGRAM entries 2..4 as a hex tag."""
-    raw = runner.read_bytes(CG, 4, 6).hex()
-    return raw[0:4], raw[4:8], raw[8:12]
+    """Rotation state = hardware CGRAM entries 2..3 (the kerb pair) as a tag."""
+    raw = runner.read_bytes(CG, 4, 4).hex()
+    return raw[0:4], raw[4:8]
 
 
 def _white_blue(pixels):
@@ -87,8 +87,8 @@ def _blue_fraction(pixels):
 def _shot_per_rotation_state(runner, tag, max_polls=40):
     """One screenshot per palette rotation state, keyed by the CGRAM tag.
 
-    Polls hardware CGRAM every few frames until all 3 rotation states of the
-    cycled range have been photographed (period = 48 frames).
+    Polls hardware CGRAM every few frames until both rotation states of the
+    cycled kerb pair have been photographed (period = 32 frames).
     """
     shots = {}
     for i in range(max_polls):
@@ -101,10 +101,10 @@ def _shot_per_rotation_state(runner, tag, max_polls=40):
             # re-read: a rotation step between read and screenshot voids it
             if _cg_state(runner) == state:
                 shots[state] = _rgb(path)
-        if len(shots) == 3:
+        if len(shots) == N_ROT_STATES:
             break
         runner.run_frames(6)
-    assert len(shots) == 3, \
+    assert len(shots) == N_ROT_STATES, \
         f"saw only {len(shots)} palette rotation states in {max_polls} polls"
     return shots
 
@@ -131,11 +131,10 @@ def test_daynight_gradient_horizon_visible(runner):
         f"gradient first channel mirror = {runner.read_u16(WR, GRAD_CH_MIRROR)} (expect 3)"
     assert runner.read_u16(WR, PHASE_MIRROR) == 0, "not in the DAY hold"
 
-    # Ramp metric, per rotation state. White cells cover the near strip only
-    # in the canonical state (the start line owns the near rows; the other
-    # two states park white on cells with no near-strip coverage at spawn),
-    # so the paired far-vs-near comparison fires in >= 1 state; the
-    # state-independent far check fires in every state with far whites.
+    # Ramp metric, per rotation state. The start line owns the near rows AND
+    # much of the far band at spawn, and its white is a dedicated STATIC
+    # index — so both the paired far-vs-near comparison and the far check
+    # have white pixels available in every rotation state.
     shots = _shot_per_rotation_state(runner, "grad")
     paired = 0
     far_states = 0
@@ -171,20 +170,31 @@ def test_daynight_gradient_horizon_visible(runner):
     assert paired >= 1, "no rotation state offered both far and near whites"
 
 
-def test_daynight_palette_cycle_rotates_track_colors(runner):
-    """Feature: sf_pal / sf_pal_cycle accent on CGRAM entries 2..4.
+def _box(data, w, h, x0, x1, y0, y1):
+    """Pixels of the SNES-coordinate box [x0..x1) x [y0..y1)."""
+    xa, xb = int(x0 * w / 256.0), int(x1 * w / 256.0)
+    ya, yb = int(y0 * h / 224.0), int(y1 * h / 224.0)
+    return [data[y * w + x] for y in range(ya, yb) for x in range(xa, xb)]
 
-    Output regions read: (1) hardware CGRAM bytes for entries 2..4 — the
-    commit bridge's destination — must permute over frames while holding
-    the same color multiset (white/red/gray rotating, nothing leaking in);
-    (2) screenshot pixels — the count of red-class pixels in the near-track
-    strip swings between rotation states (red occupies cell classes of very
-    different screen area: rumble stripes vs the road checker), proving the
-    rotation is visible on the rendered track, not just in CGRAM.
+
+def _red_count(pixels):
+    return sum(1 for r, g, b in pixels if r > 140 and g < 100 and b < 100)
+
+
+def test_daynight_palette_cycle_rotates_track_colors(runner):
+    """Feature: sf_pal / sf_pal_cycle accent on the kerb pair (CGRAM 2..3).
+
+    Output regions read: (1) hardware CGRAM bytes for entries 2..3 — the
+    commit bridge's destination — must swap over frames while holding the
+    same color multiset (kerb white/red exchanging, nothing leaking in);
+    (2) screenshot pixels — the count of red-class pixels in the LEFT half
+    of the horizon kerb band swings between the two rotation states (the
+    left kerb cells show red in one state and white in the other), proving
+    the rotation is visible on the rendered track, not just in CGRAM.
 
     State cycle exercised: continuous rotation (the template wires no stop
-    path) — >= 2 distinct rotation states observed, recurring across more
-    than one full 48-frame period, with an invariant color multiset.
+    path) — both rotation states observed, recurring across more than one
+    full 32-frame period, with an invariant color multiset.
     """
     rom = BUILD / "racer.sfc"
     runner.load_rom(str(rom), run_seconds=2.0)
@@ -192,7 +202,7 @@ def test_daynight_palette_cycle_rotates_track_colors(runner):
 
     # --- destination region: hardware CGRAM rotates, multiset invariant ---
     states = []
-    for _ in range(10):                       # ~120 frames > 2 full periods
+    for _ in range(10):                       # ~120 frames > 3 full periods
         states.append(_cg_state(runner))
         runner.run_frames(12)
     for st in states:
@@ -201,25 +211,103 @@ def test_daynight_palette_cycle_rotates_track_colors(runner):
     distinct = set(states)
     assert len(distinct) >= 2, \
         f"hardware CGRAM never rotated: {states}"
-    # keeps rotating: the LAST sample window (well past one 48-frame period)
+    # keeps rotating: the LAST sample window (well past one 32-frame period)
     # still shows a state different from the first sample
     assert any(st != states[0] for st in states[5:]), \
         f"rotation stalled after the first period: {states}"
 
-    # --- rendered pixels: red coverage in the near-track strip swings with
-    # the rotation state (state-keyed screenshots) ---
+    # --- rendered pixels: red coverage in the left horizon kerb band swings
+    # with the rotation state (state-keyed screenshots) ---
     shots = _shot_per_rotation_state(runner, "pal")
     red_counts = {}
     for state, (d, w, h) in shots.items():
-        strip = _region(d, w, h, 195, 215)
-        red_counts[state] = sum(
-            1 for r, g, b in strip if r > 150 and g < 110 and b < 110)
+        red_counts[state] = _red_count(_box(d, w, h, 0, 128, 56, 80))
     counts = sorted(red_counts.values())
-    strip_len = len(_region(*shots[next(iter(shots))], 195, 215))
-    assert counts[-1] - counts[0] > 0.10 * strip_len, (
-        f"red-class coverage in the near strip barely changes across "
+    band_len = len(_box(*shots[next(iter(shots))], 0, 128, 56, 80))
+    # measured swing at spawn: ~35 vs ~133 red px of ~3300 (a 1.5% floor
+    # keeps a wide margin below the real ~3% swing, far above noise)
+    assert counts[-1] - counts[0] > 0.015 * band_len, (
+        f"red-class coverage in the left kerb band barely changes across "
         f"rotation states ({red_counts}) — palette cycle not visible on "
         f"the rendered track")
+
+
+def test_palette_cycle_kerbs_only_road_and_startline_static(runner):
+    """REGRESSION GATE for the public whole-screen strobe: the palette cycle
+    once rotated CGRAM entries 2..4, and entry 4 was half the road checker
+    (plus entry 2 doubling as the start-line white) — so ~40% of the screen
+    strobed white/red/gray from boot. The cycle is now the kerb pair only,
+    and the road + start line own dedicated static indices.
+
+    Frame-deterministic evidence (frame_step, no wall clock):
+    (1) hardware CGRAM captured EVERY frame across 2+ full 32-frame periods:
+        only entries 2..3 ever change, as the {white,red} swap on the exact
+        16-frame cadence; entries 0..1 and 4..8 are byte-frozen.
+    (2) rendered pixels at all four 16-frame phase points: the road/near
+        field and start-line patches are byte-identical across BOTH rotation
+        states and across periods (they no longer strobe), while the left
+        kerb band's red coverage DOES swing between states and repeats
+        across periods (the cycle is alive — non-vacuity).
+    """
+    rom = BUILD / "racer.sfc"
+    assert rom.exists(), f"{rom} not built — run `make racer` first"
+    runner.load_rom(str(rom), run_seconds=2.0)
+    assert runner.read_bytes(WR, 0xE000, 4) == b"SFDB"
+    runner.debug_break()
+
+    baseline = runner.read_bytes(CG, 0, 18)          # entries 0..8
+    shots = []                                       # (frame_i, tag, rgb)
+    changes = []                                     # (frame_i, changed idxs)
+    prev = baseline
+    for i in range(68):                              # > 2 full periods
+        runner.frame_step(1)
+        cg = runner.read_bytes(CG, 0, 18)
+        if cg != prev:
+            changes.append(
+                (i, [e for e in range(9)
+                     if cg[e * 2:e * 2 + 2] != prev[e * 2:e * 2 + 2]]))
+            prev = cg
+        if i in (1, 17, 33, 49):                     # 4 points, 16 f apart
+            path = f"/tmp/_racer_kerbcyc_{i:02d}.png"
+            runner.take_screenshot(path)
+            shots.append((i, _cg_state(runner), _rgb(path)))
+    runner.debug_resume()
+
+    # --- (1) CGRAM: kerb pair swaps on cadence; everything else frozen ---
+    assert len(changes) >= 4, \
+        f"palette cycle not running: only {len(changes)} CGRAM changes in 68 frames"
+    assert all(set(idxs) == {2, 3} for _, idxs in changes), (
+        f"CGRAM entries outside the kerb pair changed: {changes} — the "
+        f"whole-screen strobe class is back")
+    cadence = [b - a for (a, _), (b, _) in zip(changes, changes[1:])]
+    assert all(c == 16 for c in cadence), \
+        f"kerb swap cadence not 16 frames: {cadence}"
+
+    # --- (2) rendered pixels: static patches frozen, kerbs alive ---
+    def patches(entry):
+        _, _, (d, w, h) = entry
+        return (_box(d, w, h, 56, 100, 200, 220),    # start-line bands
+                _box(d, w, h, 100, 156, 60, 100))    # road / near field
+    states = [s for _, s, _ in shots]
+    assert len(set(states)) == N_ROT_STATES, \
+        f"expected both rotation states across the 4 phase shots: {states}"
+    ref_line, ref_road = patches(shots[0])
+    for entry in shots[1:]:
+        line, road = patches(entry)
+        assert line == ref_line, (
+            f"start-line pixels changed between rotation states "
+            f"(frame {entry[0]}, state {entry[1]}) — the start line strobes")
+        assert road == ref_road, (
+            f"road pixels changed between rotation states "
+            f"(frame {entry[0]}, state {entry[1]}) — the road strobes")
+    # kerb non-vacuity: red coverage in the left kerb band swings between
+    # adjacent states and repeats one period later
+    reds = [_red_count(_box(d, w, h, 0, 128, 56, 80))
+            for _, _, (d, w, h) in shots]
+    assert abs(reds[1] - reds[0]) > 40, \
+        f"left kerb band red coverage did not swing with the swap: {reds}"
+    assert abs(reds[2] - reds[0]) <= 8 and abs(reds[3] - reds[1]) <= 8, \
+        f"kerb rotation does not repeat across a period: {reds}"
 
 
 def test_daynight_progression_darkens_and_blues(runner):
@@ -282,4 +370,5 @@ def test_daynight_progression_darkens_and_blues(runner):
         assert n_bf > d_bf + 0.08, (
             f"state {state}: night blue fraction {n_bf:.2f} not bluer than "
             f"day {d_bf:.2f}")
-    assert matched == 3, f"only {matched} rotation states matched day<->night"
+    assert matched == N_ROT_STATES, \
+        f"only {matched} rotation states matched day<->night"

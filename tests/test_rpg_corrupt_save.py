@@ -52,10 +52,12 @@ HDR = 8                        # magic(2) ver(1) rsvd(1) len(2) crc(2)
 PAYLOAD_FLIP_OFS = HDR + 0     # flip the first payload byte (scene id) — magic intact
 SAVED_SCENE = 1                # the save records scene=town
 
-# Mode 7 grass-floor pixel (matches the oracle's boots_into_..._overworld assert
-# at (128,160) rgb [37,111,49] tol 50). On a town boot this pixel is gray cobble.
+# Mode 7 grass-floor pixel (the Four Seasons grass tile; companion to the oracle's
+# boots_into_..._overworld grass assert). Read RAW at (128,160) = green grass; on
+# a town boot this pixel is gray cobble instead. Re-measured after the Four
+# Seasons floor retile (Wave-D). tol 50 is unchanged.
 FLOOR_X, FLOOR_Y = 128, 160
-FLOOR_RGB, FLOOR_TOL = (37, 111, 49), 50
+FLOOR_RGB, FLOOR_TOL = (41, 115, 16), 50
 E2E = Path("/tmp/e2e_screenshots")
 
 

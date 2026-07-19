@@ -35,8 +35,38 @@
 ; ============================================================
 .segment "HEADER"
 
-; Bytes $FFC0-$FFD4: ROM title (21 bytes, padded with spaces)
-.byte "SUPERFORGE TEST      "
+; Bytes $FFC0-$FFD4: ROM title (21 bytes, space-padded).
+;
+; OPT-IN OVERRIDE (additive; default byte-identical) — a ROM sets its own
+; title by defining SF_HDR_TITLE (a string of up to 21 chars; the safe set is
+; ALL-CAPS A-Z / 0-9 / space) AND marking the opt-in with the numeric guard
+; symbol SF_HDR_TITLE_SET, BOTH before including this file:
+;
+;       .define SF_HDR_TITLE "SUPER KIT QUEST"
+;       SF_HDR_TITLE_SET = 1
+;       .include "header.inc"
+;
+; Two coupled lines (rather than the single .ifndef guard the numeric header
+; bytes below use) because ca65 cannot .ifdef (nor .definedmacro / .defined())
+; a define-style STRING macro without first EXPANDING it — the expanded string
+; then breaks the conditional. A separate numeric guard symbol is the smallest
+; token .ifndef can test. The two lines are coupled by construction: defining
+; SF_HDR_TITLE without the guard makes the default .define below collide (a
+; hard error), and setting the guard without SF_HDR_TITLE leaves the .byte
+; below referencing an undefined macro (a hard error) — so a half-configured
+; title cannot silently build. When NEITHER is set (e.g. the test ROMs and
+; tests/smoke.asm) the historical "SUPERFORGE TEST" default applies,
+; byte-for-byte identical to the original header.
+.ifndef SF_HDR_TITLE_SET
+    .define SF_HDR_TITLE "SUPERFORGE TEST"
+.endif
+.if .strlen(SF_HDR_TITLE) > 21
+    .error "SF_HDR_TITLE must be 21 characters or fewer"
+.endif
+.byte SF_HDR_TITLE
+.repeat 21 - .strlen(SF_HDR_TITLE)
+    .byte $20
+.endrepeat
 
 ; Byte $FFD5: Map mode
 ;   Bits 0-3: Map type ($0 = LoROM)

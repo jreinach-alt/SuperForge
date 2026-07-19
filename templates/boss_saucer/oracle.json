@@ -2,7 +2,7 @@
   "schema_version": 1,
   "template": "boss_saucer",
   "rom": "build/boss_saucer.sfc",
-  "boot_seconds": 1.0,
+  "boot_seconds": 0.3,
   "boot": { "magic_addr": "0xE000", "heartbeat_addr": "0xE010" },
   "scenario": [
     {
@@ -20,6 +20,34 @@
       "assert": [
         { "kind": "oam_entry", "slot": 17, "y": 12, "tile": 6 },
         { "kind": "oam_entry", "slot": 24, "y": 12, "tile": 6 }
+      ]
+    },
+    {
+      "name": "player_composites_in_the_fight",
+      "description": "once the fight begins the player gunship is an OBJ sprite (OAM slot 0, SPR_PLAYER_T0 = 0) fixed at the low band y=184, composited in front of the Mode 7 saucer BG. No input, so it stays at its spawn column x=120; the HP HUD is still full (all 8 pips the lit tile 6).",
+      "drive": { "kind": "settle", "frames": 128 },
+      "assert": [
+        { "kind": "oam_entry", "slot": 0, "tile": 0, "x": 120, "y": 184 },
+        { "kind": "oam_entry", "slot": 24, "tile": 6, "y": 12 },
+        { "kind": "screenshot_blob", "region": "full", "distinct_min": 4 }
+      ]
+    },
+    {
+      "name": "lunge_apex_fires_the_beam",
+      "description": "the LUNGE reaches the NEAR apex and the saucer fires its beam: a column of SPR_BEAM (tile 8) segments in OAM slots 1-16, locked to the idle player's body-centre column (x = p_x+4 = 124) and stacked from the underside emitter (y=BEAM_Y0=56) down. Slot 1 is the top segment. The beam only exists at the lunge apex, so its render is a proxy for the whole approach->near->fire cycle.",
+      "drive": { "kind": "settle", "frames": 208 },
+      "assert": [
+        { "kind": "oam_entry", "slot": 1, "tile": 8, "x": 124, "y": 56 },
+        { "kind": "screenshot_blob", "region": "full", "distinct_min": 4 }
+      ]
+    },
+    {
+      "name": "idle_lose_shows_the_defeat_card",
+      "description": "left idle, the locked beam drains the player to 0 HP -> LOSE -> RESULT, which shows a DEFEAT card over a DIMMED (not black) scene — the fix for the old pure-black hold. The card's first glyph 'D' (SPR_G_D = tile 0x22) renders at OAM slot 29, y=CARD_Y=100, past the stable 0..28 map. (The win card would put 'V' = 0x2D there instead, so the tile disambiguates the outcome.)",
+      "drive": { "kind": "settle", "frames": 628 },
+      "assert": [
+        { "kind": "oam_entry", "slot": 29, "tile": "0x22", "y": 100 },
+        { "kind": "screenshot_blob", "region": "full", "distinct_min": 4 }
       ]
     }
   ]

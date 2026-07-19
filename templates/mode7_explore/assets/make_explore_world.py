@@ -41,10 +41,13 @@
 # and NOT a synthetic position-id pattern (BANNED).  Each terrain has a small
 # set of authored CHR tiles so a walking avatar reads real authored ground.
 #
-# Position-identifiability for tests is a HIDDEN/debug surface only: a TOWN tile
-# sits at every (tx,ty) on a 32-tile lattice (legitimate authored content —
-# towns — placed on a regular grid) so the proof test has ground-truth "at world
-# (32k,32m) you see a TOWN tile".  Everything between is believable geography.
+# LANDMARK lattice (doubles as the test's ground truth): an authored TOWN (a
+# little house) sits at every (tx,ty) on a 32-tile lattice THAT FALLS ON WALKABLE
+# LAND — towns on a regular grid, believable authored content. Water/mountain
+# lattice cells are skipped (no house floating in the ocean). Because the towns
+# are position-regular, the proof test (mx009) reads "at land world (32k,32m) you
+# see a TOWN tile", confirming the streamed world is the authored one. Everything
+# between is believable geography.
 #
 # Deterministic: same script, same bytes (fixed sinusoid phases, no PRNG state).
 #
@@ -140,6 +143,8 @@ SPAWN_CLEAR_R = 3                  # carve a (2R+1)^2 grass clearing around spaw
 #     world's toroidal seam. The avatar can traverse this whole range. ----------
 CLAMP_MIN = 64                     # = WORLD_HALF
 CLAMP_MAX = WORLD_T - 1 - 64       # = 447 for a 512 world
+CLAMP_RING_W = 16                  # width (tiles) of the diegetic ocean band that
+                                   #   frames the clamp box so its edge is a coast
 
 # --- EXPLORER ROAD corridors: an authored road runs the full clamp range along
 #     the spawn's row AND column, so the avatar genuinely walks >= 3 windows of
@@ -158,9 +163,25 @@ def _on_explorer_corridor(tx: int, ty: int) -> bool:
         return True
     return False
 
-# --- HIDDEN debug landmark grid: a TOWN tile at every (tx,ty) where tx%32==0
-#     and ty%32==0 (authored towns on a 32-tile lattice) -> position-identifiable
-#     ground truth for the proof test without a synthetic visible pattern. ------
+# --- DIEGETIC CLAMP RING: the camera is clamped to [CLAMP_MIN..CLAMP_MAX], so
+#     without an authored barrier the avatar halts on OPEN ground (an invisible
+#     wall). Author a solid OCEAN band framing the clamp box, just OUTSIDE it on
+#     either axis, so reaching the clamp edge shows a coastline that explains the
+#     stop. The band lives entirely outside [CLAMP_MIN..CLAMP_MAX] (the camera and
+#     the road corridors never enter it), and the coast tiles just inside the
+#     clamp render as sand automatically (tile_at's COAST rule sees the water). --
+def _in_clamp_ring(tx: int, ty: int) -> bool:
+    """True in the ocean band that frames the camera-clamp box (a CLAMP_RING_W-
+    wide strip just outside [CLAMP_MIN..CLAMP_MAX] on either axis)."""
+    x_band = (CLAMP_MIN - CLAMP_RING_W) <= tx < CLAMP_MIN or CLAMP_MAX < tx <= (CLAMP_MAX + CLAMP_RING_W)
+    y_band = (CLAMP_MIN - CLAMP_RING_W) <= ty < CLAMP_MIN or CLAMP_MAX < ty <= (CLAMP_MAX + CLAMP_RING_W)
+    return x_band or y_band
+
+# --- LANDMARK lattice: an authored TOWN (house) tile at every (tx,ty) where
+#     tx%32==0 and ty%32==0 that falls on walkable LAND (water/mountain lattice
+#     cells are skipped). Towns on a regular grid double as position-identifiable
+#     ground truth: the proof test (mx009) confirms a land lattice point streams
+#     in as TILE_TOWN, proving the rendered world IS the authored world. --------
 LANDMARK_STEP = 32
 
 
@@ -244,30 +265,39 @@ def terrain_at(tx: int, ty: int) -> int:
     Used to derive the rendered tile id; the ROM's collision reads the rendered
     tilemap byte back through the tile-id -> terrain LUT, so what you SEE blocked
     is what the movement code rejects."""
-    # spawn clearing: forced walkable grass so boot is never boxed in (checked
-    # before geography, after the landmark lattice below would normally win —
-    # but the clearing is offset off the lattice so they don't overlap)
+    # spawn clearing: forced walkable grass so boot is never boxed in
     if _in_spawn_clearing(tx, ty):
         return TERR_GRASS
-    # hidden debug landmark lattice (authored town tiles) — so a landmark is
-    # never overwritten by surrounding geography
-    if tx % LANDMARK_STEP == 0 and ty % LANDMARK_STEP == 0:
-        return TERR_TOWN
     # EXPLORER ROAD corridors along the two spawn axes: forced walkable PATH so
     # the avatar traverses the full clamp box (>= 3 windows) each axis. These
     # override water/mountain (an authored road/causeway). Checked before the
     # height geography so a mountain range never severs the corridor.
     if _on_explorer_corridor(tx, ty):
         return TERR_PATH
+    # diegetic clamp ring: a solid ocean band framing the clamp box, so the clamp
+    # edge reads as a coastline instead of an invisible wall on open ground
+    if _in_clamp_ring(tx, ty):
+        return TERR_WATER
+    # base geography (the natural terrain a landmark would sit on)
     h = _height(tx, ty)
     if h < 0.30:
-        return TERR_WATER            # ocean / lakes (BLOCKED)
-    if _is_ridge(tx, ty, h):
-        return TERR_MOUNTAIN         # mountain range (BLOCKED)
-    # roads connect the towns (laid only over land)
-    if _on_road(tx, ty):
-        return TERR_PATH
-    return TERR_GRASS                # grass (coast/forest are visual variants)
+        base = TERR_WATER            # ocean / lakes (BLOCKED)
+    elif _is_ridge(tx, ty, h):
+        base = TERR_MOUNTAIN         # mountain range (BLOCKED)
+    elif _on_road(tx, ty):
+        base = TERR_PATH             # roads connect the towns (laid only over land)
+    else:
+        base = TERR_GRASS            # grass (coast/forest are visual variants)
+    # LANDMARK lattice: an authored TOWN (a house) sits at every 32-tile lattice
+    # point — but ONLY on walkable LAND. A lattice cell over water or a mountain
+    # keeps its natural terrain, so no house ever floats in the ocean or buries
+    # itself in a peak (that flat-red-dots-everywhere look was the bug). The
+    # proof test (mx009) reads this back: the streamed VRAM at a land lattice
+    # point must render TILE_TOWN, proving the streamed content is the AUTHORED
+    # world (position-identifiable ground truth), not a coincidental grass fill.
+    if tx % LANDMARK_STEP == 0 and ty % LANDMARK_STEP == 0 and base not in BLOCKED:
+        return TERR_TOWN
+    return base
 
 
 def tile_at(tx: int, ty: int) -> int:
@@ -349,10 +379,13 @@ TEX = {
         "66566566", "65666656", "66665666", "66566566",
         "56666665", "66566566", "65666656", "66665666",
     ]),
-    # town roof: bright red (7) tiled roof with darker (5) ridge lines
+    # town: a little house — a red (7) pitched roof over sand-tan (8) walls with
+    #     dark (5) windows and a central door.  Reads as a BUILDING on grass (the
+    #     0 corners fall back to grass-dark, blending the house into the meadow),
+    #     not a flat red block.
     TILE_TOWN: _tex([
-        "77777777", "75777757", "77777777", "77577577",
-        "77777777", "75777757", "77777777", "77577577",
+        "00077000", "00777700", "07777770", "77777777",
+        "08888880", "08588580", "08855880", "08855880",
     ]),
     # sand / coast: tan beach (8) with a few darker (2) grains
     TILE_COAST: _tex([
@@ -458,7 +491,7 @@ def emit_inc(palette_words: list[int], terr_lut: bytes, n_banks: int) -> str:
     L.append(f"WORLD_FLAT_BANK_COUNT = {n_banks}   ; flat tilemap spans this many ROM banks")
     L.append(f"WORLD_SPAWN_TX  = {SPAWN_TX}")
     L.append(f"WORLD_SPAWN_TY  = {SPAWN_TY}")
-    L.append(f"WORLD_LANDMARK_STEP = {LANDMARK_STEP}  ; TOWN tile lattice spacing (hidden debug)")
+    L.append(f"WORLD_LANDMARK_STEP = {LANDMARK_STEP}  ; TOWN (house) landmark lattice spacing, tiles")
     L.append("")
     L.append("; --- terrain ids (collision-class vocabulary; tile_terrain_lut maps to these) ---")
     L.append(f"TERR_GRASS    = {TERR_GRASS}")
@@ -656,9 +689,10 @@ def main() -> None:
           f"{len(banks) * len(banks[0]) // 1024} KB total tilemap)")
     print(f"  collision  : tile_terrain_lut (256 B in explore_world.inc) — NO separate table")
     print(f"  tile census   : {dict(sorted(census.items()))}")
-    lm = [(tx, ty) for ty in range(0, WORLD_T, LANDMARK_STEP)
-          for tx in range(0, WORLD_T, LANDMARK_STEP)]
-    print(f"  landmarks  : {len(lm)} TOWN tiles on a {LANDMARK_STEP}-tile lattice")
+    lattice_pts = (WORLD_T // LANDMARK_STEP) ** 2
+    towns = census.get(TILE_TOWN, 0)
+    print(f"  landmarks  : {towns} TOWN (house) tiles on a {LANDMARK_STEP}-tile lattice "
+          f"({lattice_pts} lattice points, {lattice_pts - towns} skipped over water/mountain)")
 
     # --- spawn validity (P3): require a multi-tile OPEN RUN around spawn so
     #     streaming actually fires from boot (not just spawn + 4 neighbours). ---

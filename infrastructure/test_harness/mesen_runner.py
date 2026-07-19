@@ -608,7 +608,21 @@ def _detect_core_path() -> str:
 
 
 def _detect_home_dir() -> str:
-    """Platform-appropriate temp/home directory for Mesen."""
+    """Platform-appropriate temp/home directory for Mesen.
+
+    Env knob (mirrors the ``SF_HW_POWERON`` / ``SF_REGION`` pattern; read once
+    at module import): ``SF_MESEN_HOME``, when set to a non-empty path,
+    overrides the default and becomes this process's Mesen home — its
+    ``Screenshots/`` and ``Saves/*.srm`` subdirs live there. This isolates
+    parallel MesenRunner processes on one host. The shared default
+    ``/tmp/mesen_home`` cross-contaminated concurrent sessions: a
+    ``take_screenshot`` new-file poll returning a sibling's frame, and a stale
+    ``Saves/*.srm`` faking a "cold" boot. Set it per-worktree when booting
+    rails concurrently. Unset / empty -> the default paths below are UNCHANGED.
+    """
+    override = os.environ.get("SF_MESEN_HOME", "").strip()
+    if override:
+        return override
     if platform.system() == "Windows":
         return str(Path(tempfile.gettempdir()) / "mesen_home")
     return "/tmp/mesen_home"
@@ -1195,8 +1209,11 @@ class MesenRunner:
         """
         Args:
             core_path: Path to MesenCore.so / MesenCore.dll.
-            home_dir: Mesen2 home directory (Screenshots/ subdir is used
-                by ``take_screenshot``).
+            home_dir: Mesen2 home directory (Screenshots/ + Saves/ subdirs
+                live here). Defaults to the module ``_DEFAULT_HOME_DIR``,
+                which honors the ``SF_MESEN_HOME`` env override — set it
+                per-worktree to isolate parallel sessions (see
+                ``_detect_home_dir``).
             enable_audio: When True, audio processing runs so WAV
                 recording via ``WaveRecord()`` produces output.
             fast_mode: When True, drop the synthetic 1/60 s pacing in
@@ -1806,7 +1823,8 @@ class MesenRunner:
         time.sleep(run_after_restore_seconds)
         return captured
 
-    def take_screenshot(self, output_path: Optional[str] = None) -> str:
+    def take_screenshot(self, output_path: Optional[str] = None,
+                        settle_frames: int = 0) -> str:
         """
         Capture a screenshot of the current emulator frame.
 
@@ -1817,12 +1835,37 @@ class MesenRunner:
         Args:
             output_path: If provided, the PNG is moved here.  If None, the
                          file stays in the default Mesen2 Screenshots dir.
+            settle_frames: Advance this many frames (via ``run_frames``)
+                         BEFORE capturing. Default 0 = today's behavior,
+                         byte-for-byte. Bundles the common
+                         ``run_frames(N); take_screenshot()`` idiom into one
+                         call so the rendered frame can catch up to a
+                         just-changed state. Inherits ``run_frames`` semantics:
+                         it is the free-running (wall-clock) settle only — a
+                         no-op under ``fast_mode`` and while parked in
+                         frame-stepping mode (there, advance with
+                         ``frame_step`` instead).
+
+        Frame-lag note (cost three S1 reviewers a retake each): the emulator
+        commits OAM/VRAM/CGRAM one boundary behind the game update — a constant
+        one-frame presentation lag (see ``debug_break``). A screenshot taken on
+        the SAME frame that changed a sprite/tile therefore still shows the
+        PREVIOUS rendered state; the pixels catch up one frame later. Let at
+        least one frame elapse after the change before capturing:
+        ``settle_frames=1`` on a free-running runner, or an extra
+        ``frame_step(1)`` when parked.
 
         Returns:
             Absolute path to the saved PNG file.
         """
         if not self._rom_loaded:
             raise RuntimeError("No ROM loaded. Call load_rom() first.")
+
+        # Optional pre-capture settle (default 0 => unchanged). Uses
+        # run_frames, so this is the free-running/wall-clock advance; under
+        # fast_mode or a parked runner it is a no-op (see the docstring).
+        if settle_frames > 0:
+            self.run_frames(settle_frames)
 
         # G3 read-logging — a screenshot is an output-region access (the
         # composited frame). capture_frames() funnels through here, so it is
@@ -2026,6 +2069,23 @@ class MesenRunner:
 
         Example:
             runner.set_input(0, right=True, a=True)
+
+        TWO SILENT INPUT TRAPS (each delivers NO input; neither raises):
+
+          1. fast_mode: the classic ``set_input`` + ``run_frames`` pattern
+             delivers no input under ``fast_mode=True``. ``run_frames`` skips
+             its synthetic 1/60 s sleep in fast_mode, so zero wall-clock frames
+             elapse for the free-running emulator to poll the override — the
+             press is set and never read. Use the default ``fast_mode=False``
+             for any input-driven test (fast_mode is for the preview pump, not
+             assertions). Cost split_v_fight a full re-run.
+          2. frame-stepping: an override set here does NOT latch while
+             execution is parked under ``debug_break`` / ``frame_step``. The
+             emulator is stopped, so nothing polls it; and the next
+             ``frame_step`` re-latches its own button set on top. In parked
+             mode pass the buttons to ``frame_step(n, **buttons)`` instead — a
+             bare ``set_input`` there is silently ineffective. Cost rpg its
+             frame-stepped dialog probe.
         """
         if not self._debugger_active:
             raise RuntimeError("Debugger not active. Call load_rom() first.")

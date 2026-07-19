@@ -51,6 +51,18 @@
 ;                SINGLE camera fills the screen, the three-distinct-period
 ;                assertion (C1) MUST FAIL (all three periods small/equal).
 ;
+; Controls: none — autonomous. The three cameras are entirely HDMA-driven, so the
+;   game loop just idles; there is no input to read.
+;
+; File layout (top to bottom, matching the major ; === banners below):
+;   INIT         RESET: upload the Mode-7 checker map + CGRAM, set the Mode-7
+;                registers once under forced blank, arm the three-band matrix HDMA.
+;   MAIN LOOP    game_loop — idle (wai for NMI); the bands are HDMA-driven.
+;   SUBROUTINES  the HDMA channel allocator (.include).
+;   DATA         the 32KB interleaved Mode-7 checker-map blob (BANK1).
+;
+; Frame loop: `game_loop` is the once-per-frame heartbeat — start reading there.
+;
 ; Build:  make split_h_persp3_demo
 ;         bash templates/split_h_persp3_demo/build_split_h_persp3_variants.sh
 ; LDCFG: lorom_64k.cfg   (64KB image; the 32KB Mode-7 checker-map fills BANK1.)
@@ -60,6 +72,9 @@
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "SPLIT H PERSP3"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic
 .include "engine_api.inc"       ; API_BLOCK_BASE, ENGINE_A0 (before engine .asm)
@@ -128,6 +143,11 @@ NMI:
 NMI_STUB:
     rti
 
+; =============================================================================
+; INIT — one-time setup at RESET: upload the Mode-7 checker map + CGRAM, set the
+;        Mode-7 registers ONCE under forced blank (ValueLatch-safe), and arm the
+;        three-band matrix HDMA through the channel allocator.
+; =============================================================================
 RESET:
     sf_coldstart                ; forced blank; WRAM/CGRAM/VRAM cleared to 0
     jsr hdma_alloc_init         ; allocator baseline (reserves CH0/CH1)
@@ -150,24 +170,24 @@ RESET:
     rep #$20
     .a16
     lda #.loword(checker_map)
-    sta $4302                   ; src low word
+    sta $4302                   ; A1T0L (DMA0 src addr low/mid): checker_map
     sep #$20
     .a8
     lda #^checker_map
-    sta $4304                   ; src bank
+    sta $4304                   ; A1B0 (DMA0 src bank)
     rep #$20
     .a16
     lda #$8000                  ; 32768 bytes = the full interleaved map
-    sta $4305
+    sta $4305                   ; DAS0 (DMA0 byte count): 16-bit, fills $4305/$4306
     sep #$20
     .a8
     lda #$01
-    sta $420B                   ; fire GP-DMA ch0
+    sta $420B                   ; MDMAEN: fire general-purpose DMA channel 0
 
     ; --- CGRAM: backdrop + the two checker greens (under forced blank) ----------
     stz $2121                   ; CGADD = 0
     lda #<COLOR_BACKDROP
-    sta $2122
+    sta $2122                   ; CGDATA (CGRAM data): write colour byte; index auto-advances
     lda #>COLOR_BACKDROP
     sta $2122
     lda #<COLOR_DARK_GREEN
@@ -233,11 +253,14 @@ RESET:
     lda #$0F
     sta $2100                   ; INIDISP: bright 15, display on
     lda #$80
-    sta $4200                   ; NMI on (no auto-joypad needed for this rail)
+    sta $4200                   ; NMITIMEN: NMI on (no auto-joypad needed for this rail)
     rep #$30
     .a16
     .i16
 
+; =============================================================================
+; MAIN LOOP — game_loop: idle. The three camera bands are entirely HDMA-driven, so
+;   the loop just waits for each frame's NMI; all the per-frame work is the HDMA.
 ; =============================================================================
 game_loop:
     .a16
@@ -246,13 +269,13 @@ game_loop:
     jmp game_loop               ;   is entirely HDMA-driven; the loop just idles
 
 ; =============================================================================
-; Engine link — the HDMA channel allocator (hdma_alloc_init / hdma_request /
-; hdma_bind_direct). The matrix band routes through it.
+; SUBROUTINES — engine link: the HDMA channel allocator (hdma_alloc_init /
+;   hdma_request / hdma_bind_direct). The matrix band routes through it.
 ; =============================================================================
 .include "hdma_alloc.asm"
 
 ; =============================================================================
-; The 32KB interleaved Mode-7 checker-map blob (bank 1 of the 64KB image).
+; DATA — the 32KB interleaved Mode-7 checker-map blob (bank 1 of the 64KB image).
 ; =============================================================================
 .segment "BANK1"
 checker_map:

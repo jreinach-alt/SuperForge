@@ -9,6 +9,10 @@
 ; and input. Vertical stays one screen (the 8.8 physics range); X is the
 ; full 0..511 world.
 ;
+; Controls:
+;   D-pad left/right   run          A   jump (fixed height)
+;   (reaching the goal prints GOAL and freezes input)
+;
 ; The level (see `level` below, 64x28): floor rows 26..27; border cols 0/63;
 ; pillars at world cols 14 (rows 22..25) and 44 (rows 20..25); platforms at
 ; rows 22 cols 24..27, row 20 cols 30..34 (crosses the page seam at col 32!),
@@ -25,12 +29,21 @@
 ;   - the seam platform (cols 30..34) is land-on-able; pillars block
 ;   - touching the goal pillar (world x ~480..487) -> GOAL text + freeze
 ;
+; File layout (top to bottom; the major === section banners):
+;   INIT       — RESET: uploads, PPU, tile flags, load the level, spawn player
+;   MAIN LOOP  — game_loop, the once-per-frame heartbeat (read this first)
+;   DATA       — the GOAL string, the level map, tile art, then engine includes
+; game_loop is the frame heartbeat; start reading there to see the whole shape.
+;
 ; Build:  make scroll_run      (-> build/scroll_run.sfc)
 ; =============================================================================
 
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "GOLD SPRINT"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic
 .include "sf_bg.inc"            ; gfxmode, mset, sf_load_bg_tile, sf_bg_color
@@ -45,32 +58,35 @@
 .include "sf_frame.inc"         ; sf_engine_init, sf_frame_begin, sf_frame_end
 .include "engine_state.inc"
 
-OBJ_RED  = $001F
-BG_GREY  = $39CE
-BG_GOLD  = $035F
-WORLD_W  = 512
+OBJ_RED  = $001F                ; player sprite colour (15-bit BGR)
+BG_GREY  = $39CE                ; terrain colour (15-bit BGR)
+BG_GOLD  = $035F                ; goal pillar colour (15-bit BGR)
+WORLD_W  = 512                  ; level width in pixels (two 256px pages)
 
 PX       = $32                  ; player world x (0..511)
-PYF      = $34                  ; player y, 8.8
-VY       = $36
-NEWY     = $38
-GROUNDED = $3A
-PYI      = $3C
-NEWX     = $3E
-CORNX    = $40                  ; level-prober scratch
-CORNY    = $42
-LVAR     = $44
-TXV      = $46                  ; loader scratch
-TYV      = $48
-TILEV    = $4A
-CAM_X    = $4C
-CAM_Y    = $4E
+PYF      = $34                  ; player y, 8.8 fixed-point
+VY       = $36                  ; vertical velocity, 8.8 fixed-point
+NEWY     = $38                  ; tentative y for the physics step
+GROUNDED = $3A                  ; nonzero while the player rests on solid ground
+PYI      = $3C                  ; player y in integer pixels (PYF high byte)
+NEWX     = $3E                  ; tentative x before the solid-box check
+CORNX    = $40                  ; level-prober scratch (probe cell x)
+CORNY    = $42                  ; level-prober scratch (probe cell y)
+LVAR     = $44                  ; level-prober scratch (page / variant)
+TXV      = $46                  ; loader scratch: tile x
+TYV      = $48                  ; loader scratch: tile y
+TILEV    = $4A                  ; loader scratch: tile id
+CAM_X    = $4C                  ; camera world x (follows player, edge-clamped)
+CAM_Y    = $4E                  ; camera world y (stays 0; one screen tall)
 STATE    = $50                  ; 0 play / 1 won
 SCRX     = $52                  ; player screen x (world - cam)
-SPEED    = 2
+SPEED    = 2                    ; run step in pixels per frame
 
 .segment "CODE"
 
+; =============================================================================
+; INIT — interrupt vectors + one-time boot (RESET: uploads, PPU, load, spawn)
+; =============================================================================
 NMI:
 .include "nmi_handler.asm"
 
@@ -98,7 +114,10 @@ RESET:
     sf_level_load level, TXV, TYV, TILEV
 
     ; --- player spawns at the left edge, on the floor ---
-    rep #$30
+    ; (.a16/.i16 track the CPU's register width for ca65 — the 65816 switches
+    ;  between 8- and 16-bit registers and the assembler must match the CPU so
+    ;  immediates are sized right; the first of several width blocks here.)
+    rep #$30                    ; go 16-bit: accumulator + index registers
     .a16
     .i16
     lda #16
@@ -116,11 +135,16 @@ RESET:
     sep #$20
     .a8
     lda #$81
-    sta $4200
+    sta $4200                   ; NMITIMEN (interrupt + joypad enable): turn on
+                                ;   the VBlank NMI (bit 7) and auto joypad read
+                                ;   (bit 0) so the loop's btn/btnp reads have data
     rep #$30
     .a16
     .i16
 
+; =============================================================================
+; MAIN LOOP — once per frame: run/jump, seam-aware collision, goal check, draw
+; =============================================================================
 game_loop:
     sf_frame_begin
 
@@ -225,6 +249,9 @@ draw:
     sf_frame_end
     jmp game_loop
 
+; =============================================================================
+; DATA — the GOAL string, the level map, the tile art, then the engine includes
+; =============================================================================
 str_goal:
     .byte "GOAL", 0
 

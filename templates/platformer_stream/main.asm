@@ -1,6 +1,6 @@
 ; =============================================================================
 ; platformer_stream — a PLAYABLE Mode 1 platformer on the 2-axis BG1 streaming
-;                      substrate (Streaming rail Mode 1 / Sprint S2b-M2, FINAL).
+;                      substrate (a large-world streaming rail).
 ; =============================================================================
 ; A side-view platformer where the player runs / jumps / climbs / falls through
 ; a believable Four Seasons level several screens WIDE AND TALL (128x128 tiles =
@@ -8,7 +8,7 @@
 ; the CAMERA (which follows the player) pans — forward, back, up, down, idle —
 ; with no pop-in / tearing / black bands. World-space collision blocks walls and
 ; platforms; jump physics (gravity, variable-height jump, landing snap, head
-; bump) uses the M1 16-bit world-Y integrator so the player can span the full
+; bump) uses the 16-bit world-Y integrator so the player can span the full
 ; 1024px-tall level (NOT capped at one 256px screen).
 ;
 ; It composes:
@@ -16,7 +16,7 @@
 ;              engine/bg_stream.asm + engine/bg_stream_row.asm + the kit NMI
 ;              STREAM_PENDING / STREAM_ROW_PENDING drains). 64x64 BG1 ring
 ;              (BG1SC=$5B); cam keyed to the player-follow camera world pos.
-;   PHYSICS    sf_physics_step_world (M1, 16-bit world-Y) with CALLER-SUPPLIED
+;   PHYSICS    sf_physics_step_world (16-bit world-Y) with CALLER-SUPPLIED
 ;              world-space collision probes (ps_solidprobe / ps_owprobe) reading
 ;              the ROM-resident row-major collision table by WORLD coordinate —
 ;              independent of the streamed ring window. Walk is level-checked
@@ -27,8 +27,26 @@
 ;   BACKDROP   a dusk sky colour on the backdrop so open sky never reads as an
 ;              unfinished black screen.
 ;
-; The BG_TILEMAP_DIRTY disown is BAKED INTO sf_stream_init (S2b-M2 DX) — this
-; ROM does NOT carry the manual disown step.
+; The BG_TILEMAP_DIRTY disown is BAKED INTO sf_stream_init — this ROM does NOT
+; carry the manual disown step.
+;
+; Controls:
+;   D-pad left/right   walk          A   jump (hold for a higher jump)
+;   Forward is NOT automatic (this is a normal platformer); at boot you spawn in
+;   an air shaft and gravity alone carries you ~5 screens down to the floor.
+;
+; File layout (top to bottom; the major === section banners):
+;   INIT             — RESET: uploads, arm both stream axes, dusk gradient, spawn
+;   MAIN LOOP        — game_loop, the once-per-frame heartbeat (read this first)
+;   PER-FRAME UPDATE — game_tick: walk, jump, physics, camera, stream, draw
+;   SUBROUTINES      — world-space collision probes + the debug mirror
+;   DATA             — engine includes, hero art, and the level / collision blobs
+; game_loop is the frame heartbeat; start reading there to see the whole shape.
+;
+; This rail boots straight into gameplay — streaming rails have no title screen
+; by design, and the default `make platformer_stream` build is fully playable.
+; The level is authored by tools/level_pipeline_bg.py (--seasons --tall); the
+; 2-axis streaming design is documented in docs/guides/normal_bg_streaming.md.
 ;
 ; Build:  make platformer_stream
 ; LDCFG: lorom_stream.cfg
@@ -40,6 +58,9 @@
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "SEASON RUNNER"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"
 .include "sf_frame.inc"
@@ -49,7 +70,7 @@
 .include "sf_input.inc"
 .include "sf_anim.inc"
 .include "sf_camera.inc"        ; sf_camera_follow (clamps BOTH axes)
-.include "sf_physics.inc"       ; sf_physics_step_world (M1, 16-bit world-Y)
+.include "sf_physics.inc"       ; sf_physics_step_world (16-bit world-Y)
 .include "sf_stream.inc"        ; 2-axis streaming front door
 .include "sf_fx.inc"            ; dusk-sky RGB gradient + color math (backdrop)
 .include "engine_state.inc"
@@ -76,7 +97,7 @@ SPAWN_Y = 136                           ; world px feet Y (airborne in the shaft
 ; the ramp so even an un-gradiented frame is a warm dusk, never bare black.
 SKY_DUSK = $2C68                        ; warm dusk blue/purple
 
-; --- dusk-sky RGB gradient (mirrors the kit platformer's v2 LOOK) ------------
+; --- dusk-sky RGB gradient (mirrors the kit platformer's dusk-sky LOOK) ------
 ; The gradient drives the PPU FIXED COLOR ($2132) per scanline on 3 HDMA
 ; channels (CH3=R, CH4=G, CH5=B); color math ADDs it on the BACKDROP ONLY, so
 ; every open-sky pixel ramps from a warm orange dusk at the top to a deep
@@ -126,6 +147,9 @@ DBG_PYSUB     = $E020
 
 .segment "CODE"
 
+; =============================================================================
+; INIT — interrupt vectors + one-time boot (RESET: uploads, streaming, spawn)
+; =============================================================================
 NMI:
 .include "nmi_handler.asm"
 
@@ -148,10 +172,14 @@ RESET:
     gfxmode #1
 
     ; --- forced blank for the boot uploads + register writes -----------------
+    ; (.a8/.a16 + .i8/.i16 track the CPU's register width for ca65: the 65816
+    ;  switches between 8- and 16-bit registers, and the assembler must match the
+    ;  CPU so it sizes immediates right — the first of many width blocks here.)
     sep #$20
     .a8
     lda #$80
-    sta $2100
+    sta $2100                   ; INIDISP (display control): force blank (bit 7)
+                                ;   so the VRAM/CGRAM uploads below are PPU-safe
     rep #$30
     .a16
     .i16
@@ -181,8 +209,8 @@ RESET:
     .i16
 
     ; --- arm BOTH streaming axes (column producer first, then row) -----------
-    ; sf_stream_init now BAKES IN the BG_TILEMAP_DIRTY disown (S2b-M2 DX), so
-    ; this ROM does NOT need the manual `stz BG_TILEMAP_DIRTY` step.
+    ; sf_stream_init now BAKES IN the BG_TILEMAP_DIRTY disown, so this ROM does
+    ; NOT need the manual `stz BG_TILEMAP_DIRTY` step.
     sf_stream_init     level_flat,     #BGW_WORLD_W_TILES
     sf_stream_row_init level_flat_row, #BGW_WORLD_H_TILES
 
@@ -247,11 +275,15 @@ RESET:
     sta $2100                   ; display on, bright 15
     sta SHADOW_INIDISP
     lda #$81
-    sta $4200                   ; NMI + auto-joypad
+    sta $4200                   ; NMITIMEN (interrupt + joypad enable): VBlank NMI
+                                ;   (bit 7) + auto joypad read (bit 0)
     rep #$30
     .a16
     .i16
 
+; =============================================================================
+; MAIN LOOP — game_loop: the once-per-frame heartbeat (advances the anim clock,
+;             runs one game_tick, repeats)
 ; =============================================================================
 game_loop:
     sf_frame_begin
@@ -264,7 +296,8 @@ game_loop:
     jmp game_loop
 
 ; =============================================================================
-; game_tick — one frame: walk, jump, physics, camera, stream, draw.
+; PER-FRAME UPDATE — game_tick: one frame of walk, jump, physics, camera,
+;                    stream, draw
 ; =============================================================================
 game_tick:
     .a16
@@ -401,6 +434,10 @@ gt_a_held:
     rts
 
 ; =============================================================================
+; SUBROUTINES — the world-space collision probes + the debug mirror
+; =============================================================================
+
+; =============================================================================
 ; world-space collision probes
 ; =============================================================================
 ; The collision table (level_collision, BANK4) is 128x128 row-major, 1 byte
@@ -505,7 +542,7 @@ ps_solidprobe:
 ; ps_owprobe — one-way (jump-through) platform probe. The authored level marks
 ; no PLATFORM-only tiles in the collision table (everything solid is fully
 ; solid), so there are no one-way platforms to land on: this probe always
-; returns $0000 (NOT a one-way top). Kept as a real entry point so the M1
+; returns $0000 (NOT a one-way top). Kept as a real entry point so the world-Y
 ; integrator's one-way arm is wired and a future level that adds one-way tops
 ; (a second collision value) extends only this routine. Exits A16.
 ; WIDTH-RISK: pure A16; no width toggle.
@@ -523,9 +560,9 @@ ps_owprobe:
 ; The colliding BODY is the 8 px strictly ABOVE the contact line — world rows
 ; [PYF-8 .. PYF-1]. Tests the box [TENTX..TENTX+7] x [PYF-8..PYF-1] (top + bottom
 ; body rows, left + right cols) against solid; returns A16 = $0001 if ANY corner
-; is solid (a wall), else $0000. Counting the contact line (PYF>>3) as body was
-; the M2 bug: the player rests with feet ON the floor row, so PYF>>3 is the
-; SOLID floor itself — walking along any floor read as "blocked into a wall".
+; is solid (a wall), else $0000. Counting the contact line (PYF>>3) as body is a
+; subtle trap: the player rests with feet ON the floor row, so PYF>>3 is the
+; SOLID floor itself — walking along any floor would read as "blocked into a wall".
 ; Does NOT touch PX/NEWY. Clobbers A, X, Y. Exits A16.
 ; WIDTH-RISK: A16 wrapper around the A8 col_solid reads (col_solid returns A16).
 walk_blocked:
@@ -651,7 +688,8 @@ debug_mirror:
     rts
 
 ; =============================================================================
-; engine includes — the streaming producers + the rendering closure.
+; DATA — engine includes (streaming producers + rendering closure), the hero
+;        art, and the level / CHR / collision blobs (BANK1-4)
 ; =============================================================================
 .include "ppu_init.inc"
 .include "input_handler.asm"

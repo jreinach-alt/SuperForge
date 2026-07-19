@@ -6,6 +6,10 @@
 ; touch it any other way and you're knocked back to spawn. The "FOES 00002"
 ; counter ticks down per stomp; defeat both and the screen says CLEAR.
 ;
+; Controls:
+;   D-pad left/right   move          A   jump (fixed height)
+;   Defeat an enemy by landing on its head (a stomp); any other contact hurts.
+;
 ; Level: as patrol — ground row 26, borders, low walls cols 10/20 rows
 ; 24..25 (ground beat ex 88..152, ey 200), platform row 20 cols 4..8
 ; (platform beat ex 32..64, ey 152). Spawn (200, 200).
@@ -22,12 +26,21 @@
 ;   - side contact: knockback to spawn (enemy survives)
 ;   - both stomped -> "CLEAR" printed; the game keeps running
 ;
+; File layout (top to bottom; the major === section banners):
+;   INIT       — RESET: uploads, PPU, build the map, HUD, spawn player + enemies
+;   MAIN LOOP  — game_loop, the once-per-frame heartbeat (read this first)
+;   DATA       — the HUD strings, the tile art, then the engine includes
+; game_loop is the frame heartbeat; start reading there to see the whole shape.
+;
 ; Build:  make stomper      (-> build/stomper.sfc)
 ; =============================================================================
 
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "STOMP SQUAD"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic
 .include "sf_bg.inc"            ; gfxmode, mset, sf_load_bg_tile, sf_bg_color
@@ -41,35 +54,38 @@
 .include "sf_frame.inc"         ; sf_engine_init, sf_frame_begin, sf_frame_end
 .include "engine_state.inc"
 
-OBJ_RED   = $001F
-OBJ_MAGEN = $7C1F
-BG_GREY   = $39CE
-SPAWN_X   = 200
-SPAWN_Y   = 200
+OBJ_RED   = $001F               ; player colour (15-bit BGR)
+OBJ_MAGEN = $7C1F               ; enemy colour: magenta (15-bit BGR)
+BG_GREY   = $39CE               ; terrain colour (15-bit BGR)
+SPAWN_X   = 200                 ; player spawn / respawn x (pixels)
+SPAWN_Y   = 200                 ; player spawn / respawn y (pixels)
 
-PX       = $32                  ; --- player (as jumper) ---
-PYF      = $34
-VY       = $36
-NEWY     = $38
-GROUNDED = $3A
-PYI      = $3C
-NEWX     = $3E
-E1X      = $40                  ; --- enemy 1: ground beat (ey #200) ---
-E1DIR    = $42
-E1ALIVE  = $44
-E2X      = $46                  ; --- enemy 2: platform beat (ey #152) ---
-E2DIR    = $48
-E2ALIVE  = $4A
-PNEWX    = $4C                  ; patrol scratch (shared)
-PLEADX   = $4E
-PFOOTY   = $50
-MP_I     = $52
-FOES     = $54                  ; alive count (HUD, counts down)
-HURTS    = $56                  ; debug only
-SPEED    = 2
+PX       = $32                  ; player world x (uses the shared jumper state)
+PYF      = $34                  ; player y, 8.8 fixed-point
+VY       = $36                  ; vertical velocity, 8.8 fixed-point
+NEWY     = $38                  ; tentative y for the physics step
+GROUNDED = $3A                  ; nonzero while the player rests on solid ground
+PYI      = $3C                  ; player y in integer pixels (PYF high byte)
+NEWX     = $3E                  ; tentative x before the solid-box check
+E1X      = $40                  ; enemy 1 x (ground beat, drawn at ey #200)
+E1DIR    = $42                  ; enemy 1 heading (+1 right / -1 left)
+E1ALIVE  = $44                  ; enemy 1 alive flag (0 once stomped)
+E2X      = $46                  ; enemy 2 x (platform beat, drawn at ey #152)
+E2DIR    = $48                  ; enemy 2 heading (+1 right / -1 left)
+E2ALIVE  = $4A                  ; enemy 2 alive flag (0 once stomped)
+PNEWX    = $4C                  ; patrol scratch (shared): tentative x
+PLEADX   = $4E                  ; patrol scratch (shared): leading-edge x
+PFOOTY   = $50                  ; patrol scratch (shared): foot-row y
+MP_I     = $52                  ; map-build loop index (INIT only)
+FOES     = $54                  ; enemies still alive (HUD, counts down)
+HURTS    = $56                  ; times hurt (debug mirror only)
+SPEED    = 2                    ; player move step in pixels per frame
 
 .segment "CODE"
 
+; =============================================================================
+; INIT — interrupt vectors + one-time boot (RESET: uploads, PPU, map, spawn)
+; =============================================================================
 NMI:
 .include "nmi_handler.asm"
 
@@ -91,7 +107,10 @@ RESET:
     gfxmode #1
 
     sf_tile_flags 2, SF_FLAG_SOLID
-    rep #$30
+    ; (.a16/.i16 track the CPU's register width for ca65 — the 65816 switches
+    ;  between 8- and 16-bit registers and the assembler must match the CPU so
+    ;  immediates are sized right; the first of several width blocks here.)
+    rep #$30                    ; go 16-bit: accumulator + index registers
     .a16
     .i16
     stz MP_I
@@ -166,11 +185,16 @@ RESET:
     sep #$20
     .a8
     lda #$81
-    sta $4200
+    sta $4200                   ; NMITIMEN (interrupt + joypad enable): turn on
+                                ;   the VBlank NMI (bit 7) and auto joypad read
+                                ;   (bit 0) so the loop's btn/btnp reads have data
     rep #$30
     .a16
     .i16
 
+; =============================================================================
+; MAIN LOOP — once per frame: player physics, patrol, stomp/hurt, draw
+; =============================================================================
 game_loop:
     sf_frame_begin
 
@@ -311,6 +335,9 @@ skip_e2:
     sf_frame_end
     jmp game_loop
 
+; =============================================================================
+; DATA — the HUD strings, the tile art, then the engine includes
+; =============================================================================
 str_foes:
     .byte "FOES", 0
 str_clear:

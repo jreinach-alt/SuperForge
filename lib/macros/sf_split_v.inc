@@ -232,12 +232,18 @@ SF_SPLIT_V_CENTRE = 128            ; the split column (screen centre)
 ; -----------------------------------------------------------------------------
 ; Sets up EVERYTHING the always-on centre split needs so the caller only drives
 ; the per-frame spread (sf_split_v_spread):
-;   (1) uploads the canonical 3-tile beveled bar to BG3 CHR word $7000 and points
-;       BG34NBA there (=$07). LANDMINE: gfxmode leaves BG3 CHR at $A000, but VRAM
-;       word addresses are 15-bit so $A000 WRAPS to $2000 (onto BG1 CHR) — keep
-;       BG3 CHR in $0000..$7FFF.
+;   (1) raises FORCED BLANK, THEN uploads the canonical 3-tile beveled bar to BG3
+;       CHR word $7000 and points BG34NBA there (=$07). Forced blank must come
+;       first: with the display on, the PPU owns the VRAM+CGRAM buses and silently
+;       DROPS every write, so the CHR upload here and the palette in step (2) would
+;       leave a blank bar over a black palette (the visible "divider" then being
+;       only the backdrop through the masked band). One forced-blank window wraps
+;       steps (1)-(3). LANDMINE: gfxmode leaves BG3 CHR at $A000, but VRAM word
+;       addresses are 15-bit so $A000 WRAPS to $2000 (onto BG1 CHR) — keep BG3 CHR
+;       in $0000..$7FFF.
 ;   (2) sets the bevel palette (CGRAM 9/10/11 = shadow / mid / highlight).
-;   (3) writes the bar into the BG3 tilemap (word $6000) UNDER FORCED BLANK, then
+;   (3) writes the bar into the BG3 tilemap (word $6000) under that same forced
+;       blank, then
 ;       clears BG3's dirty bit so the NMI never re-DMAs it — this sidesteps the
 ;       VBlank multi-tilemap DMA truncation (gfxmode marks all three maps dirty;
 ;       three 2 KB DMAs overrun VBlank and the last, BG3, is cut off mid-transfer
@@ -257,9 +263,14 @@ SF_SPLIT_V_CENTRE = 128            ; the split column (screen centre)
 ; dirty-clear byte writes; exits A16/I16. Contains sep/rep (documented here).
 .macro sf_split_v_bevel
     .local chr, b3fill, b3barL, b3barR, b3store
-    ; --- (1) BG3 CHR: beveled bar -> word $7000 ---
+    ; --- (1) forced blank FIRST, then BG3 CHR: beveled bar -> word $7000. The
+    ;     display is on when this macro runs (after gfxmode), so without the blank
+    ;     the PPU drops the CHR + palette writes below (bug: blank bar, $0000 palette). ---
     sep #$20
     .a8
+    lda #$8F
+    sta $2100                       ; INIDISP: forced blank ON (brightness 15) — held
+                                    ; across steps (1)-(3) so every VRAM/CGRAM write lands
     lda #$80
     sta $2115                       ; VMAIN: +1 word after high byte
     rep #$30
@@ -288,11 +299,10 @@ chr:
     sf_bg_color 0, 9,  $18C6        ; shadow edge (dark)
     sf_bg_color 0, 10, $4E73        ; mid
     sf_bg_color 0, 11, $7FFF        ; highlight core (bright)
-    ; --- (3) BG3 tilemap bar under forced blank + shadow (belt) + dirty-clear ---
+    ; --- (3) BG3 tilemap bar (still under the forced blank from step 1) +
+    ;     shadow (belt) + dirty-clear ---
     sep #$20
     .a8
-    lda #$8F
-    sta $2100                       ; forced blank ON (brightness 15)
     lda #$80
     sta $2115                       ; VMAIN +1 word
     rep #$30

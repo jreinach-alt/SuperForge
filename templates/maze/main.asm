@@ -9,6 +9,15 @@
 ; composed with backgrounds + sprites + input. Adapt it: bigger maps, hazard
 ; tiles (sf_tile_flags bit 1 + col_map), doors (clear a cell with mset).
 ;
+; Controls:
+;   D-pad   move the player (walk into a wall and you slide along it, not stick)
+;
+; File layout (top to bottom; the major === section banners):
+;   INIT       — RESET: tile + palette uploads, PPU, build the walled room, boot
+;   MAIN LOOP  — game_loop, the once-per-frame heartbeat (read this first)
+;   DATA       — the wall + sprite tile art, engine includes
+; game_loop is the frame heartbeat; start reading there.
+;
 ; State (DP): player pos $32/$34, tentative pos $36/$38, map-fill $46-$47.
 ;
 ; Done-condition (emulator-verifiable):
@@ -23,6 +32,9 @@
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "LABYRINTH"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic
 .include "sf_bg.inc"            ; gfxmode, mset, sf_load_bg_tile, sf_bg_color
@@ -33,17 +45,20 @@
 .include "sf_frame.inc"         ; sf_engine_init, sf_frame_begin, sf_frame_end
 .include "engine_state.inc"
 
-OBJ_RED  = $001F
+OBJ_RED  = $001F                ; player colour (15-bit BGR: red)
 BG_GREY  = $39CE                ; walls
 PX       = $32                  ; player position
 PY       = $34
 NEWX     = $36                  ; tentative position (per-axis move check)
 NEWY     = $38
 MZ_I     = $46                  ; map-build loop counter
-SPEED    = 2
+SPEED    = 2                    ; player move step, px/frame
 
 .segment "CODE"
 
+; =============================================================================
+; INIT — interrupt vectors + one-time boot (RESET: uploads, PPU, room, boot)
+; =============================================================================
 NMI:
 .include "nmi_handler.asm"
 
@@ -67,8 +82,8 @@ RESET:
     sf_tile_flags 2, SF_FLAG_SOLID
 
     rep #$30
-    .a16
-    .i16
+    .a16                        ; first width switch: 16-bit A/X/Y. .a16/.i16 tell
+    .i16                        ;   ca65 the CPU width so it sizes operands right
     ; border: top row 0 + bottom row 27 (28 rows = 224 px visible)
     stz MZ_I
 @border_h:
@@ -122,11 +137,15 @@ RESET:
     sep #$20
     .a8
     lda #$81
-    sta $4200                   ; NMI + auto-joypad on
+    sta $4200                   ; NMITIMEN: enable NMI (VBlank IRQ) + auto-joypad
     rep #$30
     .a16
     .i16
 
+; =============================================================================
+; MAIN LOOP — game_loop: per-axis move-check (tentative move, keep only if the
+;             map is clear), then draw the sprite. Once-per-frame.
+; =============================================================================
 game_loop:
     sf_frame_begin
 
@@ -193,6 +212,9 @@ game_loop:
     sf_frame_end
     jmp game_loop
 
+; =============================================================================
+; DATA — the wall + sprite tile art (SNES 4bpp planar) and the engine includes.
+; =============================================================================
 ; solid 8x8 4bpp tiles (all colour index 1)
 wall_tile:
     .byte $FF,$00, $FF,$00, $FF,$00, $FF,$00

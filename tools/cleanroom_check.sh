@@ -164,7 +164,9 @@ fi
 # media files are also blocked by name (the text grep skips binaries).
 # The ONE exemption: docs/reference/fullsnes.* — setup.sh's canonical fetch
 # destination (git-ignored; see NOTICE). A fullsnes file at any other path
-# still fails.
+# still fails. (The 'contra' glob additionally exempts '*contract*' — an
+# English-word filename collision, e.g. the template readability contract in
+# docs/conventions/; an actual rip still trips the glob and the ROM classes.)
 BADFILES=$(find . -path ./build -prune -o -path ./.git -prune -o \
     -path ./tools/Mesen -prune -o \
     -path './docs/reference/fullsnes.*' -prune -o \
@@ -173,7 +175,8 @@ BADFILES=$(find . -path ./build -prune -o -path ./.git -prune -o \
        -iname '*zophar*' -o -iname '*(EMU)*' -o \
        -iname '*f-zero*' -o -iname '*fzero*' -o -iname '*gradius*' -o \
        -iname '*castlevania*' -o -iname '*battletoads*' -o \
-       -iname '*contra*' -o -iname '*axelay*' -o -iname '*actraiser*' -o \
+       \( -iname '*contra*' ! -iname '*contract*' \) -o \
+       -iname '*axelay*' -o -iname '*actraiser*' -o \
        -iname '*r-type*' -o -iname '*parodius*' -o -iname '*darius*' -o \
        -iname '*mega*man*' -o -iname '*mario*' -o -iname '*metroid*' -o \
        -iname '*zelda*' -o -iname '*top*gear*' -o -iname '*pilotwings*' -o \

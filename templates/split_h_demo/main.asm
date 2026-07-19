@@ -1,5 +1,5 @@
 ; =============================================================================
-; split_h_demo — cockpit-style horizontal raster-band split (sf_split_h v1 demo)
+; split_h_demo — cockpit-style horizontal raster-band split (the sf_split_h demo)
 ; =============================================================================
 ; Proves the horizontal raster-band split primitive: a Mode-7 PERSPECTIVE FLOOR
 ; (a receding textured ground plane) in the LOWER band, under a GENUINE TILE
@@ -33,7 +33,7 @@
 ; word $6000). The base regs $2109/$210C are not committed by the engine NMI, so
 ; set once and they persist.
 ;
-; THE DYNAMIC INSTRUMENT (D3): a horizontal fill-bar (BG3 tilemap row 2) whose
+; THE DYNAMIC INSTRUMENT: a horizontal fill-bar (BG3 tilemap row 2) whose
 ; filled tile length tracks a state variable that advances with input (P1
 ; Left/Right) or, in -DAUTODEMO, the frame counter. The bar row is rewritten to
 ; VRAM each frame under a brief top-of-frame forced blank, so the rendered bar
@@ -50,15 +50,29 @@
 ; COMPILE-TIME SWITCHES (the generic make rule can't pass -D):
 ;   -DNO_SPLIT=1     non-vacuity control: the mode/TM split is compiled out, so
 ;                    the whole screen is a single Mode-7 floor with NO tile band
-;                    — the D1 top-band tile signature MUST be ABSENT.
+;                    — the top-band tile signature MUST be ABSENT.
 ;   -DNO_COLORBAND=1 non-vacuity control: the COLDATA companion band is compiled
-;                    out — the D4 colour-band pixel change MUST be ABSENT.
+;                    out — the colour-band pixel change MUST be ABSENT.
 ;   -DFREEZE_BAR=1   non-vacuity control: the bar fill is pinned constant — the
-;                    D3 two-state fill-difference MUST be ABSENT.
+;                    two-state fill-difference MUST be ABSENT.
 ;   -DAUTODEMO=1     self-running (no controller): the bar sweeps up/down on the
 ;                    frame counter AND the camera spins continuously — so the
-;                    split-under-load stress runs without input (for CI / the
-;                    rotation done-condition).
+;                    split-under-load stress runs without input.
+; (The variant script also builds -DTHREEBAND, -DBRIGHT_BAND, and -DTOGGLE_SPLIT;
+;  see the README's variant table.)
+;
+; File layout (top to bottom, matching the major ; === banners below):
+;   INIT         RESET: upload the Mode-7 floor map + both band palettes + BG3
+;                CHR/tilemap, arm the mode/TM (and colour) split bands, set the
+;                cockpit camera.
+;   MAIN LOOP    game_loop — spin the camera (the split-under-load stress), drive
+;                the instrument bar, redraw the bar via the VBlank DMA queue.
+;   SUBROUTINES  the instrument-band drawing (static tilemap, dynamic bar buffer,
+;                bar upload) + the engine module includes.
+;   DATA         the instrument CHR + palettes, the floor palette, and the 32KB
+;                floor-map blob (BANK1).
+;
+; Frame loop: `game_loop` is the once-per-frame heartbeat — start reading there.
 ;
 ; Build:  make split_h_demo
 ;         bash templates/split_h_demo/build_split_h_variants.sh   (the -D ROMs)
@@ -70,6 +84,9 @@
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "SPLIT H DEMO"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic
 .include "sf_frame.inc"         ; sf_engine_init, sf_frame_begin/end
@@ -182,7 +199,7 @@ G_ANGLE  = $54                  ; word: Mode-7 camera angle (low byte = 0..255);
                                 ;   L/R shoulders spin it -> per-frame rebuild
 G_MSK_BGM = $56                 ; word: CH mask for the BGMODE band (for _off/re-arm)
 G_MSK_TM  = $58                 ; word: CH mask for the TM band (for _off/re-arm)
-G_TGL_ST  = $5A                 ; word: -DTOGGLE_SPLIT phase (0=armed,1=off,2=rearmed)
+G_TGL_ST  = $5A                 ; word: -DTOGGLE_SPLIT state (0=armed,1=off,2=rearmed)
 G_TGL_PREV = $5C                ; word: previous frame's A-button state (edge detect)
 
 ; --- the dynamic bar-row VRAM staging buffer (WRAM debug region, 24 words) -----
@@ -201,6 +218,12 @@ NMI:
 NMI_STUB:
     rti
 
+; =============================================================================
+; INIT — one-time setup at RESET: upload the Mode-7 floor map + both band
+;        palettes + BG3 CHR/tilemap under forced blank, arm the mode/TM (and
+;        optional colour/brightness) split bands through the HDMA allocator, and
+;        set the cockpit camera. Screen turns on at the end.
+; =============================================================================
 RESET:
     sf_coldstart                ; forced blank; WRAM/CGRAM/VRAM cleared
     sf_engine_init
@@ -219,7 +242,7 @@ RESET:
 fpal_loop:
     .a8
     lda f:floor_pal, x
-    sta $2122
+    sta $2122                   ; CGDATA (CGRAM data): write colour byte; index auto-advances
     inx
     cpx #(FLOOR_PAL_COUNT * 2)
     bne fpal_loop
@@ -278,7 +301,7 @@ chr_loop:
     sta G_FILL                  ; start half-full
     stz G_AUTOD
     stz G_ANGLE                 ; camera faces forward (angle 0) at boot
-    stz G_TGL_ST                ; -DTOGGLE_SPLIT phase 0 (split armed)
+    stz G_TGL_ST                ; -DTOGGLE_SPLIT state 0 (split armed)
     stz G_TGL_PREV              ; A-button edge-detect state
     jsr draw_band_static
     jsr draw_bar                ; build the bar row into WRAM BAR_BUF
@@ -350,11 +373,16 @@ chr_loop:
     sta $2100                   ; INIDISP: bright 15, display on
     sta SHADOW_INIDISP          ; the NMI re-commits INIDISP from this shadow
     lda #$81
-    sta $4200                   ; NMI + auto-joypad
+    sta $4200                   ; NMITIMEN: enable VBlank NMI + auto-joypad read
     rep #$30
     .a16
     .i16
 
+; =============================================================================
+; MAIN LOOP — game_loop: the once-per-frame heartbeat. Spin the Mode-7 camera (a
+;   changing angle forces a full matrix rebuild — the split-under-load stress),
+;   drive the instrument bar from input (or autodemo), and redraw the bar row via
+;   the engine VBlank DMA queue (no mid-frame forced blank).
 ; =============================================================================
 game_loop:
     .a16
@@ -404,7 +432,7 @@ game_loop:
     ; --- lifecycle exercise (-DTOGGLE_SPLIT): edge-detected P1 A cycles the
     ;     mode/TM split OFF (sf_split_h_off on the BGMODE+TM channels -> collapses
     ;     to full-screen Mode 7, like -DNO_SPLIT) then back ON (sf_split_h_arm the
-    ;     same RODATA tables). Phase 0=armed, 1=off, 2=re-armed. The masks were
+    ;     same RODATA tables). State 0=armed, 1=off, 2=re-armed. The masks were
     ;     captured into G_MSK_BGM/G_MSK_TM at arm time. ---
     ; Edge-detect P1 A. Only a fresh 0->1 press with a not-yet-latched phase
     ; reaches the dispatch (@tgl_edge); everything else branches SHORT to
@@ -427,14 +455,14 @@ game_loop:
     .a16
     .i16
     lda G_TGL_ST
-    beq @tgl_off                ; phase 0 -> OFF
+    beq @tgl_off                ; state 0 -> OFF
     cmp #1
-    beq @tgl_rearm              ; phase 1 -> re-arm
-    jmp @tgl_done               ; phase >=2 -> latched, no more toggles
+    beq @tgl_rearm              ; state 1 -> re-arm
+    jmp @tgl_done               ; state >=2 -> latched, no more toggles
 @tgl_off:
     .a16
     .i16
-    ; phase 0 -> OFF: release + disarm the BGMODE and TM channels.
+    ; state 0 -> OFF: release + disarm the BGMODE and TM channels.
     sf_split_h_off G_MSK_BGM
     sf_split_h_off G_MSK_TM
     lda #1
@@ -443,7 +471,7 @@ game_loop:
 @tgl_rearm:
     .a16
     .i16
-    ; phase 1 -> re-arm the SAME RODATA tables on fresh allocator channels.
+    ; state 1 -> re-arm the SAME RODATA tables on fresh allocator channels.
     sf_split_h_arm SF_SPLIT_BGMODE, tbl_bgm, FX_BGM
     lda ENGINE_A0
     sta G_MSK_BGM
@@ -511,9 +539,9 @@ game_loop:
     ; --- update the dynamic bar row via the engine VBlank DMA queue (the kit
     ;     idiom — NO mid-frame forced blank). draw_bar builds the row into WRAM
     ;     BAR_BUF (touches no PPU port); bar_enqueue sets VMAIN/VMADD and queues a
-    ;     GP-DMA of the 24 words. The NMI drains it during the NEXT VBlank (Phase
-    ;     3, before any tilemap/stream DMA), so the port is stable and the display
-    ;     never blanks. sf_frame_end below calls dma_queue_signal. ---
+    ;     GP-DMA of the 24 words. The NMI drains it during the NEXT VBlank (its
+    ;     DMA-queue-drain step, before any tilemap/stream DMA), so the port is
+    ;     stable and the display never blanks. sf_frame_end calls dma_queue_signal. ---
     jsr draw_bar
     jsr bar_enqueue
 
@@ -524,6 +552,12 @@ game_loop:
 
     sf_frame_end
     jmp game_loop
+
+; =============================================================================
+; SUBROUTINES — the instrument-band drawing (the static tilemap, the dynamic bar
+;   buffer, and the boot/VBlank-queue bar uploads) followed by the engine module
+;   includes. Each routine's own header states its width contract.
+; =============================================================================
 
 ; =============================================================================
 ; draw_band_static — write the FIXED instrument-band tilemap cells directly to
@@ -678,8 +712,8 @@ bar_buf_to_vram:
 ; =============================================================================
 ; bar_enqueue — enqueue a GP-DMA of BAR_BUF (48 bytes) -> the BG3 tilemap in
 ; VRAM on the engine VBlank DMA queue (the kit-idiomatic path). No forced blank:
-; the DMA runs during the NEXT VBlank (NMI Phase 3, before any tilemap/stream
-; DMA), so the ~24-word write lands with the port stable. We set VMAIN ($2115)
+; the DMA runs during the NEXT VBlank (the NMI's DMA-queue-drain step, before any
+; tilemap/stream DMA), so the ~24-word write lands with the port stable. We set VMAIN ($2115)
 ; and VMADD ($2116) in the main loop here; the GP-DMA queue drain does NOT touch
 ; them (it only sets DMAP/BBAD/src/size on CH0), and nothing between here and the
 ; NMI writes $2115/$2116 (mode7_tick builds tables in WRAM; sf_frame_end runs
@@ -746,7 +780,10 @@ mode7_sin_lut:
 .include "mode7_hdma.asm"
 .include "mode7_engine.asm"
 
-; --- first-party data: the instrument-band CHR + palette, the floor palette ---
+; =============================================================================
+; DATA — first-party data: the instrument-band CHR + palette, the floor palette,
+;   and the 32KB interleaved Mode-7 floor-map blob (bank 1 of the 64KB image).
+; =============================================================================
 .segment "RODATA"
 .include "assets/dash_chr.inc"
 .include "assets/dash_palette.inc"

@@ -161,8 +161,10 @@ SF_MODE7_INC = 1
 ;               #imm). Stored as 16.16 with the fraction zeroed.
 ;   angle       16-bit operand, LOW byte used: 0..255 = one full turn.
 ; Sets the origin-dirty flag always; sets the rebuild-dirty flag ONLY when
-; the angle actually changed (a rebuild costs ~10k cycles — moving in a
-; straight line stays on the cheap path). sf_mode7_tick consumes the flags.
+; the angle actually changed (a full rebuild measures 220-295k master
+; clocks = 62-83% of a frame for the shipped parameter sets — moving in a
+; straight line stays on the ~3,600-mc cheap path; measure your own set
+; with tests/persp_cycles_test.asm). sf_mode7_tick consumes the flags.
 ; Clobbers A.
 ; WIDTH-RISK: asserts A16/I16 entry; A8 for the angle compare + flag bytes;
 ; the .local label below the beq carries an explicit .a8; exits A16/I16.
@@ -196,7 +198,8 @@ m7c_same_angle:
 ; -----------------------------------------------------------------------------
 ; sf_mode7_perspective l0, l1, s0, s1, sh, interp, wrap — the trapezoid.
 ; -----------------------------------------------------------------------------
-;   l0      horizon scanline (8-bit; the floor starts here. 96 = racing view)
+;   l0      horizon scanline (8-bit; the floor starts here. 56 = the racer
+;           rail's high-horizon view; 96 = the mode7_test run-gate's)
 ;   l1      bottom scanline (8-bit; usually 224)
 ;   s0      far-scale  u16 (texel step at l0 — bigger = more compression)
 ;   s1      near-scale u16 (texel step at l1 — smaller = tighter camera)
@@ -335,7 +338,9 @@ m7c_same_angle:
 ; sf_mode7_tick — the per-frame Mode 7 service call (put it in your loop).
 ; -----------------------------------------------------------------------------
 ; Transcribed from the engine's proven frame dispatcher: skip everything when
-; Mode 7 is inactive; run the full HDMA-table rebuild (~10k cycles) only when
+; Mode 7 is inactive; run the full HDMA-table rebuild (220-295k master
+; clocks = 62-83% of a frame at the shipped parameter sets — see
+; pv_rebuild's split entry points when that must share a frame) only when
 ; the rebuild flag is set (angle/perspective changed); re-anchor the rotation
 ; origin + scroll shadows (cheap) only when the origin flag is set (camera
 ; moved); then let the HUD-overlay hook re-stamp its band table if a HUD

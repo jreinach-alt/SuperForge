@@ -17,8 +17,10 @@
 ;               absolute addressing against engine state at $01B1+;
 ;               entry-point renames for engine integration; additive
 ;               HDMA channel bitmask OR instead of unconditional write;
-;               single-buffered HDMA tables (per Phase 16-0 decision,
-;               Brad uses double-buffering). The algorithm + numeric
+;               double-buffered HDMA tables (pv_buffer flip, stride
+;               $0900 — matching Brad's double-buffering; an earlier
+;               single-buffered draft was replaced, and the pass1/pass2
+;               split relies on the flip). The algorithm + numeric
 ;               output is byte-identical to Brad's on the Mode Y fast
 ;               path.
 ;
@@ -728,8 +730,38 @@ mode7_hdma_disable:
 ;
 ; Precondition: A16, I16, DP=$0000.
 ; Modifies: A, X, Y, DB (saved and restored).
+;
+; TWO-PASS SPLIT (frame pacing): the body is factored at its register-clean
+; seam into two standalone entry points so a caller that cannot afford the
+; whole rebuild in one frame can spread it across two:
+;   pv_rebuild_pass1 — steps 1-4d: buffer flip + per-scanline coefficient
+;                      emit (the heavy ~2/3 of the cost). Emits into the
+;                      inactive double-buffer half; the DISPLAYED tables and
+;                      the channel config are untouched, so the frame renders
+;                      the previous camera exactly as before.
+;   pv_rebuild_pass2 — steps 4e-5: neighbor interpolation + channel config +
+;                      enable. Completes the flip: the new tables become the
+;                      active half the NMI commits.
+; Contract for split callers: pass2 must follow pass1 with NO intervening
+; pv_rebuild/pass1 (the flip is per-rebuild), and the perspective state
+; (pv_l0/l1/interp) must not change between the passes — pass2 re-derives
+; its line counts from that state. Everything else pass2 consumes (the
+; emitted line data + pv_buffer) persists in WRAM/engine state; the DP
+; math_a..math_r / pv_temp scratch may be freely clobbered between passes
+; (pv_set_origin runs fine in between). pv_rebuild itself is unchanged in
+; behavior: it runs both passes back to back.
 ; =============================================================================
 pv_rebuild:
+    .a16
+    .i16
+    jsr pv_rebuild_pass1            ; steps 1-4d: flip + emit (restores width)
+    jmp pv_rebuild_pass2            ; steps 4e-5: interpolate + arm (tail call)
+
+; -----------------------------------------------------------------------------
+; pv_rebuild_pass1 — steps 1-4d: buffer flip + per-scanline coefficient emit.
+; Precondition: A16, I16, DP=$0000. Modifies A, X, Y, DB (saved/restored).
+; -----------------------------------------------------------------------------
+pv_rebuild_pass1:
     .a16
     .i16
     php
@@ -1235,6 +1267,79 @@ pv_rebuild:
     jsr pv_abcd_lines_full
 @variant_done:
     plb                             ; DB = $7E
+
+    ; --- pass-1 exit: the per-line emit is complete in the flipped (not yet
+    ; displayed) buffer half. Stack here is [P, caller_DB] — same shape the
+    ; single-frame exit unwinds. WIDTH-LINT: ok — plp restores the caller's
+    ; saved widths (pass1 entry php).
+    plb                             ; restore caller's DB (pass-1 entry phb)
+    plp                             ; restore caller's flags/widths
+    rts
+
+; -----------------------------------------------------------------------------
+; pv_rebuild_pass2 — steps 4e-5: interpolation + channel config + enable.
+; -----------------------------------------------------------------------------
+; Standalone entry: may run a frame after pv_rebuild_pass1 (see the split
+; contract at pv_rebuild). The prologue re-derives the cheap step-4a state
+; the 4e/5 code reads (pv_interps, pv_temp+1, pv_temp+6) from the persistent
+; pv_l0/l1/interp/pv_buffer engine state, so nothing depends on DP scratch
+; surviving the frame gap.
+; Precondition: any width (saved/restored). DP=$0000.
+; Modifies: A, X, Y, DB (saved and restored).
+; WIDTH-RISK: entry any width; php/plp bracket the pass — inside, widths are
+; set explicitly (A8/I8 for the byte re-derives, then A16/I16 for the 4e/5
+; body, exactly the widths the single-frame path arrives with).
+; -----------------------------------------------------------------------------
+pv_rebuild_pass2:
+    php
+    phb
+    sep #$30
+    .a8
+    .i8
+    ; pv_interps = clamp(pv_interp to 1/2/4) * 4 — as step 4a stored it
+    lda pv_interp
+    cmp #2
+    beq @p2_interp_ok
+    cmp #4
+    beq @p2_interp_ok
+        lda #1                      ; any other value -> 1 (no interpolation)
+@p2_interp_ok:
+    .a8
+    asl
+    asl
+    sta pv_interps + 0
+    stz pv_interps + 1
+    ; pv_temp+1 = un-interpolated scanline count + 1 — as step 4a stored it
+    lda pv_l1
+    sec
+    sbc pv_l0
+    ldx pv_interp
+    cpx #4
+    bne @p2_cnt_try2
+        lsr
+        lsr
+        bra @p2_cnt_done
+@p2_cnt_try2:
+    .a8
+    cpx #2
+    bne @p2_cnt_done
+        lsr
+@p2_cnt_done:
+    .a8
+    inc
+    sta pv_temp + 1
+    ; pv_temp+6 = byte offset of the half pass 1 emitted into (pv_buffer has
+    ; not changed since the pass-1 flip; pv_buffer_x re-derives the same X)
+    rep #$10
+    .i16
+    jsr pv_buffer_x                 ; .a8 .i16 -> X = 0 or PV_HDMA_STRIDE
+    stx pv_temp + 6
+    lda #$7E
+    pha
+    plb                             ; DB = $7E for the WRAM table reads/writes
+    rep #$30
+    .a16
+    .i16
 
     ; -------------------------------------------------------------------------
     ; Step 4e — interpolation (dizworld.s L2365-2386)

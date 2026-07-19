@@ -129,8 +129,10 @@ def _start_game(r):
 
 
 def _stomp_ground_ghost(r, tmo=30):
-    """Hop onto ghost1's head when it sweeps near (clears the ground lane so
-    the camera walk can't be interrupted by a hurt-respawn)."""
+    """Stomp ghost1 to clear the ground lane (so the camera walk can't be
+    interrupted by a hurt-respawn). Ghost1 now turns back at GHOST1_MIN_X=64, so
+    the player must approach it in its lane: walk toward it and hop when near, so
+    the fall makes head contact (a stomp) rather than a side hit."""
     t0 = time.time()
     while r.read_u16(WR, E1ALIVE) == 1 and time.time() - t0 < tmo:
         d = r.read_u16(WR, E1X) - r.read_u16(WR, PX)
@@ -139,8 +141,14 @@ def _stomp_ground_ghost(r, tmo=30):
             r.run_frames(8)
             r.set_input(0)
             r.run_frames(30)
-        else:
+        elif d > 0:
+            r.set_input(0, right=True)
             r.run_frames(4)
+            r.set_input(0)
+        else:
+            r.set_input(0, left=True)
+            r.run_frames(4)
+            r.set_input(0)
     return r.read_u16(WR, E1ALIVE) == 0
 
 

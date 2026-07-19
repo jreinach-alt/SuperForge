@@ -1,0 +1,34 @@
+{
+  "rail": "split_h_2p_demo",
+  "what": "The sprites-vs-cadence receipt: which sprite counts N hold the in-situ +1/+1 loop-vs-NMI lockstep. Committed so the receipt is version-controlled evidence and a drift in the durable points is caught, rather than only landing in /tmp at test time. test_sp_cadence_sweep_curve asserts its live measurement against the durable verdicts below.",
+  "builds": {
+    "full": "_spr_sweep - scripted two-pad input + AI pathing + size tiers, full-rate reprojection every frame",
+    "altframe": "_spr_alt - the index halves reproject alternately at 30 Hz under the 60 Hz display (a probe, not the default)"
+  },
+  "lockstep_durable": {
+    "full": { "24": true, "32": true, "128": false },
+    "altframe": { "64": true }
+  },
+  "border_points_recorded_not_asserted": {
+    "note": "48/64/96 on the full-rate build sit near the cliff and are wall-clock-variance-sensitive; the live full grid over N={8,16,24,32,48,64,96,128} lands in /tmp/e2e_screenshots/task2_curve.json each run.",
+    "full_rate_breaks_at": 48,
+    "altframe_holds": 64
+  },
+  "ship": {
+    "default_n": 24,
+    "rule": "largest N with +1/+1 lockstep AND >=15% modeled headroom",
+    "headroom_pct": { "24": 31, "32": 10 }
+  },
+  "per_sprite_per_band_mc": {
+    "visible": 5595,
+    "behind_camera": 2003,
+    "chebyshev_culled": 606,
+    "naive_visible": 8522,
+    "note": "5595 is the direct _spr_cyc instrument; the integrated-sweep slope /2 gives 5653 (+1.0%), the cross-check. See docs/guides/split_h.md."
+  },
+  "per_scanline_overflow": {
+    "cluster_intended": 30,
+    "drawn_full": 8,
+    "model": "34 slivers / 4 per 32x32 OBJ = 8; the range-32 limit never binds first"
+  }
+}

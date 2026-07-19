@@ -472,3 +472,140 @@ def test_lose_path_sets_result(runner):
             break
     assert lost, "lose path did not set result=2 (LOSE) at RESULT"
     assert (runner.read_u16(WR, DBG_PHP) & 0xFF) == 0, "player HP not 0 on the lose path"
+
+
+# =============================================================================
+# (g) result cards — the win/lose RESULT holds a DEFEAT/VICTORY card over a
+#     DIMMED (not black) scene: the fix for the ~2.5 s pure-black hold that read
+#     as a crash. Assert the rendered framebuffer is NOT black and the card
+#     glyphs are composed in the overlay OAM band (slots 29+).
+# =============================================================================
+# glyph tile numbers (assets/sprites.inc SPR_G_*), relative to the OBJ base
+GLYPH_TILE = {c: 0x20 + i for i, c in enumerate("ACDEFIMNORSTUVWY")}
+
+
+def _card_word(word):
+    return [GLYPH_TILE[c] for c in word]
+
+
+def _visible_glyphs(runner):
+    """Glyph tiles ($20-$2F) that are on-screen (y != 0xF0) in the overlay OAM
+    band (slots 29+, past the stable 0..28 map), in slot order — the rendered
+    card letters. The dark banner tile (SPR_CARDBG=$09) is outside this range,
+    so it is naturally excluded."""
+    out = []
+    for s in range(29, 64):
+        x, y, t, a = _oam(runner, s)
+        if 0x20 <= t <= 0x2F and y != 0xF0:
+            out.append(t)
+    return out
+
+
+def _drive_to_result(runner, want_result, max_frames, **inp):
+    for _ in range(max_frames):
+        if inp:
+            runner.set_input(0, **inp)
+        runner.run_frames(1)
+        if _state(runner) == ST_RESULT and (runner.read_u16(WR, DBG_RESULT) & 0xFF) == want_result:
+            runner.set_input(0)
+            return True
+    runner.set_input(0)
+    return False
+
+
+def test_lose_result_shows_defeat_card_not_black(runner):
+    """The lose RESULT shows a DEFEAT card over a dimmed scene, NOT a black hold.
+    Drive the idle lose to RESULT(2); assert the engine INIDISP shadow is
+    NONZERO (the anti-regression — the old hold was brightness 0), the rendered
+    framebuffer has lit pixels (not black), AND the DEFEAT glyphs are composed
+    in the overlay OAM band.
+
+    TEST SURFACE: feature = the DEFEAT result card; output regions = SHADOW_INIDISP
+    (dimmed, not zeroed), the rendered framebuffer (lit, not black), and OAM
+    slots 29+ (the composed glyph tiles); state cycle = FIGHT->LOSE->RESULT(2)."""
+    rom = BUILD / "boss_saucer.sfc"
+    runner.load_rom(str(rom), run_seconds=0.3)
+    assert _drive_to_result(runner, 2, 1800), "never reached RESULT(lose)"
+    runner.run_frames(6)                        # let the dim fade + OAM DMA settle
+    assert (runner.read_u16(WR, SHADOW_INIDISP) & 0xFF) != 0, \
+        "lose RESULT is fully black (the crash-looking regression)"
+    runner.take_screenshot("/tmp/_saucer_defeat_card.png")
+    assert _lit_pixels("/tmp/_saucer_defeat_card.png", thresh=60) > 2000, \
+        "lose scene rendered black (no lit pixels)"
+    glyphs = _visible_glyphs(runner)
+    assert glyphs == _card_word("DEFEAT"), f"DEFEAT card not composed in OAM: {glyphs}"
+
+
+def test_win_result_shows_victory_card_not_black(runner):
+    """The win RESULT shows a VICTORY card over a dimmed scene. Drive the win
+    (strafe out of the beam + hold A to kill the saucer) to RESULT(1); assert the
+    scene is not black and the VICTORY glyphs are composed in the overlay band.
+
+    TEST SURFACE: feature = the VICTORY result card; output regions = SHADOW_INIDISP
+    + OAM slots 29+ (composed glyph tiles); state cycle = FIGHT->DEATH->RESULT(1)."""
+    rom = BUILD / "boss_saucer.sfc"
+    runner.load_rom(str(rom), run_seconds=0.3)
+    assert _drive_to_result(runner, 1, 2600, left=True, a=True), "never reached RESULT(win)"
+    runner.run_frames(6)
+    assert (runner.read_u16(WR, SHADOW_INIDISP) & 0xFF) != 0, "win RESULT is fully black"
+    glyphs = _visible_glyphs(runner)
+    assert glyphs == _card_word("VICTORY"), f"VICTORY card not composed in OAM: {glyphs}"
+
+
+def test_boot_title_card_shows_controls_then_dismisses(runner):
+    """The boot title card (game name + controls) shows over the intro so a
+    first-timer learns A = fire, then auto-dismisses at the fight WITHOUT gating
+    it (the reveal/fight tests boot straight in). Assert the title glyphs are
+    composed in the overlay OAM band during the intro, and that the band is clear
+    once the fight starts.
+
+    TEST SURFACE: feature = the non-gating boot title card; output region = OAM
+    slots 29+ (composed glyph tiles present pre-fight, empty in FIGHT); state
+    cycle = REVEAL/HOLD (title up) -> FIGHT (title gone)."""
+    rom = BUILD / "boss_saucer.sfc"
+    runner.load_rom(str(rom), run_seconds=0.3)
+    assert _to_state(runner, ST_HOLD), "never reached HOLD (intro)"
+    runner.run_frames(2)
+    # "SAUCER DOWN" alone contributes S,A,U,C,E,R,D,O,W,N (10 letter glyphs); the
+    # controls line adds more. A healthy count proves the card is composed.
+    intro_glyphs = _visible_glyphs(runner)
+    assert len(intro_glyphs) >= 10, f"title card not composed during intro: {intro_glyphs}"
+    # once the fight starts the card is gone (auto-dismissed — proves non-gating)
+    assert _to_state(runner, ST_FIGHT), "never reached FIGHT"
+    runner.run_frames(2)
+    assert _visible_glyphs(runner) == [], "title card did not dismiss at the fight"
+
+
+def test_start_pauses_and_resumes_the_fight(runner):
+    """START toggles a full freeze: while paused the player cannot move (held
+    input is ignored because the update is skipped) and the state holds; a second
+    START resumes and input works again. Select is unmapped. Reads the player OAM
+    X (moves left only when the fight is live and LEFT is held).
+
+    TEST SURFACE: feature = START pause/resume; output region = OAM slot 0 X (the
+    rendered player position) + b_state; state cycle = FIGHT paused -> resumed."""
+    rom = BUILD / "boss_saucer.sfc"
+    runner.load_rom(str(rom), run_seconds=0.3)
+    assert _to_state(runner, ST_FIGHT), "never reached FIGHT"
+    runner.run_frames(10)
+    # PAUSE (rising edge)
+    runner.set_input(0, start=True)
+    runner.run_frames(3)
+    runner.set_input(0)
+    px_paused = _oam(runner, PLAYER_SLOT)[0]
+    # hold LEFT while paused: the player must NOT move (the update is frozen out)
+    for _ in range(24):
+        runner.set_input(0, left=True)
+        runner.run_frames(1)
+    runner.set_input(0)
+    assert _oam(runner, PLAYER_SLOT)[0] == px_paused, "player moved while paused"
+    assert _state(runner) == ST_FIGHT, "left FIGHT while paused"
+    # UNPAUSE: input works again, the player strafes left
+    runner.set_input(0, start=True)
+    runner.run_frames(3)
+    runner.set_input(0)
+    for _ in range(24):
+        runner.set_input(0, left=True)
+        runner.run_frames(1)
+    runner.set_input(0)
+    assert _oam(runner, PLAYER_SLOT)[0] < px_paused, "player did not move after unpause"

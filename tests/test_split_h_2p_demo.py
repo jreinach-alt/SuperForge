@@ -1106,7 +1106,14 @@ def test_sp_ai_reaches_waypoints_bounded_and_renders(roms, runner):
 # --- size tiers + seam margins (increment 3) -----------------------------------
 
 _WORLD_TIER = (_SPA / "sp_world_tier.bin").read_bytes()
-SP_TIER_DIAM = (10, 12, 14, 18, 22)      # drawn disc diameters per tier (2r)
+# Followers/players are CHARACTER TOKENS (head + tapered torso), not discs, so
+# the rendered silhouette is TALLER than it is wide. Both ladders are MEASURED
+# off the rendered framebuffer (build/split_h_2p_demo_spr_tier, N=24) and were
+# retuned from the retired disc diameters when the art swapped disc->character.
+# HEIGHT still equals the retired diameters (the apparent-size ladder — "far
+# tokens smaller" — is deliberately preserved); WIDTH is the token's torso.
+SP_TIER_H = (10, 12, 14, 18, 22)         # rendered token HEIGHT per tier
+SP_TIER_W = (6, 8, 8, 10, 14)            # rendered token WIDTH  per tier (torso)
 
 
 def _white_extent(pix, sx, sy):
@@ -1159,8 +1166,9 @@ def _tier_world_projections(runner, n):
 
 def test_sp_tier_ladder_extents_and_boundaries(roms, runner):
     """SIZE TIERS (increment 3): on the pinned tier-ladder still the RENDERED
-    disc extent at each mirror-predicted position matches the committed
-    LUT's tier for that row (drawn diameters 10/12/14/18/22 px, +-3), the
+    character-token extent at each mirror-predicted position matches the
+    committed LUT's tier for that row (measured heights 10/12/14/18/22 px and
+    torso widths 6/8/8/10/14 px, +-3 — the tokens are taller than wide), the
     ladder covers ALL FIVE tiers, and walking the ladder by row the tier
     index never jumps by more than ONE step (no popping worse than one tier
     step — the LUT boundaries are contiguous by construction and the render
@@ -1181,11 +1189,10 @@ def test_sp_tier_ladder_extents_and_boundaries(roms, runner):
         if not (16 <= sx <= 239 and 10 <= sy <= 110):
             continue                     # extent window must fit the band
         w, h = _white_extent(pix, sx, sy)
-        exp = SP_TIER_DIAM[tier]
-        assert abs(w - exp) <= 3, \
-            f"ladder {i} @k={sy}: tier {tier} width {w} != ~{exp}"
-        assert abs(h - exp) <= 3, \
-            f"ladder {i} @k={sy}: tier {tier} height {h} != ~{exp}"
+        assert abs(w - SP_TIER_W[tier]) <= 3, \
+            f"ladder {i} @k={sy}: tier {tier} width {w} != ~{SP_TIER_W[tier]}"
+        assert abs(h - SP_TIER_H[tier]) <= 3, \
+            f"ladder {i} @k={sy}: tier {tier} height {h} != ~{SP_TIER_H[tier]}"
         seen_tiers.add(tier)
         by_k.append((sy, tier))
     assert seen_tiers == {0, 1, 2, 3, 4}, f"ladder missed tiers: {seen_tiers}"
@@ -1206,8 +1213,8 @@ def test_sp_tier_ladder_extents_and_boundaries(roms, runner):
             continue                     # are tier-independent)
         w, h = _white_extent(pix, sx, sy)
         widths.append(w)
-        assert abs(w - SP_TIER_DIAM[2]) <= 3, \
-            f"TIEROFF sprite {i} width {w} != constant ~14"
+        assert abs(w - SP_TIER_W[2]) <= 3, \
+            f"TIEROFF sprite {i} width {w} != constant ~{SP_TIER_W[2]}"
     assert max(widths) - min(widths) <= 4, \
         "TIEROFF control failed to collapse the size ladder"
 
@@ -1300,6 +1307,18 @@ def test_sp_cadence_sweep_curve(roms, runner):
     assert not full[128], \
         "N=128 held lockstep?! the gate metric reads nothing (vacuous)"
     assert alt[64], "alt-frame probe lost its measured N=64 lockstep"
+    # committed oracle: the durable lockstep verdicts live in n_curve_oracle.json
+    # (version-controlled evidence, not only a /tmp artifact); assert the live
+    # measurement against it so a drift in a durable point fails here too.
+    oracle = json.loads((ROOT / "templates" / "split_h_2p_demo"
+                         / "n_curve_oracle.json").read_text())
+    for n_s, want in oracle["lockstep_durable"]["full"].items():
+        assert full[int(n_s)] == want, \
+            f"full N={n_s} lockstep {full[int(n_s)]} != committed oracle {want}"
+    for n_s, want in oracle["lockstep_durable"]["altframe"].items():
+        assert alt[int(n_s)] == want, \
+            f"altframe N={n_s} lockstep {alt[int(n_s)]} != committed oracle {want}"
+    assert oracle["ship"]["default_n"] == SHIP_DEFAULT_N
     out = Path("/tmp/e2e_screenshots")
     out.mkdir(exist_ok=True)
     (out / "task2_curve.json").write_text(json.dumps(curve, indent=2))

@@ -204,3 +204,195 @@ def test_racer_drives_and_steers(runner):
     # --- coast: with no input the kart decays back toward standstill ---
     runner.run_frames(120)
     assert runner.read_u16(WR, DP_SPEED) == 0, "coasting never decays to a stop"
+
+
+def _stamp_deltas(runner, frames, **buttons):
+    """Frame-deterministic loop-rate probe: step exactly one PPU frame at a
+    time (input latched) and read the game loop's per-iteration heartbeat
+    ($7E:E010 = FRAME_COUNTER written once per loop pass). A loop holding
+    60 fps advances the stamp by exactly 1 every hardware frame; an
+    iteration that overruns its frame shows up as a 2 (then 0) delta."""
+    vals = []
+    for _ in range(frames):
+        runner.frame_step(1, **buttons)
+        vals.append(runner.read_u16(WR, 0xE010))
+    return [(b - a) & 0xFFFF for a, b in zip(vals, vals[1:])]
+
+
+def test_racer_loop_holds_60fps_under_steer(runner):
+    """LOOP-RATE GATE (the S1 public finding, fixed): any angle change forces
+    a Mode 7 perspective rebuild, and a full rebuild at the racer's trapezoid
+    measures 245,779 master clocks (69% of a frame) — one frame cannot hold
+    it beside the rail's HDMA + game work, which used to halve the loop to
+    30 fps under ANY steering (frame-stamp deltas 2,0,2,0...). The template
+    now spreads the rebuild across two frames (pv_rebuild_pass1/_pass2, the
+    engine's split entry points) — this gate holds it to 60.
+
+    Also pins the day-night blend cadence: every 8th blend frame rebuilds
+    three 225-entry gradient COLDATA tables, a whole-frame cost that predates
+    this gate and overruns REGARDLESS of steering (measured at idle: one 2,0
+    pair per step). Steering must not stack on it — max stall stays 2 frames
+    and the miss count stays near the step rate, never a 30 fps lock."""
+    rom = BUILD / "racer.sfc"
+    assert rom.exists(), f"{rom} not built — run `make racer` first"
+    runner.load_rom(str(rom), run_seconds=2.0)
+    assert runner.read_bytes(WR, 0xE000, 4) == b"SFDB"
+    runner.debug_break()
+
+    # --- sustained steer inside the DAY hold: 60 fps, every single frame ---
+    for name, buttons in (("LEFT+B", dict(b=True, left=True)),
+                          ("RIGHT+B", dict(b=True, right=True)),
+                          ("LEFT only", dict(left=True))):
+        n = 310 if name == "LEFT+B" else 80
+        deltas = _stamp_deltas(runner, n, **buttons)
+        assert set(deltas) == {1}, (
+            f"loop dropped under sustained {name} steer: stamp deltas "
+            f"{sorted(set(deltas))} (a 2 means an iteration overran its frame; "
+            f"the rebuild pacing is broken)")
+
+    # --- steer straight through the DAY->NIGHT blend window (stamp 900+):
+    # the gradient-step frames may each cost one extra frame (pre-existing,
+    # steering-independent), but never more, and never a sustained drop.
+    while runner.read_u16(WR, 0xE010) < 895:
+        runner.frame_step(1, b=True)
+    deltas = _stamp_deltas(runner, 300, b=True, left=True)
+    assert max(deltas) <= 2, (
+        f"a loop iteration spanned {max(deltas)} frames during a steered "
+        f"blend — the perspective pacing is colliding with the gradient step")
+    misses = deltas.count(2)
+    # 300 frames cover ~37 8-frame gradient steps; allow pacing interplay
+    # up to ~2x that, far below the 150 misses of a 30 fps lock.
+    assert misses <= 80, (
+        f"{misses} overrun frames in a 300-frame steered blend (expected "
+        f"~37-50 from the gradient steps alone) — steering is stacking "
+        f"drops onto the blend")
+    runner.debug_resume()
+
+
+def test_racer_offroad_grass_drags(runner):
+    """OFF-ROAD GATE: the track is collision ground truth, not paint. The
+    template probes the Mode 7 map tile under the kart every frame (ROM copy
+    of the interleaved blob + the generated track_surface class table) and
+    bleeds speed on grass down to a crawl (GRASS_CAP = 0x00C0).
+
+    Drive: hold B straight from the spawn. The heading leaves the circular
+    road at posy ~311 and stays on grass for hundreds of pixels, so the two
+    sample points are unambiguous. Evidence: the OAM speed bar (rendered
+    HUD: lit tick count collapses 6 -> 1), the engine camera's actual
+    travel rate (posy px per 30 frames), and the DP speed hitting the
+    documented crawl floor."""
+    rom = BUILD / "racer.sfc"
+    assert rom.exists(), f"{rom} not built — run `make racer` first"
+    runner.load_rom(str(rom), run_seconds=2.0)
+    assert runner.read_bytes(WR, 0xE000, 4) == b"SFDB"
+    runner.debug_break()
+
+    def lit_ticks():
+        bar = runner.read_bytes(OAM, 4, 24)
+        return sum(1 for i in range(6) if bar[i * 4 + 2] == TICK_LIT)
+
+    # --- on the road: full speed, full bar (non-vacuity for the drag) ---
+    for _ in range(70):
+        runner.frame_step(1, b=True)
+    speed_road = runner.read_u16(WR, DP_SPEED)
+    posy = runner.read_u16(WR, M7_PV_POSY_INT)
+    assert posy > 320, f"already off the road at posy {posy} — retime the probe"
+    assert speed_road == 0x0300, \
+        f"not at the speed cap on the road: {speed_road:#06x}"
+    assert lit_ticks() == 6, f"speed bar not full at cap: {lit_ticks()} lit"
+    y0 = posy
+    for _ in range(30):
+        runner.frame_step(1, b=True)
+    road_rate = (y0 - runner.read_u16(WR, M7_PV_POSY_INT)) % 1024
+
+    # --- straight on, across the kerb into the infield grass ---
+    for _ in range(130):
+        runner.frame_step(1, b=True)
+    speed_grass = runner.read_u16(WR, DP_SPEED)
+    assert speed_grass == 0x00C0, (
+        f"grass did not bleed the kart to the crawl floor: "
+        f"{speed_grass:#06x} (expected GRASS_CAP 0x00c0)")
+    assert lit_ticks() <= 1, \
+        f"speed bar still lit on grass: {lit_ticks()} ticks"
+    y1 = runner.read_u16(WR, M7_PV_POSY_INT)
+    for _ in range(30):
+        runner.frame_step(1, b=True)
+    grass_rate = (y1 - runner.read_u16(WR, M7_PV_POSY_INT)) % 1024
+    assert grass_rate * 2 < road_rate, (
+        f"grass travel rate {grass_rate}px/30f is not well below the road "
+        f"rate {road_rate}px/30f — the drag is not acting on real motion")
+    runner.debug_resume()
+
+
+def test_racer_pause_freezes_world(runner):
+    """PAUSE GATE: START toggles a true freeze-frame. While paused, held
+    inputs are ignored and the RENDERED FRAME is pixel-identical across
+    frames (world, effects, and camera all hold), yet the loop stays alive
+    (heartbeat advances — it is a pause, not a hang). START again resumes."""
+    from PIL import ImageChops
+
+    rom = BUILD / "racer.sfc"
+    assert rom.exists(), f"{rom} not built — run `make racer` first"
+    runner.load_rom(str(rom), run_seconds=2.0)
+    assert runner.read_bytes(WR, 0xE000, 4) == b"SFDB"
+    runner.debug_break()
+    for _ in range(60):
+        runner.frame_step(1, b=True)
+    runner.frame_step(1, b=True, start=True)     # pause (rising edge)
+    runner.frame_step(2)
+    posy0 = runner.read_u16(WR, M7_PV_POSY_INT)
+    hb0 = runner.read_u16(WR, 0xE010)
+    runner.take_screenshot("/tmp/_racer_pause_a.png")
+    for _ in range(40):
+        runner.frame_step(1, b=True, left=True)  # must all be ignored
+    runner.take_screenshot("/tmp/_racer_pause_b.png")
+    a = Image.open("/tmp/_racer_pause_a.png").convert("RGB")
+    b = Image.open("/tmp/_racer_pause_b.png").convert("RGB")
+    diff_px = sum(1 for p in ImageChops.difference(a, b).convert("L").tobytes()
+                  if p)
+    assert runner.read_u16(WR, M7_PV_POSY_INT) == posy0, \
+        "camera moved while paused"
+    assert diff_px == 0, \
+        f"{diff_px} pixels changed across 40 paused frames — not a freeze"
+    assert runner.read_u16(WR, 0xE010) > hb0, \
+        "heartbeat stopped while paused — the loop is hung, not paused"
+    runner.frame_step(1, start=True)             # unpause
+    runner.frame_step(2)
+    for _ in range(30):
+        runner.frame_step(1, b=True)
+    assert runner.read_u16(WR, M7_PV_POSY_INT) != posy0, \
+        "the race did not resume after unpausing"
+    runner.debug_resume()
+
+
+def test_racer_music_plays(runner):
+    """AUDIO GATE: the race music actually sounds. The rail links the TAD
+    driver + song set (lorom_tad_m7.cfg), boots the S-SMP (sf_audio_init),
+    pumps the queue every frame (sf_audio_tick), and starts Song::gimo_297.
+    Evidence is the emulator's RENDERED AUDIO: a ~4 s recording must carry
+    real signal (measured healthy peak is ~22,400 of 32,767 full scale;
+    the gate floor of 4,000 is far above silence/noise yet tolerant of mix
+    changes). The TAD_STATUS mirror ($7E:016A) must report PLAYING — that
+    alone is a proxy, so it only supplements the waveform evidence."""
+    import struct as _struct
+    import wave as _wave
+
+    rom = BUILD / "racer.sfc"
+    assert rom.exists(), f"{rom} not built — run `make racer` first"
+    runner.load_rom(str(rom), run_seconds=2.0)
+    assert runner.read_bytes(WR, 0xE000, 4) == b"SFDB"
+    assert runner.read_bytes(WR, 0x016A, 1)[0] == 1, (
+        f"TAD status {runner.read_bytes(WR, 0x016A, 1)[0]} != 1 (playing) "
+        f"2 s after boot — the song never started loading/playing")
+
+    wav_path = "/tmp/_racer_song.wav"
+    runner.start_audio_recording(wav_path)
+    runner.run_frames(240)
+    runner.stop_audio_recording()
+    with _wave.open(wav_path, "rb") as w:
+        n, ch = w.getnframes(), w.getnchannels()
+        samples = _struct.unpack(f"<{n * ch}h", w.readframes(n))
+    peak = max(abs(s) for s in samples)
+    assert n > 0 and peak > 4000, (
+        f"recorded audio is (near-)silent: peak {peak} over {n} frames — "
+        f"the DSP is producing no music")

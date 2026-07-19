@@ -8,6 +8,15 @@
 ; game. Composes every kit surface: sprites, BG terrain, text HUD, tile
 ; collision, jump physics, and patrol.
 ;
+; Controls:
+;   D-pad left/right   run          A   jump (dodge the two patrolling enemies)
+;
+; File layout (top to bottom; the major === section banners):
+;   INIT       — RESET: uploads, PPU, build the level, HUD, spawn actors, boot
+;   MAIN LOOP  — game_loop, the once-per-frame heartbeat (read this first)
+;   DATA       — the HITS string, terrain + sprite tile art, engine includes
+; game_loop is the frame heartbeat; start reading there.
+;
 ; Level (32x28 tiles):
 ;   ground row 26 (full width); side borders cols 0/31 rows 0..25
 ;   low walls cols 10 + 20, rows 24..25 (16px — jumpable; the ground
@@ -33,6 +42,9 @@
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "NIGHT PATROL"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic
 .include "sf_bg.inc"            ; gfxmode, mset, sf_load_bg_tile, sf_bg_color
@@ -47,11 +59,11 @@
 .include "sf_frame.inc"         ; sf_engine_init, sf_frame_begin, sf_frame_end
 .include "engine_state.inc"
 
-OBJ_RED   = $001F
+OBJ_RED   = $001F               ; player colour (15-bit BGR: red)
 OBJ_MAGEN = $7C1F               ; enemies (OBJ palette 1)
-BG_GREY   = $39CE
-SPAWN_X   = 200
-SPAWN_Y   = 200
+BG_GREY   = $39CE               ; terrain colour (15-bit BGR: grey)
+SPAWN_X   = 200                 ; player spawn / knockback X
+SPAWN_Y   = 200                 ; player spawn / knockback Y
 
 PX       = $32                  ; --- player (same layout as jumper) ---
 PYF      = $34
@@ -69,10 +81,13 @@ PLEADX   = $4A
 PFOOTY   = $4C
 MP_I     = $4E                  ; map-fill loop counter
 HITS     = $50                  ; knockback counter (HUD)
-SPEED    = 2
+SPEED    = 2                    ; horizontal run step, px/frame
 
 .segment "CODE"
 
+; =============================================================================
+; INIT — interrupt vectors + one-time boot (RESET: uploads, PPU, level, actors)
+; =============================================================================
 NMI:
 .include "nmi_handler.asm"
 
@@ -96,8 +111,8 @@ RESET:
     ; --- terrain: tile 2 solid ---
     sf_tile_flags 2, SF_FLAG_SOLID
     rep #$30
-    .a16
-    .i16
+    .a16                        ; first width switch: 16-bit A/X/Y. .a16/.i16 tell
+    .i16                        ;   ca65 the CPU width so it sizes operands right
     stz MP_I
 @ground:
     mset #1, MP_I, #26, #2
@@ -161,11 +176,15 @@ RESET:
     sep #$20
     .a8
     lda #$81
-    sta $4200
+    sta $4200                   ; NMITIMEN: enable NMI (VBlank IRQ) + auto-joypad
     rep #$30
     .a16
     .i16
 
+; =============================================================================
+; MAIN LOOP — game_loop: player move + jump, one patrol step per enemy, contact
+;             check (knockback + HITS), then draw all three actors. Per-frame.
+; =============================================================================
 game_loop:
     sf_frame_begin
 
@@ -261,6 +280,9 @@ no_hit:
     sf_frame_end
     jmp game_loop
 
+; =============================================================================
+; DATA — the HITS label string, terrain + sprite tile art, and engine includes.
+; =============================================================================
 str_hits:
     .byte "HITS", 0
 

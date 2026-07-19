@@ -1,27 +1,43 @@
 ; =============================================================================
-; rpg — Mode 7 overworld <-> Mode 1 town/battle (grid movement + collision)
+; rpg — a top-down RPG: a Mode 7 overworld you walk, a Mode 1 town, and a battle
 ; =============================================================================
-; Sprint 1 of the RPG arc: a proper Mode 7 overhead OVERWORLD with grid movement
-; and tile collision, built on Sprint 0's scene-transition primitive (which it
-; preserves). The overworld is a DESIGNED world (grass/path walkable, water +
-; mountain BLOCKED, a town-entrance landmark). The avatar stays at screen center
-; (OAM 0); the D-pad scrolls the Mode 7 camera under it ONE tile (8 px) per
-; press, animated over 8 frames. A press into a BLOCKED tile is rejected via a
-; PARALLEL collision table (assets/ovw_collision.inc) — no per-frame VRAM reads.
-; NPCs, dialog, encounters, menus, and saves are LATER sprints.
+; A small role-playing game. You steer a hero across a DESIGNED overhead world
+; drawn with the SNES Mode 7 background (grass/path walkable, water + mountain
+; BLOCKED, a town-entrance landmark), walk up to a villager for a dialog box,
+; enter a flat-tilemap TOWN (Mode 1), save the game at a save point (battery
+; SRAM), and drop into a BATTLE backdrop. The overworld avatar stays at screen
+; centre (OAM 0) and the D-pad scrolls the Mode 7 camera under it ONE tile
+; (8 px) per press, animated over 8 frames; a press into a BLOCKED tile is
+; rejected via a PARALLEL collision table (assets/ovw_collision.inc) — the code
+; never reads VRAM back per frame. In town the avatar SPRITE walks a fixed room.
 ;
-; The Mode 7<->Mode 1 swap (Sprint 0's net-new brick) is UNCHANGED and still
-; round-trips: A -> TOWN, START -> BATTLE, A returns; the saved camera now
-; reflects the player's WALKED grid position (correct/desirable).
+; Controls:
+;   D-pad   move one tile (overworld: scroll the camera; town: walk the avatar)
+;   A       overworld: enter the town (or, when next to a villager, talk);
+;           town: talk to the villager / save at the save point / take the EXIT;
+;           any dialog box: close it;  battle: return to the overworld
+;   START   overworld: drop into the battle scene
+;
+; File layout (top to bottom — the major section banners below):
+;   INIT              — power-on reset, engine bring-up, boot-load, first scene
+;   MAIN LOOP         — the once-per-frame spine (`game_loop`)
+;   PER-FRAME UPDATE — overworld (Mode 7)   scene init + tick + movement/NPC
+;   PER-FRAME UPDATE — town (Mode 1)        scene init + tick + dialog/save
+;   PER-FRAME UPDATE — battle (Mode 1)      scene init + tick
+;   SUBROUTINES       — scene swaps, save/load, map builders, town helpers
+;   DATA              — dialog strings, scene table, engine link-partners, assets
+;
+; `game_loop` is the once-per-frame heartbeat — start reading there; it services
+; audio + Mode 7 + the scene wipe, then dispatches the current scene's tick.
 ;
 ; THREE SCENES (sf_scene, dense ids from 0):
 ;   SC_OVERWORLD = 0   Mode 7 flat-overhead world; D-pad grid-walks the camera
-;   SC_TOWN      = 1   Mode 1 flat tilemap (cobble/brick/water/torch)
+;   SC_TOWN      = 1   Mode 1 flat tilemap (cobble/brick/torch)
 ;   SC_BATTLE    = 2   Mode 1, a near-clone of TOWN with a distinct backdrop
 ;
-; THE SWAP (the net-new brick): sf_scene is a SOFT restart — CHR/palettes/BGMODE
-; persist across a goto, so a Mode 7<->Mode 1 switch is net-new glue inside the
-; destination scene's init, bracketed by a forced blank (sf_scene_mode.inc):
+; THE SWAP: sf_scene is a SOFT restart — CHR/palettes/BGMODE persist across a
+; goto, so a Mode 7<->Mode 1 switch is the extra glue inside the destination
+; scene's init, bracketed by a forced blank (sf_scene_mode.inc):
 ;   Mode 7 -> Mode 1 (town/battle): SAVE the overworld camera first, then
 ;     blank_enter -> mode7_off -> gfxmode #1 -> RE-RAISE blank (gfxmode turns
 ;     the screen back on) -> upload Mode 1 CHR/pals -> mset the tilemap ->
@@ -36,8 +52,8 @@
 ;
 ; Build: make rpg   (the generic templates rule reads the LDCFG sentinel below)
 ; LDCFG: lorom_tad_m7_sram.cfg
-;   ^ Linker-config sentinel (GAP-2): the generic build/%.sfc rule reads this
-;     line and links this template with lorom_tad_m7_sram.cfg — TAD audio banks
+;   ^ Linker-config sentinel: the generic build/%.sfc rule reads this line and
+;     links this template with lorom_tad_m7_sram.cfg — TAD audio banks
 ;     (keep_music) + a dedicated BANK1 for the 32KB interleaved Mode 7 map + the
 ;     battery-SRAM window for the save point. A *_tad*.cfg name also pulls in
 ;     the TAD audio objects + the audio include path. Copy-to-adapt keeps this
@@ -47,6 +63,9 @@
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "ELDRIN SAGA"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic, sf_state_mirror
 .include "sf_frame.inc"         ; sf_engine_init, sf_frame_begin/end
@@ -94,11 +113,11 @@ step_dx      = $44             ; per-frame camera dx (-1 / 0 / +1)
 step_dy      = $46             ; per-frame camera dy (-1 / 0 / +1)
 tgt_tx       = $48             ; candidate destination tile X (collision lookup)
 tgt_ty       = $4A             ; candidate destination tile Y
-; --- Sprint 2 overworld NPC interaction state (per-scene scratch) ---
+; --- overworld NPC interaction state (per-scene scratch) ---
 near_npc     = $4C             ; 1 = a cardinal neighbour tile is an NPC (adjacent)
 talking      = $4E             ; 1 = the sprite-text strip is showing (A toggled it)
 neigh_tile   = $50             ; collision-lookup scratch for the neighbour scan
-; --- Sprint 3 TOWN scene state (Mode 1 grid movement). Per-scene overlay:
+; --- TOWN scene state (Mode 1 grid movement). Per-scene overlay:
 ;     scenes are time-exclusive, so these reuse the upper scratch slots. The
 ;     town avatar (OAM 0) MOVES across the screen (unlike the overworld, where
 ;     the camera moves and the avatar is centred), so its tile x/y are the
@@ -121,7 +140,7 @@ OVW_ANGLE0   = 0
 AV_X0        = 120             ; avatar screen X (kept centered; camera follows)
 AV_Y0        = 104             ; avatar screen Y (near FOCUS_Y, where cam maps)
 
-; --- Sprint 2 overworld NPC prompt sprites (OBJ; Mode 7 has no BG3). The avatar
+; --- overworld NPC prompt sprites (OBJ; Mode 7 has no BG3). The avatar
 ;     owns OAM slot 0 (drawn first after spr_clear). There is NO floating "!"
 ;     indicator: SNES-era RPGs used walk-up + adjacency + A, never a "!"
 ;     hovering over an NPC (period-accuracy fix). The "HELLO" sprite-text strip
@@ -131,13 +150,13 @@ AV_Y0        = 104             ; avatar screen Y (near FOCUS_Y, where cam maps)
 ;     When NOT talking the strip is simply not drawn — spr_clear already parked
 ;     all 128 slots at Y=$F0, so the unused prompt slots stay culled (slot 1 is
 ;     therefore CULLED even when the player is adjacent but has not pressed A).
-;     This range (1-5) is disjoint from the avatar (0) and from anything Sprint
-;     0/1 draws (the overworld draws only the avatar). ---
+;     This range (1-5) is disjoint from the avatar's slot 0 — the overworld draws
+;     only the avatar plus, when talking, this strip. ---
 TEXT_X0      = 96              ; sprite-text strip left edge (5 glyphs * 8 = 40 px)
 TEXT_Y0      = 72              ; sprite-text strip Y (above the avatar head)
 TEXT_GLYPH_W = 8               ; one glyph = 8 px wide (8x8 OBJ tiles)
 
-; --- Sprint 3 TOWN design (Mode 1, 32x32 flat tilemap; the avatar walks the
+; --- TOWN design (Mode 1, 32x32 flat tilemap; the avatar walks the
 ;     grid and the camera is fixed). The town is a DESIGNED, DENSE room: a
 ;     cobbled plaza framed by brick walls, two buildings, a fountain (water),
 ;     decorative torches, a villager NPC, and a gated EXIT back to the world.
@@ -151,7 +170,17 @@ TOWN_NPC_TX   = 16             ; the villager NPC tile (player stands adjacent +
 TOWN_NPC_TY   = 8
 TOWN_EXIT_TX  = 16             ; the gated EXIT tile (gap in the bottom wall); the
 TOWN_EXIT_TY  = 21             ;   player walks onto it to return to the overworld
-TOWN_AV_PAL   = $0080          ; avatar OAM attr: OBJ palette 0, priority 2 (bits 9-10? no)
+TOWN_AV_PAL   = $0080          ; avatar spr flags: bit7 = 16x16 large size, OBJ palette 0
+; --- BATTLE scene face-off layout (Mode 1). Two 16x16 combatants on the arena's
+;     cobble band: the hero on the left (OBJ palette 0), a foe on the right (OBJ
+;     palette 1, H-flipped so it faces the hero). spr flags: bit7 = large 16x16,
+;     bit6 = H-flip, bits3:0 = OBJ palette. ---
+BATTLE_HERO_X       = 64       ; hero screen X (left of centre)
+BATTLE_FOE_X        = 176      ; foe screen X (right of centre)
+BATTLE_COMBATANT_Y  = 100      ; both combatants' screen Y (over the cobble band)
+BATTLE_HERO_FLAGS   = $0080    ; 16x16 large (bit7), OBJ palette 0, no flip
+BATTLE_FOE_FLAGS    = $00C2    ; 16x16 large (bit7) + H-flip (bit6) + OBJ palette 1
+                               ;   (palette is bits 3:1; bit0 is the tile-high bit)
 ; --- SAVE POINT: a visible landmark in the lower plaza (a torch tile, like the
 ;     NPC) the player stands adjacent to and presses A to SAVE. The cell is
 ;     collision-BLOCKED (the player stops next to it). A villager-style save sprite
@@ -160,6 +189,8 @@ TOWN_AV_PAL   = $0080          ; avatar OAM attr: OBJ palette 0, priority 2 (bit
 TOWN_SAVE_TX  = 10             ; save-point tile X (lower-left courtyard)
 TOWN_SAVE_TY  = 18             ; save-point tile Y
 SAVE_SPRITE_TILE = AVATAR_TILE ; reuse the 16x16 character tile for the save NPC
+TOWN_ATTENDANT_FLAGS = $0082   ; save attendant spr flags: 16x16 large (bit7) + OBJ
+                               ;   palette 1 (bits3:1) — the green-sage recolour
 ; --- SRAM save: slot 0, payload {scene_id(1), tile_x(2), tile_y(2), version(1)}
 ;     staged in low WRAM before sf_save (engine reads from this WRAM block). ---
 SAVE_SLOT     = 0
@@ -180,7 +211,7 @@ SAVE_VER_OFF   = 5             ; payload +5: version byte
 ;     panel (deleted: the box was on BG2 / palette 2 / CGRAM 33-34, NOT — as a stale
 ;     comment once claimed — BG3 palette 7).
 ;
-;     VRAM/CGRAM map (verified vs the rpg town layout; r2-kit-macros audit F1):
+;     VRAM/CGRAM map (verified against the town's own VRAM/CGRAM layout below):
 ;       - Box CHR  = BG3 tiles SF_DLG_TILE_BASE..+8 (default 144-152 = words
 ;         $2480-$24C8), in the FREE 80-159 BG1/BG3 tile gap. Town BG1 tileset is
 ;         tiles 0..12 ($2000-$20D0); the kit font is tile 160 ($2500). No overlap.
@@ -202,35 +233,34 @@ DLG_TEXT_X    = (DLG_PANEL_COL + 1) * 8   ; col 3 -> pixel-X 24
 DLG_TEXT_Y0   = (DLG_PANEL_ROW + 1) * 8   ; row 19 -> pixel-Y 152
 DLG_TEXT_DY   = 16             ; rows are 2 tiles apart (16 px) for readability
 
-; --- OWNER-CHOSEN "option D / max-map" Mode 7 perspective (LOCKED, 2026-06-18).
-;     These PV_* values are the project owner's selection from a set of RENDERED
-;     perspective options — option D: a THIN sky (~18% of the screen, horizon at
-;     scanline 40) maximising on-screen map area, with a GENTLE near/far scale
-;     (~6:1) so the near ground is walkable, NOT the racer's steep smear. They
-;     are carried from the Phase 13 RPG-overworld reference + the owner's
-;     max-map preference. DO NOT re-derive, "improve", or second-guess these
-;     numbers — a prior agent invented its own perspective and that was the
-;     rejected failure. Any change here requires explicit OWNER sign-off.
+; --- Mode 7 perspective — the "max-map" tuning. The design goal is a walkable
+;     overhead RPG world with as much MAP on screen as possible, so the sky is
+;     kept THIN: the horizon sits high (scanline 40, ~18% of the screen) and the
+;     floor fills the rest. The near/far scale is GENTLE (~6:1) so the near
+;     ground stays walkable — this is an explorable overworld, not a racer's
+;     steep road-smear. These values are a matched set (horizon, scale, focus,
+;     and the SKY_HORIZON split all track each other); re-tuning them means
+;     re-rendering the whole view, not nudging one number in isolation.
 ;
 ;     The horizon at PV_L0=40 puts the sky in the top ~18%; the floor recedes
-;     from there to the bottom (PV_L1=224). The scale ratio S0:S1 = 640:96
-;     (~6.7:1) is a long forward view with a gentle, walkable near plane.
+;     from there to the bottom (PV_L1=224). The far:near scale 640:96 (~6.7:1)
+;     is a long forward view with a gentle, walkable near plane.
 ;     THE SKY: a horizon floor REQUIRES the sky-split (sf_mode7_sky_split) + an
 ;     M7SEL FILL (not WRAP), or the ground smears upward past the horizon (the
-;     rejected "floor-in-sky" defect). Both are armed in scene_overworld_init;
-;     SKY_HORIZON tracks PV_L0, so the sky-split band auto-moves to scanline 40.
+;     "floor-in-sky" defect). Both are armed in scene_overworld_init; SKY_HORIZON
+;     tracks PV_L0, so the sky-split band auto-moves with the horizon scanline.
 ;
 ;     Grid movement is UNAFFECTED: the camera (M7_PV_POSX/Y) still moves in
-;     WORLD px per tile (8 px/tile); only the on-screen framing tilts. The
-;     Sprint 1 world-camera-delta tests read M7_PV_POSX/Y, not screen pixels. ---
-PV_L0   = 40                   ; horizon scanline (~18% sky; OWNER option D / max-map)
+;     WORLD px per tile (8 px/tile); only the on-screen framing tilts, so the
+;     world-camera-delta tests read M7_PV_POSX/Y, not screen pixels. ---
+PV_L0   = 40                   ; horizon scanline (~18% sky — the thin-sky max-map view)
 PV_L1   = 224                  ; bottom scanline (floor reaches the screen bottom)
 PV_S0   = 640                  ; far-scale  (long forward view; see far)
 PV_S1   = 96                   ; near-scale (gentle ~6:1 — walkable, not a racer's smear)
 PV_SH   = 0                    ; 0 = square aspect (no extra vertical squash)
-PV_INTERP = 2
-PV_WRAP = 1
-FOCUS_Y = 135                  ; rotation origin (camera maps to this scanline; option D)
+PV_INTERP = 2                  ; per-scanline matrix interpolation step (Mode 7 HDMA)
+PV_WRAP = 1                    ; 1 = camera position wraps on the 1024px map torus
+FOCUS_Y = 135                  ; rotation origin (the scanline the camera maps to)
 M7SEL_FILL = $C0               ; M7SEL bit7-6 = 11 -> out-of-map = fill tile 0
 
 ; --- sky TM-split scratch table (5 bytes in game WRAM bank $7E; persists so the
@@ -256,10 +286,10 @@ SKY_HORIZON     = PV_L0         ; the floor begins at PV_L0 -> sky is lines 0..3
 ;     gives the gradient CH5 and the NMI's Mode 7 commit overwrites it every VBlank
 ;     (silent: the blue ramp dies). Result: sky-split CH2, gradient CH3/CH4/CH7,
 ;     matrix CH5/CH6 — disjoint. $7E:E012 mirrors the first gradient channel (==3).
-;     These keyframes are the racer's proven DAYTIME values — DO NOT invent new ones.
-;     The top (horizon) keyframes are .ifndef-overridable purely so a preview build
-;     can render alternate fog INTENSITIES for the owner to choose (ca65 -D); the
-;     COMMITTED default is the racer daytime set below.
+;     These keyframes are the racer's proven DAYTIME values. The top (horizon)
+;     keyframes are .ifndef-overridable purely so a preview build can render
+;     alternate fog INTENSITIES to compare at build time (ca65 -D); the COMMITTED
+;     default is the racer daytime set below.
 .ifndef FOG_TR
 FOG_TR = 0                      ; horizon (top) tint, 0-31 per COLDATA channel
 .endif
@@ -284,6 +314,11 @@ JOY_START = $1000
 
 .segment "CODE"
 
+; =============================================================================
+; INIT — interrupt vectors + power-on boot: clear WRAM/VRAM/CGRAM under forced
+; blank, bring up the engine + audio, enable NMI/joypads, enter the first scene,
+; then apply a battery save if one exists. Runs once; then falls into MAIN LOOP.
+; =============================================================================
 NMI:
 .include "nmi_handler.asm"      ; stock engine NMI (pulls mode7_nmi.inc)
 
@@ -299,6 +334,9 @@ RESET:
 
     ; --- STABLE OAM ordering: the avatar lives at slot 0 and tests read it by
     ;     identity, so disable Y-sort (mode 2 = stable, call order). ---
+    ; The 65816 accumulator is 8- or 16-bit depending on the M flag; ca65 must be
+    ; TOLD which via .a8/.a16 so it sizes immediates right. `sep #$20` sets M
+    ; (8-bit A), so we mark `.a8`; `rep #$30` clears M+X (16-bit A+index) -> .a16/.i16.
     sep #$20
     .a8
     lda #$02
@@ -319,7 +357,8 @@ RESET:
     lda #$0F
     sta SHADOW_INIDISP          ; full brightness target for blank_exit
     lda #$81
-    sta $4200                   ; NMI + auto-joypad
+    sta $4200                   ; NMITIMEN (interrupt/joypad enable): bit7 = VBlank
+                                ;   NMI on, bit0 = auto-read the joypads each frame
     rep #$30
     .a16
     .i16
@@ -332,7 +371,7 @@ RESET:
     jsr boot_apply
 
 ; =============================================================================
-; The frame spine — runs every frame regardless of scene.
+; MAIN LOOP — the once-per-frame spine, runs every frame regardless of scene.
 ;   sf_audio_tick   drive the TAD queue + async song load (keep_music)
 ;   sf_mode7_tick   service Mode 7 (no-op when M7_PV_ACTIVE=0, i.e. in town)
 ;   sf_mosaic_transition_tick  advance the scene-wipe dissolve (no-op when idle;
@@ -353,9 +392,10 @@ game_loop:
     jmp game_loop
 
 ; =============================================================================
-; SC_OVERWORLD — Mode 7 perspective overworld.
+; PER-FRAME UPDATE — overworld (Mode 7 perspective world). SC_OVERWORLD.
 ; init: (re)build Mode 7 from the saved camera; tick: pan camera on D-pad + draw
 ; the avatar sprite. This is BOTH the boot path and the Mode1->Mode7 return.
+; (Its INPUT, DRAW, and the movement/collision/NPC SUBROUTINES follow below.)
 ; =============================================================================
 ; WIDTH-RISK: A16/I16 entry/exit (sf_scene init contract). All the sf_* macros
 ; toggle their own widths and restore A16/I16; sf_blank_enter/exit bracket the
@@ -413,14 +453,23 @@ sov_pal:
     .i16
 
     ; OBJ CHR + palette out of the Mode 7 map's VRAM. The map owns VRAM words
-    ; $0000-$3FFF, so the OBJ name base moves to word $4000 (OBSEL=$62); tile
-    ; 1024 IS word $4000, so OAM tile numbers stay 0.. relative to that base.
+    ; $0000-$3FFF, so the OBJ name base moves to word $4000 (OBSEL name base 2);
+    ; tile 1024 IS word $4000, so OAM tile numbers stay 0.. relative to that base.
     sf_load_obj_pal 0, obj_pal
     sf_load_obj_chr 1024, town_chr, TOWN_CHR_BYTES
     sep #$20
     .a8
-    lda #$62
-    sta $2101                   ; OBSEL: name base word $4000, 16x16/32x32
+    lda #$02
+    sta $2101                   ; OBSEL (object size + name base): name base word
+                                ; $4000, size pair 8x8/16x16. The avatar sets the
+                                ; LARGE size bit, so LARGE must be 16x16 (size
+                                ; field 0) — NOT 32x32 (field 3 = $62). At 32x32 a
+                                ; 16x16-intended avatar reads a 4x4 tile quad from
+                                ; base tile 5 and pulls tile 8 (the "!" glyph) into
+                                ; its top-right corner: a phantom yellow "!" beside
+                                ; the hero. The 8x8 HELLO glyphs likewise need the
+                                ; small size = 8x8 (at 16x16 they read a 2x2 quad
+                                ; and the neighbouring CHR tiles composite in).
     rep #$30
     .a16
     .i16
@@ -563,7 +612,7 @@ sovt_have_npc:
     ; --- (2a) A button. While ADJACENT to an NPC, A is the INTERACT button: it
     ;     toggles the sprite-text strip and does NOT change scene. Only when the
     ;     player is NOT next to an NPC does A trigger the town transition (so the
-    ;     Sprint 0/1 A->town round-trip from the spawn is unchanged). ---
+    ;     plain A->town round-trip from the spawn is unchanged). ---
     lda JOY1_PRESSED_LATCH
     bit #JOY_A
     beq sovt_no_a
@@ -647,9 +696,9 @@ sovt_apply:
     ; --- draw the avatar (OAM slot 0, 16x16 large, OBJ palette 0), fixed at
     ;     screen center — the world scrolls under it (camera-follows-player). ---
     spr #AVATAR_TILE, #AV_X0, #AV_Y0, #$0080, #2
-    ; --- the NPC prompt sprites: indicator when adjacent, text strip when
-    ;     talking. Drawn AFTER the avatar so they take call-order slots 1..6;
-    ;     when not shown they are simply not drawn (spr_clear parked them). ---
+    ; --- the NPC acknowledgement: the "HELLO" text strip, shown only while
+    ;     talking. Drawn AFTER the avatar so it takes call-order slots 1..5; when
+    ;     not talking nothing is drawn (spr_clear already parked those slots). ---
     jsr draw_npc_prompt
 sovt_apply_done:
     .a16
@@ -870,10 +919,11 @@ cna_found:
     rts
 
 ; =============================================================================
-; SC_TOWN — Mode 1 flat tilemap: a DESIGNED, DENSE cobbled plaza (brick walls,
-; two buildings, a fountain, torches), a villager NPC, a BG3 dialog box, and a
-; gated EXIT back to the overworld. The avatar grid-walks the room (camera fixed;
-; the SPRITE moves, unlike the overworld). Collision reads the shadow BG1 tilemap.
+; PER-FRAME UPDATE — town (Mode 1 flat tilemap). SC_TOWN: a DESIGNED, DENSE
+; cobbled plaza (brick walls, buildings, torches), a villager NPC, a BG3 dialog
+; box, a SAVE POINT, and a gated EXIT back to the overworld. The avatar grid-walks
+; the room (camera fixed; the SPRITE moves, unlike the overworld). Collision reads
+; the shadow BG1 tilemap.
 ; init: SAVE the overworld camera, then the masked Mode7->Mode1 swap, then set up
 ; BG3 text (font) for the dialog box. keep_music: NO sf_audio_init here.
 ; =============================================================================
@@ -917,7 +967,8 @@ scene_town_init:
     ; clean slot above the BG1 CHR ($2000) + font ($2500).)
     sf_load_bg_chr 0, town_chr, TOWN_CHR_BYTES
     sf_load_bg_pals 0, town_bg_pal, TOWN_BG_PAL_COUNT
-    sf_load_obj_pal 0, obj_pal
+    sf_load_obj_pal 0, obj_pal          ; OBJ palette 0 = hero + villager colours
+    sf_load_obj_pal 1, attendant_pal    ; OBJ palette 1 = the save attendant (green sage)
     sf_load_obj_chr 1024, town_chr, TOWN_CHR_BYTES   ; OBJ name base word $4000
     sep #$20
     .a8
@@ -1080,12 +1131,17 @@ stt_draw:
     rts
 
 ; =============================================================================
-; SC_BATTLE — Mode 1, a near-clone of TOWN with a distinct backdrop color so
-; the scene table + dispatch are proven for all three (fleshed out later).
+; PER-FRAME UPDATE — battle (Mode 1). SC_BATTLE: a face-off tableau on a blue
+; arena field — the hero (OAM 0) on the left faces a foe (OAM 1) on the right.
+; Both are the 16x16 avatar CHR; the foe is H-flipped (so it faces the hero) and
+; drawn in a distinct OBJ palette (foe_pal — red/ashen) so it reads as an enemy,
+; not a second hero. A returns to the overworld. The OBJ CHR/palettes go to the
+; SAME known-good OBJ name base word $4000 the town + overworld use (OBSEL=$02);
+; word $0000 holds stale Mode 7 map remnants and does not render OBJ.
 ; =============================================================================
-; WIDTH-RISK: A16/I16 entry/exit. Same swap shape as town; the only difference
-; is build_battle_map fills a different backdrop tile so a screenshot reads it
-; apart from the town.
+; WIDTH-RISK: A16/I16 entry/exit. Same swap shape as town; build_battle_map fills
+; a different backdrop + arena band, and draw_battle_sprites places the two
+; combatants each frame (spr toggles its own width and restores A16/I16).
 scene_battle_init:
     .a16
     .i16
@@ -1098,12 +1154,14 @@ scene_battle_init:
 
     sf_load_bg_chr 0, town_chr, TOWN_CHR_BYTES
     sf_load_bg_pals 0, town_bg_pal, TOWN_BG_PAL_COUNT
-    sf_load_obj_pal 0, obj_pal
-    sf_load_obj_chr 0, town_chr, TOWN_CHR_BYTES
+    sf_load_obj_pal 0, obj_pal          ; OBJ palette 0 = the hero colours
+    sf_load_obj_pal 1, foe_pal          ; OBJ palette 1 = the foe recolour (red/ashen)
+    sf_load_obj_chr 1024, town_chr, TOWN_CHR_BYTES   ; OBJ name base word $4000
     sep #$20
     .a8
-    lda #$00
-    sta $2101
+    lda #$02
+    sta $2101                   ; OBSEL: OBJ name base word $4000, size pair 8x8/16x16
+                                ; (the avatar/foe use the LARGE bit -> 16x16, not 32x32)
     rep #$30
     .a16
     .i16
@@ -1120,12 +1178,14 @@ scene_battle_init:
     rts
 
 ; -----------------------------------------------------------------------------
-; scene_battle_tick — A returns to the overworld.
-; WIDTH-RISK: A16/I16 entry/exit; return immediately after a goto.
+; scene_battle_tick — draw the two combatants; A returns to the overworld.
+; WIDTH-RISK: A16/I16 entry/exit; return immediately after a goto. draw_battle_
+; sprites and spr toggle their own widths and restore A16/I16.
 ; -----------------------------------------------------------------------------
 scene_battle_tick:
     .a16
     .i16
+    jsr draw_battle_sprites     ; hero (OAM 0) + foe (OAM 1) — every frame
     ; gate input during a wipe (leaving the battle), else A returns to overworld.
     sf_mosaic_transition_active
     bne sbt_idle                ; wipe in flight -> no input
@@ -1137,6 +1197,29 @@ scene_battle_tick:
 sbt_idle:
     .a16
     rts
+
+; =============================================================================
+; draw_battle_sprites — the battle face-off: hero (OAM 0, palette 0) on the left,
+; foe (OAM 1, palette 1, H-flipped so it faces the hero) on the right, both on the
+; arena's cobble band. Redrawn every tick so a mid-wipe frame keeps rendering them
+; until the swap fires. Entry/Exit: A16/I16. Clobbers A, X, Y.
+; WIDTH-RISK: A16/I16 entry; spr/spr_clear run their own widths and return A16.
+; =============================================================================
+draw_battle_sprites:
+    .a16
+    .i16
+    spr_clear
+    ; hero: 16x16 (flags bit7), OBJ palette 0, no flip; left of centre on the band
+    spr #AVATAR_TILE, #BATTLE_HERO_X, #BATTLE_COMBATANT_Y, #BATTLE_HERO_FLAGS, #2
+    ; foe: 16x16 + H-flip (flags bits 7+6), OBJ palette 1; right of centre, facing in
+    spr #AVATAR_TILE, #BATTLE_FOE_X, #BATTLE_COMBATANT_Y, #BATTLE_FOE_FLAGS, #2
+    rts
+
+; =============================================================================
+; SUBROUTINES — cross-scene helpers: the mosaic-wipe scene swaps, the save/load
+; chain, the town/battle map builders, town collision + proximity, and dialog.
+; (Each routine below keeps its own detailed contract banner.)
+; =============================================================================
 
 ; =============================================================================
 ; Mosaic-wipe SWAP routines — the caller-supplied swap_label for
@@ -1178,7 +1261,9 @@ _swap_redarken:
     lda SHADOW_INIDISP
     and #$F0                     ; keep blank bit + high nibble, clear brightness
     sta SHADOW_INIDISP           ; brightness 0 (NMI re-commits; IN ramp takes over)
-    sta $2100                    ; immediate: black this frame, no flash
+    sta $2100                    ; INIDISP (screen brightness/blank): write it NOW,
+                                 ;   not just the shadow, so this frame is black
+                                 ;   immediately (no full-bright flash before the ramp)
     rts                          ; A8/I16 -> stepper resumes
 
 ; =============================================================================
@@ -1324,16 +1409,15 @@ save_overworld_camera:
 ; build_town_map — a DESIGNED, DENSE Mode 1 town: a fully COBBLED plaza (every
 ; floor cell explicitly set, not backdrop-fill) framed by brick walls, two brick
 ; buildings in the upper plaza + two in the lower courtyard, decorative torches,
-; an inner GATE wall, and a gated EXIT gap. DRY plaza — NO water (the prior moat
-; + fountain were never design intent and are removed). Carried finding F1
-; (Sprint 0 audit): a dense 896-cell town does NOT tear under the forced-blank
-; bracket — so this fills every cell. Re-expresses Phase 13's town SHAPE (a
-; walled plaza with buildings + a southern gate); clean-room layout, no byte-copy.
+; an inner GATE wall, and a gated EXIT gap. DRY plaza — NO water. Filling every
+; one of the ~896 visible cells under a SINGLE forced-blank bracket is safe: the
+; whole map upload fits the VBlank/forced-blank window, so there is no need to
+; leave cells at the backdrop fill to save transfer time — the dense fill does
+; not tear. A walled plaza with buildings + a southern gate; clean-room layout.
 ;
 ; Tile legend (town_assets.inc): 1=cobble 2=brick 4=torch. NO WATER — this is a
-; a dry walled plaza; the prior moat + fountain were never in the design
-; intent and have been removed (the bottom quarter is now reclaimed as TOWN:
-; brick walls + a lower courtyard + buildings, not empty space).
+; dry walled plaza; the bottom quarter is a lower courtyard with brick walls +
+; buildings, not empty space.
 ; Collision (town_collide / town_npc_adjacent) reads the shadow BG1 tilemap:
 ; BRICK blocks; cobble/torch walk. The NPC sprite sits on a torch cell at
 ; (TOWN_NPC_TX,TOWN_NPC_TY); that exact cell is also collision-blocked so the
@@ -1769,8 +1853,10 @@ draw_town_sprites:
     ;     the 16x16 sprite body sits over the torch cell + the cell above it. ---
     spr #AVATAR_TILE, #(TOWN_NPC_TX * 8), #(TOWN_NPC_TY * 8), #TOWN_AV_PAL, #2
     ; --- OAM 2: the SAVE POINT attendant (16x16) at the save tile — a visible
-    ;     landmark the player walks up to and presses A on to save the game. ---
-    spr #SAVE_SPRITE_TILE, #(TOWN_SAVE_TX * 8), #(TOWN_SAVE_TY * 8), #TOWN_AV_PAL, #2
+    ;     landmark the player walks up to and presses A on to save the game. Drawn
+    ;     in OBJ palette 1 (green sage) so it reads apart from the blue hero + the
+    ;     blue villager (same CHR tile, distinct palette). ---
+    spr #SAVE_SPRITE_TILE, #(TOWN_SAVE_TX * 8), #(TOWN_SAVE_TY * 8), #TOWN_ATTENDANT_FLAGS, #2
     rts
 
 ; =============================================================================
@@ -1785,6 +1871,21 @@ str_dlg_l1:   .byte "  REST HERE A WHILE, THE", 0
 str_dlg_l2:   .byte "  ROAD AHEAD IS LONG.", 0
 ; save-point confirmation (shown by do_save_town after sf_save writes slot 0)
 str_saved:    .byte "  GAME SAVED.", 0
+
+; --- battle FOE OBJ palette (palette 1): a red/ashen recolour of the avatar CHR
+;     (indices 1..4 = skin/tunic/cape/outline) so the same 16x16 hero sprite reads
+;     as an ENEMY facing the hero. 16 BGR15 words; only 0..4 are used by the CHR.
+;     Clean-room first-party colours (no external art). ---
+foe_pal:
+    .word $0000, $5EF7, $0C72, $0C47, $0C42, $0000, $0000, $0000
+    .word $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000
+
+; --- town SAVE ATTENDANT OBJ palette (palette 1): a green-robed sage recolour of
+;     the avatar CHR (indices 1..4) so the save NPC reads apart from the blue hero
+;     + blue villager. 16 BGR15 words; only 0..4 are used. Clean-room colours. ---
+attendant_pal:
+    .word $0000, $5B7E, $2227, $1EBA, $1463, $0000, $0000, $0000
+    .word $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000
 
 ; =============================================================================
 ; build_battle_map — like the town but the floor backdrop is WATER-blue (set in
@@ -1833,6 +1934,11 @@ bbm_floor:
     mset #1, #4, #4, #TOWN_TILE_TORCH
     mset #1, #27, #4, #TOWN_TILE_TORCH
     rts
+
+; =============================================================================
+; DATA — the scene dispatch table, the engine link-partners the sf_* macros JSR
+; into, and the committed first-party assets (palettes, tileset, collision, map).
+; =============================================================================
 
 ; =============================================================================
 ; Scene table (sf_scene) — declares id -> (init, tick) and emits the tick jump
@@ -1893,10 +1999,10 @@ mode7_sin_lut:
 .segment "CODE"
 
 ; --- the 32KB interleaved overworld-map blob (bank 1 of the 64KB image) ---
-; .incbin path (GAP-3): ca65 resolves .incbin relative to the INCLUDING FILE's
-; directory (NOT via -I, which covers .include only), so "assets/<basename>" is
-; copy-safe — copying templates/rpg/ -> templates/<theme>/ only needs the
-; basename changed (ovw_map.bin -> <theme>_map.bin), never the directory.
+; .incbin path: ca65 resolves .incbin relative to the INCLUDING FILE's directory
+; (NOT via -I, which covers .include only), so "assets/<basename>" is copy-safe —
+; copying templates/rpg/ -> templates/<theme>/ only needs the basename changed
+; (ovw_map.bin -> <theme>_map.bin), never the directory.
 .segment "BANK1"
 ovw_map:
     .incbin "assets/ovw_map.bin"

@@ -26,15 +26,21 @@ Emits (all deterministic, seeded; provenance manifest references this script):
                    k>95 — the measured trial datum, scaled per tier size).
   sp_tier_nocull.bin  the same ladder with NO margin culls (every k 0..111
                    maps to a tier) — the -DSP_CULLOFF seam-bleed control.
-  sp_chr.bin       64 OBJ tiles (2 KB, 4bpp): five solid-disc size variants —
-                   three 16x16 (names 0/2/4, radii 4.5/5.5/7.0) and two 32x32
-                   (names 8/12, radii 9.0/11.0). The 32x32 variants own FULL
-                   4x4 tile blocks (empty quadrant tiles committed as explicit
-                   zeros — the phantom-quadrant lesson: a 32x32 OBJ fetches
-                   all 16 names, padded here so no neighbour CHR leaks in).
-                   Colour index 1 only; OBJ palette 0 entry 1 = white (AI),
-                   palette 1 entry 1 = magenta (player markers) — both
-                   disjoint from the floor checker's green/red space.
+  sp_chr.bin       64 OBJ tiles (2 KB, 4bpp): five CHARACTER-TOKEN size
+                   variants (was: solid discs) — three 16x16 (names 0/2/4,
+                   heights 10/12/14 px) and two 32x32 (names 8/12, heights
+                   18/22 px). Each token is a round head fused onto a tapered
+                   torso (one contiguous colour-1 silhouette), centred in the
+                   tile the same way the discs were, and its HEIGHT equals the
+                   retired disc's diameter so the apparent-size ladder is
+                   unchanged (only the pixels differ — far tokens smaller). The
+                   32x32 variants own FULL 4x4 tile blocks (empty quadrant tiles
+                   committed as explicit zeros — the phantom-quadrant lesson: a
+                   32x32 OBJ fetches all 16 names, padded here so no neighbour
+                   CHR leaks in). Colour index 1 only; OBJ palette 0 entry 1 =
+                   white (AI followers), palette 1 entry 1 = magenta (player
+                   markers) — both disjoint from the floor checker's green/red
+                   space.
   sp_world_main.bin 128 x (wx u16, wy u16): entity 0/1 = the player start
                    positions (the ROM re-syncs them from POS1/POS2 every
                    frame); 2..127 = AI followers seeded ASYMMETRICALLY around
@@ -207,13 +213,45 @@ def project(wx, wy, px, py, h, band_top, forward=False, nocull=False):
 
 
 # --- sp_chr.bin (64 tiles, full 4x4 blocks for the 32x32 variants) ------------
-def draw_disc(size, r):
+# The five size variants are CHARACTER TOKENS (was: plain discs) — a round head
+# fused onto a shoulders-wide tapered torso, one vertically-contiguous colour-1
+# silhouette per tile, CENTRED in the tile exactly as the discs were (cc =
+# (size-1)/2) so the projection/OAM placement is unchanged. The APPARENT-SIZE
+# ladder is preserved by keeping each token's HEIGHT equal to the retired disc's
+# diameter (10/12/14/18/22 px), so "far characters render smaller" still holds;
+# the token is narrower than tall, so the rendered WIDTH is a NEW measured datum
+# (the test's tier-extent oracle is retuned to the measured per-tier W and H).
+# Clean-room procedural art in the spirit of the CC0 top-down RPG character packs
+# (analogStudios_ dungeonSprites_ / camelot_, CC0; examples/itch_cc0/LICENSES.md)
+# — NO pack pixels are vendored or derived; this is a generated silhouette.
+def draw_character(size, h):
+    """A top-down character token of pixel-height h, centred in a size x size
+    tile: a round head over a shoulders-wide tapered torso, fused into ONE
+    vertically-contiguous silhouette (colour index 1 only). h is set to the
+    tier's apparent diameter so the size ladder reads the same as the discs'."""
     img = [[0] * size for _ in range(size)]
     cc = (size - 1) / 2.0
+    top = cc - h / 2.0
+    bot = cc + h / 2.0
+    r_head = 0.205 * h                       # head radius
+    head_cy = top + r_head
+    sh_top = head_cy + r_head * 0.55         # shoulders begin just under the head
+    w_sh = 0.33 * h                          # shoulder half-width (widest row)
+    w_ba = 0.20 * h                          # base half-width
     for y in range(size):
         for x in range(size):
-            if (x - cc) ** 2 + (y - cc) ** 2 <= r * r:
-                img[y][x] = 1
+            dxx = x - cc
+            if dxx * dxx + (y - head_cy) ** 2 <= r_head * r_head:
+                img[y][x] = 1                # head disc
+                continue
+            if sh_top <= y <= bot:           # tapered torso, rounded base
+                t = (y - sh_top) / max(1e-6, (bot - sh_top))
+                hw = w_sh + (w_ba - w_sh) * t
+                if y > bot - hw:
+                    dy = y - (bot - hw)
+                    hw = math.sqrt(max(0.0, hw * hw - dy * dy))
+                if abs(dxx) <= hw:
+                    img[y][x] = 1
     return img
 
 
@@ -230,11 +268,13 @@ def blit(img, name0):
                 chr_bytes[tile * 32 + row * 2] = p0     # plane 0 only (colour 1)
 
 
-blit(draw_disc(16, 5.0), 0)
-blit(draw_disc(16, 6.0), 2)
-blit(draw_disc(16, 7.0), 4)
-blit(draw_disc(32, 9.0), 8)
-blit(draw_disc(32, 11.0), 12)
+# tier heights == the retired disc diameters (10/12/14/18/22) so the apparent-
+# size ladder is byte-for-byte the same tier→size story (only the pixels differ).
+blit(draw_character(16, 10.0), 0)
+blit(draw_character(16, 12.0), 2)
+blit(draw_character(16, 14.0), 4)
+blit(draw_character(32, 18.0), 8)
+blit(draw_character(32, 22.0), 12)
 # phantom-quadrant pad assert: every name a 32x32 OBJ at 8/12 fetches exists
 # inside the 64-name set (rows 0..3 of the name grid — no out-of-set fetch).
 for base in (8, 12):

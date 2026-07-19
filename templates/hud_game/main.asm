@@ -8,6 +8,15 @@
 ; composed with sprites + input. Adapt it: print lives/level labels, bump the
 ; score from a collision (col_box) instead of a button.
 ;
+; Controls:
+;   D-pad   move the player (screen space)     A   bump the score (+1 per press)
+;
+; File layout (top to bottom; the major === section banners):
+;   INIT       — RESET: tile + palette uploads, PPU, HUD label + counter, boot
+;   MAIN LOOP  — game_loop, the once-per-frame heartbeat (read this first)
+;   DATA       — the SCORE string, the sprite tile art, engine includes
+; game_loop is the frame heartbeat; start reading there.
+;
 ; State (DP): player screen pos $32/$34, score $36.
 ; Debug: SCORE mirrored to $7E:E010 whenever it changes.
 ;
@@ -23,6 +32,9 @@
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "SCORE CHASER"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic
 .include "sf_bg.inc"            ; gfxmode
@@ -34,14 +46,17 @@
 .include "sf_frame.inc"         ; sf_engine_init, sf_frame_begin, sf_frame_end
 .include "engine_state.inc"
 
-OBJ_RED = $001F
+OBJ_RED = $001F                 ; player colour (15-bit BGR: red)
 PX      = $32                   ; player screen position
 PY      = $34
-SCORE   = $36
-SPEED   = 2
+SCORE   = $36                   ; running score (16-bit; drives the HUD counter)
+SPEED   = 2                     ; player move step, px/frame
 
 .segment "CODE"
 
+; =============================================================================
+; INIT — interrupt vectors + one-time boot (RESET: uploads, PPU, HUD, boot)
+; =============================================================================
 NMI:
 .include "nmi_handler.asm"
 
@@ -62,8 +77,8 @@ RESET:
 
     ; --- HUD: label once, counter at its start value (after gfxmode) ---
     rep #$30
-    .a16
-    .i16
+    .a16                        ; first width switch: 16-bit A/X/Y. .a16/.i16 tell
+    .i16                        ;   ca65 the CPU width so it sizes operands right
     stz SCORE
     print str_score, #8, #8     ; "SCORE" at tiles (1..5, 1)
     sf_print_u16 SCORE, #56, #8 ; "00000" at tiles (7..11, 1)
@@ -80,11 +95,15 @@ RESET:
     sep #$20
     .a8
     lda #$81
-    sta $4200                   ; NMI + auto-joypad on
+    sta $4200                   ; NMITIMEN: enable NMI (VBlank IRQ) + auto-joypad
     rep #$30
     .a16
     .i16
 
+; =============================================================================
+; MAIN LOOP — game_loop: read input, move the player, bump/reprint the score,
+;             draw the sprite. The once-per-frame heartbeat.
+; =============================================================================
 game_loop:
     sf_frame_begin
 
@@ -148,6 +167,9 @@ game_loop:
     sf_frame_end
     jmp game_loop
 
+; =============================================================================
+; DATA — the SCORE label string, the sprite tile art, and the engine includes.
+; =============================================================================
 str_score:
     .byte "SCORE", 0
 

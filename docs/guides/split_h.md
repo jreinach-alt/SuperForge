@@ -667,8 +667,14 @@ budget:
 - **Cull order is everything**: wrap-sub dx → `|dx|>176` out → dy likewise
   (Chebyshev pre-cull, zero multiplies) → the v dot → v/d/k/tier culls → only
   THEN the u dot. Measured per sprite per band: **visible 5,595 mc · behind-
-  camera 2,003 mc · Chebyshev-culled 606 mc** (the naive trial core: 8,522 /
+  camera 2,003 mc · Chebyshev-culled 606 mc** (the naive core: 8,522 /
   6,965 / 6,965 — culled sprites went from 82% of a visible one to 11%).
+  Two numbers get quoted for the visible cost and both are correct, measured
+  two ways: **5,595 mc** is the DIRECT per-sprite figure from the pinned
+  all-visible cycle instrument (`_spr_cyc`), and **5,653 mc** is the same cost
+  read as the SLOPE of the integrated frame cost across N (the sweep, ÷2 for
+  the two bands). They agree to +1.0% — the cross-check that the marginal
+  per-sprite cost the sweep pays matches the isolated instrument.
 - **8×8 hardware-multiply dots**: after the pre-cull `|dx|,|dy| ≤ 176` and the
   sincos LUT is magnitude-clamped to 255, so every rotation product runs
   through `$4202/$4203` with a sign/magnitude split (`t' = (t^m) − m`,

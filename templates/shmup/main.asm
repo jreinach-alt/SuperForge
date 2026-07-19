@@ -9,39 +9,62 @@
 ;   - terrain = Four Seasons tileset spring patch (8x6 metacells, 1 BG palette,
 ;               mset-ready map words)
 ; Composes: sf_pool (bullets + enemies), sf_autoscroll_v (terrain drift),
-; col_box (hits), sf_text (score HUD), the OBJ/BG blob loaders.
+; col_box (bullet hits + ship damage), sf_anim (frame cycling), sf_audio (TAD
+; music + SFX), sf_text (HUD), the OBJ/BG blob loaders.
 ;
-; Controls: d-pad moves the ship, A fires (rising edge, one bullet per press).
-; Bullets fly up at 4 px/f; ghosts spawn on a timer at table-driven columns
-; and drift down at 1 px/f; a bullet hit kills both and scores a point.
+; Controls:
+;   d-pad   move the ship (clamped to the playfield)
+;   A       fire (rising edge — one bullet per press)
+;   START   on GAME OVER, begin a fresh game
+;
+; The game: bullets fly up at 4 px/f; ghosts spawn on a timer at table-driven
+; columns and drift down at 1 px/f. A bullet hit bursts both and scores a point.
+; A ghost that touches the ship costs one of 3 lives — the ship respawns at spawn
+; and blinks through its i-frames; at zero lives it is GAME OVER (the world
+; freezes until START restarts). Music plays throughout; firing and kills blip.
 ;
 ; STABLE OAM SLOTS (the sf_pool draw idiom): every pool slot is drawn every
 ; frame — live actors at their position, dead slots parked at y=$F0 — so OAM
 ; slot k always belongs to the same actor: 0 = ship, 1-6 = bullets, 7-10 =
 ; ghosts. Tests (and your debugging) can identify actors by OAM slot.
 ;
-; NO player-damage state machine by design — the rail stays thin. Lives /
-; game-over / win lockout are game-loop composition, proven in the patrol and
-; stomper templates; graft their pattern when your game needs it.
+; File layout (top to bottom; the major === section banners):
+;   INIT         — RESET: one-time uploads, PPU, game state, then boot the loop
+;   MAIN LOOP    — game_loop, the once-per-frame heartbeat (read this first)
+;   SUBROUTINES  — draw_lives (HUD helper) + restart_game (soft restart)
+;   DATA         — strings, spawn/island tables, the bullet tile, converted art
+; game_loop is the frame heartbeat; start reading there to see the whole shape.
 ;
 ; Tuning (override by defining before .include, or just edit):
 ;   SHIP_SPEED   px/frame d-pad movement (default 2)
 ;   BULLET_SPEED px/frame upward        (default 4)
 ;   ENEMY_SPEED  px/frame downward      (default 1)
 ;   SPAWN_PERIOD frames between spawns  (default 48)
+;   START_LIVES  ships before GAME OVER (default 3)
+;   IFRAMES      invulnerable frames after a hit (default 90)
 ;
 ; Done-condition (emulator-verifiable):
 ;   - boots; terrain + ship render (screenshot pixels match the converted art)
 ;   - terrain autoscrolls DOWN; ship moves in all four directions, clamped
-;   - A spawns a bullet that travels up and dies at the top
+;   - A spawns a bullet that travels up and dies at the top; music + SFX audible
 ;   - ghosts spawn, descend, die to bullets; SCORE counts up on the HUD
+;   - a ghost touching the ship costs a life (blink + respawn); 0 lives = GAME OVER
 ;
-; Build:  make shmup        (-> build/shmup.sfc)
+; Build:  make shmup        (the generic templates rule reads the LDCFG sentinel below)
+; LDCFG: lorom_tad.cfg
+;   ^ Linker-config sentinel: the TAD-audio link shape (data banks for the music
+;     + SFX). The generic build/%.sfc rule reads this; a *_tad*.cfg name also
+;     links the TAD driver objects + adds the audio include path, so no Makefile
+;     edit is needed. (Was the default lorom.cfg — this rail fits in one bank; the
+;     swap is purely to gain the audio banks.)
 ; =============================================================================
 
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "ASTRO BARRAGE"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic
 .include "sf_video.inc"         ; sf_load_obj_chr/pal, sf_load_obj_tile, sf_obj_color
@@ -51,8 +74,12 @@
 .include "sf_bg.inc"            ; gfxmode, mset, sf_autoscroll_v, BG loaders
 .include "sf_text.inc"          ; sf_text_init, print, sf_print_u16
 .include "sf_pool.inc"          ; sf_pool_init/spawn/kill_x/count
+.include "sf_anim.inc"          ; sf_anim_step / sf_anim_tile (frame cycling)
 .include "sf_frame.inc"         ; sf_engine_init, sf_frame_begin/end
 .include "engine_state.inc"
+.include "tad-audio.inc"        ; TAD driver ca65 API (the vendored audio driver)
+.include "tad_audio_enums.inc"  ; Song:: / SFX:: ids for the shipped song set
+.include "sf_audio.inc"         ; sf_audio_init / sf_audio_tick / sf_music / sf_sfx
 
 ; --- tuning (assemble-time) ---
 .ifndef SHIP_SPEED
@@ -69,6 +96,22 @@ SPAWN_PERIOD = 48
 .endif
 .assert BULLET_SPEED <= 8, error, "BULLET_SPEED > 8 can tunnel past a 16px enemy between frames"
 .assert SHIP_SPEED <= 8, error, "SHIP_SPEED > 8 breaks the clamps: PX-SHIP_SPEED can wrap below 0 (unsigned), sailing past the cmp bound"
+
+; --- player-damage tuning ---
+.ifndef START_LIVES
+START_LIVES  = 3                ; ships before GAME OVER
+.endif
+.ifndef IFRAMES
+IFRAMES      = 90               ; invulnerable frames after a hit (also the blink window)
+.endif
+BLINK_PHASE  = $04              ; blink mask on HURTLOCK: hidden while (HURTLOCK & $04) -> ~4 on / 4 off
+SHIP_SPAWN_X = 120              ; ship spawn + respawn column (16px ship, playfield centre-ish)
+SHIP_SPAWN_Y = 180             ; ship spawn + respawn row (low, clear of the ghost spawn line)
+ANIM_RATE    = 6                ; game frames per animation step (hero + ghost share the clock)
+
+; --- night-sky backdrop (CGRAM color 0, BGR15) ---
+NIGHT_SKY    = $1C61            ; deep midnight blue instead of void black (sprites
+                               ;   still read clearly; it is far darker than the terrain)
 
 ; --- OBJ VRAM layout (loaders assert the 16-alignment) ---
 HERO_BASE   = 0                 ; tiles 0-31   (fHero, 2 VRAM rows)
@@ -92,7 +135,10 @@ TT       = $4A                  ; tilemap-build scratch: map word
 TX       = $4C                  ;   patch cell x (0..7)
 TY       = $4E                  ;   patch cell y (0..5)
 ISL      = $50                  ;   island table cursor (byte offset)
-SDIRTY   = $52                  ; 1 = score changed, reprint the HUD
+SDIRTY   = $52                  ; 1 = score/lives changed, reprint the HUD
+HURTLOCK = $54                  ; i-frames after a ghost hit (invuln + blink countdown)
+ATICK    = $56                  ; shared animation clock: frame-rate divider
+AFRAME   = $58                  ;   ...and the current step index (0..7)
 
 ; --- pools (the $1800-$1DFF game-array region — see sf_pool.inc) ---
 BULLET_N  = 6
@@ -103,9 +149,17 @@ ENEMY_N   = 4
 ENE_ALIVE = $1830               ; alive[4]
 ENE_X     = $1840               ; x[4]
 ENE_Y     = $1850               ; y[4]
+; game state (rest of the $1800-$1DFF region; clear of the pools above and of
+; TAD's BSS at $1DE0-$1DFF)
+LIVES     = $1858               ; ships remaining (START_LIVES down to 0)
+GAMEOVER  = $185A               ; 1 = terminal state: world frozen, START restarts
+LIVES_STR = $185C               ; 2-byte HUD buffer: LIVES as one ASCII digit + NUL
 
 .segment "CODE"
 
+; =============================================================================
+; INIT — interrupt vectors + one-time boot (RESET: uploads, PPU, game state)
+; =============================================================================
 NMI:
 .include "nmi_handler.asm"
 
@@ -115,6 +169,7 @@ NMI_STUB:
 RESET:
     sf_coldstart                ; forced blank; clears WRAM/CGRAM/VRAM
     sf_engine_init
+    sf_audio_init               ; ONCE, at boot (S-SMP still in IPL, NMI not yet on)
 
     ; --- converted-art + font uploads (under the coldstart forced blank) ---
     sf_load_bg_chr 0, terrain_chr, terrain_chr_bytes
@@ -126,6 +181,7 @@ RESET:
     sf_load_obj_pal 1, ghost_pal
     sf_load_obj_tile BULLET_TILE, bullet_tile
     sf_obj_color 2, 1, $03FF    ; bullet = yellow, OBJ palette 2
+    sf_bg_color 0, 0, NIGHT_SKY ; backdrop (CGRAM 0): a night sky, not a black void
 
     jsr init_ppu                ; engine PPU defaults (OBSEL $00: 8x8/16x16)
     gfxmode #1                  ; enable BG1+BG3 (zeros the shadow tilemaps)
@@ -137,8 +193,10 @@ RESET:
     ; full-screen tilemap buries the gameplay). The 32-high map wraps as it
     ; autoscrolls, so the island field loops seamlessly.
     rep #$30
-    .a16
-    .i16
+    .a16                        ; 16-bit A/X/Y here. The 65816's register width is set
+                                ;   at RUNTIME by sep/rep; the .a16/.i16 directives tell
+    .i16                        ;   the assembler which width the CPU is in so it encodes
+                                ;   each op right (the width linter checks the match).
     stz ISL
 isl_loop:
     stz TY
@@ -188,6 +246,7 @@ isl_col:
     ; --- HUD ---
     print score_str, #8, #8
     sf_print_u16 SCORE, #56, #8
+    print lives_str, #152, #8
 
     ; --- game state ---
     sf_pool_init BUL_ALIVE, BULLET_N
@@ -195,9 +254,9 @@ isl_col:
     rep #$30
     .a16
     .i16
-    lda #120
+    lda #SHIP_SPAWN_X
     sta PX
-    lda #180
+    lda #SHIP_SPAWN_Y
     sta PY
     stz SCORE
     stz SCRL
@@ -205,6 +264,13 @@ isl_col:
     stz SDIRTY
     lda #SPAWN_PERIOD
     sta SPAWN_T
+    lda #START_LIVES
+    sta LIVES
+    stz HURTLOCK
+    stz GAMEOVER
+    stz ATICK
+    stz AFRAME
+    jsr draw_lives              ; paint the initial LIVES digit
 
     spr_clear
     sf_debug_magic
@@ -212,14 +278,28 @@ isl_col:
     sep #$20
     .a8
     lda #$81
-    sta $4200                   ; NMI + auto-joypad
+    sta $4200                   ; NMITIMEN: enable VBlank NMI ($80) + auto-joypad read
+                                ;   ($01) — the frame heartbeat starts here
     rep #$30
     .a16
     .i16
 
+    sf_music #Song::gimo_297    ; boot the in-game track (streams over the ticks)
+
+; =============================================================================
+; MAIN LOOP — the once-per-frame heartbeat (input -> update -> draw)
 ; =============================================================================
 game_loop:
     sf_frame_begin
+    sf_audio_tick               ; drive the async song load + SFX queue, every frame
+
+    lda GAMEOVER
+    beq gs_play                 ; playing -> run the update block
+    jmp go_draw                 ; GAME OVER: freeze the world; only DRAW + restart run
+gs_play:
+    .a16
+
+    sf_anim_step ATICK, AFRAME, #ANIM_RATE, #hero_anim_idle_len  ; shared frame clock
 
     ; ---------------- input: move the ship (clamped to the playfield) -------
     btn #BTN_RIGHT
@@ -229,8 +309,8 @@ game_loop:
     lda PX
     clc
     adc #SHIP_SPEED
-    cmp #224                    ; right clamp (16px ship, 240px visible edge)
-    bcc mv_store_x_r
+    cmp #224                    ; right clamp: 256px screen - 16px ship - 16px inset
+    bcc mv_store_x_r            ;   (the 256px active width, not a cropped 240)
     lda #224
 mv_store_x_r:
     sta PX
@@ -257,7 +337,7 @@ mv_no_left:
     lda PY
     clc
     adc #SHIP_SPEED
-    cmp #200
+    cmp #200                    ; bottom clamp: 224px screen - 16px ship - 8px inset
     bcc mv_store_y_d
     lda #200
 mv_store_y_d:
@@ -292,6 +372,7 @@ mv_no_up:
     sec
     sbc #8                      ; muzzle: just above the ship
     sta BUL_Y, x
+    sf_sfx #SFX::fire_arrow     ; muzzle blip — after the slot write (sf_sfx clobbers X)
 fire_done:
     .a16
 
@@ -305,7 +386,7 @@ bul_loop:
     sec
     sbc #BULLET_SPEED
     sta BUL_Y, x
-    cmp #16
+    cmp #16                     ; Y above 16 = up behind the HUD row -> expire
     bcs bul_next
     sf_pool_kill_x BUL_ALIVE    ; off the top
 bul_next:
@@ -330,8 +411,8 @@ bul_next:
     lda f:spawn_xs, x
     ldx EOFF
     sta ENE_X, x
-    lda #24
-    sta ENE_Y, x
+    lda #24                     ; spawn just below the HUD (row 3): a small on-screen
+    sta ENE_Y, x                ;   pop-in, not an off-top slide-in — keep it thin
     lda SPAWN_IX
     inc a
     and #$0007                  ; cycle the 8-entry column table
@@ -348,7 +429,7 @@ ene_loop:
     clc
     adc #ENEMY_SPEED
     sta ENE_Y, x
-    cmp #208
+    cmp #208                    ; Y past 208 = fully below the 224px screen (16px ghost)
     bcc ene_next
     sf_pool_kill_x ENE_ALIVE    ; escaped off the bottom
 ene_next:
@@ -396,6 +477,7 @@ col_hit:
     sta SCORE
     lda #1
     sta SDIRTY
+    sf_sfx #SFX::noise          ; ghost explodes (kill feedback)
     jmp col_b_next              ; this bullet is spent
 col_e_next:
     .a16
@@ -418,18 +500,93 @@ col_b_next:
 col_done:
     .a16
 
-    ; ---------------- HUD: reprint the score only when it changed -----------
+    ; ---------------- player damage: a ghost touching the ship costs a life --
+    ; i-frames gate the hit and drive the blink; on contact respawn at spawn,
+    ; burst the ghost, dock a life, and enter GAME OVER at zero ships.
+    lda HURTLOCK
+    beq dmg_check
+    dec a
+    sta HURTLOCK
+    jmp dmg_done                ; still invulnerable this frame
+dmg_check:
+    .a16
+    stz EOFF
+dmg_e_loop:
+    ldx EOFF
+    lda ENE_ALIVE, x
+    beq dmg_e_next
+    lda ENE_X, x
+    sta EX
+    lda ENE_Y, x
+    sta EY
+    col_box PX, PY, #16, #16, EX, EY, #16, #16
+    bne dmg_hit
+dmg_e_next:
+    .a16
+    lda EOFF
+    inc a
+    inc a
+    sta EOFF
+    cmp #(2 * ENEMY_N)
+    bcc dmg_e_loop
+    jmp dmg_done
+dmg_hit:
+    .a16
+    ldx EOFF
+    sf_pool_kill_x ENE_ALIVE    ; the colliding ghost bursts too
+    sf_sfx #SFX::player_hurt
+    lda #SHIP_SPAWN_X
+    sta PX
+    lda #SHIP_SPAWN_Y
+    sta PY
+    lda #IFRAMES
+    sta HURTLOCK                ; invuln + blink window
+    lda LIVES
+    beq dmg_done                ; already empty (guarded; the loop gate normally
+    dec a                       ;   prevents any hit once GAME OVER latches)
+    sta LIVES
+    lda #$0001
+    sta SDIRTY                  ; reprint the LIVES digit
+    lda LIVES
+    bne dmg_done                ; ships left -> keep flying
+    lda #$0001
+    sta GAMEOVER                ; out of ships -> terminal state
+    stz HURTLOCK                ; draw the ship solid on the frozen screen
+    print gameover_str, #96, #96
+    print restart_str, #88, #112
+dmg_done:
+    .a16
+
+    ; ---------------- world: terrain drifts down (skipped while GAME OVER) ---
+    sf_autoscroll_v #1, SCRL, #1
+
+go_draw:
+    .a16
+    ; ---------------- HUD: reprint SCORE + LIVES only when they changed ------
     lda SDIRTY
     beq hud_done
     stz SDIRTY
     sf_print_u16 SCORE, #56, #8
+    jsr draw_lives
 hud_done:
     .a16
 
     ; ---------------- draw: every slot every frame (stable OAM slots) -------
     spr_clear
-    ; slot 0: the ship (16x16 large, OBJ palette 0)
-    spr #(HERO_BASE + hero_f0), PX, PY, #$80, #2
+    ; slot 0: the ship — animated idle frame, blinking while in i-frames
+    lda HURTLOCK
+    beq draw_ship               ; vulnerable -> always draw
+    and #BLINK_PHASE
+    bne ship_hidden             ; blink-off phase -> leave the ship parked (spr_clear did)
+draw_ship:
+    .a16
+    sf_anim_tile hero_anim_idle, AFRAME
+    clc
+    adc #HERO_BASE
+    sta BX                      ; tile scratch (collision/draw scratch, free here)
+    spr BX, PX, PY, #$80, #2
+ship_hidden:
+    .a16
 
     ; slots 1-6: bullets (8x8 small, palette 2); dead slots park at y=$F0
     stz BOFF
@@ -460,7 +617,12 @@ draw_b_put:
 draw_b_done:
     .a16
 
-    ; slots 7-10: ghosts (16x16 large, palette 1); dead slots park at y=$F0
+    ; slots 7-10: ghosts (16x16 large, palette 1); dead slots park at y=$F0.
+    ; All live ghosts share this frame's animation step (one table lookup).
+    sf_anim_tile ghost_anim_idleWalkRun, AFRAME
+    clc
+    adc #GHOST_BASE
+    sta TT                      ; ghost tile this frame (map-build scratch, free here)
     stz EOFF
 draw_e_loop:
     ldx EOFF
@@ -478,7 +640,7 @@ draw_e_dead:
     sta EY
 draw_e_put:
     .a16
-    spr #(GHOST_BASE + ghost_f0), EX, EY, #$82, #2
+    spr TT, EX, EY, #$82, #2
     lda EOFF
     inc a
     inc a
@@ -489,15 +651,70 @@ draw_e_put:
 draw_e_done:
     .a16
 
-    ; ---------------- world: terrain drifts down ----------------------------
-    sf_autoscroll_v #1, SCRL, #1
-
+    ; ---------------- GAME OVER: START begins a fresh game ------------------
+    lda GAMEOVER
+    beq frame_tail
+    btnp #BTN_START
+    beq frame_tail
+    jsr restart_game
+frame_tail:
+    .a16
     sf_frame_end
     jmp game_loop
 
 ; =============================================================================
+; SUBROUTINES — HUD helper + the soft restart
+; =============================================================================
+; draw_lives — paint LIVES (0..3) as one ASCII digit at the right of the HUD row.
+draw_lives:
+    rep #$30
+    .a16
+    .i16
+    lda LIVES
+    clc
+    adc #'0'
+    and #$00FF
+    sta LIVES_STR               ; digit in the low byte, 0 (NUL) high -> 1-char string
+    print LIVES_STR, #200, #8
+    rts
+
+; restart_game — soft restart to a fresh game after GAME OVER. Never re-runs
+; sf_coldstart or sf_audio_init (the S-SMP is live, past IPL); it rebuilds only
+; the game's own state, and the music keeps playing across the restart.
+restart_game:
+    rep #$30
+    .a16
+    .i16
+    sf_pool_init BUL_ALIVE, BULLET_N
+    sf_pool_init ENE_ALIVE, ENEMY_N
+    lda #SHIP_SPAWN_X
+    sta PX
+    lda #SHIP_SPAWN_Y
+    sta PY
+    stz SCORE
+    stz SPAWN_IX
+    lda #SPAWN_PERIOD
+    sta SPAWN_T
+    lda #START_LIVES
+    sta LIVES
+    stz HURTLOCK
+    stz GAMEOVER
+    lda #$0001
+    sta SDIRTY                  ; force the SCORE + LIVES reprint next frame
+    sf_text_clear #12, #15      ; wipe the GAME OVER / PRESS START banner rows
+    rts
+
+; =============================================================================
+; DATA — strings, spawn + island tables, the bullet tile, converted art
+; =============================================================================
 score_str:
     .byte "SCORE", 0
+lives_str:
+    .byte "LIVES", 0
+gameover_str:
+    .byte "GAME OVER", 0
+restart_str:
+    .byte "PRESS START", 0
 
 ; ghost spawn columns (16px ghost, playfield x 8..224) — table-driven so runs
 ; are deterministic enough to test, varied enough to play
@@ -530,3 +747,4 @@ bullet_tile:
 .include "collision_engine.asm"
 .include "text_engine.asm"
 .include "sf_text_data.inc"
+.include "tad_bridge.asm"       ; TAD front-end the sf_audio_* macros call into

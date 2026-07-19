@@ -355,3 +355,23 @@ output) instead of the output.
 **Fix:** assert on the real surface — OAM bytes, VRAM bytes, screenshot
 pixels. A test that passes while the feature is broken is worse than no
 test (`test-authoring` skill).
+
+### My `set_input` has no effect — the actor never moves (input silently dropped)
+**Two silent traps, both deliver NO input and neither raises an error:**
+1. **`fast_mode=True` + `set_input` + `run_frames`.** `run_frames` skips its
+   synthetic 1/60 s sleep under `fast_mode`, so zero wall-clock frames elapse
+   for the free-running emulator to poll the override — the press is set and
+   never read. **Fix:** use the default `fast_mode=False` for any input-driven
+   test (`fast_mode` is for the preview pump, not assertions).
+2. **`set_input` while parked under `debug_break` / `frame_step`.** Execution
+   is stopped, so nothing polls the override; and the next `frame_step`
+   re-latches its own button set over it. **Fix:** in frame-stepping mode pass
+   the buttons to `frame_step(n, right=True)` — never a bare `set_input`.
+
+### A screenshot shows the state from one frame ago (the change I just made isn't on screen)
+**Cause:** the emulator commits OAM/VRAM/CGRAM one boundary behind the game
+update — a constant one-frame presentation lag. A `take_screenshot()` on the
+same frame that changed a sprite/tile captures the PREVIOUS rendered state.
+**Fix:** let one frame elapse after the change before capturing —
+`take_screenshot(settle_frames=1)` on a free-running runner, or an extra
+`frame_step(1)` when parked in frame-stepping mode.

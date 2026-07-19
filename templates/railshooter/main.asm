@@ -5,7 +5,7 @@
 ; (the ground rushes toward the viewer; you strafe and dodge). Shares the
 ; racer's Mode 7 spine (standard kit boot,
 ; the sf_mode7 macro group, the stock engine NMI, the CH2 sky TM-split) but
-; differs in the two axes the guided-generation foundation cares about:
+; differs in the two axes that make it a rail shooter rather than a racer:
 ;
 ;   * DRIVER = rail (not input-throttle): the camera AUTO-ADVANCES forward at a
 ;     constant speed every frame with no button held — the grid terrain streams
@@ -15,10 +15,11 @@
 ;     the world AND lean the ship sprite on screen, instead of the racer's
 ;     fixed-screen kart + steering. (UP/DOWN reserved for future pitch.)
 ;
-; Composition (toolchain.composition): a single Mode 7 band + OBJ + the sky
-; TM-split. feasibility() = OK, hdma=2 (matrix) + CH2 sky — no engine gap, which
-; is the point: an off-catalog genre that the framework navigates by reusing
-; primitives (Mode 7 + sky-split + a different driver), not a new template box.
+; Hardware composition: a single Mode 7 background band + OBJ + the sky TM-split.
+; Two HDMA channels are in use (the Mode 7 matrix + the CH2 sky split), no custom
+; per-scanline work beyond them. The genre is built by REUSING existing
+; primitives (Mode 7 + the sky split + a rail driver), not by adding new engine
+; machinery: the floor is stock Mode 7; only the driver and the actors differ.
 ;
 ; THE SKY: same as the racer — Mode 7 has one BG layer, so arm_sky_split turns
 ; BG1 off above the horizon to reveal the CGRAM[0] backdrop, which
@@ -31,21 +32,32 @@
 ;
 ; Controls: LEFT/RIGHT strafe. Forward motion is automatic. A fires.
 ;
-; PROJECTION (the "done right" fix): obstacles ride their OWN pinhole (1/z)
-; projection by engine/mode7_project.asm, FULLY DECOUPLED from the Mode 7 affine
-; matrix — the Mode 7 grid is just the visual backdrop. Each obstacle/bullet
+; PROJECTION (a decoupled pinhole, 1/z, NOT the Mode 7 matrix inverse):
+; obstacles ride their OWN pinhole (1/z) projection by engine/mode7_project.asm,
+; FULLY DECOUPLED from the Mode 7 affine matrix — the grid is just the visual
+; backdrop (see docs/guides/pseudo3d_rail.md for the full model). Each obstacle/bullet
 ; carries a forward depth z in WORLD PIXELS ahead of the camera. The projection
 ; routine buckets z against a z-indexed LUT (mode7_project.inc, baked by pure
 ; pinhole arithmetic) to get its scanline (= HORIZON_Y + CAM_H*256/z), lateral
 ; scale (= FOCAL*256/z) and size tier. z decrements per frame, giving a smooth
 ; multi-frame descent from the horizon to the bottom of the screen through 4
-; pre-drawn size tiers. (The old model chained obstacles to the Mode 7 matrix,
-; whose floor has only ~14 world-px of forward depth — far too shallow; this is
-; exactly how the classic forward shooters faked it.)
+; pre-drawn size tiers. (Anchoring obstacles to the Mode 7 matrix instead would
+; give only ~14 world-px of forward depth — far too shallow for a multi-frame
+; approach; decoupling the actors is exactly how the classic forward shooters
+; faked it.)
+;
+; File layout (top to bottom; the major === section banners):
+;   INIT         — RESET: ground + sprite uploads, Mode 7 camera, seed the field
+;   MAIN LOOP    — game_loop, the once-per-frame heartbeat (read this first)
+;   SUBROUTINES  — bullet/obstacle hit test, obstacle recycle, tier hysteresis,
+;                  the sky-split arm
+;   DATA         — the lane table, per-tier descriptors, projection LUTs, engine
+;                  includes, ship + obstacle art, and the Mode 7 ground blob
+; game_loop is the frame heartbeat; start reading there to see the whole shape.
 ;
 ; Build:  make railshooter  (the generic templates rule reads the LDCFG sentinel below)
 ; LDCFG: lorom_64k.cfg
-;   ^ Linker-config sentinel (GAP-2): 64KB image, the 32KB Mode 7 grid blob fills
+;   ^ Linker-config sentinel: 64KB image, the 32KB Mode 7 grid blob fills
 ;     BANK1. The generic build/%.sfc rule reads this and links lorom_64k.cfg
 ;     instead of the default lorom.cfg; copy-to-adapt keeps the line, no Makefile
 ;     edit needed. (See docs/guides/adapting_a_rail.md.)
@@ -54,6 +66,9 @@
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "RAIL BLASTER"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"
 .include "sf_frame.inc"
@@ -72,13 +87,13 @@ SHIP_CENTER  = 128 - 16         ; centered 32x32 ship screen X
 SHIP_LEAN    = 24               ; screen-X offset when strafing (banking)
 SHIP_Y       = 150              ; ship planted low on the screen
 
-; --- banking (M3): on strafe the world plane tilts a few heading units toward
+; --- banking: on strafe the world plane tilts a few heading units toward
 ; the strafe and eases back to straight on release. Kept small so the angle-0
 ; projection LUT stays valid for obstacles (a 6-unit bank is ~8.4 degrees). ---
 BANK_MAX  = 6                   ; peak heading offset (units; 256 = full turn)
 BANK_STEP = 1                   ; ease rate toward the target per frame
 
-; --- perspective: high horizon + long forward view (the racer-done-right set) ---
+; --- perspective: high horizon + long forward view (a long-range camera set) ---
 PV_L0     = 56                  ; horizon scanline (~25% down; thin sky band)
 PV_L1     = 224
 PV_S0     = 576                 ; far-scale (long forward view)
@@ -93,7 +108,7 @@ START_X = 512
 START_Y = 512
 VEHICLE_BASE = 0
 
-; --- obstacle field (M2): pre-drawn discrete-size approaching hazards ---
+; --- obstacle field: pre-drawn discrete-size approaching hazards ---
 ; The ship CHR fills OBJ tiles 0-63 (VRAM word $4000, 64 tiles). The obstacle
 ; CHR uploads right after it at VRAM word $4400 = macro base-tile 1088, so its
 ; OAM tile numbers (relative to OBSEL name base) start at 64.
@@ -116,12 +131,12 @@ RAIL_DEPTH_STEP = 12            ; z closed per frame (~51-frame approach, smooth
 OBS_NEAR_KILL = 8
 ; z stagger between adjacent seeded obstacles (spread the field across the rail)
 OBS_DEPTH_STAGGER = (OBS_SPAWN_DEPTH - OBS_NEAR_KILL) / OBS_N
-; --- tier hysteresis (per Phase 12-6, stops boundary flicker). An obstacle's
+; --- tier hysteresis (stops boundary flicker). An obstacle's
 ; tier only GROWS as z falls below (threshold - margin); never shrinks until
 ; recycle. The margin keeps a near-threshold obstacle from flickering tiers.
 TIER_HYST     = 12             ; z hysteresis margin (world px)
 
-; --- firing (M4): bullets travel forward (away), reticle marks the aim point --
+; --- firing: bullets travel forward (away), reticle marks the aim point --
 ; Bullets carry a z too; firing it recedes (z INCREASES) up the screen toward
 ; the horizon, faster than the rail closes obstacles.
 BUL_N         = 4               ; pooled bullets
@@ -175,7 +190,7 @@ BUL_DEPTH = $1850              ; forward depth z[BUL_N] (world px)
 ; collision scratch (live across the bullet x obstacle nested loop)
 BHIT_DEPTH = $1860             ; current bullet z (world px)
 BHIT_X     = $1862             ; current bullet world x
-; per-obstacle current size tier 0..3 (for grow/shrink hysteresis, Phase 12-6)
+; per-obstacle current size tier 0..3 (for grow-only hysteresis)
 OBS_TIER  = $1870              ; current tier[OBS_N] (16-bit, 0..3)
 ; --- sf_rail_draw_sorted scratch (the depth-sorted OAM emit) ---
 ; The draw routine projects every obstacle into a cache (OBS_N x 4 words =
@@ -186,6 +201,9 @@ RAIL_PARAMS = $18C0            ; sf_rail param block, 8 words ($18C0-$18CF)
 
 .segment "CODE"
 
+; =============================================================================
+; INIT — interrupt vectors + one-time boot (RESET: uploads, Mode 7, seed field)
+; =============================================================================
 NMI:
 .include "nmi_handler.asm"
 
@@ -205,12 +223,12 @@ RESET:
     .a8
     rep #$10
     .i16
-    stz $2121                   ; CGADD = 0
+    stz $2121                   ; CGADD (CGRAM address): start the upload at colour 0
     ldx #$0000
 gpal_loop:
     .a8
     lda f:ground_pal, x
-    sta $2122
+    sta $2122               ; CGDATA (CGRAM data): write a byte; index auto-advances
     inx
     cpx #(GROUND_PAL_COUNT * 2)
     bne gpal_loop
@@ -311,14 +329,18 @@ obs_seed_dep_ok:
     sep #$20
     .a8
     lda #$0F
-    sta $2100
+    sta $2100                   ; INIDISP (display control): brightness $F = full,
+                                ;   forced blank off — the screen turns on now
     sta SHADOW_INIDISP
     lda #$81
-    sta $4200
+    sta $4200                   ; NMITIMEN (interrupt + joypad enable): VBlank NMI
+                                ;   (bit 7) + auto joypad read (bit 0)
     rep #$30
     .a16
     .i16
 
+; =============================================================================
+; MAIN LOOP — game_loop: one frame of strafe, fire, rail advance, project, draw
 ; =============================================================================
 game_loop:
     .a16
@@ -490,12 +512,12 @@ bul_next:
     spr_clear
     spr R_VTILE, R_SHIPX, #SHIP_Y, R_VFLAGS, #2
 
-    ; ---------------- M2: obstacle field — tier hysteresis + DEPTH-SORTED draw
+    ; ---------------- obstacle field — tier hysteresis + DEPTH-SORTED draw ---
     ; The obstacles are pseudo-3D depth actors (sf_rail). We do TWO things:
     ;   (1) a hysteresis pre-pass: per live obstacle, grow the STORED tier
     ;       (OBS_TIER[x]) as its z falls past a (threshold - TIER_HYST) grow
     ;       boundary — never shrink during the approach (z monotone down). This
-    ;       keeps the proven Phase 12-6 grow-only hysteresis (no tier flicker).
+    ;       keeps the proven grow-only hysteresis (no tier flicker).
     ;   (2) sf_rail_draw_sorted: project every obstacle and emit them into OAM
     ;       slots 1..OBS_N ORDERED BY THE STORED TIER — tier 0 (nearest/largest)
     ;       into the lowest slots so it draws IN FRONT of farther obstacles
@@ -538,7 +560,7 @@ obs_hyst_loop:
     sta RAIL_PARAMS + $0E       ; stored (hysteresis-applied) tiers
     sf_rail_draw_sorted RAIL_PARAMS    ; emits OBS_N sprites at OAM slots 1..6
 
-    ; ---------------- M4 draw: bullets (slots 7..10) ------------------------
+    ; ---------------- draw: bullets (slots 7..10) ---------------------------
     ; Every bullet slot is drawn each frame so OAM slots stay stable: live
     ; bullets at their projected ground position, dead/culled slots at y=$F0.
     stz BUL_OFF
@@ -578,7 +600,7 @@ draw_bul_put:
     cmp #(2 * BUL_N)
     bcc draw_bul_loop
 
-    ; ---------------- M4 draw: lock-on reticle (slot 11) --------------------
+    ; ---------------- draw: lock-on reticle (slot 11) -----------------------
     ; The reticle marks the aim point: a fixed forward depth ahead of the ship
     ; in the ship's lane, projected onto the floor so it tracks with the bank.
     ; This is the single-actor front door: sf_rail_project marshals
@@ -624,6 +646,10 @@ draw_ret_done:
 
     sf_frame_end
     jmp game_loop
+
+; =============================================================================
+; SUBROUTINES — the jsr'd frame helpers + the one-time sky-split arm
+; =============================================================================
 
 ; =============================================================================
 ; bullet_obstacle_hits — kill any (bullet, obstacle) pair within the hit window.
@@ -743,7 +769,7 @@ obs_recycle:
     rts
 
 ; =============================================================================
-; obs_tier_hysteresis — apply grow-only size-tier hysteresis (Phase 12-6).
+; obs_tier_hysteresis — apply grow-only size-tier hysteresis.
 ; =============================================================================
 ; On entry X = pool byte offset, PROJ_DEPTH = the obstacle's z (world px). The
 ; obstacle's z is monotone DECREASING as it approaches, so its tier only ever
@@ -870,7 +896,8 @@ arm_sky_split:
     rts
 
 ; =============================================================================
-; Engine includes — sf_mode7.inc link-partner order + sprite/DMA engines.
+; DATA — engine link-partners (sf_mode7.inc order) + sprite/DMA engines, then
+; the per-tier table, projection LUTs, ship + obstacle art, and the ground blob
 ; =============================================================================
 .include "sprite_engine.asm"
 .include "dma_scheduler.asm"
@@ -889,8 +916,8 @@ mode7_sin_lut:
 ; =============================================================================
 ; 4 rows, tier 0..3, each {tile, flags, center_off} (3 words). The draw routine
 ; orders + selects by the obstacle's STORED tier (OBS_TIER, grow-only
-; hysteresis), then emits at PROJ_SX - center_off. Same tile/flag/centre mapping
-; the old per-tier dispatch used:
+; hysteresis), then emits at PROJ_SX - center_off. The tile / flag / centre
+; mapping for each tier:
 ;   tier 0 = 32x32 full   (OAM size large, centre 16)
 ;   tier 1 = 32x32 medium (OAM size large, centre 16)
 ;   tier 2 = 16x16 full   (OAM size small, centre 8)
@@ -919,7 +946,7 @@ rail_tier_tbl:
 
 ; --- the 32KB interleaved grid-terrain blob (bank 1 of the 64KB image) ---
 .segment "BANK1"
-; .incbin (GAP-3): resolved relative to THIS file's dir, not via -I — so the
+; .incbin path: resolved relative to THIS file's dir, not via -I — so the
 ; "assets/<basename>" form is copy-safe (copy-to-adapt only changes the basename).
 ground_map:
     .incbin "assets/ground_map.bin"

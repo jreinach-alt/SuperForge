@@ -8,6 +8,16 @@
 ; primitive (sf_camera_follow) composing sprites + scrolling. Adapt it: change
 ; the world size, clamp the player to the world, add a real level.
 ;
+; Controls:
+;   D-pad   move the player through the world (the camera follows, then clamps
+;           at the world edges — there the player walks toward the screen edge)
+;
+; File layout (top to bottom; the major === section banners):
+;   INIT       — RESET: tile + palette uploads, PPU, the checkerboard BG, boot
+;   MAIN LOOP  — game_loop, the once-per-frame heartbeat (read this first)
+;   DATA       — the BG + sprite tile art, engine includes
+; game_loop is the frame heartbeat; start reading there.
+;
 ; State (DP): player world pos $32/$34, camera $36/$38, sprite screen $3A/$3C.
 ;
 ; Done-condition (emulator-verifiable):
@@ -23,6 +33,9 @@
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "OPEN RANGE"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic
 .include "sf_bg.inc"            ; gfxmode, mset, sf_load_bg_tile, sf_bg_color
@@ -33,10 +46,10 @@
 .include "sf_frame.inc"         ; sf_engine_init, sf_frame_begin, sf_frame_end
 .include "engine_state.inc"
 
-OBJ_RED  = $001F
-BG_GREEN = $03E0
-WORLD_W  = 512
-WORLD_H  = 448
+OBJ_RED  = $001F                ; player colour (15-bit BGR: red)
+BG_GREEN = $03E0                ; background colour (15-bit BGR: green)
+WORLD_W  = 512                  ; world width in px (2 screens wide)
+WORLD_H  = 448                  ; world height in px (2 screens tall)
 PWX      = $32                  ; player world position
 PWY      = $34
 CAM_X    = $36                  ; camera (clamped)
@@ -45,11 +58,14 @@ SCRX     = $3A                  ; sprite screen position
 SCRY     = $3C
 BG_MX    = $46                  ; tilemap fill scratch
 BG_MY    = $48
-BG_TILE  = $4A
-SPEED    = 2
+BG_TILE  = $4A                  ; tile id for the current checkerboard cell
+SPEED    = 2                    ; player move step, px/frame
 
 .segment "CODE"
 
+; =============================================================================
+; INIT — interrupt vectors + one-time boot (RESET: uploads, PPU, BG, boot)
+; =============================================================================
 NMI:
 .include "nmi_handler.asm"
 
@@ -70,8 +86,8 @@ RESET:
 
     ; checkerboard BG (repeats every 256 px as the world scrolls)
     rep #$30
-    .a16
-    .i16
+    .a16                        ; first width switch: 16-bit A/X/Y. .a16/.i16 tell
+    .i16                        ;   ca65 the CPU width so it sizes operands right
     stz BG_MY
 @row:
     stz BG_MX
@@ -104,11 +120,15 @@ RESET:
     sep #$20
     .a8
     lda #$81
-    sta $4200
+    sta $4200                   ; NMITIMEN: enable NMI (VBlank IRQ) + auto-joypad
     rep #$30
     .a16
     .i16
 
+; =============================================================================
+; MAIN LOOP — game_loop: read the d-pad, move the player through the world,
+;             follow + clamp the camera, place the sprite. Once-per-frame.
+; =============================================================================
 game_loop:
     sf_frame_begin
 
@@ -174,6 +194,9 @@ game_loop:
     sf_frame_end
     jmp game_loop
 
+; =============================================================================
+; DATA — the BG + sprite tile art (SNES 4bpp planar) and the engine includes.
+; =============================================================================
 bg_tile:
     .byte $FF,$00, $FF,$00, $FF,$00, $FF,$00
     .byte $FF,$00, $FF,$00, $FF,$00, $FF,$00

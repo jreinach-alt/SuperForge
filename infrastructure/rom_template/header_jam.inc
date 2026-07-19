@@ -17,8 +17,12 @@
 ; Usage:
 ;   .include "header_jam.inc"     ; instead of .include "header.inc"
 ;
-; Remember to change the 21-byte ROM title in header.inc ("SUPERFORGE
-; TEST") for your own release — emulators and flashcarts display it.
+; Set your release's 21-byte ROM title with the SF_HDR_TITLE opt-in (two
+; coupled lines before the include; see header.inc) — do NOT edit header.inc:
+;   .define SF_HDR_TITLE "MY GAME"
+;   SF_HDR_TITLE_SET = 1
+;   .include "header_jam.inc"
+; Emulators, flashcarts, and the jam's multicart menu display it.
 
 SF_HDR_CART_TYPE = $00
 SF_HDR_SRAM_SIZE = $00

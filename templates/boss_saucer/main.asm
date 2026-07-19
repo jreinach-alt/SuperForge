@@ -9,6 +9,9 @@
 ; player, the beam, the player's shots, and the HP HUD are SPRITES composited
 ; over the Mode 7 saucer (the affine matrix never touches OBJ).
 ;
+; Controls:  LEFT / RIGHT  strafe the gunship   ·   A (held)  fire upward
+;            START  pause / unpause   (Select is unmapped — no in-game menu)
+;
 ; Forked from templates/boss/main.asm (same static-affine spine). What changed:
 ;   - the orb-rain attack (an 8-slot sf_pool of falling SPR_PROJECTILE orbs) is
 ;     REMOVED. The saucer attacks with a BEAM, not orbs.
@@ -27,15 +30,17 @@
 ;
 ; The static-affine plumbing is unchanged from the boss template:
 ;   - sf_boss_mode7_on installs Mode 7 with M7_PV_ACTIVE=1 (so the stock NMI
-;     commits M7SEL/M7X/M7Y + scroll) but arms NO HDMA — a uniform matrix is
-;     ~50 cycles/frame, not the ~10k-cycle perspective rebuild.
+;     commits M7SEL/M7X/M7Y + scroll) but arms NO HDMA — one uniform affine
+;     matrix per frame is cheap, unlike the per-scanline matrix rebuild an HDMA
+;     perspective effect pays every frame.
 ;   - sf_boss_matrix (first thing each frame, before active display) writes the
 ;     M7A-D matrix from (scale, angle) directly via mode7_set_static.
 ;   - the masked reset uses sf_bright_fade (forced-blank swap), NOT a custom
-;     NMI tilemap-swap — deliberately avoiding the Phase-14 silent-BRK region.
+;     NMI tilemap-swap: rebuilding the tilemap live risks a mid-frame VRAM write
+;     the PPU is still reading, so the swap is done under forced blank instead.
 ;
 ; OBJ-OVER-MODE-7 (baked in): the Mode 7 map fills VRAM words $0000-$3FFF, so
-; the OBJ name base moves to word $4000 (OBSEL=$62); the sprite CHR uploads
+; the OBJ name base moves to word $4000 (OBSEL base bits %010); the sprite CHR uploads
 ; there and OAM tile numbers stay 0.. relative to that base.
 ;
 ; OAM SLOT MAP (this template — SPR_ORDER_MODE=2, stable slots, tests read by
@@ -45,17 +50,31 @@
 ;     17-24   boss HP HUD (8 SPR_HP_LIT/DIM pips)
 ;     25-28   player shots (SPR_SHOT)
 ;
+; File layout (top to bottom): tuning equates -> RESET (init: Mode 7 map,
+;   palette, sprite CHR, Mode 7 on, audio) -> game_loop (the frame spine) ->
+;   battle_init -> state_update (the ST_* state machine) -> fight_update + its
+;   helpers (player move/fire, shots, lunge, beam, phase) -> draw_frame +
+;   draw_hp_hud -> draw_text / draw_overlays / draw_title (the text cards) ->
+;   engine includes -> committed assets (palette, sprites, the Mode 7 map blob).
+; Frame loop: game_loop is the once-per-frame heartbeat — start reading there.
+;
 ; Build:  make boss_saucer  (the generic templates rule reads the LDCFG sentinel below)
-; LDCFG: lorom_64k.cfg
-;   ^ Linker-config sentinel (GAP-2): 64KB image, the 32KB saucer-map blob fills
-;     BANK1. The generic build/%.sfc rule reads this and links lorom_64k.cfg
-;     instead of the default lorom.cfg; copy-to-adapt keeps the line, no Makefile
-;     edit needed. (See docs/guides/adapting_a_rail.md.)
+; LDCFG: lorom_tad_m7.cfg
+;   ^ Linker-config sentinel: a 96KB, three-bank image — code in bank 0, the 32KB
+;     saucer-map blob in BANK1 (bank 1), and the TAD audio data in bank 2. The
+;     generic build/%.sfc rule reads this line; because the name matches *_tad*.cfg
+;     it ALSO links the TAD audio driver + song objects and adds the audio include
+;     path (no Makefile edit). Copy-to-adapt keeps the line. The saucer map needs a
+;     dedicated bank because the whole 32KB fills one bank and DMA can't cross a
+;     bank boundary. (See docs/guides/adapting_a_rail.md.)
 ; =============================================================================
 
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "SAUCER DOWN"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic
 .include "sf_frame.inc"         ; sf_engine_init, sf_frame_begin/end
@@ -68,6 +87,9 @@
 .include "sf_pool.inc"          ; sf_pool_* (the 8-slot attack pool)
 .include "sf_input.inc"
 .include "engine_state.inc"
+.include "tad-audio.inc"        ; TAD driver ca65 API (the vendored SPC700 driver)
+.include "tad_audio_enums.inc"  ; Song:: / SFX:: ids for the shipped song set
+.include "sf_audio.inc"         ; sf_audio_init / sf_audio_tick / sf_music / sf_sfx
 
 ; --- the saucer pivot (map pixels): map is 1024x1024, saucer centered ---
 BOSS_CX = 512
@@ -80,7 +102,10 @@ INIT_SCALE    = $0180           ; 1.5 — whole saucer visible at rest (the FAR/
                                 ;   pose of the lunge cycle). A smaller value here
                                 ;   = a bigger saucer at rest.
 REVEAL_SCALE  = $0500           ; reveal start: saucer is tiny/far (5.0)
-DEATH_SCALE   = $0700           ; death end: saucer recedes even farther
+DEATH_SCALE   = $0700           ; death recede ceiling (safety clamp). NOTE: the
+                                ;   recede adds REVEAL_STEP for REVEAL_FRAMES frames,
+                                ;   so from INIT_SCALE it only reaches ~$04C8 — this
+                                ;   ceiling is never actually hit; it just bounds it.
 
 ; --- the LUNGE: the saucer dives toward the camera. NEAR is much SMALLER than
 ;     INIT_SCALE (rest) so the saucer visibly GROWS to fill the screen on the
@@ -89,7 +114,7 @@ LUNGE_NEAR_SCALE = $00A0        ; near/lunge apex (0.625) — saucer fills the v
 LUNGE_FAR_FRAMES = 40           ; dwell at rest before each approach
 LUNGE_RAMP_FRAMES = 40          ; approach + retreat ramp length (each)
 ; per-frame approach/retreat scale step (INIT_SCALE - LUNGE_NEAR_SCALE)/ramp
-LUNGE_STEP    = (INIT_SCALE - LUNGE_NEAR_SCALE) / LUNGE_RAMP_FRAMES  ; ~$0004/fr
+LUNGE_STEP    = (INIT_SCALE - LUNGE_NEAR_SCALE) / LUNGE_RAMP_FRAMES  ; =$0005/fr
 
 ; --- player sprite placement (fixed-screen, low band; player slides L/R) ---
 PLAYER_Y     = 184              ; fixed Y (player only strafes on X)
@@ -152,9 +177,37 @@ REVEAL_FRAMES = 60              ; reveal scale ramp length
 HOLD_FRAMES   = 45              ; pause at full size before the fight
 FADE_FRAMES   = 32              ; bright-fade length (intro/death/lose)
 RESULT_FRAMES = 90              ; how long the result screen holds
+RESULT_DIM    = 7               ; brightness (0..15) the scene dims to behind a
+                                ;   result card — dimmed, NOT black, so the win/
+                                ;   lose word reads over the still-visible arena
+
+; --- result / title text cards (8x8 glyph sprites over the scene; slots 29+, so
+;     the tests' stable slot map 0..28 is untouched). Glyph tiles are SPR_G_*
+;     (assets/sprites.inc); the pen advances GTEXT_ADV px per cell. ---
+GTEXT_END     = $FFFE           ; glyph-string terminator (not a valid tile)
+GTEXT_SPACE   = $FFFF           ; glyph-string space: advance the pen, draw nothing
+GTEXT_ADV     = 6               ; pen advance per glyph cell (5px glyph + 1px gap)
+CARD_Y        = 100             ; result-card text row (vertically centred-ish)
+DEFEAT_X      = (256 - 6 * GTEXT_ADV) / 2   ; "DEFEAT" = 6 cells, centred
+VICTORY_X     = (256 - 7 * GTEXT_ADV) / 2   ; "VICTORY" = 7 cells, centred
+CARD_BG_TILES = 8               ; banner width in 8x8 SPR_CARDBG tiles (64px)
+CARD_BG_X0    = 128 - CARD_BG_TILES * 8 / 2 ; centred banner left edge (=96)
+CARD_BG_Y0    = CARD_Y - 4      ; banner top (the glyph row sits centred in it)
+
+; --- boot title card: the game name + the controls line, shown over the dark
+;     sky ABOVE the growing saucer (below the HP HUD row) during REVEAL + HOLD,
+;     then auto-dismissed when the fight starts. The reviewer played three loops
+;     before discovering A = fire, so the controls line is the point. Placed high
+;     over the sky so no banner is needed. ---
+TITLE_Y1      = 30              ; game-name row
+TITLE_Y2      = 42              ; controls row
+TITLE1_CELLS  = 11             ; "SAUCER DOWN"     (S A U C E R _ D O W N)
+TITLE2_CELLS  = 15             ; "<> MOVE   A FIRE"
+TITLE1_X      = (256 - TITLE1_CELLS * GTEXT_ADV) / 2   ; centred
+TITLE2_X      = (256 - TITLE2_CELLS * GTEXT_ADV) / 2   ; centred
 
 ; --- per-frame reveal/death scale step (REVEAL_SCALE-INIT_SCALE)/REVEAL_FRAMES
-REVEAL_STEP = (REVEAL_SCALE - INIT_SCALE) / REVEAL_FRAMES   ; ~$0015/frame down
+REVEAL_STEP = (REVEAL_SCALE - INIT_SCALE) / REVEAL_FRAMES   ; =$000E/frame down
 
 ; --- state machine indices (b_state) ---
 ST_INTRO   = 0                  ; fade IN from black, then -> REVEAL
@@ -166,11 +219,11 @@ ST_LOSE    = 5                  ; fade out (player died)
 ST_RESULT  = 6                  ; result hold (win/lose), then RESET
 ST_RESET   = 7                  ; re-init under forced blank -> REVEAL (loop)
 
-; --- joypad masks (JOY1_CURRENT bit layout, matches the racer template) ---
-JOY_RIGHT = $0100
-JOY_LEFT  = $0200
-JOY_A     = $0080
-JOY_B     = $8000
+; --- joypad masks (JOY1_CURRENT / JOY1_PRESSED_LATCH bit layout) ---
+JOY_RIGHT = $0100               ; strafe right
+JOY_LEFT  = $0200               ; strafe left
+JOY_A     = $0080               ; fire
+JOY_START = $1000               ; pause toggle (rising edge; Select is unmapped)
 
 ; --- player-shot pool: 4 slots (the things that damage the saucer). Arrays in
 ;     the $1800-$1DFF game-array region (pool contract). Drawn in OAM slots
@@ -180,6 +233,11 @@ SHOT_N     = 4
 SHOT_ALIVE = $1850              ; alive[4]
 SHOT_X     = $1858              ; x[4]
 SHOT_Y     = $1860              ; y[4]
+
+; --- pause flag ($1868, just past the shot pool). 1 = the fight is frozen;
+;     START toggles it. Select is intentionally left unmapped (this rail has no
+;     in-game menu). Cleared by battle_init (never assume power-on zero). ---
+PAUSED     = $1868
 
 ; --- OAM slot map (stable; SPR_ORDER_MODE=2). Each band is non-overlapping. ---
 PLAYER_SLOT = 0                 ; player gunship
@@ -229,6 +287,10 @@ NMI_STUB:
 RESET:
     sf_coldstart                ; forced blank; WRAM/CGRAM/VRAM cleared
     sf_engine_init
+    sf_audio_init               ; boot the S-SMP + TAD driver ONCE, at power-on (the
+                                ;   S-SMP must still be in its IPL state; this rail's
+                                ;   soft reset is a masked re-init, never a re-boot,
+                                ;   so sf_audio_init is never called a second time)
 
     ; --- STABLE OAM ordering: the draw assigns fixed slots (0 player, 1-16
     ;     beam segments, 17-24 HP HUD, 25-28 shots) and the tests read those
@@ -265,14 +327,19 @@ bpal_loop:
 
     ; --- sprite CHR + palette out of the Mode 7 map's VRAM ---
     ; Map owns VRAM words $0000-$3FFF, so OBJ name base = word $4000:
-    ; OBSEL=$62 (base %010 x $2000 words, 16x16/32x32 size pair). tile 1024 IS
-    ; word $4000, so OAM tile numbers stay 0.. relative to the OBSEL base.
+    ; OBSEL base bits %010 = word $4000. tile 1024 IS word $4000, so OAM tile
+    ; numbers stay 0.. relative to the OBSEL base.
     sf_load_obj_pal 0, sprite_pal
     sf_load_obj_chr 1024, sprite_chr, sprite_chr_bytes
     sep #$20
     .a8
-    lda #$62
-    sta $2101                   ; OBSEL: name base word $4000, 16x16/32x32
+    lda #$02
+    sta $2101                   ; OBSEL (OBJ size + name base): base word $4000,
+                                ;   size pair 0 = 8x8 small / 16x16 large. The player
+                                ;   is a 16x16 LARGE sprite (its 2x2 tile block at
+                                ;   {0,1,16,17}); every other actor (beam, shot, HP
+                                ;   pip, text glyph) is an 8x8 SMALL sprite — one
+                                ;   tile, no neighbor bleed.
     rep #$30
     .a16
     .i16
@@ -302,6 +369,8 @@ bpal_loop:
     .a16
     .i16
     sf_bright_fade #15, #FADE_FRAMES    ; arm the fade-IN (0 -> 15 over 32 frames)
+    sf_music #Song::gimo_297            ; start the boss theme; it streams in over the
+                                        ;   sf_audio_ticks the frame loop pumps below
 
 ; =============================================================================
 ; The frame spine: matrix first (consistent frame), then the per-state update,
@@ -315,13 +384,31 @@ bpal_loop:
 game_loop:
     .a16
     sf_frame_begin              ; wait for the NMI; latch input
+    sf_audio_tick               ; pump TAD every frame (streams the song load + the
+                                ;   queued SFX to the SPC700; never gate it on state)
+
+    ; --- START toggles a full freeze (its rising edge; Select is unmapped). While
+    ;     paused the state machine + combat below are skipped, so nothing moves and
+    ;     nothing can hurt the player; the matrix commit, the draw, the audio, and
+    ;     the frame sync keep running, so the held frame shows and the music plays. ---
+    lda JOY1_PRESSED_LATCH
+    bit #JOY_START
+    beq gl_no_toggle
+    lda PAUSED
+    eor #$0001
+    sta PAUSED
+gl_no_toggle:
+    .a16
 
     ; --- the matrix FIRST, before active display (one consistent frame) ---
     sf_boss_matrix b_scale, b_angle
 
+    lda PAUSED
+    bne gl_frozen               ; paused -> skip the update + the fade advance
     jsr state_update            ; per-state logic (reveal, lunge, beam, death...)
     sf_bright_fade_tick         ; advance any armed brightness fade (masked swaps)
-
+gl_frozen:
+    .a16
     jsr draw_frame              ; player + beam + HP HUD + shots into stable OAM
 
     ; --- heartbeat + debug mirrors (test orchestration; visual asserts stay on
@@ -372,6 +459,7 @@ battle_init:
     stz p_iframe
     stz fire_timer
     stz b_result
+    stz PAUSED                  ; each battle starts unpaused (RAM is random at boot)
     lda #$ACE1                  ; non-zero xorshift seed
     sta rng
     ; --- lunge + beam start idle (the fight arms them on FIGHT entry) ---
@@ -480,13 +568,14 @@ su_hold_ret:
     .a16
     rts
 
-; --- FIGHT: handed to the combat routine (M4/M5). ---
+; --- FIGHT: handed to the combat routine. ---
 su_fight:
     .a16
     jsr fight_update
     rts
 
-; --- DEATH: boss recedes (scale UP) + fade to black; then RESULT(win). ---
+; --- DEATH: boss recedes (scale UP) at full brightness (the death tilt-spin),
+;     then dims the scene and shows the VICTORY card at RESULT. ---
 su_death:
     .a16
     lda b_scale
@@ -508,6 +597,8 @@ su_death_store:
     dec a
     sta b_timer
     bne su_death_ret
+    ; recede done -> dim the scene (not black) behind the VICTORY card, RESULT(win)
+    sf_bright_fade #RESULT_DIM, #FADE_FRAMES
     lda #1
     sta b_result               ; WIN
     lda #ST_RESULT
@@ -608,8 +699,8 @@ fu_check_lose:
     .a16
     lda p_hp
     bne fu_alive
-    ; player dead -> arm fade-out, LOSE
-    sf_bright_fade #0, #FADE_FRAMES
+    ; player dead -> dim the scene (not black) so the DEFEAT card reads, LOSE
+    sf_bright_fade #RESULT_DIM, #FADE_FRAMES
     lda #ST_LOSE
     sta b_state
     lda #FADE_FRAMES
@@ -693,6 +784,7 @@ pf_ready:
     sta SHOT_Y, x
     lda #SHOT_FIRE_GAP
     sta fire_timer
+    sf_sfx #SFX::fire_arrow     ; the player's gun report (one per fired shot)
 pf_no_fire:
     .a16
     rts
@@ -912,6 +1004,7 @@ bu_active_hit:
     sta p_hp
     lda #IFRAME_LEN
     sta p_iframe
+    sf_sfx #SFX::player_hurt     ; the beam connects (once per hit; iframes gate it)
     rts
 bu_tele:
     .a16
@@ -924,6 +1017,7 @@ bu_tele:
     sta beam_state
     lda #BEAM_ACTIVE
     sta lunge_timer
+    sf_sfx #SFX::robot_fires_laser  ; the saucer's beam ignites (once, on go-active)
 bu_ret:
     .a16
     rts
@@ -957,8 +1051,8 @@ bp_p0:
     rts
 
 ; =============================================================================
-; draw_frame — shared per-frame OAM draw (stable slots; M4/M5 flesh out attacks
-; + HP HUD). M3: player at slot 0, all other slots parked off-screen.
+; draw_frame — shared per-frame OAM draw into the stable slot map: player at
+; slot 0, beam 1-16, HP HUD 17-24, shots 25-28; unused slots parked off-screen.
 ; WIDTH-RISK: A16/I16 entry/exit (the spr macro handles its own widths).
 ; =============================================================================
 draw_frame:
@@ -1058,6 +1152,31 @@ df_shot_next:
     sta su_i
     cmp #(2 * SHOT_N)
     bne df_shot_loop
+    ; --- thruster exhaust below the player: a pulsing flame, FIGHT only (slot
+    ;     29). The overlays own slots 29+ in the non-fight states (title + result
+    ;     cards), so gating on FIGHT keeps this clear of them. ---
+    lda b_state
+    cmp #ST_FIGHT
+    bne df_no_exhaust
+    lda FRAME_COUNTER
+    and #$0008
+    beq df_exh_lo               ; alternate short / tall flame every 8 frames
+    lda #SPR_EXH_HI
+    bra df_exh_have
+df_exh_lo:
+    .a16
+    lda #SPR_EXH_LO
+df_exh_have:
+    .a16
+    sta hud_lit                 ; flame tile -> scratch (spr takes a DP operand)
+    lda p_x
+    clc
+    adc #4                      ; centre the 8px flame under the 16px player
+    sta hud_x
+    spr hud_lit, hud_x, #(PLAYER_Y + 14), #$0000, #2   ; just below the hull
+df_no_exhaust:
+    .a16
+    jsr draw_overlays           ; result / title text cards (OAM slots 29+)
     rts
 
 ; =============================================================================
@@ -1121,6 +1240,154 @@ dh_seg_next:
     rts
 
 ; =============================================================================
+; draw_text — spell a glyph string as 8x8 SMALL OBJ sprites, left to right.
+;   X (i16) = byte offset into glyph_strings of the first glyph word.
+;   hud_x   = pen X (advanced GTEXT_ADV px per cell); hud_i = pen Y (held).
+; Each word is a glyph TILE (SPR_G_*); GTEXT_SPACE advances the pen without
+; drawing, GTEXT_END ends the run. Glyphs land in shadow-OAM slots 29+ (drawn
+; after the player/beam/HUD/shots), so the tests' stable slot map 0..28 is
+; untouched. Reuses the HP-HUD loop scratch (hud_x/hud_i/hud_lit), which is free
+; by the time draw_overlays runs at the tail of draw_frame.
+; WIDTH-RISK: A16/I16 entry/exit. spr clobbers X (our string cursor), so the
+; offset is saved across it (phx/plx). No width toggles.
+; =============================================================================
+draw_text:
+    .a16
+    .i16
+@loop:
+    .a16
+    lda f:glyph_strings, x      ; next glyph word (long: the string lives in ROM)
+    cmp #GTEXT_END
+    beq @done
+    cmp #GTEXT_SPACE
+    beq @advance                ; space: skip the draw, still advance the pen
+    sta hud_lit                 ; glyph tile -> DP scratch (spr takes a DP operand)
+    phx                         ; spr clobbers X — save the string cursor
+    spr hud_lit, hud_x, hud_i, #$0000, #3   ; pri 3 = in front of the banner
+    plx
+@advance:
+    .a16
+    lda hud_x
+    clc
+    adc #GTEXT_ADV
+    sta hud_x
+    inx
+    inx                         ; next glyph word (2 bytes)
+    bra @loop
+@done:
+    .a16
+    rts
+
+; =============================================================================
+; draw_overlays — the result text card over the dimmed end-of-battle scene.
+; LOSE and RESULT(lose) draw DEFEAT; RESULT(win) draws VICTORY; every other
+; state draws nothing. Called at the tail of draw_frame. A16/I16.
+; =============================================================================
+draw_overlays:
+    .a16
+    .i16
+    lda b_state
+    cmp #ST_FIGHT
+    bcc @title                  ; INTRO/REVEAL/HOLD (< FIGHT) -> boot title card
+    cmp #ST_LOSE
+    beq @defeat                 ; LOSE: the player died -> DEFEAT
+    cmp #ST_RESULT
+    bne @none                   ; not a card state
+    lda b_result
+    cmp #2                      ; RESULT: 2 = lose, 1 = win
+    beq @defeat
+    ; --- VICTORY card (win) ---
+    lda #VICTORY_X
+    sta hud_x
+    lda #CARD_Y
+    sta hud_i
+    ldx #STR_VICTORY
+    bra @paint
+@defeat:
+    .a16
+    lda #DEFEAT_X
+    sta hud_x
+    lda #CARD_Y
+    sta hud_i
+    ldx #STR_DEFEAT
+@paint:
+    .a16
+    ; text FIRST (lower OAM slots = frontmost on SNES; pri 3 as well), then the
+    ; dark banner behind it (higher slots, pri 2 — over the BG, under the text)
+    jsr draw_text
+    jsr draw_card_bg
+@none:
+    .a16
+    rts
+@title:
+    .a16
+    jsr draw_title
+    rts
+
+; =============================================================================
+; draw_title — the boot title card: game name (SAUCER DOWN) + the controls line,
+; two centred glyph rows over the dark sky above the growing saucer. No banner
+; (the sky is already dark up here). Shown while state < FIGHT. A16/I16.
+; =============================================================================
+draw_title:
+    .a16
+    .i16
+    lda #TITLE1_X
+    sta hud_x
+    lda #TITLE_Y1
+    sta hud_i
+    ldx #STR_TITLE1
+    jsr draw_text
+    lda #TITLE2_X
+    sta hud_x
+    lda #TITLE_Y2
+    sta hud_i
+    ldx #STR_TITLE2
+    jsr draw_text
+    rts
+
+; =============================================================================
+; draw_card_bg — a 2-row x CARD_BG_TILES dark banner behind a result/title word.
+; Drawn AFTER the text (higher OAM slots) so the pri-3 text stays in front; the
+; banner is pri 2 (over the Mode 7 BG, under the text). hud_i = tile counter,
+; hud_x = pen X. A16/I16.
+; =============================================================================
+draw_card_bg:
+    .a16
+    .i16
+    stz hud_i
+    lda #CARD_BG_X0
+    sta hud_x
+@col:
+    .a16
+    spr #SPR_CARDBG, hud_x, #CARD_BG_Y0, #$0000, #2        ; upper banner cell
+    spr #SPR_CARDBG, hud_x, #(CARD_BG_Y0 + 8), #$0000, #2  ; lower banner cell
+    lda hud_x
+    clc
+    adc #8
+    sta hud_x
+    lda hud_i
+    inc a
+    sta hud_i
+    cmp #CARD_BG_TILES
+    bne @col
+    rts
+
+; --- glyph strings: runs of glyph TILE words, GTEXT_END-terminated. The STR_*
+;     equates are byte offsets into this table (what draw_text takes in X). ---
+glyph_strings:
+STR_VICTORY = * - glyph_strings
+    .word SPR_G_V, SPR_G_I, SPR_G_C, SPR_G_T, SPR_G_O, SPR_G_R, SPR_G_Y, GTEXT_END
+STR_DEFEAT = * - glyph_strings
+    .word SPR_G_D, SPR_G_E, SPR_G_F, SPR_G_E, SPR_G_A, SPR_G_T, GTEXT_END
+STR_TITLE1 = * - glyph_strings          ; "SAUCER DOWN"
+    .word SPR_G_S, SPR_G_A, SPR_G_U, SPR_G_C, SPR_G_E, SPR_G_R, GTEXT_SPACE
+    .word SPR_G_D, SPR_G_O, SPR_G_W, SPR_G_N, GTEXT_END
+STR_TITLE2 = * - glyph_strings          ; "<> MOVE   A FIRE"
+    .word SPR_G_LARR, SPR_G_RARR, GTEXT_SPACE, SPR_G_M, SPR_G_O, SPR_G_V, SPR_G_E
+    .word GTEXT_SPACE, GTEXT_SPACE, SPR_G_A, GTEXT_SPACE, SPR_G_F, SPR_G_I, SPR_G_R, SPR_G_E, GTEXT_END
+
+; =============================================================================
 ; Engine includes — the sf_mode7_affine.inc link-partner order, plus the sprite
 ; + DMA engines spr / sf_frame_end require. NO HDMA-effect engines (the static
 ; affine path uses no HDMA), but mode7_engine.asm self-pulls the HDMA allocator,
@@ -1129,7 +1396,10 @@ dh_seg_next:
 .include "sprite_engine.asm"
 .include "dma_scheduler.asm"
 .include "bright_fade_engine.asm"   ; sf_bright_fade / sf_bright_fade_tick
-.include "collision_engine.asm"     ; col_box (M4 hit detection)
+.include "collision_engine.asm"     ; col_box (AABB hit detection)
+.include "tad_bridge.asm"           ; tad_* entry points the sf_audio macros call
+                                    ;   (the TAD driver + song blob link as separate
+                                    ;   objects, pulled in by the *_tad*.cfg build rule)
 
 mode7_sin_lut:
     .include "mode7_sin_lut.inc"    ; defines sin_lut: (used by sincos)
@@ -1147,9 +1417,9 @@ mode7_sin_lut:
 .include "assets/saucer_palette.inc"
 .include "assets/sprites.inc"
 
-; --- the 32KB interleaved boss-map blob (bank 1 of the 64KB image) ---
+; --- the 32KB interleaved boss-map blob (bank 1 of the 96KB image) ---
 .segment "BANK1"
-; .incbin (GAP-3): resolved relative to THIS file's dir, not via -I — so the
-; "assets/<basename>" form is copy-safe (copy-to-adapt only changes the basename).
+; .incbin resolves relative to THIS file's own directory (not via -I), so the
+; "assets/<basename>" form stays copy-safe — copy-to-adapt only changes the basename.
 saucer_map:
     .incbin "assets/saucer_map.bin"

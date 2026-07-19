@@ -718,6 +718,16 @@ _NAMED_PRED = {
     "white": lambda p: p[0] > 200 and p[1] > 200 and p[2] > 200,
     "cyan": lambda p: p[0] < 120 and p[1] > 150 and p[2] > 150,
     "grey": lambda p: abs(p[0] - p[1]) < 24 and abs(p[1] - p[2]) < 24 and 60 < p[0] < 200,
+    # m7_dungeon dungeonSprites DEMON body — a WARM/BRIGHT orange-red (Wave-D
+    # dressing; enemy_pal body ~(224,104,72), rendered ~(231,107,74)). Retuned on
+    # the emulator to a byte-exact mirror of tests/test_m7_dungeon _is_enemy_red:
+    # r>=205 clears the demon (231) yet rejects every brick wall tone (WALL_LT
+    # rendered ~189); g<=130 rejects the bone highlight; b<=110 and r-b>=120 reject
+    # the cool floor + the grey knight hero. Only a real demon-body pixel passes,
+    # so an invisible / wrong-palette enemy reads 0 (-DENEMY_MISCOLOR is the
+    # non-vacuity control). The plain "red" predicate above stays untouched so the
+    # other templates' gates are unaffected.
+    "enemy_red": lambda p: p[0] >= 205 and p[1] <= 130 and p[2] <= 110 and (p[0] - p[2]) >= 120,
 }
 
 
@@ -941,6 +951,32 @@ def _drive_axis_branch(runner, manifest, drive, rom, ctx: DriveContext):
     max_retries = int(p.get("max_retries", 3))
     branch_hb: dict[str, int] = {}
     branch_phase: dict[str, int] = {}
+    # FREEZE-CAPTURE (racer opt-in; default OFF via freeze_button=None). The racer
+    # floor ANIMATES every frame independently of steering: a palette cycle, the
+    # day-night blend, and forward coast-scroll. take_screenshot after a
+    # load->drive carries a 1-frame presentation-lag "render bucket" (see
+    # docs/audit/racer-oracle-steer-gate.md): two independent same-direction
+    # captures can land one ANIMATED frame apart and read a large spurious floor
+    # diff. The S3 racer remediation paces the perspective rebuild across two
+    # frames, which widened the bucket until control_branches' retry could no
+    # longer land both captures in the same phase (the intermittent
+    # "same-direction control diff > eps" failure). The deterministic fix is to
+    # stop keying on a lucky bucket and instead FREEZE the floor before capturing:
+    # tap the pause button (START) so the palette cycle + day-night clock + camera
+    # all stop (main.asm R_PAUSE) — a true freeze-frame that renders identically on
+    # every run — while the steered heading (the thing under test) is held. Every
+    # branch runs the identical extra frames, so the frame-count / phase guard
+    # still holds; freeze_pre lets an in-flight rebuild finish so the frozen floor
+    # shows the FINAL angle, freeze_post lets the pause engage, and freeze_addr
+    # (R_PAUSE) is read back to prove the freeze actually took (fail-loud).
+    freeze_btn = p.get("freeze_button")
+    freeze_pre = int(p.get("freeze_settle", 4))
+    freeze_post = int(p.get("freeze_post", 6))
+    freeze_addr = p.get("freeze_addr")
+    if freeze_addr is not None:
+        freeze_addr = _as_int(freeze_addr, "axis_branch.freeze_addr")
+    freeze_value = int(p.get("freeze_value", 1))
+    branch_freeze: dict[str, int] = {}
 
     def _one_branch(ax, tag):
         """One independent load -> align -> prelude -> steer -> capture. Returns
@@ -962,6 +998,17 @@ def _drive_axis_branch(runner, manifest, drive, rom, ctx: DriveContext):
                 runner.frame_step(pre_frames, **pre_btn)
             # Steer hold: exactly `frames` frames with this axis's buttons.
             runner.frame_step(frames, **_AXIS_BTN[ax])
+            # Freeze-capture: finish any in-flight rebuild, tap pause to freeze the
+            # animated floor, then let the freeze engage — so the screenshot is a
+            # deterministic freeze-frame (no palette/day-night/scroll bucket).
+            if freeze_btn:
+                if freeze_pre > 0:
+                    runner.frame_step(freeze_pre)
+                runner.frame_step(1, **{freeze_btn: True})
+                if freeze_post > 0:
+                    runner.frame_step(freeze_post)
+                if freeze_addr is not None:
+                    branch_freeze[ax] = _read(runner, "wram", freeze_addr, 1)[0]
             shot = _shot(runner, f"branch_{tag}")
             ctx.after_oam[ax] = _oam(runner)  # so oam_delta-style asserts read it
             if guard:
@@ -1031,6 +1078,17 @@ def _drive_axis_branch(runner, manifest, drive, rom, ctx: DriveContext):
                 f"by palette/day-night animation (heartbeat {branch_hb}, "
                 f"phase {branch_phase}). Frame-exact stepping must equalize both."
             )
+    # Freeze guard: when freeze-capture is armed, every branch must have actually
+    # entered the frozen state, or the "deterministic" capture is a fiction (the
+    # floor was still animating and the spurious-diff bucket can return).
+    if freeze_btn and freeze_addr is not None and ctx.ok:
+        bad = {ax: v for ax, v in branch_freeze.items() if v != freeze_value}
+        if bad or not branch_freeze:
+            ctx.ok = False
+            ctx.detail = (
+                f"axis_branch freeze guard FAILED — pause did not engage "
+                f"(WRAM ${freeze_addr:04X} != {freeze_value}: {bad or 'unread'}); "
+                "the floor was not frozen, so the capture is not deterministic.")
 
 
 def run_drive(runner, manifest, drive: Drive, rom: str) -> DriveContext:

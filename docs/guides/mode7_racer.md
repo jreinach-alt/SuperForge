@@ -9,9 +9,13 @@ knobs, and the adaptation paths.
 ## Architecture — who commits what (3 lines)
 
 1. **Main thread** (your game loop): update camera state (`sf_mode7_cam`),
-   then `sf_mode7_tick` rebuilds the per-scanline HDMA matrix tables when the
-   angle/perspective changed (~10k cycles) and re-anchors the rotation origin
-   when only the position changed (cheap).
+   then rebuild the per-scanline HDMA matrix tables when the angle changed
+   and re-anchor the rotation origin when only the position changed (cheap:
+   ~3,600 master clocks). A full rebuild is NOT cheap — 245,779 master
+   clocks (69% of a frame) at the racer's trapezoid, measured — so the
+   racer paces it across two frames with the engine's split entry points
+   (`pv_rebuild_pass1`/`_pass2`; see the "60 fps" block in `main.asm`).
+   A rail that never rebuilds mid-play can use plain `sf_mode7_tick`.
 2. **The stock engine NMI** commits everything during VBlank: M7SEL/M7X/M7Y,
    the BG1 scroll shadows, the HDMA channel configs (CH5 = matrix A/B,
    CH6 = matrix C/D), and the OAM DMA. A rail ROM has **no custom VBlank
@@ -26,28 +30,33 @@ parameter, with the two worked value sets:
 
 | Param | Meaning | Racing (the racer rail) | Flight (`sf_mode7_on` default) |
 |---|---|---|---|
-| `l0` | horizon scanline — the floor starts here | 96 | 45 |
+| `l0` | horizon scanline — the floor starts here | 56 | 45 |
 | `l1` | bottom scanline | 224 | 224 |
-| `s0` | far-scale: texel step per pixel at `l0`. Bigger = the far row spans more map = stronger compression at the horizon | 192 | 436 |
-| `s1` | near-scale: texel step at `l1`. Smaller = tighter, lower camera | 24 | 77 |
+| `s0` | far-scale: texel step per pixel at `l0`. Bigger = the far row spans more map = stronger compression at the horizon | 576 | 436 |
+| `s1` | near-scale: texel step at `l1`. Smaller = tighter, lower camera | 28 | 77 |
 | `sh` | vertical texel height (0 = derive from horizontal). Nonzero squashes vertical relative to horizontal — the road-like aspect | 16 | 0 |
-| `interp` | per-scanline interpolation factor (1/2/4) — the rebuild computes every Nth line and lerps between; 2 is the proven cost/quality point | 2 | 2 |
+| `interp` | per-scanline interpolation factor (1/2/4) — the rebuild computes every Nth line and lerps between. The racer ships 4: measured 245,779 vs 293,612 master clocks per rebuild against interp 2, with indistinguishable rendering on its gentle ramp | 4 | 2 |
 | `wrap` | 1 = the 1024px map tiles infinitely; 0 = clamps | 1 | 1 |
 
-Pair each set with its rotation anchor: `sf_mode7_focus 192` (racing — the
-camera position maps to scanline 192's screen center, low in the view, where
+Pair each set with its rotation anchor: `sf_mode7_focus 200` (racing — the
+camera position maps to scanline 200's screen center, low in the view, where
 the kart sprite sits) or `sf_mode7_focus 168` (flight). The racing set reads
-as "standing on the road"; the flight set as "looking down from altitude".
-Confidence: both sets are **engine-verified** (the racing set is the
-`mode7_test` run-gate's; the flight set is the renderer's default).
+as "standing on the road" with a high horizon and a long forward view; the
+flight set as "looking down from altitude". Confidence: both sets are
+**engine-verified** (the racing set is the shipped racer's, gated by
+`tests/test_racer.py`; the flight set is the renderer's default; an earlier
+low-horizon racing set `96/224/192/24` + focus 192 remains the `mode7_test`
+run-gate's).
 
-Above `l0` the same Mode 7 layer keeps rendering with whatever matrix the
-table's head band holds — a stretched smear of the map. That is **expected**
-with the engine's CH5/CH6-only HDMA scope; a real sky needs the engine's
-per-scanline mode-split (Mode 1 band above, Mode 7 floor below), which is
-also the text-HUD path, and is out of rail scope. The racer's HUD is sprites
-for the same reason: **BG3 does not exist in Mode 7** — the mode has exactly
-one BG layer plus OBJ, so `sf_text`/`print` have nothing to draw on.
+Above `l0` the bare Mode 7 layer would keep rendering with whatever matrix
+the table's head band holds — a stretched smear of the map. The racer covers
+that band with a real SKY: `arm_sky_split` in `main.asm` runs a 2-band TM
+HDMA on CH2 that turns BG1 off above the horizon, revealing the CGRAM[0]
+backdrop that `make_track.py` reserves as sky blue. (The engine's
+per-scanline mode-split — a Mode 1 band above the floor — is the heavier
+alternative and the text-HUD path, out of rail scope.) The racer's HUD is
+sprites because **BG3 does not exist in Mode 7** — the mode has exactly one
+BG layer plus OBJ, so `sf_text`/`print` have nothing to draw on.
 
 ## The camera integration pattern (the racer's per-frame core)
 
@@ -80,7 +89,8 @@ lineage (`templates/racer/main.asm`, "integrate" section):
     .a16
     .i16
     sf_mode7_cam R_POSX + 2, R_POSY + 2, R_ANGLE
-    sf_mode7_tick
+    sf_mode7_tick           ; or the racer's two-frame paced dispatch — see
+                            ; the "60 fps, frame-paced" block in main.asm
 ```
 
 Three load-bearing details:
@@ -112,7 +122,7 @@ track_map.bin (32,768 B, committed)  +  track_palette.inc (CGRAM words)
 ```
 
 Constraints the converter enforces: **max 256 unique 8x8 tiles, max 256
-colors**. The racer's track stays tiny (7 tiles / 7 colors) by authoring
+colors**. The racer's track stays tiny (8 tiles / 9 colors) by authoring
 solid-color tiles on the 128x128-tile grid — checker variation between two
 greens / two grays gives the motion cue for free. Regenerate with
 `PYTHONPATH=. python3 templates/racer/assets/make_track.py` from a kit root

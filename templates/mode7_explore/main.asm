@@ -1,14 +1,24 @@
 ; =============================================================================
 ; mode7_explore — Mode 7 overhead EXPLORATION on a STREAMING large world
 ; =============================================================================
-; Streaming rail v2 / Sprint S2 (+ F1 remediation: world grown to 512x512 so
-; "several windows" is LITERAL).  A top-down Mode 7 overworld EXPLORATION game:
-; an avatar walks a LARGE authored world (512x512 tiles = 4096x4096 px — SEVERAL
-; windows wide AND tall vs the 128x128 Mode 7 VRAM window; the camera-clamp box
-; gives ~3 windows of camera travel / ~4 windows of distinct streamed content
-; each axis).  Regions stream into the VRAM window seamlessly as the avatar
-; walks — no pop-in, tearing, or black bands — forward, back, and idle; water +
-; mountains BLOCK movement.
+; A top-down Mode 7 EXPLORATION game: an avatar walks a LARGE authored overworld
+; (512x512 tiles = 4096x4096 px — SEVERAL screens wide AND tall vs the 128x128
+; Mode 7 VRAM window; the camera-clamp box gives ~3 windows of camera travel /
+; ~4 windows of distinct streamed content each axis).  Regions stream into the
+; VRAM window seamlessly as the avatar walks — no pop-in, tearing, or black bands
+; — forward, back, and idle; water + mountains BLOCK movement, and an ocean coast
+; frames the explorable region.
+;
+; Controls: the D-pad walks the avatar one tile (up/down/left/right); the camera
+;   scrolls the world under the screen-centred avatar.  No other buttons are read.
+;
+; File layout (top to bottom): INIT (RESET — one-time boot: audio, seed upload,
+;   palette, avatar, Mode 7, streaming arm, screen-on-dark, music); MAIN LOOP
+;   (game_loop — the once-per-frame heartbeat, START READING THERE); the per-frame
+;   body (explore_tick -> apply_camera / draw_avatar / try_start_step +
+;   terr_at_world world-space LUT collision / mirror_debug / boot_fade); the
+;   engine includes (input, sprite, DMA, BG, Mode 7 stream, TAD audio bridge); and
+;   DATA (the seed window + the 8-bank flat streaming tilemap).
 ;
 ; FORKED from templates/rpg/ (the proven Mode 7 overhead overworld + grid
 ; movement + tile collision).  REUSED unchanged: the screen-centred avatar (OAM
@@ -19,7 +29,7 @@
 ;      once (`sf_mode7_load_map ovw_map`).  Here the world is 512x512; we seed
 ;      the initial 128x128 window once, then `sf_mode7_stream_tick` each frame
 ;      keyed to the camera's WORLD tile position streams the leading row/column
-;      in.  Built with MODE7_STREAM_NMI (the VBlank DMA dispatch) + lorom_stream.cfg.
+;      in.  Built with MODE7_STREAM_NMI (the VBlank DMA dispatch) + lorom_tad_stream.cfg.
 ;
 ;   2. WORLD-SPACE coords + LUT collision (not the 128-pinned `& $7F`, and NOT a
 ;      separate collision table).  The camera walks 0..511 tiles; collision reads
@@ -37,13 +47,15 @@
 ; STATIC top-down Mode 7 (identity affine, M7SEL=$00 WRAP — NOT fill): the
 ; 128x128 VRAM tilemap is a 1:1 wrapped window onto the world centred on the
 ; camera tile.  The avatar stays screen-centred; the CAMERA carries world
-; position.  This is the SAME static-Mode-7 setup the S1 proof ROM uses.
+; position.  This is a plain static affine (no perspective), driven directly below.
 ;
 ; Build: make mode7_explore   (generic templates rule reads the LDCFG sentinel)
-; LDCFG: lorom_stream.cfg
+; LDCFG: lorom_tad_stream.cfg
 ;   ^ 512KB LoROM: bank 0 = code, bank 1 = the 32KB interleaved seed, banks 2-9 =
-;     the FLAT streaming tilemap (8 banks x 32KB = 256KB, 512x512).  Collision is
-;     LUT-derived from those same flat banks — NO dedicated collision banks.
+;     the FLAT streaming tilemap (8 banks x 32KB = 256KB, 512x512), bank $0A = the
+;     TAD audio data (overworld music).  A *_tad*.cfg name links the TAD audio
+;     objects + audio include path in the generic build rule (no Makefile edit).
+;     Collision is LUT-derived from those same flat banks — NO dedicated collision banks.
 ;     The MODE7_STREAM_NMI .define below pulls the streaming VBlank DMA dispatch
 ;     into nmi_handler.asm (the generic template rule can't pass -D, so the ROM
 ;     defines it in source before the include — see CLAUDE.md ".ifdef" gate).
@@ -52,13 +64,19 @@
 .p816
 .smart
 
-; --- pull the Mode 7 streaming VBlank DMA dispatch into nmi_handler.asm. The
-;     stock NMI gates engine/mode7_stream_nmi.inc behind `.ifdef MODE7_STREAM_NMI`;
-;     defining it here (BEFORE the nmi_handler include below) is equivalent to the
-;     `-D MODE7_STREAM_NMI` the S1 test ROM passes on the ca65 command line, so the
-;     generic sentinel-driven template build needs no Makefile edit. ------------
+; --- pull the Mode 7 streaming VBlank DMA dispatch into nmi_handler.asm.
+;     Streaming rewrites VRAM, and the PPU only accepts VRAM writes during VBlank
+;     (forced blank) — so the leading-edge row/column DMA MUST run in the NMI. The
+;     stock NMI does that dispatch, but only when engine/mode7_stream_nmi.inc is
+;     pulled in, which it gates behind `.ifdef MODE7_STREAM_NMI`. Defining the
+;     symbol here (BEFORE the nmi_handler include below) is equivalent to
+;     `-D MODE7_STREAM_NMI` on the ca65 command line, so the generic sentinel-
+;     driven template build needs no Makefile edit. --------------------------------
 MODE7_STREAM_NMI = 1
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "OVERLAND TREK"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic, sf_state_mirror
 .include "sf_frame.inc"         ; sf_engine_init, sf_frame_begin/end
@@ -66,9 +84,12 @@ MODE7_STREAM_NMI = 1
 .include "sf_video.inc"         ; sf_load_obj_chr, sf_load_obj_pal
 .include "sf_sprite.inc"        ; spr, spr_clear
 .include "sf_mode7.inc"         ; sf_mode7_load_map (the seed upload) + M7 equates
-.include "sf_mode7_stream.inc"  ; sf_mode7_stream_init / _set_cam / _tick (S1 substrate)
+.include "sf_mode7_stream.inc"  ; sf_mode7_stream_init / _set_cam / _tick (2-axis streamer)
 .include "sf_input.inc"         ; btn / btnp (+ buttons.inc)
 .include "engine_state.inc"
+.include "tad-audio.inc"        ; TAD driver ca65 API (the vendored audio driver)
+.include "tad_audio_enums.inc"  ; Song:: / SFX:: ids for the shipped song set
+.include "sf_audio.inc"         ; sf_audio_init / sf_audio_tick / sf_music
 .include "explore_world.inc"    ; world dims, spawn, TILE_*/TERR_*, palette
 .include "explore_obj.inc"      ; avatar OBJ CHR + palette + AVATAR_TILE
 
@@ -84,6 +105,7 @@ tgt_tx       = $3E             ; candidate destination tile X (collision lookup)
 tgt_ty       = $40             ; candidate destination tile Y
 col_ptr      = $42             ; 3 bytes: 24-bit pointer into the FLAT tilemap (collision read)
 col_scratch  = $46             ; collision row-base scratch
+av_y         = $48             ; avatar screen Y for this frame (walk-bob target)
 
 ; --- grid + world constants ---
 TILE_PX      = 8               ; one tile = 8 world px (the grid step)
@@ -92,7 +114,7 @@ WORLD_HALF   = 64              ; half the 128-tile VRAM window (camera-clamp mar
 ; camera clamp (TILE units): keep the 128 window inside the authored world so it
 ; never crosses the world's toroidal seam (no wrap-repeat of the same 128 tiles).
 CLAMP_TX_MIN = WORLD_HALF
-CLAMP_TX_MAX = (WORLD_T_TILES - 1 - WORLD_HALF)   ; 256-1-64 = 191
+CLAMP_TX_MAX = (WORLD_T_TILES - 1 - WORLD_HALF)   ; 512-1-64 = 447
 CLAMP_TY_MIN = WORLD_HALF
 CLAMP_TY_MAX = (WORLD_T_TILES - 1 - WORLD_HALF)
 CAM_PX0      = WORLD_SPAWN_TX * 8
@@ -141,9 +163,15 @@ NMI:
 NMI_STUB:
     rti
 
+; =============================================================================
+; INIT — one-time boot: audio, seed, palette, avatar, Mode 7, streaming, screen.
+; =============================================================================
 RESET:
     sf_coldstart                ; forced blank; WRAM/CGRAM/VRAM cleared
     sf_engine_init
+    sf_audio_init               ; boot the S-SMP + TAD driver ONCE, at power-on
+                                ;   (the S-SMP must still be in its IPL state; this
+                                ;   rail never soft-restarts, so never call it twice)
 
     ; --- STABLE OAM ordering: the avatar lives at slot 0 (tests read it by
     ;     identity), so disable Y-sort (mode 2 = stable, call order). ---
@@ -161,11 +189,11 @@ RESET:
     ; --- upload the world palette to CGRAM (index i = PAL_RGB[i]) ------------
     sep #$20
     .a8
-    stz $2121                   ; CGADD = 0
+    stz $2121                   ; CGADD (CGRAM address): start at color 0
     ldx #0
 @pal_loop:
     lda f:world_palette, x
-    sta $2122
+    sta $2122                   ; CGDATA (CGRAM data): write a byte; index auto-advances
     inx
     cpx #(WORLD_PAL_COUNT * 2)
     bne @pal_loop
@@ -214,10 +242,10 @@ RESET:
     stz REG_M7Y
     ; main screen: BG1 (Mode 7 layer) + OBJ.  The stock NMI commits TM from
     ; SHADOW_TM each frame, so set the SHADOW (not just the live reg).
-    lda #$11                    ; TM = BG1 + OBJ
+    lda #$11                    ; TM (main screen layers): BG1 (Mode 7) + OBJ
     sta $212C
     sta SHADOW_TM
-    stz $212D                   ; TS = 0
+    stz $212D                   ; TS (subscreen layers): none — this rail uses no subscreen
     rep #$30
     .a16
     .i16
@@ -237,12 +265,14 @@ RESET:
 
     sf_debug_magic
 
-    ; --- screen on + NMI on -------------------------------------------------
+    ; --- screen on + NMI on. Start at brightness 0 (display ON, not blank) so the
+    ;     overworld DAWNS IN from black over the first ~30 frames (boot_fade, in
+    ;     the loop) instead of snapping straight into gameplay — the attract/title
+    ;     moment. The music (started below) rises with it. --------------------------
     sep #$20
     .a8
-    lda #$0F
-    sta $2100                   ; INIDISP: bright 15, display on
-    sta SHADOW_INIDISP
+    stz $2100                   ; INIDISP: display on, brightness 0 (dawn-in from black)
+    stz SHADOW_INIDISP          ; boot_fade ramps this shadow 0->15; the NMI commits it
     lda #$81
     sta $4200                   ; NMI + auto-joypad
     rep #$30
@@ -253,13 +283,19 @@ RESET:
     jsr apply_camera
     jsr draw_avatar
 
+    ; --- start the overworld music (asynchronous: the song streams in over the
+    ;     sf_audio_ticks pumped by the frame loop below) ------------------------
+    sf_music #Song::ode_to_joy
+
 ; =============================================================================
-; The frame spine.
+; MAIN LOOP — the once-per-frame heartbeat.
 ; =============================================================================
 game_loop:
     .a16
     .i16
     sf_frame_begin              ; wait for NMI; latch input
+    sf_audio_tick               ; pump TAD every frame (streams the song load + SFX queue)
+    jsr boot_fade               ; boot dawn-in brightness ramp (no-op once full)
     jsr explore_tick
     sf_frame_end
     jmp game_loop
@@ -287,7 +323,7 @@ explore_tick:
     .i16
     ; --- (1) a slide is in progress: advance it, ignore new input ---
     lda step_active
-    beq et_idle
+    beq @idle
     lda cam_px
     clc
     adc step_dx
@@ -299,46 +335,54 @@ explore_tick:
     lda step_remain
     dec a
     sta step_remain
-    bne et_apply
+    bne @apply
     stz step_active             ; slide complete — camera grid-aligned again
-    bra et_apply
-et_idle:
+    bra @apply
+@idle:
     .a16
-    ; --- (2) held D-pad -> try ONE grid step (first matching dir) ---
+    ; --- (2) held D-pad -> try ONE grid step, in priority order (L, R, U, D).
+    ;     After each try, if a slide STARTED (step_active set) we're done; if the
+    ;     chosen direction was BLOCKED, FALL THROUGH to the next held axis. This
+    ;     lets a held DIAGONAL keep moving along an open axis when its higher-
+    ;     priority axis is against a wall — without the fall-through, a blocked
+    ;     priority axis would eat the whole diagonal and freeze the avatar. ---
     lda JOY1_CURRENT
     bit #JOY_LEFT
-    beq et_chk_right
+    beq @chk_right
     ldx #$FFFF                  ; dx = -1 tile
     ldy #$0000
     jsr try_start_step
-    bra et_apply
-et_chk_right:
+    lda step_active
+    bne @apply                ; LEFT started a slide -> done (else try next axis)
+@chk_right:
     .a16
     lda JOY1_CURRENT
     bit #JOY_RIGHT
-    beq et_chk_up
+    beq @chk_up
     ldx #$0001
     ldy #$0000
     jsr try_start_step
-    bra et_apply
-et_chk_up:
+    lda step_active
+    bne @apply                ; RIGHT started -> done
+@chk_up:
     .a16
     lda JOY1_CURRENT
     bit #JOY_UP
-    beq et_chk_down
+    beq @chk_down
     ldx #$0000
     ldy #$FFFF
     jsr try_start_step
-    bra et_apply
-et_chk_down:
+    lda step_active
+    bne @apply                ; UP started -> done
+@chk_down:
     .a16
     lda JOY1_CURRENT
     bit #JOY_DOWN
-    beq et_apply
+    beq @apply
     ldx #$0000
     ldy #$0001
     jsr try_start_step
-et_apply:
+@apply:
     .a16
     .i16
     ; --- (3) apply camera, stream the leading edge, draw the avatar ---
@@ -381,16 +425,30 @@ apply_camera:
     rts
 
 ; =============================================================================
-; draw_avatar — draw the explorer avatar (OAM slot 0, 16x16, OBJ palette 0)
-; fixed at screen centre; the world scrolls under it (camera-follows-player).
+; draw_avatar — draw the explorer avatar (OAM slot 0, 16x16, OBJ palette 0) at
+; screen centre; the world scrolls under it (camera-follows-player). A subtle
+; WALK BOB hops the sprite 1px on a 2-frame cadence WHILE a slide is in progress,
+; so it looks like it's stepping; it rests flat at AV_Y0 when idle (the tests read
+; OAM slot 0 at rest, so the idle Y stays exactly AV_Y0).
 ; Entry/Exit: A16/I16. Clobbers A, X, Y.
-; WIDTH-RISK: A16/I16 entry; spr/spr_clear run their own widths, return A16/I16.
+; WIDTH-RISK: A16/I16 entry; the bob branch stays A16/I16; spr/spr_clear run their
+; own widths and return A16/I16.
 ; =============================================================================
 draw_avatar:
     .a16
     .i16
     spr_clear
-    spr #AVATAR_TILE, #AV_X0, #AV_Y0, #$0080, #2   ; OBJ palette 0, priority 2, 16x16
+    ldx #AV_Y0                  ; default screen Y (flat — idle stands still)
+    lda step_active
+    beq @have_y                 ; not sliding -> no bob
+    lda FRAME_COUNTER
+    and #$0002                  ; bit 1 toggles every 2 frames (the bob cadence)
+    beq @have_y                 ; down-phase -> flat
+    ldx #(AV_Y0 - 1)            ; up-phase -> hop the avatar 1px while it walks
+@have_y:
+    .a16                        ; branch target: A16/I16, X holds the screen Y
+    stx av_y
+    spr #AVATAR_TILE, #AV_X0, av_y, #$0080, #2   ; OBJ palette 0, priority 2, 16x16
     rts
 
 ; =============================================================================
@@ -435,21 +493,21 @@ try_start_step:
     ;     so the 128 window never crosses the toroidal seam. -------------------
     lda tgt_tx
     cmp #CLAMP_TX_MIN
-    bcc tss_blocked             ; tx < MIN -> reject
+    bcc @blocked             ; tx < MIN -> reject
     cmp #(CLAMP_TX_MAX + 1)
-    bcs tss_blocked             ; tx > MAX -> reject
+    bcs @blocked             ; tx > MAX -> reject
     lda tgt_ty
     cmp #CLAMP_TY_MIN
-    bcc tss_blocked
+    bcc @blocked
     cmp #(CLAMP_TY_MAX + 1)
-    bcs tss_blocked
+    bcs @blocked
     ; --- world-space collision lookup: terrain = collision[ty*256 + tx] -------
     jsr terr_at_world           ; A8 terrain id on return? -> A16 zero-extended
     cmp #TERR_BLOCKED_MIN
-    bcc tss_walkable            ; id < MIN -> walkable
+    bcc @walkable            ; id < MIN -> walkable
     cmp #(TERR_BLOCKED_MAX + 1)
-    bcs tss_walkable            ; id > MAX -> walkable
-tss_blocked:
+    bcs @walkable            ; id > MAX -> walkable
+@blocked:
     .a16
     ; blocked terrain or world edge: clear staged deltas, bump the blocked count
     stz step_dx
@@ -460,7 +518,7 @@ tss_blocked:
     inc a
     sta f:$7E0000 + DBG_BLOCK_CT, x
     rts
-tss_walkable:
+@walkable:
     .a16
     ; arm the slide: step_dx/step_dy already hold the per-frame px deltas
     lda #STEP_FRAMES
@@ -471,10 +529,10 @@ tss_walkable:
 
 ; =============================================================================
 ; terr_at_world — return the WORLD-SPACE terrain CLASS of tile (tgt_tx, tgt_ty)
-; in A (zero-extended to A16).  F1 remediation: collision now reads the SAME FLAT
-; ROM tilemap byte the streaming engine reads (a tile id), then LUTs it through
-; the 256-entry tile_terrain_lut to a terrain class.  NO separate collision table
-; (a 512x512 byte collision table would push the ROM past 512 KB).
+; in A (zero-extended to A16).  Collision reads the SAME FLAT ROM tilemap byte the
+; streaming engine reads (a tile id), then LUTs it through the 256-entry
+; tile_terrain_lut to a terrain class.  NO separate collision table (a 512x512
+; byte collision table would push the ROM past 512 KB).
 ;
 ; The flat tilemap is 8 banks (BANK2..BANK9), 64 rows/bank, 512 bytes/row:
 ;   bank   = WORLD_FLAT_BANK_BASE + (ty >> 6)
@@ -570,9 +628,45 @@ mirror_debug:
     rts
 
 ; =============================================================================
-; Engine includes — the documented sf_mode7.inc link-partner order, plus the
-; streaming routine. (mode7 perspective machinery is linked but unused; we drive
-; a static affine directly above.)
+; boot_fade — dawn the overworld in from black at power-on: ramp INIDISP
+; brightness 0 -> 15 over the first ~30 frames (FRAME_COUNTER / 2, clamped), so
+; the boot is a gentle attract fade rather than a hard snap into gameplay. The
+; NMI commits SHADOW_INIDISP to $2100 each frame, so writing the shadow is all
+; this needs. A no-op once full brightness is reached (the common case).
+; Entry/Exit: A16/I16. Clobbers A.
+; WIDTH-RISK: A16/I16 entry; toggles A8 for the 1-byte INIDISP shadow (an 8-bit
+; PPU-shadow field), restores A16 before rts.
+; =============================================================================
+boot_fade:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda SHADOW_INIDISP
+    cmp #$0F
+    beq @done                   ; already full brightness -> nothing to do
+    lda FRAME_COUNTER           ; low byte (the fade finishes long before it wraps)
+    lsr a                       ; brightness = frame / 2 (full at ~frame 30)
+    cmp #$0F
+    bcc @store
+    lda #$0F                    ; clamp to full brightness
+@store:
+    .a8                         ; branch target: still 8-bit for the shadow store
+    sta SHADOW_INIDISP          ; NMI commits this to INIDISP ($2100) in VBlank
+@done:
+    .a8                         ; branch target: 8-bit; restore A16 for the caller
+    rep #$30
+    .a16
+    .i16
+    rts
+
+; =============================================================================
+; Engine includes — the subroutine bodies the boot + loop above call into. The
+; Mode 7 streamer needs its partners present: input (reads the pad), sprite (the
+; avatar OAM), the DMA scheduler + BG engine (the streamer queues its VRAM writes
+; and scroll commits through them), then the Mode 7 math/HDMA/engine whose sine +
+; Z-reciprocal LUTs the linker resolves. We drive a plain static affine above, so
+; the Mode 7 PERSPECTIVE machinery is linked but never called.
 ; =============================================================================
 .include "input_handler.asm"
 .include "sprite_engine.asm"
@@ -591,10 +685,13 @@ mode7_sin_lut:
 .include "mode7_hdma.asm"
 .include "mode7_engine.asm"
 .include "mode7_stream.asm"      ; the reusable streaming tick/init routines
+.include "tad_bridge.asm"        ; tad_* entry points the sf_audio macros call
+                                 ;   (the TAD driver + song blob link as separate
+                                 ;   objects, pulled in by the *_tad*.cfg build rule)
 
 ; --- BANK1: the 32KB interleaved Mode 7 seed (initial 128x128 window) --------
-; .incbin resolves relative to THIS file's dir (GAP-3), so "assets/<basename>"
-; is copy-safe (copying templates/mode7_explore/ -> templates/<theme>/ only needs
+; .incbin resolves relative to THIS file's dir, so "assets/<basename>" is
+; copy-safe (copying templates/mode7_explore/ -> templates/<theme>/ only needs
 ; the basename changed, never the directory).
 .segment "BANK1"
 explore_seed:

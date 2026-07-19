@@ -41,6 +41,9 @@ running it on the emulator, and reading back its debug magic. If it exits 0,
 the whole pipeline works. (First run builds the Mesen2 core from source,
 ~10 minutes; warm runs finish in seconds.)
 
+**Read [`EXPECTATIONS.md`](EXPECTATIONS.md) before your first bug** — the
+churn that's normal on this platform and the 10-minute path through it.
+
 Build and run one game:
 
 ```bash
@@ -68,6 +71,7 @@ rendered output (`docs/screenshots/` has stills for every rail):
 | ![platformer gameplay](docs/screenshots/gifs/platformer.gif) `platformer` — the flagship: run, jump, coins, enemies | ![seamless 2P fight split](docs/screenshots/gifs/split_v_fight.gif) `split_v_fight` — one camera splits in two and merges back, seamlessly |
 | ![rotating-floor dungeon](docs/screenshots/gifs/m7_dungeon.gif) `m7_dungeon` — tank-control Mode 7, enemies glued to the spinning floor | ![sprite swarm on two rotating cameras](docs/screenshots/gifs/split_h_2p_sprites.gif) `split_h_2p_demo` — a swarm of AI followers projected onto two independently rotating per-scanline cameras (the measured sprite-stress rail) |
 | ![streaming overworld](docs/screenshots/gifs/mode7_explore.gif) `mode7_explore` — walking a world far bigger than VRAM | ![vertical shmup](docs/screenshots/gifs/shmup.gif) `shmup` — pools, autoscroll, converted CC0 art |
+| ![Mode 7 kart racer](docs/screenshots/gifs/racer.gif) `racer` — a perspective-floor kart racer: steer the horizon, a day-night sky, and off-road sensing that bleeds speed to a crawl on the grass | ![whole-plane scaling boss](docs/screenshots/gifs/boss_saucer.gif) `boss_saucer` — a boss duel where the enemy IS the Mode 7 plane: the affine matrix scales the whole saucer as it lunges and fires a locked beam |
 
 ## Working with an AI agent
 
@@ -83,9 +87,11 @@ rail: what it demonstrates, its done-conditions, and the adaptation paths.
 | Where | What |
 |---|---|
 | `JAM.md` | building a **SNES DEV Game Jam** entry with the kit — rule-by-rule compliance (LoROM/512KB/no-SRAM header profile, PAL testing knob, attribution) |
+| `EXPECTATIONS.md` | what using the kit is actually like — the normal churn classes (width flags, write-twice latches), declared gaps, emulator-vs-hardware honesty |
 | `lib/macros/` | the API — the single asm front door (start at `lib/macros/README.md`) |
 | `templates/` | complete starter games, auto-discovered by the Makefile (`make <name>`) |
 | `examples/` | minimal teaching examples (hello_world, buttons, move_sprite) + CC0 art packs |
+| `docs/lessons/` | the intro-to-SNES course — 11 run-and-probe lessons (L00-L10) teaching the platform's capabilities *and* limits, honestly (start at `docs/lessons/README.md`) |
 | `scenarios/` | the genre-rail catalog — what you can build, done-conditions, adaptation paths |
 | `docs/troubleshooting.md` | symptom-indexed fixes — go here FIRST when something misbehaves |
 | `docs/snes_vs_modern_engines.md` | the idiom guardrail — read this if your instincts are Unity/Godot-shaped |

@@ -513,3 +513,47 @@ def test_mx012_three_windows_of_travel_each_axis(tilemap):
         assert north_ty <= CLAMP_MIN + 1, f"did not reach the north clamp edge (got {north_ty})"
     finally:
         r2.stop()
+
+
+# ---------------------------------------------------------------------------
+# MX-013 — DIAGONAL FALL-THROUGH (regression). A held diagonal along a wall must
+# keep moving: the first-match d-pad priority (L>R>U>D) must FALL THROUGH a
+# BLOCKED priority axis to the other held axis instead of freezing (S1 measured
+# down+left frozen 240 frames on terrain where down was open). Walk NORTH up the
+# open spawn-column corridor to the first row whose WEST neighbour is a wall
+# (collision reads this SAME flat tilemap byte via tile_terrain_lut), then hold
+# UP+LEFT: LEFT has priority and is blocked, so the fix must fall through to the
+# open UP axis and advance NORTH — the pre-fix code sat frozen. Reads the camera
+# world position from WRAM (the OUTPUT of the movement logic).
+# ---------------------------------------------------------------------------
+def test_mx013_diagonal_falls_through_blocked_axis(tilemap):
+    r = MesenRunner()
+    try:
+        r.load_rom(ROM, run_seconds=0.5)
+        r.run_frames(8)
+        assert r.read_u16(MemoryType.SnesWorkRam, DBG_CAM_TY) == world.SPAWN_TY
+        cx = world.SPAWN_TX
+        # step NORTH up the corridor to the first row whose WEST neighbour blocks.
+        wall_ty = None
+        for _ in range(40):
+            _step_once(r, up=True)
+            ty = r.read_u16(MemoryType.SnesWorkRam, DBG_CAM_TY)
+            west_blocked = tilemap[(ty % W) * W + ((cx - 1) % W)] in _blocked_terrains()
+            up_open = tilemap[((ty - 1) % W) * W + (cx % W)] not in _blocked_terrains()
+            if west_blocked and up_open and ty < world.SPAWN_TY - 2:
+                wall_ty = ty
+                break
+        assert wall_ty is not None, "no west-wall/up-open spot found north of spawn"
+        # hold UP+LEFT: LEFT (priority) is blocked; the fix falls through to UP.
+        before = r.read_u16(MemoryType.SnesWorkRam, DBG_CAM_TY)
+        r.set_input(0, up=True, left=True)
+        r.run_frames(80)
+        r.set_input(0)
+        r.run_frames(6)
+        after = r.read_u16(MemoryType.SnesWorkRam, DBG_CAM_TY)
+        assert after <= before - 3, \
+            f"diagonal froze at a west wall (ty {before} -> {after}): the blocked " \
+            f"priority axis (LEFT) ate the held UP+LEFT diagonal instead of falling " \
+            f"through to the open UP axis"
+    finally:
+        r.stop()

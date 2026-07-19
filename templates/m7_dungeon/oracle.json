@@ -37,7 +37,7 @@
     },
     {
       "name": "near_start_enemy_renders_red_on_the_floor",
-      "description": "At boot the near-start enemy (E0) is projected onto the rotating floor and DRAWS in its own red palette (make_enemy.py PAL[1]=(200,30,30); rendered ~(206,24,24)). The named 'red' predicate (r>150,g<90,b<90) matches the enemy body but REJECTS the terracotta wall (181,90,57: g not <90) and the cyan hero — so a count of red pixels on the framebuffer is enemy-specific. >=20 enemy-red pixels render (boot measures 56), all in the RIGHT half where E0 projects (east of the spawn-centred hero). This reads RENDERED PIXELS: an invisible / wrong-palette / off-screen enemy yields 0 and FAILS. (The per-enemy projection-vs-OAM oracle + the rendered-floor binding guard live in tests/test_m7_dungeon.py.)",
+      "description": "At boot the near-start enemy (E0) is projected onto the rotating floor and DRAWS as the dungeonSprites DEMON in its own warm enemy palette (Wave-D dressing; enemy_pal body ~(224,104,72), rendered ~(231,107,74) — a WARM/BRIGHT orange-red, NOT a pure red). The 'enemy_red' predicate (r>=205, g<=130, b<=110, r-b>=120 — a byte-exact mirror of tests/test_m7_dungeon _is_enemy_red) matches the bright demon body but REJECTS every brick wall tone (WALL_LT rendered ~189: r<205), the cool blue floor, and the grey knight hero — so a count of enemy_red pixels on the framebuffer is enemy-specific. >=20 enemy-red pixels render (boot measures 66), in the RIGHT half where E0 projects (east of the spawn-centred hero). This reads RENDERED PIXELS: an invisible / wrong-palette / off-screen enemy yields 0 and FAILS — the -DENEMY_MISCOLOR control (demon forced into a cool floor-blue OBJ palette) reads 0 enemy_red and FAILS this scenario, proving it non-vacuous. (The per-enemy projection-vs-OAM oracle + the rendered-floor binding guard live in tests/test_m7_dungeon.py.)",
       "drive": {
         "kind": "settle",
         "frames": 8
@@ -46,7 +46,7 @@
         {
           "kind": "screenshot_blob",
           "region": "full",
-          "color": "red",
+          "color": "enemy_red",
           "count_min": 20
         },
         {

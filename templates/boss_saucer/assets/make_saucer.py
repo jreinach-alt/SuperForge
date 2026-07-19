@@ -23,8 +23,9 @@ CGRAM index 0 is reserved as the dark night-sky backdrop (same discipline as
 the boss template's reserve_arena_backdrop): in Mode 7 index 0 is the
 transparent/backdrop slot, revealed wherever BG1 is off — so we force it to a
 near-black sky color and relocate whatever the converter happened to put there
-to an opaque slot. The off-boss area is then a clean dark sky with a sparse
-scatter of static star pixels for depth.
+to an opaque slot. The off-boss area is then a clean dark sky with a
+two-brightness static star scatter (a sparse bright field + a denser dim field)
+for depth.
 
 Outputs (committed; regenerate only when changing the boss):
     saucer.png         the authored source image (1024x1024)
@@ -56,7 +57,8 @@ BOSS_HALF = 22              # the saucer reads across the middle ~44x44 tiles
 # --- palette (RGB; the converter assigns CGRAM indices in scan order, then
 #     reserve_sky_backdrop() forces index 0 to SKY_DARK) ---
 SKY_DARK = (6, 8, 18)            # night sky / backdrop (-> CGRAM index 0)
-STAR = (150, 158, 190)           # static star pixel (sparse scatter)
+STAR = (150, 158, 190)           # bright static star (the original sparse field)
+STAR_DIM = (56, 62, 84)          # dim star (a denser second field, for depth)
 HULL_DK = (52, 58, 74)           # saucer hull, lower-rim shadow
 HULL_MD = (110, 118, 138)        # saucer hull, midtone body
 HULL_LT = (182, 190, 208)        # saucer hull, lit upper rim (metallic glint)
@@ -144,14 +146,21 @@ def saucer_color(tx: int, ty: int):
     return HULL_MD
 
 
-def _is_star(tx: int, ty: int) -> bool:
-    """Sparse, deterministic static starfield (a hash on tile coords). About
-    1 in 64 sky tiles gets a star; the field is fixed for reproducibility."""
+def star_color(tx: int, ty: int):
+    """Deterministic two-brightness starfield (a hash on tile coords), fixed for
+    reproducibility. The BRIGHT field is byte-for-byte the original 1-in-64
+    scatter (the reveal + lunge lit-pixel tests are calibrated against it); a
+    denser second field of DIM stars is layered on for depth. Returns the star
+    color, or None for open sky."""
     # mix the coords so the field scatters instead of striping along a line
     h = (tx * 374761393 + ty * 668265263) & 0xFFFFFFFF
     h = (h ^ (h >> 13)) * 1274126177 & 0xFFFFFFFF
     h ^= h >> 16
-    return (h & 0x3F) == 0
+    if (h & 0x3F) == 0:          # bright: ~1 in 64 (UNCHANGED from the original)
+        return STAR
+    if (h & 0x1F) == 0x0A:       # dim: ~1 in 32, disjoint from the bright set
+        return STAR_DIM
+    return None
 
 
 def tile_color(tx: int, ty: int):
@@ -161,9 +170,10 @@ def tile_color(tx: int, ty: int):
         c = saucer_color(tx, ty)
         if c is not None:
             return c
-    # open sky: near-black, with a sparse static star scatter for depth
-    if _is_star(tx, ty):
-        return STAR
+    # open sky: near-black, with a two-brightness static star scatter for depth
+    c = star_color(tx, ty)
+    if c is not None:
+        return c
     return SKY_DARK
 
 

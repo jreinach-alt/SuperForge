@@ -46,7 +46,7 @@
 ;
 ; COMPILE-TIME SWITCHES (variant script passes them):
 ;   -DFREEZE=1        both cameras hold position (stills for comparisons and
-;                     the owner render).
+;                     the reference render).
 ;   -DNO_GRAD=1       gradient channel not requested, color math off. The
 ;                     gradient test's flip control, and the equivalence
 ;                     comparison side (gradient rows would differ trivially).
@@ -70,6 +70,23 @@
 ; mask (0 = freed) | E024 gradient mask | E030 loop iterations | E050 IRQ
 ; count | E058 raw wai-wake count.
 ;
+; Controls: none — autonomous. The default build MOVES both cameras at different
+;   speeds (the independent-driver signal); there is no input to read. The
+;   -DFREEZE / -DNO_GRAD / -DHDMA_ORIGIN / -DIRQ_INTERLEAVE builds select controls.
+;
+; File layout (top to bottom):
+;   (interrupts)  NMI (re-arm HDMA + heartbeat) and seam_irq (the seam-scanline
+;                 fire) sit above INIT, per the engine's vector convention.
+;   INIT          RESET: upload the world + CGRAM + band-1 registers + colour math
+;                 under forced blank, bind the matrix HDMA pair, arm the seam IRQ +
+;                 GP-DMA (or the -DHDMA_ORIGIN pair), build + bind the gradient.
+;   MAIN LOOP     game_loop — gated wai, advance the cameras, re-stamp in VBlank.
+;   SUBROUTINES   origin/stage stampers, the gradient-table builder, seam-DMA
+;                 arm/re-arm, allocator helpers, the HDMA channel allocator.
+;   DATA          the shared fixed-angle pose tables + the 32KB checker map.
+;
+; Frame loop: `game_loop` is the once-per-frame heartbeat — start reading there.
+;
 ; Build:  make split_h_irq_grad_demo
 ;         bash templates/split_h_irq_grad_demo/build_split_h_irq_grad_variants.sh
 ; LDCFG: lorom_64k.cfg   (bank 0 = code + pose tables; BANK1 = 32KB map)
@@ -91,6 +108,9 @@ NO_GRAD = 1                     ; the control has no freed channel to spend
 .ifndef HDMA_ORIGIN
 SF_IRQ_VECTOR = seam_irq        ; engine opt-in IRQ vector (precedes header.inc)
 .endif
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "SEAM IRQ GRADIENT"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic
 .include "sf_irq.inc"           ; SHADOW_NMITIMEN compose + arm macros
@@ -157,7 +177,7 @@ NMI:
     sep #$20
     .a8
     lda NMI_HDMA_ENABLE
-    sta $420C                   ; re-arm all bound channels every VBlank
+    sta $420C                   ; HDMAEN: re-arm all bound channels every VBlank
     rep #$20
     .a16
     lda f:$7E0000 + $E010
@@ -200,7 +220,7 @@ seam_irq:
     bvc @spin
 .ifndef IRQ_INTERLEAVE
     lda #$03
-    sta $420B                   ; FIRE: CH0 (M7X/M7Y) + CH1 (HOFS/VOFS), 8 bytes
+    sta $420B                   ; MDMAEN FIRE: CH0 (M7X/M7Y) + CH1 (HOFS/VOFS), 8 bytes
 .else
     ; TEAR CONTROL: same 8 bytes, but 16-bit stores interleave each pair's
     ; bytes across the two registers (Xlo->$211F, Ylo->$2120, Xhi->$211F,
@@ -230,6 +250,12 @@ seam_irq:
     rti
 .endif
 
+; =============================================================================
+; INIT — one-time setup at RESET: upload the world + CGRAM + band-1's Mode-7
+;        registers + colour math under forced blank, bind the matrix HDMA pair,
+;        arm the seam IRQ + GP-DMA pair (or, under -DHDMA_ORIGIN, the origin HDMA
+;        pair), then build and bind the freed-channel gradient.
+; =============================================================================
 RESET:
     sf_coldstart                ; forced blank; WRAM/CGRAM/VRAM cleared
     jsr hdma_alloc_init         ; reserves CH0/CH1 (general-DMA use = ours)
@@ -251,24 +277,24 @@ RESET:
     rep #$20
     .a16
     lda #.loword(checker_map)
-    sta $4302
+    sta $4302                   ; A1T0L (DMA0 src addr low/mid): checker_map
     sep #$20
     .a8
     lda #^checker_map
-    sta $4304
+    sta $4304                   ; A1B0 (DMA0 src bank)
     rep #$20
     .a16
     lda #$8000
-    sta $4305
+    sta $4305                   ; DAS0 (DMA0 byte count): 16-bit, fills $4305/$4306
     sep #$20
     .a8
     lda #$01
-    sta $420B                   ; fire
+    sta $420B                   ; fire GP-DMA ch0 (MDMAEN)
 
     ; --- CGRAM: backdrop + cool pair + warm pair (forced blank) ---------------
-    stz $2121
+    stz $2121                   ; CGADD (CGRAM address): start at colour 0
     lda #<COLOR_BACKDROP
-    sta $2122
+    sta $2122                   ; CGDATA (CGRAM data): write colour byte; index auto-advances
     lda #>COLOR_BACKDROP
     sta $2122
     lda #<COLOR_COOL_DARK
@@ -498,7 +524,7 @@ RESET:
     sep #$20
     .a8
     lda #$0F
-    sta $2100
+    sta $2100                   ; INIDISP (display control): brightness 15, display on
     rep #$30
     .a16
     .i16
@@ -508,7 +534,9 @@ RESET:
 .endif
 
 ; =============================================================================
-; game_loop — GATED wai (the H1 export), then ALL writes inside VBlank.
+; MAIN LOOP — game_loop: GATED wai (the H1 export), then ALL table/register
+;   writes inside the VBlank window. A wai return that was only the seam IRQ goes
+;   back to sleep (the raw wake counter G_WAKES records ~2 wakes/frame).
 ; =============================================================================
 game_loop:
     .a16
@@ -549,6 +577,13 @@ game_loop:
     jsr rearm_seam_dma          ; A1T/DAS re-arm (general-DMA consumed them)
 .endif
     jmp game_loop
+
+; =============================================================================
+; SUBROUTINES — the origin/stage stampers, the gradient-table builder, the
+;   seam-DMA arm/re-arm pair, the allocator-mask helpers, and the HDMA channel
+;   allocator (.include at the end). Which stampers compile depends on the build
+;   (-DHDMA_ORIGIN vs the IRQ path); each routine's header states its width.
+; =============================================================================
 
 .ifdef HDMA_ORIGIN
 ; =============================================================================
@@ -801,12 +836,15 @@ set_indirect_banks:
     bcc @walk
     rts
 
-; =============================================================================
+; --- engine link: the HDMA channel allocator (routes the matrix/origin/gradient
+;     bindings) ---
 .include "hdma_alloc.asm"
 
-; --- ROM-resident pose tables: the SAME committed fixed-angle pose the 2p rail
-;     streams (read-only cross-template reference; regeneration is covered by
-;     that rail's provenance tests). --------------------------------------------
+; =============================================================================
+; DATA — ROM-resident pose tables (the SAME committed fixed-angle pose the 2p
+;   rail streams) + the 32KB checker map. Both are read-only cross-template
+;   references; their regeneration is covered by split_h_2p_demo's provenance tests.
+; =============================================================================
 .segment "RODATA"
 poses1_ab:    .incbin "templates/split_h_2p_demo/assets/poses1_ab.bin"
 poses1_cd:    .incbin "templates/split_h_2p_demo/assets/poses1_cd.bin"

@@ -46,11 +46,24 @@ CY_INTERP = 1
 CY_ANGLE = 1
 .endif
 
+; Scale/squash/focus default to the split_h_persp_demo camera-A spec; all are
+; -D-overridable so the same instrument can measure OTHER shipped parameter
+; sets (e.g. the racer's 56..224 s0=576 s1=28 sh=16 racing trapezoid).
+.ifndef PV_S0
 PV_S0 = 320
+.endif
+.ifndef PV_S1
 PV_S1 = 96
+.endif
+.ifndef PV_SH
 PV_SH = 512
+.endif
+.ifndef PV_WR
 PV_WR = 1
+.endif
+.ifndef FOCUS
 FOCUS = 168
+.endif
 
 TICKS  = $7E0000 + $E030
 FRAMES = $7E0000 + $E034

@@ -1,15 +1,26 @@
 #!/usr/bin/env python3
-"""make_rpg_assets.py — first-party art for the rpg template (Sprints 0-1).
+"""make_rpg_assets.py — art for the rpg template (overworld + town/battle).
 
-Authors TWO visually-distinct worlds, both ORIGINAL (clean-room):
+Authors TWO visually-distinct worlds:
 
   1. OVERWORLD (Mode 7): a 1024x1024 designed overhead world on the 128x128
-     tile grid — a green meadow cross-hatched by tan paths, with WATER lakes
+     tile grid — a green meadow cross-hatched by dirt paths, with WATER lakes
      and MOUNTAIN ranges (both BLOCKED terrain) and one TOWN-ENTRANCE landmark
      tile (the trigger Sprint 3 will use for the town transition). Converted
      through the kit's Mode 7 pipeline to the native interleaved VRAM blob
      (even bytes = tilemap, odd bytes = 8bpp tile pixels). Loaded by
      `sf_mode7_load_map ovw_map, #$8000`.
+
+     The world LAYOUT + collision are AUTHORED here (ovw_terrain is the single
+     source of truth for both the rendered tile and the collision byte). The
+     terrain TILE ART is dressed with the Four Seasons Platformer Tileset
+     (Rotting Pixels; recorded custom-permissive grant — free + commercial use,
+     modification allowed, credit optional; see examples/itch_cc0/LICENSES.md):
+     grass / dirt-path / water / rock 16x16 source tiles are downsampled 16->8
+     into the 8bpp Mode 7 tile set. Swapping the art does NOT touch the layout
+     or the collision table — only the pixels inside each terrain class change.
+     Landmark tiles (the town-entrance roof/wall + the NPC signpost) stay
+     first-party flat-colour markers so they read instantly apart on the floor.
 
      Sprint 1 also emits a PARALLEL COLLISION TABLE (`ovw_collision.inc`): a
      128x128 = 16384-byte terrain-type array, one byte per tile, keyed
@@ -30,8 +41,10 @@ Authors TWO visually-distinct worlds, both ORIGINAL (clean-room):
      tileset; collision reads the resulting shadow BG1 tilemap (the SSoT). Only
      the TILESET + palettes live here; the room shape is in the ASM template.
 
-Both are flat-color per 8x8 tile so the Mode 7 converter dedups hard (well
-under 256 tiles / 256 colors). ZERO commercial names anywhere.
+The overworld dresses each terrain class with ONE downsampled Four Seasons
+tile per checker variant, so the Mode 7 converter still dedups hard (~11 unique
+tiles / ~50 colors — well under the 256/256 budget). The town/battle tileset is
+first-party flat-index art. No commercial-game names anywhere.
 
 Outputs (committed; regenerate only when changing the art):
     ovw.png            authored Mode 7 source image (1024x1024)
@@ -64,7 +77,15 @@ HERE = Path(__file__).resolve().parent
 # grass that the converter would have placed at index 0 is relocated to a free
 # opaque slot by reserve_sky_backdrop (so the meadow keeps its green on the
 # floor below the horizon). Mirrors the racer's make_track.py sky reservation.
-SKY_HORIZON_LT = (96, 156, 224)  # sky near the horizon (lighter) -> CGRAM 0 base
+#
+# BRIGHTER daytime blue (Wave-D sky pass): the horizon-fog gradient (main.asm
+# FOG_*, unchanged) SUBTRACTS from this backdrop per scanline, so the old cold
+# (96,156,224) rendered a muddy grey sky band. Raising the base to a bright blue
+# lifts the whole sky-split band toward a clean daytime blue. This is done on the
+# BACKDROP (CGRAM 0) rather than by lowering the fog, because the fog's blue
+# subtract also hazes the FLOOR — the terrain-census test needs enough of it to
+# read the rock/water as gray, so the fog stays put and only the sky base moves.
+SKY_HORIZON_LT = (120, 168, 248)  # sky backdrop -> CGRAM 0 base (bright daytime blue)
 SKY_ZENITH_DK = (24, 56, 152)    # sky at the top (deeper blue) -> gradient target
 GRASS_DK = (30, 92, 40)         # meadow base (floor tile colour, relocated)
 GRASS_LT = (52, 130, 58)        # meadow highlight (checker)
@@ -212,15 +233,120 @@ def ovw_color(tx: int, ty: int):
     return GRASS_LT if ((tx >> 1) ^ (ty >> 1)) & 1 else GRASS_DK
 
 
+# =============================================================================
+# Four Seasons terrain art — the overworld floor tiles are dressed with the
+# Rotting Pixels "Four Seasons" platformer tileset (recorded custom-permissive
+# grant; examples/itch_cc0/LICENSES.md). Each terrain class picks ONE 16x16
+# source tile per checker variant, downsampled 16->8 into the Mode 7 8bpp tile
+# set. The map LAYOUT is untouched: which class sits where is decided by
+# ovw_terrain (the collision SSoT), so swapping the art never moves a
+# walkable/blocked boundary — only the pixels inside each terrain class change.
+# =============================================================================
+FS_ZIP = ("examples/itch_cc0/"
+          "Four Seasons Platformer Tileset [16x16][FREE] - RottingPixels.zip")
+FS_PNG = "four-seasons-tileset.png"
+
+# terrain-variant -> (Four Seasons source tile col,row), brightness factor. The
+# two checker variants per class are the Mode 7 motion cue (a lit/shaded pair,
+# matching the original meadow checker); brightness derives the lit twin from one
+# source tile where the pack ships no natural light/dark pair. Picks chosen so
+# each class reads as its collision meaning at Mode 7 scale AND passes the tests'
+# colour-class gates: grass green-dominant, path warm-brown (not gray-census),
+# water blue-dominant + dark (b<180 -> "darkwater", not sky), rock neutral gray.
+FS_SRC = {
+    "grass_dk": ((0, 4), 1.00),    # solid green foliage
+    "grass_lt": ((0, 4), 1.34),    #   lit twin (checker)
+    "path_tan": ((0, 1), 1.06),    # brown dirt/brick — the walkable path
+    "path_dk":  ((0, 2), 0.92),    #   shaded dirt
+    "water_lt": ((0, 14), 1.00),   # deep-blue liquid fill (BLOCKED)
+    "water_dk": ((0, 15), 1.00),   #   darker water
+    "mtn_dk":   ((8, 0), 0.94),    # grey stone (BLOCKED)
+    "mtn_lt":   ((8, 0), 1.26),    #   lit rock (checker)
+}
+
+
+def _fs_tileset():
+    """Load the Four Seasons tileset PNG from the committed CC0 art zip (resolved
+    from the kit root = HERE.parents[2]). Returns an RGBA PIL image."""
+    import io
+    import zipfile
+    zip_path = HERE.parents[2] / FS_ZIP
+    with zipfile.ZipFile(zip_path) as zf:
+        name = next(n for n in zf.namelist() if n.endswith(FS_PNG))
+        return Image.open(io.BytesIO(zf.read(name))).convert("RGBA")
+
+
+def _down8(tile16, bright):
+    """16x16 RGBA source tile -> 8x8 RGB Mode 7 tile: 2x2 box-average over the
+    OPAQUE pixels only (tileset transparency never bleeds a stray colour), scaled
+    by `bright`, then quantized to <=8 colours (MAXCOVERAGE, no dither) for a
+    crisp, dedup-friendly tile. Deterministic: same source -> same bytes."""
+    src = tile16.load()
+    out = Image.new("RGB", (8, 8))
+    dst = out.load()
+    for by in range(8):
+        for bx in range(8):
+            rs = gs = bs = n = 0
+            for dy in range(2):
+                for dx in range(2):
+                    r, g, b, a = src[bx * 2 + dx, by * 2 + dy]
+                    if a > 128:
+                        rs += r; gs += g; bs += b; n += 1
+            if n:
+                dst[bx, by] = tuple(min(255, int(v / n * bright))
+                                    for v in (rs, gs, bs))
+            else:
+                dst[bx, by] = (0, 0, 0)
+    return out.quantize(colors=8, method=Image.MAXCOVERAGE,
+                        dither=Image.NONE).convert("RGB")
+
+
+def _build_terrain_textures():
+    """{variant-key: 8x8 RGB tile}: Four Seasons art for the four terrain classes,
+    first-party flat colour for the landmark markers (NPC signpost + town
+    entrance), which the categorical pixel tests read directly."""
+    fs = _fs_tileset()
+    tex = {}
+    for key, ((col, row), bright) in FS_SRC.items():
+        tile = fs.crop((col * 16, row * 16, col * 16 + 16, row * 16 + 16))
+        tex[key] = _down8(tile, bright)
+    for key, rgb in (("npc", NPC_BODY), ("town_rf", TOWN_RF), ("town_wl", TOWN_WL)):
+        tex[key] = Image.new("RGB", (8, 8), rgb)
+    return tex
+
+
+def ovw_tile_key(tx, ty):
+    """Which terrain-texture variant tile (tx,ty) uses. Mirrors ovw_color's
+    variant selection EXACTLY (checker / path-edge / xor), keyed off the
+    UNTOUCHED ovw_terrain so the tilemap structure — and every collision
+    boundary — is preserved. PARITY CONTRACT: keep this table in lock-step with
+    ovw_color; a drift only changes VISUALS (collision reads ovw_terrain, never
+    this), but the checker/motion cue depends on the match."""
+    terr = ovw_terrain(tx, ty)
+    if terr == TERR_NPC:
+        return "npc"
+    if terr == TERR_TOWN:
+        return "town_rf" if (ty - TOWN_TY) == 0 else "town_wl"
+    if terr == TERR_MOUNTAIN:
+        return "mtn_lt" if (tx ^ ty) & 1 else "mtn_dk"
+    if terr == TERR_WATER:
+        return "water_lt" if (tx ^ ty) & 1 else "water_dk"
+    if terr == TERR_PATH:
+        edge = (tx % 24) in (11,) or (ty % 20) in (9,)
+        return "path_tan" if edge else "path_dk"
+    return "grass_lt" if ((tx >> 1) ^ (ty >> 1)) & 1 else "grass_dk"
+
+
 def build_ovw_png(path: Path) -> None:
+    """Assemble the 1024x1024 Mode 7 source image by blitting the per-terrain
+    Four Seasons 8x8 tile for every map cell (its class + checker variant come
+    from ovw_tile_key -> ovw_terrain). ART only — the layout + collision live in
+    ovw_terrain, so this never changes a walkable/blocked boundary."""
+    tex = _build_terrain_textures()
     img = Image.new("RGB", (1024, 1024))
-    px = img.load()
     for ty in range(128):
         for tx in range(128):
-            c = ovw_color(tx, ty)
-            for py in range(8):
-                for pxi in range(8):
-                    px[tx * 8 + pxi, ty * 8 + py] = c
+            img.paste(tex[ovw_tile_key(tx, ty)], (tx * 8, ty * 8))
     img.save(path)
     print(f"wrote {path}")
 
@@ -272,7 +398,16 @@ def emit_ovw():
         "; =============================================================================",
         "; ovw_palette.inc — overworld (Mode 7) CGRAM data (GENERATED — do not edit)",
         "; =============================================================================",
-        "; Regenerate: PYTHONPATH=. python3 templates/rpg/assets/make_rpg_assets.py",
+        "; SOURCE ART: Four Seasons Platformer Tileset [16x16] — Rotting Pixels.",
+        ";   pack:  examples/itch_cc0/Four Seasons Platformer Tileset "
+        "[16x16][FREE] - RottingPixels.zip",
+        ";   grant: custom permissive (itch.io page, quoted 2026-07-18) — free +",
+        ";          commercial use, modification allowed, credit optional. NOT CC0;",
+        ";          see examples/itch_cc0/LICENSES.md.",
+        ";   The grass/dirt-path/water/rock terrain tiles are that pack's 16x16 art",
+        ";   downsampled 16->8 into this 8bpp Mode 7 tile set. The LAYOUT + collision",
+        ";   are first-party (ovw_terrain is the SSoT) — the art swap moves nothing.",
+        "; cmd: PYTHONPATH=. python3 templates/rpg/assets/make_rpg_assets.py",
         "; (companion blob: ovw_map.bin, the interleaved Mode 7 VRAM image)",
         "; CGRAM index 0 = SKY backdrop (revealed above the horizon by the",
         "; per-scanline sky-split where BG1 is off; floor grass is relocated).",

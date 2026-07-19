@@ -30,9 +30,9 @@
           "x": 128,
           "y": 24,
           "rgb": [
-            99,
-            115,
-            123
+            123,
+            132,
+            148
           ],
           "tolerance": 40
         },
@@ -41,9 +41,9 @@
           "x": 40,
           "y": 24,
           "rgb": [
-            99,
-            115,
-            123
+            123,
+            132,
+            148
           ],
           "tolerance": 40
         },
@@ -52,9 +52,9 @@
           "x": 128,
           "y": 160,
           "rgb": [
-            37,
-            111,
-            49
+            41,
+            123,
+            16
           ],
           "tolerance": 50
         },
@@ -83,9 +83,9 @@
           "x": 128,
           "y": 24,
           "rgb": [
-            99,
-            115,
-            123
+            123,
+            132,
+            148
           ],
           "tolerance": 40
         },
@@ -94,9 +94,9 @@
           "x": 128,
           "y": 160,
           "rgb": [
-            37,
-            111,
-            49
+            41,
+            123,
+            16
           ],
           "tolerance": 50
         }
@@ -238,7 +238,7 @@
     },
     {
       "name": "overworld_npc_no_floating_prompt",
-      "description": "REMEDIATION INVARIANT (overworld NPC, preserved): from a fresh boot, at spawn the player is NOT adjacent to any NPC; one step RIGHT lands on (65,64) adjacent to NPC0 (65,65). There is NO floating '!' prompt either far OR adjacent (period-accuracy), so OAM slot 1 stays CULLED (Y=$F0=240) throughout. The avatar (slot 0, tile 5) is centred. Reads OAM low-table bytes directly. fresh_sram so the boot is the overworld.",
+      "description": "REMEDIATION INVARIANT (overworld NPC, preserved): from a fresh boot, at spawn the player is NOT adjacent to any NPC; one step RIGHT lands on (65,64) adjacent to NPC0 (65,65). There is NO floating '!' prompt either far OR adjacent (period-accuracy), so OAM slot 1 stays CULLED (Y=$F0=240) throughout. The avatar (slot 0, tile 5) is centred. Reads OAM low-table bytes directly. The final screenshot_pixel is the RENDERED-OUTPUT guard the OAM asserts miss: the top-right of the avatar's on-screen footprint must be the tan Mode 7 path floor, NOT the bright-yellow '!' glyph that leaks there when OBSEL renders the 16x16 avatar as 32x32 (it pulls CHR tile 8, the '!', into the sprite's corner). It FAILS on the pre-OBSEL-fix ROM and passes once the avatar renders 16x16. fresh_sram so the boot is the overworld.",
       "drive": {
         "kind": "script",
         "fresh_sram": true,
@@ -271,12 +271,23 @@
           "kind": "oam_entry",
           "slot": 1,
           "y": 240
+        },
+        {
+          "kind": "screenshot_pixel",
+          "x": 148,
+          "y": 105,
+          "rgb": [
+            107,
+            90,
+            57
+          ],
+          "tolerance": 30
         }
       ]
     },
     {
       "name": "overworld_npc_sprite_text_on_A",
-      "description": "Continuing while adjacent to the NPC: pressing A (INTERACT, not a scene change) toggles the 'HELLO' sprite-text strip ON at OAM slots 1-5 (the avatar owns slot 0). slot 1='H' (tile 9) at (96,72), slot 2='E' (tile 10), slot 5='O' (tile 12) at (128,72). Reads the glyph OAM entries directly. The state mirror stays overworld (A near an NPC interacts, never transitions). State cycle: adjacent -> talking.",
+      "description": "Continuing while adjacent to the NPC: pressing A (INTERACT, not a scene change) toggles the 'HELLO' sprite-text strip ON at OAM slots 1-5 (the avatar owns slot 0). slot 1='H' (tile 9) at (96,72), slot 2='E' (tile 10), slot 5='O' (tile 12) at (128,72). Reads the glyph OAM entries directly. The final screenshot_pixel is the RENDERED-OUTPUT guard the OAM asserts miss: those tiles stay correct even when OBSEL renders the 8x8 glyphs as 16x16 and neighbouring CHR composites into the strip. The 4th cell (the 2nd 'L') has a transparent top-right in a clean 8x8 'L', so the green grass floor must show through there — NOT the cream glyph fill an overlaid 'O' paints when the glyph is 16x16. It FAILS on the pre-OBSEL-fix ROM (cream) and passes once the glyphs render 8x8. The state mirror stays overworld (A near an NPC interacts, never transitions). State cycle: adjacent -> talking.",
       "continue_from_previous": true,
       "drive": {
         "kind": "script",
@@ -318,6 +329,17 @@
           "tile": 12,
           "x": 128,
           "y": 72
+        },
+        {
+          "kind": "screenshot_pixel",
+          "x": 125,
+          "y": 75,
+          "rgb": [
+            33,
+            132,
+            0
+          ],
+          "tolerance": 30
         }
       ]
     },

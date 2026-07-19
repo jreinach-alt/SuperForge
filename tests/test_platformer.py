@@ -138,10 +138,130 @@ def test_pits_to_game_over_freeze_and_recover(runner):
 def test_ghost_contact_costs_a_life(runner):
     runner.load_rom(_rom(), run_seconds=1.0)
     _start(runner)
-    # stand still: ghost1's ground beat sweeps through the spawn area
+    # ghost1 now turns back at GHOST1_MIN_X=64 (fair start): standing AT spawn is
+    # safe. Walk into its ground lane during the spawn-grace i-frames, then stand
+    # and let the beat make side contact — a life lost and a respawn at spawn.
+    bot.walk_to(runner, 90)
+    runner.set_input(0)
     deadline = time.time() + 45
     while bot.st(runner)["lv"] == 3 and time.time() < deadline:
-        runner.run_frames(10)
+        runner.run_frames(6)
     s = bot.st(runner)
     assert s["lv"] == 2, f"ghost contact never registered: {s}"
-    assert s["px"] == 24, "hurt did not respawn the player"
+    # the hit respawns the player at spawn (x=24) within a couple frames
+    for _ in range(6):
+        if bot.st(runner)["px"] == 24:
+            break
+        runner.run_frames(2)
+    assert bot.st(runner)["px"] == 24, \
+        f"hurt did not respawn the player: {bot.st(runner)}"
+
+
+# BG1 level tilemap: two 32x32 hardware pages (word $5800 / $5C00; VRAM is
+# word-addressed so the byte address is the word address doubled). 2KB/page.
+VR = MemoryType.SnesVideoRam
+CAMX = 0x52
+BG1_P0, BG1_P1, PAGE = 0x5800 * 2, 0x5C00 * 2, 0x800
+
+
+def test_menu_bg_clears_stale_level_after_play_cycle(runner):
+    """Regression (S1 P0): a menu (title / GAME OVER) must not render over the
+    PREVIOUS run's BG1 level with a frozen camera. Capture the clean first-boot
+    BG1 tilemap, run a full play -> pit death -> GAME OVER -> title cycle, and
+    assert the menu's BG1 is byte-identical to clean boot and the camera
+    returned to the world origin. Reads BG1 tilemap VRAM directly (both pages),
+    never a proxy; asserts the level DID fill BG1 mid-run so the compare is not
+    vacuous."""
+    runner.load_rom(_rom(), run_seconds=1.5)
+    assert bot.st(runner)["sc"] == 0
+    clean_p0 = runner.read_bytes(VR, BG1_P0, PAGE)
+    clean_p1 = runner.read_bytes(VR, BG1_P1, PAGE)
+    assert set(clean_p0) == {0} and set(clean_p1) == {0}, \
+        "clean-boot BG1 not empty — baseline assumption broken"
+
+    # play: the level fills BG1 and the camera advances off the origin
+    _start(runner)
+    assert bot.st(runner)["sc"] == 1
+    runner.set_input(0, right=True)
+    runner.run_frames(120)
+    runner.set_input(0)
+    assert any(b != 0 for b in runner.read_bytes(VR, BG1_P0, PAGE)), \
+        "level never rendered to BG1 — the regression compare would be vacuous"
+
+    # die into pit 1 until GAME OVER
+    runner.set_input(0, right=True)
+    deadline = time.time() + 90
+    while bot.st(runner)["sc"] == 1 and time.time() < deadline:
+        runner.run_frames(10)
+    runner.set_input(0)
+    assert bot.st(runner)["sc"] == 2, "pits never reached game over"
+    runner.run_frames(50)
+    assert runner.read_bytes(VR, BG1_P0, PAGE) == clean_p0, \
+        "GAME OVER rendered over the stale level (BG1 page 0 not cleared)"
+    assert runner.read_u16(WR, CAMX) == 0, "camera not reset on GAME OVER"
+
+    # START -> title: also clean, both pages, camera at origin
+    _start(runner)
+    assert bot.st(runner)["sc"] == 0
+    assert runner.read_bytes(VR, BG1_P0, PAGE) == clean_p0, \
+        "title rendered over the stale level (BG1 page 0)"
+    assert runner.read_bytes(VR, BG1_P1, PAGE) == clean_p1, \
+        "title rendered over the stale level (BG1 page 1)"
+    assert runner.read_u16(WR, CAMX) == 0, "camera not reset on title"
+
+
+E1X = 0x42
+
+
+def test_start_pauses_gameplay(runner):
+    """Regression (S1 P1): START during gameplay must FREEZE the game (the
+    review filmed a "paused" player losing a life). Pause, hold for ~3s, and
+    assert the player, the patrolling ghost, and the life count are all frozen,
+    the PAUSED banner renders, and a second START resumes motion."""
+    runner.load_rom(_rom(), run_seconds=1.0)
+    _start(runner)
+    assert bot.st(runner)["sc"] == 1
+    # walk into ghost1's lane so a NON-paused game would move the ghost into a
+    # hit; the freeze must prevent it
+    bot.walk_to(runner, 90)
+    runner.set_input(0, start=True)
+    runner.run_frames(4)
+    runner.set_input(0)
+    runner.run_frames(2)
+    px0, lv0 = runner.read_u16(WR, PX := 0x32), bot.st(runner)["lv"]
+    e1_0 = runner.read_u16(WR, E1X)
+    img = _shot(runner)
+    assert _white_text_in(img, 104, 108, 152, 124), "PAUSED banner not rendered"
+
+    runner.run_frames(200)                       # ~3.3s frozen
+    assert runner.read_u16(WR, PX) == px0, "player moved while paused"
+    assert bot.st(runner)["lv"] == lv0, "lost a life while paused"
+    assert runner.read_u16(WR, E1X) == e1_0, "ghost kept patrolling while paused"
+
+    # unpause: motion resumes
+    runner.set_input(0, start=True)
+    runner.run_frames(4)
+    runner.set_input(0)
+    runner.run_frames(30)
+    assert runner.read_u16(WR, E1X) != e1_0, "ghost did not resume after unpause"
+
+
+def test_b_button_also_jumps(runner):
+    """B is an accepted jump alias (a documented control) — a B press lifts the
+    grounded player above spawn, same as A."""
+    PIXY = 0x5C
+    runner.load_rom(_rom(), run_seconds=1.0)
+    _start(runner)
+    for _ in range(30):                          # settle grounded at spawn
+        if bot.st(runner)["g"] == 1:
+            break
+        runner.run_frames(2)
+    y0 = runner.read_u16(WR, PIXY)
+    runner.set_input(0, b=True)
+    runner.run_frames(10)
+    runner.set_input(0)
+    apex = y0
+    for _ in range(6):
+        apex = min(apex, runner.read_u16(WR, PIXY))
+        runner.run_frames(1)
+    assert apex < y0, f"B did not make the player jump (apex {apex} >= spawn {y0})"

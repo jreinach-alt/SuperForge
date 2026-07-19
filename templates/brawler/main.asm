@@ -1,7 +1,7 @@
 ; =============================================================================
 ; brawler — side-view beat-em-up rail (camelot CC0 art end-to-end)
 ; =============================================================================
-; The genre rail for brawlers/fighters, and the S2 look-and-feel payoff:
+; The genre rail for brawlers/fighters, and the kit's look-and-feel showcase:
 ; ANIMATED multi-frame 32x32 characters with H-flip facing, straight from
 ; `tools/png2snes.py sprite --anims` (commands in assets/*.inc headers):
 ;   - player = Arthur Pendragon (idle 4 / run 8 / hit 4)
@@ -10,8 +10,18 @@
 ; Composes: sf_anim (clocks + tables), the facing H-flip idiom, col_box
 ; (timed attack hitbox + contact), sf_text HUD (HP / FOE / WINS).
 ;
+; Controls:
+;   D-pad   move Arthur (4-way, within the lane band)     A   sword swing
+;
+; File layout (top to bottom; the major === section banners):
+;   INIT       — RESET: CHR/palette uploads, OBSEL, build the floor, HUD, boot
+;   MAIN LOOP  — game_loop: player + enemy + combat + HUD update, each frame
+;   DRAW       — draw_phase: compose OAM (Arthur slot 0, Mordred slot 1)
+;   DATA       — HUD strings, converted-art includes, engine includes
+; game_loop is the frame heartbeat; start reading there.
+;
 ; LANE MOVEMENT: 4-way movement, but the floor reads as a SURFACE SEEN FROM
-; THE SIDE (owner-confirmed look): characters stand ON TOP of it. The clamp
+; THE SIDE (a deliberate look): characters stand ON TOP of it. The clamp
 ; is in CONTENT terms, not OAM-box terms: every camelot frame (both
 ; knights, idle + run — measured) ends its drawn pixels at row 28 of the
 ; 32-row cell, i.e. 4 transparent rows under the feet. So the DRAWN feet
@@ -52,8 +62,7 @@
 ;   - the "hit" row is a DAMAGE-REACTION flash, not an attack swing. This
 ;     rail uses Arthur's as a pseudo-swing for compactness; a real swing
 ;     is the separate WEAPON sheets (excalibur_, staff_) composited as an
-;     overlay sprite — see acceptance run #12's camelot_arena for the
-;     worked pattern.
+;     overlay sprite on top of the character — the general weapon pattern.
 ;
 ; Tuning: WALK_SPEED, ENEMY_SPEED, ATTACK_LEN, PLAYER_HP, FOE_HP, RESPAWN_T
 ; (define before .include, or edit).
@@ -72,6 +81,9 @@
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "IRON KNIGHTS"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic
 .include "sf_video.inc"         ; sf_load_obj_chr/pal
@@ -106,8 +118,8 @@ RESPAWN_T = 90
 .assert WALK_SPEED <= 8, error, "WALK_SPEED > 8 breaks the clamps (min position >= max step)"
 
 ; --- arena (32x32 sprites; screen 256x224) ---
-ARENA_L  = 8
-ARENA_R  = 216
+ARENA_L  = 8                    ; left clamp: Arthur's top-left X min (px)
+ARENA_R  = 216                  ; right clamp: keeps the 32px body on screen (px)
 CONTENT_BOTTOM = 28             ; drawn feet inside the 32x32 cell. png2snes
                                 ;   emits this per conversion — the asserts
                                 ;   below pin it to the committed assets, so
@@ -122,10 +134,10 @@ ARTHUR_BASE  = 0                ; tiles 0-255 (16 frames @ 32x32)
 MORDRED_BASE = 256              ; tiles 256-511 (second name table)
 MORDRED_FLAGS = $03             ; palette 1 (bits 3:1) | name bit (tile>=256)
 
-; --- anim states ---
-ST_IDLE   = 0
-ST_RUN    = 1
-ST_ATTACK = 2
+; --- anim states (ASTATE / the anim table selector) ---
+ST_IDLE   = 0                   ; standing (idle table)
+ST_RUN    = 1                   ; walking (run table)
+ST_ATTACK = 2                   ; mid-swing (hit table)
 
 ; --- DP state ($32-$5F; API block owns $60+) ---
 PX      = $32                   ; player x (top-left of 32x32)
@@ -149,16 +161,19 @@ EMOV    = $52                   ; 1 = enemy moved this frame (anim select)
 ; --- low-frequency state (the $1800-$1DFF game-array region) ---
 HP      = $1800                 ; player hp
 FOE     = $1802                 ; enemy hp
-WINS    = $1804
+WINS    = $1804                 ; enemies defeated (HUD)
 PINV    = $1806                 ; player i-frames
 ESTUN   = $1808                 ; enemy stun frames after a landed hit
 ERESP   = $180A                 ; respawn countdown (0 = enemy active)
 AHIT    = $180C                 ; this swing already landed (latch)
 SDIRTY  = $180E                 ; 1 = HUD needs reprint
-GAMEOVER = $1810
+GAMEOVER = $1810                ; 1 = player KO'd; loop freezes on the draw
 
 .segment "CODE"
 
+; =============================================================================
+; INIT — interrupt vectors + one-time boot (RESET: uploads, OBSEL, floor, HUD)
+; =============================================================================
 NMI:
 .include "nmi_handler.asm"
 
@@ -182,13 +197,17 @@ RESET:
 
     ; OBSEL pair 3: small = 16x16, large = 32x32 (brief forced blank)
     sep #$20
-    .a8
+    .a8                         ; first width switch: 8-bit A. .a8/.a16 tell ca65
+                                ;   the CPU width so it sizes operands right; keep
+                                ;   them matched to sep/rep (see width-tracking)
     lda #$80
-    sta $2100
+    sta $2100                   ; INIDISP: force blank (brightness 0) so OBSEL can
+                                ;   change with the screen safely off
     lda #$60
-    sta $2101
+    sta $2101                   ; OBSEL: OBJ size pair 3 (small 16x16 / large
+                                ;   32x32), OBJ name base 0
     lda #$0F
-    sta $2100
+    sta $2100                   ; INIDISP: end forced blank, full brightness ($0F)
     rep #$30
     .a16
     .i16
@@ -284,11 +303,14 @@ floor_done:
     sep #$20
     .a8
     lda #$81
-    sta $4200
+    sta $4200                   ; NMITIMEN: enable NMI (VBlank IRQ) + auto-joypad
     rep #$30
     .a16
     .i16
 
+; =============================================================================
+; MAIN LOOP — game_loop: one frame — player, enemy, combat, and HUD update,
+;             then fall through to draw_phase. The once-per-frame heartbeat.
 ; =============================================================================
 game_loop:
     sf_frame_begin
@@ -647,6 +669,9 @@ pa_done:
     sf_print_u16 WINS, #208, #8
 
 ; =============================================================================
+; DRAW — draw_phase: compose OAM from state (Arthur slot 0, Mordred slot 1).
+;        Also the frozen game-over target: input is skipped, frames still commit.
+; =============================================================================
 draw_phase:
     .a16
     spr_clear
@@ -722,6 +747,8 @@ drawn:
     sf_frame_end
     jmp game_loop
 
+; =============================================================================
+; DATA — HUD strings, the converted png2snes art, and the engine includes.
 ; =============================================================================
 hp_str:
     .byte "HP", 0

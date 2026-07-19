@@ -13,7 +13,7 @@
 ;               renderer (sf_mode7_perspective / sf_mode7_tick). It AUTO-ROTATES
 ;               (angle drifts every frame) so the top floor visibly spins.
 ;   BOTTOM band (lines SEAM..PV_L1):   camera B — a SECOND perspective camera.
-;               It ZOOM-LOOPS through KPOSES precomputed near-scale (S1) poses,
+;               It ZOOM-LOOPS through KPOSES precomputed near-scale poses,
 ;               spliced over band-2 every frame. A DIFFERENT far-scale + a
 ;               looping near-scale -> a MEASURABLY different, MOVING on-screen
 ;               texel period. SAME map, CHR, CGRAM; both cameras share the
@@ -69,6 +69,22 @@
 ;                           returns. Combined with -DFREEZE -DHOLD_B this is the
 ;                           P3 temporal-stability NEGATIVE control.
 ;
+; Controls: none — autonomous. Camera A auto-rotates and camera B zoom-loops
+;   through its precomputed poses on their own; there is no input to read.
+;   -DFREEZE / -DHOLD_B freeze one or both cameras; the rest are test controls.
+;
+; File layout (top to bottom, matching the major ; === banners below):
+;   INIT         RESET: upload the checker map + CGRAM, precompute camera B's
+;                KPOSES band-2 poses (STEP 1), set camera A as the live renderer
+;                and splice the first pose (STEP 2).
+;   MAIN LOOP    game_loop — auto-rotate camera A + full rebuild, splice the
+;                current camera-B pose over band 2, restamp band-1's centre.
+;   SUBROUTINES  the camera-B pose splice, the per-band centre/scroll setup +
+;                update, the -DSKY_HORIZON sky arm, and the engine module includes.
+;   DATA         the camera-B pose-table pointers + the 32KB checker-map blob.
+;
+; Frame loop: `game_loop` is the once-per-frame heartbeat — start reading there.
+;
 ; Build:  make split_h_persp_demo
 ;         bash templates/split_h_persp_demo/build_split_h_persp_variants.sh
 ; LDCFG: lorom_64k.cfg  (64KB image; the 32KB Mode-7 checker-map fills BANK1.)
@@ -78,6 +94,9 @@
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "SPLIT H PERSP"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic
 .include "sf_frame.inc"         ; sf_engine_init, sf_frame_begin/end
@@ -128,13 +147,12 @@ A_SH       = 512
 ; of one 60fps CPU frame at interp1, ~309k mc = ~87% at interp4 (HDMA off; ~93%
 ; with the rail's CH5|CH6 per-scanline REPEAT HDMA stealing cycles). interp2
 ; (~104%) does not fit; the rail SHIPS interp4 — the SOLVE fits one frame.
-; CADENCE (honest, per the PR #223 independent review, finding M1): the
-; INTEGRATED demo loop = solve + the band-2 matrix splice (~85k mc = ~24% of a
-; frame) + the origin restamp, totalling ~110-120% — and the sf_frame handshake
-; quantizes ANY overrun to a whole extra frame, so the game loop closes every
-; 2nd frame = 30 Hz pose MOTION (interp1 was also 30 Hz by the same
-; quantization, not the ~43fps an earlier draft claimed). The DISPLAY holds
-; 60 fps regardless: HDMA re-streams the committed double buffer every frame.
+; CADENCE (measured): the INTEGRATED demo loop = solve + the band-2 matrix splice
+; (~85k mc = ~24% of a frame) + the origin restamp, totalling ~110-120% — and the
+; sf_frame handshake quantizes ANY overrun to a whole extra frame, so the game
+; loop closes every 2nd frame = 30 Hz pose MOTION (interp1 is 30 Hz by the same
+; quantization). The DISPLAY holds 60 fps regardless: HDMA re-streams the
+; committed double buffer every frame.
 ; In-situ loop-rate gate: test_split_h_persp_demo.py::
 ; test_cadence_true_60fps_in_situ (xfail at HEAD; goes loudly XPASS when the
 ; band-1-only rebuild follow-up lands). Solve-budget gate: test_persp_cycles.py::
@@ -147,7 +165,7 @@ A_POSX     = 512
 A_POSY     = 512
 
 ; --- camera B perspective params (a DISTINCT far-scale + a zoom-looping near-
-;     scale S1). Same map/CHR/CGRAM. ------------------------------------------
+;     scale). Same map/CHR/CGRAM. --------------------------------------------
 B_S0       = 512
 B_SH       = 512
 B_INTERP   = 1
@@ -162,9 +180,10 @@ B_WRAP     = 1
 B_POSX     = 768
 B_POSY     = 512
 
-; camera B zoom loop: KPOSES near-scale (S1) poses. Bigger S1 -> ground recedes
-; more -> tighter on-screen texel period. The loop steps S1 across these values
-; so band-2 visibly "dollies" (its texel period changes) frame group to group.
+; camera B zoom loop: KPOSES near-scale poses. A bigger near-scale -> ground
+; recedes more -> tighter on-screen texel period. The loop steps the near-scale
+; across these values so band-2 visibly "dollies" (its texel period changes)
+; frame group to group.
 KPOSES     = 8
 POSE_STRIDE = BAND2_BYTES * 2           ; one pose = its AB table then its CD table
 
@@ -250,7 +269,7 @@ SKY_TABLE = $7EDC30             ; 5 bytes: the -DSKY_HORIZON TM ($212C) band tab
 G_ANGLE    = $3A                ; word: camera A angle (low byte 0..255)
 
 ; -----------------------------------------------------------------------------
-; capture_pose s1_val, ab_addr, cd_addr — set camera B near-scale S1, rebuild
+; capture_pose s1_val, ab_addr, cd_addr — set camera B near-scale (s1_val), rebuild
 ; (fills the active buffer with camera B pose), then capture band-2 [SEAM..L1)
 ; into the pose's WRAM tables. Boot-only (forced blank). Entry/exit A16/I16.
 ; -----------------------------------------------------------------------------
@@ -268,6 +287,12 @@ NMI:
 NMI_STUB:
     rti
 
+; =============================================================================
+; INIT — one-time setup at RESET: upload the checker map + CGRAM under forced
+;        blank, precompute camera B's poses into WRAM (STEP 1, no frame budget),
+;        then set camera A as the live renderer and splice the first camera-B pose
+;        (STEP 2). Screen turns on at the end.
+; =============================================================================
 RESET:
     sf_coldstart                ; forced blank; WRAM/CGRAM/VRAM cleared
     sf_engine_init
@@ -283,7 +308,7 @@ RESET:
     .i16
     stz $2121                   ; CGADD = 0
     lda #<COLOR_BACKDROP
-    sta $2122
+    sta $2122                   ; CGDATA (CGRAM data): write colour byte; index auto-advances
     lda #>COLOR_BACKDROP
     sta $2122
     lda #<COLOR_DARK
@@ -312,7 +337,7 @@ RESET:
 
     ; =========================================================================
     ; STEP 1 — precompute camera B's KPOSES band-2 poses into WRAM (ONCE, under
-    ; forced blank). For each pose k: set near-scale S1_k, tick (pv_rebuild fills
+    ; forced blank). For each pose k: set the pose's near-scale, tick (pv_rebuild fills
     ; the active buffer with camera B pose k across the whole floor), then capture
     ; band-2 [SEAM..L1) AB+CD into that pose's WRAM tables. NO frame budget here.
     ; =========================================================================
@@ -320,7 +345,7 @@ RESET:
     sf_mode7_focus #FOCUS_Y
     sf_mode7_cam #B_POSX, #B_POSY, #0
 
-    ; near-scale (S1) poses: pose 0 = 176 is the proven-distinct value the
+    ; near-scale poses: pose 0 = 176 is the proven-distinct value the
     ; still-build P1 / seam / clean tests sample; the loop steps up by 24 so the
     ; bottom band visibly "dollies" (tighter texel period) as it advances.
     capture_pose 176, CAMB_AB0, CAMB_CD0
@@ -377,11 +402,16 @@ RESET:
     sta $2100                   ; INIDISP: bright 15, display on
     sta SHADOW_INIDISP
     lda #$81
-    sta $4200                   ; NMI + auto-joypad
+    sta $4200                   ; NMITIMEN: enable VBlank NMI + auto-joypad read
     rep #$30
     .a16
     .i16
 
+; =============================================================================
+; MAIN LOOP — game_loop: the once-per-frame heartbeat. Auto-rotate camera A and
+;   force a full rebuild (flipping the double buffer), splice the current
+;   camera-B pose over band 2 of the freshly-flipped active buffer, and restamp
+;   band-1's centre so it tracks camera A's rotation.
 ; =============================================================================
 game_loop:
     .a16
@@ -453,6 +483,13 @@ game_loop:
 
     sf_frame_end
     jmp game_loop
+
+; =============================================================================
+; SUBROUTINES — the camera-B pose splice (active-buffer + the buggy fixed-buffer
+;   control), the per-band centre/scroll table setup + per-frame update, the
+;   -DSKY_HORIZON sky-band arm, and the engine module includes. Each routine's own
+;   header states its width contract.
+; =============================================================================
 
 ; =============================================================================
 ; splice_camb_pose — re-apply camera B's pose (A = pose index 0..KPOSES-1) over
@@ -799,7 +836,11 @@ camb_cd_ptrs:
 .include "mode7_hdma.asm"
 .include "mode7_engine.asm"
 
-; --- the 32KB interleaved Mode-7 checker-map blob (bank 1 of the 64KB image) ---
+; =============================================================================
+; DATA — the 32KB interleaved Mode-7 checker-map blob (bank 1 of the 64KB image).
+;   (The camera-B pose-table pointers live just above, in the RODATA next to the
+;   engine includes that reference them.)
+; =============================================================================
 .segment "BANK1"
 checker_map:
     .incbin "assets/checker_map.bin"

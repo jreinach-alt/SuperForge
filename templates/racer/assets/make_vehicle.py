@@ -10,10 +10,10 @@ for OBSEL size pair 3 (16x16 small / 32x32 large):
     tiles 0-3   (+16/+32/+48 rows)   frame 0 — straight        (32x32 large)
     tiles 4-7   (+16/+32/+48 rows)   frame 1 — lean (H-flip it for the
                                      other steer direction)
-    tile  8                          HUD speed-bar tick, lit — an 8x8 graphic
-                                     in a 16x16-small slot (other 3 subtiles
-                                     transparent, so it renders 8x8)
-    tile  10                         HUD speed-bar tick, dim
+    tile  8 (+16 row)                HUD speed-bar tick, lit — an 8x14
+                                     outlined bar segment in a 16x16-small
+                                     slot (top + bottom subtiles)
+    tile  10 (+16 row)               HUD speed-bar tick, dim
 
 Output (committed): vehicle.inc — vehicle_chr (2048-byte blob, 4 VRAM rows),
 vehicle_pal (16 BGR555 words, OBJ palette), frame/tile constants.
@@ -32,33 +32,61 @@ PALETTE = {
     0: (0, 0, 0),
     1: (24, 24, 32),        # outline
     2: (200, 32, 32),       # body red
-    3: (255, 96, 48),       # body highlight / lit tick
+    3: (255, 96, 48),       # body highlight / lit tick / exhaust glow
     4: (40, 40, 48),        # tires / dim tick
     5: (240, 240, 240),     # helmet white
+    6: (128, 16, 24),       # body shadow (lower hull)
+    7: (96, 96, 108),       # tire highlight (tread shine)
+    8: (72, 120, 208),      # helmet visor blue
 }
 
-# 16x16 kart, rear view ('.' = transparent, digits = palette index)
+# 16x16 kart, rear view ('.' = transparent, digits = palette index).
+# Shaded + outlined: highlight cowl up top, shadowed hull below, visor band
+# on the helmet, tread shine on the outer tire columns, twin exhaust glow.
 FRAME0 = [
     "................",
     "......1111......",
     ".....155551.....",
-    ".....155551.....",
-    "....11111111....",
-    "...1222222221...",
+    ".....188881.....",
+    "....11555511....",
     "...1233333321...",
-    ".44123333332144.",
-    ".44123333332144.",
-    ".44122222222144.",
-    ".44122222222144.",
-    ".44112222221144.",
-    "...1111111111...",
-    "....11111111....",
+    "..123333333321..",
+    "1741233333321471",
+    "1741223333221471",
+    "1741222222221471",
+    "1441122222211441",
+    "1441166666611441",
+    ".11116666661111.",
+    "...1131331311...",
     "................",
     "................",
 ]
 
-TICK_LIT = ["33333333"] * 8
-TICK_DIM = ["44444444"] * 8
+# HUD speed-bar tick, 8x14 visible (top subtile + bottom subtile of the
+# 16x16-small OAM slot): outlined block, bright fill when lit. Adjacent
+# ticks at 8 px spacing join into one segmented, outlined bar.
+TICK_LIT_TOP = [
+    "11111111",
+    "13333331",
+    "13333331",
+    "13333331",
+    "13333331",
+    "13333331",
+    "13333331",
+    "13333331",
+]
+TICK_LIT_BOT = [
+    "13333331",
+    "13333331",
+    "13333331",
+    "13333331",
+    "13333331",
+    "11111111",
+    "........",
+    "........",
+]
+TICK_DIM_TOP = [r.replace("3", "4") for r in TICK_LIT_TOP]
+TICK_DIM_BOT = [r.replace("3", "4") for r in TICK_LIT_BOT]
 
 
 def lean_frame(rows: list[str]) -> list[str]:
@@ -112,8 +140,13 @@ def main() -> None:
         for ty in range(4):                              # 32x32 = 4x4 subtiles
             for tx in range(4):
                 tiles[base + ty * 16 + tx] = encode_tile_4bpp(art, tx * 8, ty * 8)
-    tiles[8] = encode_tile_4bpp(TICK_LIT, 0, 0)
-    tiles[10] = encode_tile_4bpp(TICK_DIM, 0, 0)
+    # HUD ticks: top subtile at the OAM tile number, bottom subtile one VRAM
+    # row below (+16) — the 16x16-small sprite reads both, giving the 8x14
+    # outlined bar segment. Tile numbers 8/10 are unchanged for the template.
+    tiles[8] = encode_tile_4bpp(TICK_LIT_TOP, 0, 0)
+    tiles[8 + 16] = encode_tile_4bpp(TICK_LIT_BOT, 0, 0)
+    tiles[10] = encode_tile_4bpp(TICK_DIM_TOP, 0, 0)
+    tiles[10 + 16] = encode_tile_4bpp(TICK_DIM_BOT, 0, 0)
     blob = b"".join(tiles)
     assert len(blob) == 2048
 
@@ -130,7 +163,7 @@ def main() -> None:
         "",
         "vehicle_f0       = $00      ; straight (32x32, OAM size = large)",
         "vehicle_f1       = $04      ; lean (H-flip for the other direction)",
-        "VEHICLE_TICK_LIT = $08      ; HUD tick, lit (8x8 graphic, 16x16 small slot)",
+        "VEHICLE_TICK_LIT = $08      ; HUD tick, lit (8x14 outlined bar segment)",
         "VEHICLE_TICK_DIM = $0A      ; HUD tick, dim",
         f"vehicle_chr_bytes = {len(blob)}",
         "",

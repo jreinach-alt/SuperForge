@@ -16,7 +16,7 @@ WORLD_FLAT_BANK_BASE = 2   ; first ROM bank of flat tilemap
 WORLD_FLAT_BANK_COUNT = 8   ; flat tilemap spans this many ROM banks
 WORLD_SPAWN_TX  = 258
 WORLD_SPAWN_TY  = 258
-WORLD_LANDMARK_STEP = 32  ; TOWN tile lattice spacing (hidden debug)
+WORLD_LANDMARK_STEP = 32  ; TOWN (house) landmark lattice spacing, tiles
 
 ; --- terrain ids (collision-class vocabulary; tile_terrain_lut maps to these) ---
 TERR_GRASS    = 0

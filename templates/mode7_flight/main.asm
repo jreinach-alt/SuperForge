@@ -7,13 +7,13 @@
 ; it approaches), with free movement (heading turn + throttle, NOT the racer's
 ; forward-lock) and an animated airship + altitude-scaled ground shadow OBJ.
 ;
-; Forks the racer spine (the proven mode7_test boot + the sf_mode7 macro group +
-; the stock engine NMI — NO custom VBlank code) and rebuilds the control layer
-; for flight. The genuinely net-new piece: re-deriving M7_PV_S0/S1 from an
-; altitude state var EVERY frame via sf_mode7_scale (M1) so the ground recedes /
-; approaches as you climb / descend.
+; It shares the racer's Mode 7 spine (the sf_mode7 macro group + the stock engine
+; NMI — NO custom VBlank code) and rebuilds the control layer for flight. The
+; distinctive piece: re-deriving the near/far perspective scales from an altitude
+; state var EVERY frame via sf_mode7_scale, so the ground recedes / approaches as
+; you climb / descend.
 ;
-; CONTROL MAP (D-MOVE + D-ALT, owner-settled):
+; Controls:
 ;   D-pad LEFT / RIGHT  turn heading (rotate the Mode 7 angle)
 ;   B                   throttle forward along heading (signed 8.8 speed, capped)
 ;   (release)           coast/decelerate to hover (speed -> 0)
@@ -21,9 +21,18 @@
 ;   L shoulder          descend (altitude DOWN -> scale UP -> ground approaches)
 ;   R shoulder          climb   (altitude UP  -> scale DOWN -> ground recedes)
 ;
-; SIGNED SPEED (the cold-start trick): R_SPEED is a SIGNED 8.8 word, so reverse
-; (Y) and hover fall out of the SAME sincos->smul16 integrator the racer uses —
-; smul16 sign-handles, so a negative speed steps the camera backward for free.
+; File layout (major banners, top to bottom):
+;   INIT         — upload the ground map / palettes / airship + shadow CHR under
+;                  forced blank, turn Mode 7 on, arm the sky split
+;   MAIN LOOP    — game_loop: turn, throttle, altitude, integrate, animate, draw
+;   SUBROUTINES  — compute_scales (altitude -> scale), arm_sky_split (the sky band)
+;   DATA         — the airship + shadow art, overworld palette, the ground blob
+;
+; game_loop is the once-per-frame heartbeat — start reading there.
+;
+; SIGNED SPEED: R_SPEED is a SIGNED 8.8 word, so reverse (Y) and hover fall out of
+; the SAME sincos->smul16 integrator the racer uses — smul16 sign-handles, so a
+; negative speed steps the camera backward for free.
 ;
 ; THE SKY: Mode 7 has one BG layer, so the band above the horizon would smear
 ; the ground upward. arm_sky_split (below) runs a 2-band TM HDMA on CH2 that
@@ -33,9 +42,9 @@
 ; OBJ-OVER-MODE-7 (baked in below): the Mode 7 map fills VRAM words $0000-$3FFF,
 ; so OBSEL moves the OBJ name base to word $4000 ($62) and OBJ CHR uploads there.
 ;
-; OUT OF SCOPE (held): day/night, terrain collision/crash, streaming. The plane
-; wraps (wrap=1) so free movement never hits a black edge; altitude clamps at
-; the floor (no crash). See docs/sprints/free_flight_dod.md section 7.
+; DESIGN LIMITS: no day/night, no terrain collision/crash, no streaming. The
+; plane wraps (wrap=1) so free movement never hits a black edge, and altitude
+; clamps at the floor (ground closest), so descending never crashes.
 ;
 ; Build:  make mode7_flight   (the generic templates rule reads the LDCFG sentinel)
 ; LDCFG: lorom_64k.cfg
@@ -45,12 +54,15 @@
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "SKY VOYAGER"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic
 .include "sf_frame.inc"         ; sf_engine_init, sf_frame_begin/end
 .include "sf_video.inc"         ; sf_load_obj_chr, sf_load_obj_pal
 .include "sf_sprite.inc"        ; spr, spr_clear
-.include "sf_mode7.inc"         ; the Mode 7 macro group (+ sf_mode7_scale, M1)
+.include "sf_mode7.inc"         ; the Mode 7 macro group (+ sf_mode7_scale)
 .include "engine_state.inc"
 
 ; --- throttle tuning (assemble-time, signed 8.8) ---
@@ -70,7 +82,7 @@ SPEED_REV = $FE00               ; 8.8: -2 px/frame reverse cap (signed: -$0200)
 ; --- the flight-camera trapezoid (looking down from altitude) ---
 ; A high horizon band so the ground spreads out below; sky above. The s0/s1
 ; here are the BASE scale; the per-frame altitude derive overwrites them via
-; sf_mode7_scale (M2 holds them fixed mid-altitude; M3 drives them).
+; sf_mode7_scale (they are only the mid-altitude starting point).
 PV_L0_FLIGHT     = 64           ; horizon scanline (~29% down; sky band above)
 PV_L1_FLIGHT     = 224          ; bottom scanline
 PV_S0_FLIGHT     = 600          ; far-scale  base (mid-altitude)
@@ -80,11 +92,11 @@ PV_INTERP_FLIGHT = 2
 PV_WRAP_FLIGHT   = 1            ; wrapping plane: free movement, no black edge
 FOCUS_Y_FLIGHT   = 168          ; the flight rotation anchor
 
-; --- altitude -> perspective scale (the net-new piece) -----------------------
+; --- altitude -> perspective scale (the distinctive piece) -------------------
 ; R_ALT is an 8-bit altitude 0..255 (MIN=ground closest, MAX=ground farthest).
 ; Each frame: s0 = S0_LOW + alt*(S0_HIGH-S0_LOW)/256 ; s1 likewise. Climb (alt
 ; up) -> bigger s0/s1 -> ground recedes; descend (alt down) -> smaller ->
-; approaches. The cold-start's measured endpoints (low 220/40, high 1180/280).
+; approaches. The measured endpoints (low 220/40, high 1180/280).
 ALT_MIN  = 0                    ; floor of altitude (ground closest; clamp, no crash)
 ALT_MAX  = 240                  ; ceiling of altitude (ground farthest)
 ALT_STEP = 3                    ; altitude change per held L/R frame (smooth)
@@ -150,6 +162,10 @@ NMI:
 NMI_STUB:
     rti
 
+; =============================================================================
+; INIT — power-on setup: upload the ground map, palettes, and airship + shadow
+; CHR under forced blank; turn Mode 7 on; arm the sky split; then screen + NMI on.
+; =============================================================================
 RESET:
     sf_coldstart                ; forced blank; WRAM/CGRAM/VRAM cleared
     sf_engine_init
@@ -166,12 +182,12 @@ RESET:
     .a8
     rep #$10
     .i16
-    stz $2121                   ; CGADD = 0
+    stz $2121                   ; CGADD (CGRAM address): start at colour 0
     ldx #$0000
 gpal_loop:
     .a8
     lda f:ovw_pal, x
-    sta $2122                   ; CGDATA (low then high byte, auto-pair)
+    sta $2122                   ; CGDATA (CGRAM data): write; low then high byte auto-pair
     inx
     cpx #(OVW_PAL_COUNT * 2)
     bne gpal_loop
@@ -193,7 +209,7 @@ gpal_loop:
 apal_loop:
     .a8
     lda f:airship_sprite_palette, x
-    sta $2122
+    sta $2122                   ; CGDATA: stream the airship palette bytes
     inx
     cpx #AIRSHIP_SPR_PAL_SIZE
     bne apal_loop
@@ -271,14 +287,17 @@ apal_loop:
     sep #$20
     .a8
     lda #$0F
-    sta $2100                   ; INIDISP: bright 15, display on
+    sta $2100                   ; INIDISP (display control): brightness 15, blank off
     sta SHADOW_INIDISP
     lda #$81
-    sta $4200                   ; NMI + auto-joypad
+    sta $4200                   ; NMITIMEN (interrupt enable): VBlank NMI + auto-joypad read
     rep #$30
     .a16
     .i16
 
+; =============================================================================
+; MAIN LOOP — game_loop runs once per frame: turn the heading, integrate the
+; throttle, apply altitude -> scale, step the camera, animate the prop, draw.
 ; =============================================================================
 game_loop:
     .a16
@@ -521,6 +540,11 @@ fl_shadow_done:
     jmp game_loop
 
 ; =============================================================================
+; ============================== SUBROUTINES ==================================
+; compute_scales (altitude -> near/far scale) + arm_sky_split (the sky band).
+; =============================================================================
+
+; =============================================================================
 ; compute_scales — derive R_S0/R_S1 from R_ALT (call once per frame, A16/I16).
 ; =============================================================================
 ; s0 = S0_LOW + (alt * S0_SPAN) >> 8 ; s1 = S1_LOW + (alt * S1_SPAN) >> 8.
@@ -631,10 +655,12 @@ mode7_sin_lut:
 .include "mode7_hdma.asm"
 .include "mode7_engine.asm"
 
-; --- assets (committed). Ground is the kit-native RPG overworld map (continent
+; =============================================================================
+; DATA — committed assets. Ground is the kit-native RPG overworld map (continent
 ; + coastline) so the airship flies over land, not a racetrack; the airship is
 ; the sanctioned art reuse (data only, clean kit header); the shadow is
-; first-party generated.
+; first-party generated. The 32KB ground blob (BANK1) is below.
+; =============================================================================
 .include "assets/airship.inc"
 .include "assets/shadow.inc"
 .include "assets/overworld_palette.inc"

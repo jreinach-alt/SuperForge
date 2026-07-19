@@ -15,20 +15,34 @@
 ;   - sf_boss_matrix (first thing each frame, before active display) writes the
 ;     M7A-D matrix from (scale, angle) directly via mode7_set_static.
 ;   - the masked reveal uses sf_bright_fade (forced-blank swap), NOT a custom
-;     NMI tilemap-swap — deliberately avoiding the Phase-14 silent-BRK region.
+;     NMI tilemap-swap — deliberately avoiding the silent-BRK hazard that
+;     mid-frame NMI tilemap swaps invite.
 ;
-; MILESTONE 1 (this file's current scope): boot, upload the boss Mode 7 map,
-; static affine display centered on the boss face, the player sprite, heartbeat.
-; Battle structure (HP/phases/attacks/collision/win-lose) lands in later
-; milestones.
+; The fight runs as a state machine (b_state): INTRO fade-in -> REVEAL (the boss
+; grows in) -> HOLD -> FIGHT (strafe + fire, dodge the attack rain, deplete the
+; boss's HP across three phases) -> DEATH or LOSE fade -> RESULT -> loop. The
+; matrix scale/angle, the combat, and the win/lose checks all flow from
+; state_update; the OAM draw (draw_frame) is shared across states.
 ;
 ; OBJ-OVER-MODE-7 (baked in): the Mode 7 map fills VRAM words $0000-$3FFF, so
 ; the OBJ name base moves to word $4000 (OBSEL=$62); the sprite CHR uploads
 ; there and OAM tile numbers stay 0.. relative to that base.
 ;
+; Controls:
+;   D-pad left/right   strafe the player     A (hold)   fire upward at the boss
+;
+; File layout (top to bottom; the major === section banners):
+;   INIT         — RESET: OAM order, map + palette + sprite uploads, Mode 7 on,
+;                  arm the state machine, start dark for the fade-in
+;   MAIN LOOP    — game_loop: matrix, state_update, draw_frame — the heartbeat
+;   SUBROUTINES  — battle_init, the state machine (state_update + su_*), combat
+;                  (fight_update + helpers), and the OAM draw (draw_frame)
+;   DATA         — engine includes, first-party assets, the boss-map blob
+; game_loop is the frame heartbeat; start reading there.
+;
 ; Build:  make boss   (the generic templates rule reads the LDCFG sentinel below)
 ; LDCFG: lorom_64k.cfg
-;   ^ Linker-config sentinel (GAP-2): 64KB image, the 32KB boss-map blob fills
+;   ^ Linker-config sentinel: 64KB image, the 32KB boss-map blob fills
 ;     BANK1. The generic build/%.sfc rule reads this and links lorom_64k.cfg
 ;     instead of the default lorom.cfg; copy-to-adapt keeps the line, no Makefile
 ;     edit needed. (See docs/guides/adapting_a_rail.md.)
@@ -37,6 +51,9 @@
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "TITAN DUEL"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic
 .include "sf_frame.inc"         ; sf_engine_init, sf_frame_begin/end
@@ -128,7 +145,7 @@ JOY_LEFT  = $0200
 JOY_A     = $0080
 JOY_B     = $8000
 
-; --- attack pool: 8-slot sf_pool + parallel arrays (preflight allocations) ---
+; --- attack pool: 8-slot sf_pool + parallel arrays (fixed WRAM allocations) ---
 ATK_N     = 8
 ATK_ALIVE = $1800               ; alive[8]  (2 bytes/slot)
 ATK_X     = $1810               ; x[8]
@@ -172,6 +189,10 @@ hud_lit     = $5E               ; HP-HUD lit-segment threshold
 
 .segment "CODE"
 
+; =============================================================================
+; INIT — interrupt vectors + one-time boot (RESET: uploads, Mode 7 on, arm the
+; state machine, start dark for the fade-in)
+; =============================================================================
 NMI:
 .include "nmi_handler.asm"      ; pulls mode7_nmi.inc (M7SEL/M7X/M7Y + scroll commit)
 
@@ -187,7 +208,9 @@ RESET:
     ;     identity, so disable the engine's default Y-sort (mode 2 = stable,
     ;     no remap — sprites keep their call order). ---
     sep #$20
-    .a8
+    .a8                         ; first width switch: 8-bit A. .a8/.a16 (and
+                                ;   .i8/.i16) tell ca65 the CPU width so it sizes
+                                ;   operands right; keep them matched to sep/rep
     lda #$02
     sta SPR_ORDER_MODE
     rep #$30
@@ -202,7 +225,7 @@ RESET:
     .a8
     rep #$10
     .i16
-    stz $2121                   ; CGADD = 0
+    stz $2121                   ; CGADD (CGRAM address): start palette upload at 0
     ldx #$0000
 bpal_loop:
     .a8
@@ -223,8 +246,13 @@ bpal_loop:
     sf_load_obj_chr 1024, sprite_chr, sprite_chr_bytes
     sep #$20
     .a8
-    lda #$62
-    sta $2101                   ; OBSEL: name base word $4000, 16x16/32x32
+    lda #$02
+    sta $2101                   ; OBSEL: name base word $4000, size pair 8x8/16x16
+                                ; ($62 = 16x16/32x32 rendered the 16x16 player at
+                                ; 32x32 — a doubled ship pulling in the flash frame —
+                                ; and every 8x8 actor at 16x16 with neighbor-tile
+                                ; bleed. The art is authored for the 8x8/16x16 pair;
+                                ; the LARGE flag on the player then means 16x16.)
     rep #$30
     .a16
     .i16
@@ -249,16 +277,16 @@ bpal_loop:
     sta $2100                   ; INIDISP: brightness 0 (display on, but black)
     sta SHADOW_INIDISP          ; NMI re-commits INIDISP from this shadow
     lda #$81
-    sta $4200                   ; NMI + auto-joypad
+    sta $4200                   ; NMITIMEN: enable NMI (VBlank IRQ) + auto-joypad
     rep #$30
     .a16
     .i16
     sf_bright_fade #15, #FADE_FRAMES    ; arm the fade-IN (0 -> 15 over 32 frames)
 
 ; =============================================================================
-; The frame spine: matrix first (consistent frame), then the per-state update,
-; then the per-state draw. The state machine drives b_scale/b_angle/combat; the
-; draw is shared. Stable OAM slots (preflight map):
+; MAIN LOOP — the frame spine: the matrix first (one consistent frame), then the
+; per-state update, then the shared draw. state_update drives b_scale/b_angle and
+; combat; draw_frame composes OAM. Stable OAM slot map:
 ;   0      player ship
 ;   1-8    attack projectiles (draw-every-frame, dead parked at y=$F0)
 ;   9-16   boss HP HUD segments
@@ -293,6 +321,12 @@ game_loop:
 
     sf_frame_end                ; resolve sprites; signal the OAM DMA
     jmp game_loop
+
+; =============================================================================
+; SUBROUTINES — battle_init, the state machine (state_update + the su_* states),
+; the combat helpers (fight_update + player/shots/attacks/rng/phase), and the
+; shared OAM draw (draw_frame + draw_hp_hud). Each carries its own === banner.
+; =============================================================================
 
 ; =============================================================================
 ; battle_init — (re)arm the full battle: reveal-tiny boss + fresh combat state.
@@ -416,7 +450,7 @@ su_hold_ret:
     .a16
     rts
 
-; --- FIGHT: handed to the combat routine (M4/M5). ---
+; --- FIGHT: handed to the combat routine (fight_update). ---
 su_fight:
     .a16
     jsr fight_update
@@ -508,7 +542,7 @@ su_reset_ret:
 
 ; =============================================================================
 ; fight_update — combat: player control, attack pool, player shots, col_box
-; hit detection (M4) + phase pacing + win/lose (M5). A16/I16 throughout.
+; hit detection + phase pacing + win/lose. A16/I16 throughout.
 ; WIDTH-RISK: A16/I16 entry/exit. The jsr'd helpers all keep A16/I16; col_box
 ; and the sf_pool macros assert/return A16/I16. No width toggles in this body.
 ; =============================================================================
@@ -893,8 +927,9 @@ bp_set_spd:
     rts
 
 ; =============================================================================
-; draw_frame — shared per-frame OAM draw (stable slots; M4/M5 flesh out attacks
-; + HP HUD). M3: player at slot 0, all other slots parked off-screen.
+; draw_frame — shared per-frame OAM draw into the stable slot map: player at
+; slot 0, attacks at 1-8, boss HP HUD at 9-16, player shots at 17-20. Dead pool
+; slots are parked off-screen so the slot identities the tests read stay fixed.
 ; WIDTH-RISK: A16/I16 entry/exit (the spr macro handles its own widths).
 ; =============================================================================
 draw_frame:
@@ -955,8 +990,8 @@ df_atk_next:
     cmp #(2 * ATK_N)
     bne df_atk_loop
 
-    ; --- slots 9-16 = boss HP HUD (M5 fills these; park for now to keep the
-    ;     OAM slot map stable so player shots land at slots 17-20). ---
+    ; --- slots 9-16 = boss HP HUD (draw_hp_hud fills them; drawn every frame so
+    ;     the OAM slot map stays stable and player shots land at slots 17-20). ---
     jsr draw_hp_hud
 
     ; --- slots 17-20 = player shots (draw EVERY slot; dead parked) ---
@@ -1043,7 +1078,8 @@ dh_seg_next:
     rts
 
 ; =============================================================================
-; Engine includes — the sf_mode7_affine.inc link-partner order, plus the sprite
+; DATA — engine includes, first-party assets, and the boss-map blob. The engine
+; includes below give the sf_mode7_affine.inc link-partner order, plus the sprite
 ; + DMA engines spr / sf_frame_end require. NO HDMA-effect engines (the static
 ; affine path uses no HDMA), but mode7_engine.asm self-pulls the HDMA allocator,
 ; so hdma_alloc is included for its symbols.
@@ -1051,7 +1087,7 @@ dh_seg_next:
 .include "sprite_engine.asm"
 .include "dma_scheduler.asm"
 .include "bright_fade_engine.asm"   ; sf_bright_fade / sf_bright_fade_tick
-.include "collision_engine.asm"     ; col_box (M4 hit detection)
+.include "collision_engine.asm"     ; col_box (AABB hit detection)
 
 mode7_sin_lut:
     .include "mode7_sin_lut.inc"    ; defines sin_lut: (used by sincos)
@@ -1071,7 +1107,7 @@ mode7_sin_lut:
 
 ; --- the 32KB interleaved boss-map blob (bank 1 of the 64KB image) ---
 .segment "BANK1"
-; .incbin (GAP-3): resolved relative to THIS file's dir, not via -I — so the
+; .incbin: resolved relative to THIS file's dir, not via -I — so the
 ; "assets/<basename>" form is copy-safe (copy-to-adapt only changes the basename).
 boss_map:
     .incbin "assets/boss_map.bin"

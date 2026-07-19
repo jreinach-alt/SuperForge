@@ -1,13 +1,30 @@
 ; =============================================================================
-; mode_showcase — the PPU showcase HARNESS (S1): a discovery/authoring instrument
+; mode_showcase — PPU effect showcase instrument (menu + live-tunable knobs)
 ; =============================================================================
-; Not a demo reel — an INSTRUMENT. A SNES PPU effect playground: discover effect
-; combinations, tune them live with no recompile, record the finds. This ROM is
-; the generic HARNESS the per-mode pages compose; S1 proves it end-to-end on
-; Mode 1 (one mode fully wired with real knobs + its structural presets).
+; A SNES PPU effect playground: pick a BG mode from a menu, then tune its effect
+; combination LIVE with on-screen knobs (no recompile) and record the finds to
+; SRAM. It is the generic HARNESS every per-mode page plugs into; the shipping
+; build wires Mode 0 (PLANES) and Mode 1 (GLASS) with real knobs + presets, and
+; carries stub pages for the remaining modes.
 ;
-; Spec : docs/sprints/showcase_composition.md   (the instrument vision)
-; Alloc: docs/sprints/showcase_allocations.md   (the binding $-map contract)
+; Controls:
+;   MENU:  D-pad moves the mode cursor · A selects the mode -> instructions
+;   DEMO:  Select        cycles the active knob slot (6 slots)
+;          D-pad </> v/^, A/B, X/Y, L/R   adjust the active slot's 5 knobs
+;          Start          return to the menu
+;          Start+Select   freeze into the full-parameter sheet (page with D-pad)
+;          in the sheet:  A save to SRAM · B load from SRAM
+;
+; File layout (top to bottom):
+;   PAGES     — the dispatcher, HUD text helpers, and per-mode pages are .included
+;               first (so their macros exist before use); each page self-registers
+;   INIT      — RESET: PPU bring-up, HUD + meter palettes, seed the param model
+;               under forced blank, then land on the menu
+;   MAIN LOOP — game_loop: sf_scene_dispatch runs the active scene's tick
+;   SCENES    — menu / instructions / live demo, plus their helper procs
+;   ENGINE    — the engine .include link partners
+;
+; game_loop is the once-per-frame heartbeat — start reading there.
 ;
 ; THE FRAMEWORK (built once; every mode page reuses it):
 ;   - Shell      : menu -> instructions -> live demo, via sf_scene. Start=menu,
@@ -18,7 +35,7 @@
 ;                  an apply hook; the router is generic (see SHOW_* below).
 ;   - Router     : Select cycles the active slot; the 5 button-pairs
 ;                  </>  v/^  A/B  X/Y  L/R adjust the active slot's 5 params.
-;   - HUD readout: OBJ pal 7 (CGRAM 240-255), composes sf_obj_text (brick B1):
+;   - HUD readout: OBJ pal 7 (CGRAM 240-255), composes sf_obj_text:
 ;                  top strip = active slot label + 5 values; bottom strip = the
 ;                  6-slot bar, active slot lit.
 ;   - Param-sheet: Start+Select freezes the demo -> a B/W full-param dump (OBJ
@@ -28,7 +45,7 @@
 ;   - Limits     : a green/yellow/red meter (heartbeat / HDMA ch / OAM-per-line)
 ;                  + the $C000 arena mutex (a 2nd heavy effect auto-disables #1).
 ;
-; DISPATCH / REGISTRATION INTERFACE (S1.5 — the fan-out contract). The menu
+; DISPATCH / REGISTRATION INTERFACE. The menu
 ; selects a mode (SHOW_CUR_MODE); the demo enters that mode's page through the
 ; per-mode vtables (showcase_dispatch.inc). A page registers its row ONCE with
 ; UNIQUE (mode-prefixed) symbols — it never edits the tables, the Makefile, or
@@ -42,21 +59,25 @@
 ; show_dispatch_emit_tables (below the includes) builds the vtables from every
 ; registration. The router, HUD, param-sheet, record, and limit meter are all
 ; generic over the ACTIVE mode's resolved tables (SHOW_A_*, copied on demo entry).
-; Full contract: docs/sprints/showcase_page_authoring.md.
 ;
-; LINK SHAPE (S1.5, all-modes dispatch): lorom_show.cfg (256KB + SRAM) — a
-; GENEROUS LoROM+SRAM cfg so the S2..Sn fan-out (8 real pages + the Mode-7 engine
-; + its PV LUTs + per-mode CHR/LUT data) never has to resize the linker cfg.
-; CODE/RODATA live in bank 0 (~17KB of 32KB at S1.5); BANK1..BANK7 are spare data
-; banks for the fan-out. Links the all-modes BG dispatcher (bg_mode_engine;
-; Mode-7 falls to its BGMODE-only stub until a Mode-7 page .includes mode7_engine)
-; + the full sf_fx engine set + sf_window + sf_obj_text + the S1.5 dispatch layer.
-; ; LDCFG: lorom_show.cfg
+; LINK SHAPE: lorom_show.cfg (256KB + SRAM) — a generous LoROM+SRAM cfg sized so
+; the full set of mode pages (per-mode CHR/LUT data, plus a Mode-7 engine if a
+; Mode-7 page adds one) never has to resize the linker cfg. CODE/RODATA live in
+; bank 0; BANK1..BANK7 are spare data banks. Links the all-modes BG dispatcher
+; (bg_mode_engine; Mode-7 falls to its BGMODE-only stub until a Mode-7 page
+; .includes mode7_engine) + the full sf_fx engine set + sf_window + sf_obj_text +
+; the dispatch layer.
+;
+; Build:  make mode_showcase
+; LDCFG: lorom_show.cfg
 ; =============================================================================
 
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "PPU SHOWCASE"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"            ; sf_coldstart, sf_debug_magic
 .include "sf_video.inc"
@@ -70,7 +91,7 @@
 .include "engine_state.inc"       ; address SSoT
 
 ; =============================================================================
-; PARAM MODEL — WRAM $7E:E200-$E2FF (allocations contract §1). Long-addressed.
+; PARAM MODEL — WRAM $7E:E200-$E2FF (the harness param region). Long-addressed.
 ; =============================================================================
 SHOW_BASE         = $7EE200
 SHOW_KNOB_VAL     = $7EE200       ; 30 B: [slot*5 + param] current value
@@ -79,9 +100,9 @@ SHOW_ACTIVE_SLOT  = $7EE23C       ; 1 B : lit slot 0..5
 SHOW_CUR_MODE     = $7EE23D       ; 1 B : active BG mode 0..7
 SHOW_FLAGS        = $7EE23E       ; 2 B : harness flags (see SHOW_FL_* below)
 SHOW_SPR_FIELD    = $7EE240       ; 192 B: 32 sprites x 6 B (field model)
-; Debug-export mirror + harness telemetry — verified-free $7E:E300 tail
-; (allocations §1: "extend into $7E:E300-$EFFF and record the claim here").
-SHOW_DBG_MIRROR   = $7EE300       ; 32 B: live param block mirror (M6 export)
+; Debug-export mirror + harness telemetry — the free $7E:E300 WRAM tail above the
+; param model, used as scratch and a programmatic read-out window.
+SHOW_DBG_MIRROR   = $7EE300       ; 32 B: live param block mirror (debug export)
 SHOW_PRESET       = $7EE320       ; 1 B : active structural preset 0..2
 SHOW_SHEET_PAGE   = $7EE321       ; 1 B : param-sheet current page
 SHOW_METER_CYC    = $7EE322       ; 1 B : limit meter — cycle/heartbeat level
@@ -113,7 +134,7 @@ SHOW_NUM_X        = $7EE33F       ; 1 B : pen X
 SHOW_NUM_Y        = $7EE340       ; 1 B : pen Y
 SHOW_NUM_V        = $7EE341       ; 1 B : remaining value
 SHOW_NUM_DV       = $7EE342       ; 1 B : current place value (100/10/1)
-; harness control bytes (read-before-write -> seeded in show_param_init, F8)
+; harness control bytes (read-before-write -> seeded in show_param_init)
 SHOW_TM_SNAP      = $7EE343       ; 1 B : SHADOW_TM snapshot for the param-sheet
 SHOW_OAM_OVF      = $7EE344       ; 1 B : HUD OAM-budget overflow flag (>48 guard)
 SHOW_SAVE_SLOT_SEL= $7EE345       ; 1 B : active SRAM save slot 0..3 (record screen)
@@ -156,21 +177,25 @@ NMI_STUB:
 ; show_field_tick / show_arena_indicator) the shell calls. Per-mode pages then
 ; register themselves; show_dispatch_emit_tables (below the pages) emits the
 ; vtables from those registrations.
-.include "showcase_dispatch.inc"  ; S1.5 all-modes dispatch layer (vtables + macro)
-.include "showcase_param.inc"     ; param model: init + clamp router (M2)
-.include "showcase_hud.inc"       ; OBJ-HUD readout (M3)
-.include "showcase_mode1.inc"     ; Mode-1 knobs + presets + apply (M4)
-.include "showcase_scene1.inc"    ; Mode-1 BG content + sprite field (M4) + register
-.include "showcase_mode0.inc"     ; Mode-0 PLANES knobs + presets + apply (fan-out)
+.include "showcase_dispatch.inc"  ; all-modes dispatch layer (vtables + macro)
+.include "showcase_param.inc"     ; param model: init + clamp router
+.include "showcase_hud.inc"       ; OBJ-HUD readout
+.include "showcase_mode1.inc"     ; Mode-1 knobs + presets + apply
+.include "showcase_scene1.inc"    ; Mode-1 BG content + sprite field + register
+.include "showcase_mode0.inc"     ; Mode-0 PLANES knobs + presets + apply
 .include "showcase_scene0.inc"    ; Mode-0 4-layer BG content + field (+ register)
 .include "showcase_stub.inc"      ; generic stub page + registers modes 2-7
-.include "showcase_sheet.inc"     ; param-sheet freeze (M5)
-.include "showcase_record.inc"    ; SRAM save/recall + debug export (M6)
-.include "showcase_meter.inc"     ; limit meter + arena mutex (M7)
+.include "showcase_sheet.inc"     ; param-sheet freeze
+.include "showcase_record.inc"    ; SRAM save/recall + debug export
+.include "showcase_meter.inc"     ; limit meter + arena mutex
 
-; --- emit the per-mode vtables from every registration above (deliverable 1) ---
+; --- emit the per-mode vtables from every registration above ---
 show_dispatch_emit_tables
 
+; =============================================================================
+; INIT — power-on setup: PPU bring-up, HUD glyph + limit-meter palettes, seed the
+; param model under forced blank (RAM is garbage at boot), then land on the menu.
+; =============================================================================
 RESET:
     sf_coldstart
     sf_engine_init
@@ -182,11 +207,11 @@ RESET:
     sep #$20
     .a8
     lda #$80
-    sta $2100                     ; forced blank
-    ; OBSEL: OBJ name base VRAM word $4000 + 8x8 small (per-page VRAM rule,
-    ; allocations §3). $02 = size %000 (8x8) + name base %010 (word $4000).
+    sta $2100                     ; INIDISP (display control): forced blank
+    ; OBSEL: OBJ name base VRAM word $4000 + 8x8 small (the per-page VRAM rule).
+    ; $02 = size %000 (8x8) + name base %010 (word $4000).
     lda #$02
-    sta $2101
+    sta $2101                     ; OBSEL: OBJ name base word $4000, 8x8 small
     rep #$20
     .a16
 
@@ -206,7 +231,7 @@ RESET:
     rep #$20
     .a16
 
-    ; --- F-3 power-on: resolve the boot mode's tables into the SHOW_A_* staging
+    ; --- power-on: resolve the boot mode's tables into the SHOW_A_* staging
     ;     window BEFORE show_param_init reads SHOW_A_PARAM_TBL for its knob seed.
     ;     show_resolve_active_tables only runs on demo entry; at RESET the staging
     ;     window ($7E:E380-$E440) is still power-on garbage, so seeding the knob
@@ -222,7 +247,7 @@ RESET:
     sep #$20
     .a8
     lda #$0F
-    sta $2100
+    sta $2100                     ; INIDISP: brightness 15, blank off
     sta SHADOW_INIDISP
     rep #$20
     .a16
@@ -233,12 +258,17 @@ RESET:
     sep #$20
     .a8
     lda #$81
-    sta $4200
+    sta $4200                     ; NMITIMEN: VBlank NMI + auto-joypad read
     rep #$20
     .a16
 
     sf_scene_goto SC_MENU
 
+; =============================================================================
+; MAIN LOOP — game_loop runs once per frame: sf_scene_dispatch calls the active
+; scene's tick (menu, instructions, or the live demo). Start/Select are handled
+; per-scene, so the same buttons mean different things in each.
+; =============================================================================
 game_loop:
     sf_frame_begin
     ; Global Start/Select handling lives in each scene's tick (context-sensitive).
@@ -251,10 +281,10 @@ game_loop:
 ; =============================================================================
 
 ; --- SC_MENU: vertical list MODE 0..7 + tagline; a cursor selects a mode; A sets
-;     SHOW_CUR_MODE to the highlighted mode and advances to SC_INSTR (deliverable
-;     4). Up/Down move the cursor in the left column (0-3), Left/Right jump the
+;     SHOW_CUR_MODE to the highlighted mode and advances to SC_INSTR. Up/Down
+;     move the cursor in the left column (0-3), Left/Right jump the
 ;     cursor between the two columns (left 0-3, right 4-7). The highlighted slot
-;     renders a '>' caret so the OUTPUT shows the selection. ----------------------
+;     renders a solid BAR-glyph caret so the OUTPUT shows the selection. ----------------------
 ; Strings kept SHORT so the whole menu stays well under the 128-OAM / 32-per-line
 ; budget (an OBJ-font menu is sprite-priced; the per-mode taglines live on each
 ; page's instructions, not here). Two columns of mode labels keep it compact.
@@ -427,7 +457,7 @@ menu_tick:
 
 ; --- SC_INSTR: per-mode control legend; A enters the SELECTED mode's demo. The
 ;     header reflects SHOW_CUR_MODE ("MODE n NAME"); the legend is generic (the
-;     instrument's controls are the same across modes). Deliverable 5. ----------
+;     instrument's controls are the same across modes). ----------------------------
 str_i_t:  .byte "MODE", 0
 str_i_1:  .byte "SELECT NEXT SLOT", 0
 str_i_2:  .byte "DPAD AB XY LR TUNE", 0
@@ -566,9 +596,9 @@ demo_tick:
     jsr show_apply                ; push knobs to PPU shadows (+ arena mutex)
     jsr show_hud_render           ; OBJ-HUD readout: top (0-35) + bottom bar (40-45)
     jsr show_meter_tick           ; limit meter — 3 distinct bars (OBJ 36-38)
-    jsr show_arena_indicator      ; $C000 arena-owner glyph (OBJ 39) — mutex F5
-    jsr show_hud_budget_guard     ; enforce HUD OAM <=48 before the field (F4)
-    jsr show_field_tick           ; sprite field at OAM 48.. (allocations §2 band)
+    jsr show_arena_indicator      ; $C000 arena-owner glyph (OBJ 39) — arena mutex
+    jsr show_hud_budget_guard     ; enforce HUD OAM <=48 before the field
+    jsr show_field_tick           ; sprite field at OAM 48.. (the field OAM band)
     jsr show_dbg_export           ; mirror live params to $7E:E300
     rts
 

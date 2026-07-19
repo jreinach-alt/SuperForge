@@ -47,7 +47,7 @@ def _record(runner, frames, path):
 
 def test_music_plays_pauses_resumes_audibly(runner, tmp_path):
     rom = ROOT / "build" / "audio_test.sfc"
-    assert rom.exists(), f"{rom} not built — run `make audioroms` first"
+    assert rom.exists(), f"{rom} not built — run `make audio_test` first"
     runner.load_rom(str(rom), run_seconds=0.8)
     assert runner.read_bytes(WR, 0xE000, 4) == b"SFDB", \
         "ROM did not boot (SPC700 loader handshake may have hung)"

@@ -10,6 +10,15 @@
 ; defining SF_GRAVITY / SF_JUMP_VEL / SF_MAX_FALL before the include;
 ; bigger jumps need flatter gravity.
 ;
+; Controls:
+;   D-pad left/right   run          A   jump (from the ground or a platform)
+;
+; File layout (top to bottom; the major === section banners):
+;   INIT       — RESET: tile + palette uploads, PPU, build the terrain, boot
+;   MAIN LOOP  — game_loop, the once-per-frame heartbeat (read this first)
+;   DATA       — the terrain + sprite tile art, engine includes
+; game_loop is the frame heartbeat; start reading there.
+;
 ; State (DP): px $32, pyf $34 (8.8), vy $36, newy scratch $38, grounded $3A,
 ;             pyi $3C (draw-pixel mirror), newx $3E, map-fill $46-$47.
 ;
@@ -26,6 +35,9 @@
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "SKY HOPPER"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic
 .include "sf_bg.inc"            ; gfxmode, mset, sf_load_bg_tile, sf_bg_color
@@ -37,8 +49,8 @@
 .include "sf_frame.inc"         ; sf_engine_init, sf_frame_begin, sf_frame_end
 .include "engine_state.inc"
 
-OBJ_RED  = $001F
-BG_GREY  = $39CE
+OBJ_RED  = $001F                ; player colour (15-bit BGR: red)
+BG_GREY  = $39CE                ; terrain colour (15-bit BGR: grey)
 PX       = $32                  ; player x (pixels)
 PYF      = $34                  ; player y, 8.8 fixed (physics owns this)
 VY       = $36                  ; vertical velocity, signed 8.8
@@ -47,10 +59,13 @@ GROUNDED = $3A                  ; 1 = standing (physics owns this)
 PYI      = $3C                  ; draw-pixel mirror of PYF's high byte
 NEWX     = $3E                  ; horizontal move-check scratch
 MJ_I     = $46                  ; map-fill loop counter
-SPEED    = 2
+SPEED    = 2                    ; horizontal run step, px/frame
 
 .segment "CODE"
 
+; =============================================================================
+; INIT — interrupt vectors + one-time boot (RESET: uploads, PPU, terrain, boot)
+; =============================================================================
 NMI:
 .include "nmi_handler.asm"
 
@@ -72,8 +87,8 @@ RESET:
     ; --- terrain: tile 2 solid ---
     sf_tile_flags 2, SF_FLAG_SOLID
     rep #$30
-    .a16
-    .i16
+    .a16                        ; first width switch: 16-bit A/X/Y. .a16/.i16 tell
+    .i16                        ;   ca65 the CPU width so it sizes operands right
     stz MJ_I
 @ground:                        ; ground: row 26, full width (top px 208)
     mset #1, MJ_I, #26, #2
@@ -142,11 +157,15 @@ RESET:
     sep #$20
     .a8
     lda #$81
-    sta $4200                   ; NMI + auto-joypad on
+    sta $4200                   ; NMITIMEN: enable NMI (VBlank IRQ) + auto-joypad
     rep #$30
     .a16
     .i16
 
+; =============================================================================
+; MAIN LOOP — game_loop: horizontal move-check, jump on a fresh A press, then
+;             sf_physics_step owns the vertical axis. Once-per-frame.
+; =============================================================================
 game_loop:
     sf_frame_begin
 
@@ -206,6 +225,9 @@ no_jump:
     sf_frame_end
     jmp game_loop
 
+; =============================================================================
+; DATA — the terrain + sprite tile art (SNES 4bpp planar) and engine includes.
+; =============================================================================
 ; solid 8x8 4bpp tiles (all colour index 1)
 terrain_tile:
     .byte $FF,$00, $FF,$00, $FF,$00, $FF,$00

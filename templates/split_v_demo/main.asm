@@ -1,5 +1,5 @@
 ; =============================================================================
-; split_v_demo — minimal 2-player vertical dual-view (sf_split_v v1 demo rail)
+; split_v_demo — minimal 2-player vertical dual-view (the sf_split_v demo rail)
 ; =============================================================================
 ; Proves the vertical left/right window dual-view primitive: ONE shared
 ; scrolling stage rendered through TWO BG-layer cameras, clipped to the two
@@ -28,12 +28,22 @@
 ; COMPILE-TIME SWITCHES (the generic make rule can't pass -D):
 ;   -DNO_WINDOW=1  non-vacuity control: the window recipe is compiled out, so
 ;                  BG1 (camera A) fills the whole screen and the split COLLAPSES
-;                  — the D1 two-region signature must be ABSENT.
+;                  — the two-region split signature must be ABSENT (test control).
 ;   -DOBJ_CLIP=1   confine OBJ to the left half: the P1 marker straddling the
 ;                  seam is clipped and the right-half P2 marker vanishes.
 ;   -DAUTODEMO=1   self-running (no controller): holds the seam fixed at centre
 ;                  (a steady 50/50 split) and pans the two cameras independently
 ;                  (A right, B left) — the classic split-screen look.
+;
+; File layout (top to bottom, matching the major ; === banners below):
+;   INIT         RESET: upload the stage (BG1 CHR + shared tilemap), palette and
+;                marker tile, the split-window + coloured seam, camera/seam state.
+;   MAIN LOOP    game_loop — the once-per-frame heartbeat: read pads (or autodemo
+;                pan), move the two cameras + the seam, draw the two markers.
+;   DATA         landscape tiles, terrain height map, player-marker tile.
+;   SUBROUTINES  engine modules via .include (+ the HDMA pair under -DDIAGONAL).
+;
+; Frame loop: `game_loop` is the once-per-frame heartbeat — start reading there.
 ;
 ; Build:  make split_v_demo                 (default; window on, no OBJ clip)
 ;         bash templates/split_v_demo/build_split_v_variants.sh   (the -D ROMs)
@@ -42,6 +52,9 @@
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "SPLIT V DEMO"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"
 .include "sf_bg.inc"
@@ -83,6 +96,12 @@ NMI:
 NMI_STUB:
     rti
 
+; =============================================================================
+; INIT — one-time setup at RESET: upload the shared stage (BG1 CHR + tilemap,
+;        reused by BG2), palette + marker tile, the split-window + coloured seam,
+;        and the camera/seam state. VRAM/CGRAM writes are safe under the engine's
+;        boot forced blank until gfxmode turns the screen on.
+; =============================================================================
 RESET:
     sf_coldstart
     sf_engine_init
@@ -99,11 +118,11 @@ RESET:
     .a16
     .i16
     lda #$2010                  ; word $2000 + tile 1*16
-    sta $2116
+    sta $2116                   ; VMADD (VRAM word address): BG1 CHR, start at tile 1
     ldx #$0000
 @chr:
     lda f:solid_tiles, x
-    sta $2118
+    sta $2118                   ; VMDATA (VRAM data): write a CHR word; addr auto-advances
     inx
     inx
     cpx #(4*32)
@@ -223,11 +242,16 @@ RESET:
     sep #$20
     .a8
     lda #$81
-    sta $4200                   ; NMI + auto-joypad
+    sta $4200                   ; NMITIMEN: enable VBlank NMI + auto-joypad read
     rep #$30
     .a16
     .i16
 
+; =============================================================================
+; MAIN LOOP — game_loop: the once-per-frame heartbeat. sf_frame_begin waits for
+;   VBlank; then the body reads the pads (or, under -DAUTODEMO, pans the cameras
+;   on its own), moves the two cameras + the seam, and draws the two markers.
+; =============================================================================
 game_loop:
     sf_frame_begin
 
@@ -327,6 +351,10 @@ game_loop:
     sf_frame_end
     jmp game_loop
 
+; =============================================================================
+; DATA — landscape tiles, terrain height map, and the player-marker tile (ROM).
+; =============================================================================
+
 ; --- 4 solid 4bpp tiles, colour indices 1..4 (generated) --------------------
 solid_tiles:
 .repeat 4, I
@@ -351,6 +379,10 @@ player_tile:                    ; solid index 1, 8x8 (red via OBJ palette slot 1
     .byte $00,$00, $00,$00, $00,$00, $00,$00
     .byte $00,$00, $00,$00, $00,$00, $00,$00
 
+; =============================================================================
+; SUBROUTINES — engine modules pulled in by .include at the file end (the HDMA
+;   allocator + engine are added only for the -DDIAGONAL slanted-seam build).
+; =============================================================================
 .include "ppu_init.inc"
 .include "input_handler.asm"
 .include "dma_scheduler.asm"

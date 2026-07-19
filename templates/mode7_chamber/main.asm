@@ -1,38 +1,51 @@
 ; =============================================================================
-; mode7_chamber — Mode 7 "barrel chamber" effect demo (kit capability showcase)
+; mode7_chamber — Mode 7 "barrel chamber" effect demo (autonomous tech demo)
 ; =============================================================================
-; Assembles the rotating, barrel-curved Mode 7 chamber under a Mode 1 HUD band
-; with a brightness vignette — the four cooperating per-scanline HDMA writes a
-; debugger teardown + save-state extraction resolved (see the Mode 7 barrel
-; chamber recreation spec under docs/sprints/). CLEAN-ROOM: the stone art is
-; original placeholder art (assets/make_chamber.py); only the Mode 7 effect
-; TECHNIQUE is recreated, never any commercial-game content. The register values
-; (the barrel M7A table, the COLDATA vignette table, the BGMODE/TM split bytes)
-; are factual hardware configuration.
+; An autonomous Mode 7 tech demo: a stone-textured floor bows into a barrel and
+; rolls endlessly beneath a Mode 1 HUD band, darkened top and bottom by a
+; brightness vignette. It is a showcase for four cooperating per-scanline HDMA
+; effects layered over one Mode 7 plane — nothing is played, the motion drives
+; itself. CLEAN-ROOM: the stone art is original placeholder art
+; (assets/make_chamber.py); only the Mode 7 effect TECHNIQUE is recreated, never
+; any commercial-game content. The register values (the barrel M7A table, the
+; COLDATA vignette table, the BGMODE/TM split bytes) are factual hardware
+; configuration.
 ;
-; THE EFFECT (the SCV4 motion model — owner-corrected 2026-06-29):
+; Controls:  none — autonomous demo. The roll drives itself from an LFSR; the
+;            joypad is never read.
+;
+; File layout (major banners, top to bottom):
+;   INIT         — upload the map / palette under forced blank, arm the four HDMA
+;                  effects, turn Mode 7 on
+;   MAIN LOOP    — game_loop: advance the roll (surge/hold/reverse), scroll posy
+;   SUBROUTINES  — chamber_draw_peak, chamber_new_leg
+;   DATA         — the barrel curve, vignette + palette tables, the map blob
+;
+; game_loop is the once-per-frame heartbeat — start reading there.
+;
+; THE EFFECT (the "pipe" motion model — apparent rotation from a vertical roll):
 ;   1. NO rotation. The chamber is a "popsicle stick in a PVC pipe": the angle is
 ;      held CONSTANT and the floor texture ROLLS vertically (posy scrolls); the
 ;      apparent rotation is that scroll through the static barrel bow, NOT an
 ;      affine matrix. The roll runs in LEGS, each ONE direction and made of
 ;      NUM_HUMPS (3) SURGES: the speed rises smoothly to a randomised peak (hard-
-;      capped at half the former max), touches it momentarily, then drops QUICKLY
+;      capped at PEAK_CAP), touches it momentarily, then drops QUICKLY
 ;      (DECEL > ACCEL) toward a slow creep — speed up / slow down, 3 times. After
 ;      the surges the leg stops dead, holds ~0.5 s, then REVERSES. Forward and
 ;      reverse legs draw their surge peaks from SEPARATE LFSR streams, so each
 ;      direction has its own variance pattern. posy is a 16.8 accumulator advanced
 ;      by the signed velocity each frame and wrapped to the 1024px periodic map
 ;      (M7SEL wrap), so the roll is seamless.
-;   2. Per-scanline M7A barrel — sf_mode7_barrel arms the engine G1 hook; the
-;      captured $0100->$0180->$0100 curve bows the floor into a barrel (M7A
-;      carries the bow while M7B/C/D carry the spin).
+;   2. Per-scanline M7A barrel — sf_mode7_barrel arms the engine's per-scanline
+;      hook; the $0100->$0180->$0100 curve bows the floor into a barrel (M7A
+;      carries the bow while M7B/C/D hold the fixed orientation).
 ;   3. Dual-register mode-split — sf_mode7_modesplit drives BOTH $2105 (BGMODE
 ;      $09 Mode1 -> $07 Mode7) AND $212C (TM, HUD band -> floor) at scanline 32,
 ;      so the top band is a clean Mode 1 HUD strip above the Mode 7 floor.
 ;   4. COLDATA vignette — sf_mode7_vignette ramps $2132 0->8->0 (additive colour
 ;      math on) for depth: brightest through the middle, dark top/bottom.
 ;
-; HDMA CHANNEL ALLOCATION (G4 — distinct channels, NO collision):
+; HDMA CHANNEL ALLOCATION (distinct channels, NO collision):
 ;   CH0,CH1  reserved (hdma_alloc_init: VBlank bulk DMA)
 ;   CH2      BGMODE $2105 split   (sf_mode7_modesplit, direct, non-M7-owned)
 ;   CH3      TM     $212C split   (sf_mode7_modesplit, direct, non-M7-owned)
@@ -40,10 +53,10 @@
 ;   CH5,CH6  Mode 7 matrix AB/CD  (mode7_init pins; M7A barrel in the A column)
 ;   CH7      free
 ;
-; Done-condition (emulator-verifiable, tests/test_mode7_chamber.py):
+; What the emulator checks (tests/test_mode7_chamber.py):
 ;   - boots ("SFDB"); heartbeat advances; posy oscillates (the undulation)
-;   - the floor UNDULATES (posy rides a sine wave; the floor re-paints as the
-;     texture travels up and down — no rotation matrix, angle held constant)
+;   - the floor UNDULATES (posy rides the surge/hold cycle; the floor re-paints as
+;     the texture travels up and down — no rotation matrix, angle held constant)
 ;   - the floor BOWS (per-scanline M7A varies top->mid->bottom — barrel)
 ;   - a Mode 1 HUD band sits above the Mode 7 floor (clean, no smear)
 ;   - the vignette: the mid band is brighter than the top/bottom
@@ -57,6 +70,9 @@
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "BARREL CHAMBER"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic
 .include "sf_frame.inc"         ; sf_engine_init, sf_frame_begin/end
@@ -72,8 +88,8 @@ PV_S0_CHAMBER     = 320         ; far-scale (the chamber recedes)
 PV_S1_CHAMBER     = 64          ; near-scale
 ; PV_SH: vertical texel height. 0 = "derive" (square aspect) — but that leaves the
 ;   rows as VERTICALLY WIDE as possible. A large SH squashes the rows vertically
-;   (SA = SH / (S0*(L1-L0)/256) = SH/240 here), packing far more horizontal
-;   detail per screen — the SCV4 chamber's dense narrow rows. Measured: detail
+;   (SA = SH / (PV_S0*(L1-L0)/256) = SH/240 here), packing far more horizontal
+;   detail per screen — the chamber's dense narrow rows. Measured: detail
 ;   (visible rows) peaks ~SH 1440 (≈2x the baseline density); beyond that the
 ;   rows go sub-texel and just alias. This is THE "make the rows narrow" knob.
 PV_SH_CHAMBER     = 1440
@@ -82,7 +98,7 @@ PV_INTERP_CHAMBER = 1           ; true per-scanline matrix (no averaging) — fr
 PV_WRAP_CHAMBER   = 1
 FOCUS_Y_CHAMBER   = 128         ; rotation origin mid-floor
 
-; --- the mode-split bytes (configurable — G3). The captured chamber uses
+; --- the mode-split bytes (configurable). The captured chamber uses
 ;     $2105 $09->$07 and $212C $14->$17; the demo keeps the captured BGMODE
 ;     bytes and uses a clean OBJ-only HUD band ($10) so the top strip shows the
 ;     backdrop (no BG3 tilemap to author) over the BG1 floor ($11) below. ---
@@ -92,7 +108,7 @@ TM_TOP  = $10                   ; OBJ only -> the HUD band shows the backdrop, c
 TM_BOT  = $11                   ; BG1 + OBJ -> the Mode 7 floor
 SPLIT_Y = PV_L0_CHAMBER         ; the HUD/floor split scanline (32)
 
-; --- HDMA channels (the G4 allocation; distinct, no collision) ---
+; --- HDMA channels (distinct, no collision) ---
 CH_BGM  = 2
 CH_TM   = 3
 CH_COL  = 4
@@ -102,7 +118,7 @@ BGM_TABLE   = $7E0000 + $2010   ; 5 bytes
 TM_TABLE    = $7E0000 + $2018   ; 5 bytes
 VIGN_TABLE  = $7E0000 + $2020   ; CHAMBER_VIGNETTE_LEN bytes
 
-; --- the ROLL (the SCV4 "pipe" motion: NO rotation; the floor texture rolls
+; --- the ROLL (the "pipe" motion: NO rotation; the floor texture rolls
 ;     vertically through the static barrel bow — apparent rotation is the scroll).
 ;     Each "leg" rolls ONE direction and contains NUM_HUMPS surges: the speed
 ;     rises smoothly to a randomised peak, momentarily touches it, then drops
@@ -116,8 +132,8 @@ DECEL        = $0008            ; fall rate 8.8 (4x accel — "drop quickly")
 VFLOOR       = $0040            ; speed between surges (0.25 px/frame — keeps creeping)
 PEAK_MIN     = $0100            ; min surge peak (1.0 px/frame)
 PEAK_RNGMASK = $03FF            ; surge peak random span: PEAK_MIN + (dirRNG & this)
-PEAK_CAP     = $0400            ; surge peak HARD CAP = 4.0 px/frame (~half the old
-                                ;   ~8 px/frame max -> the "reduce max speed 50%")
+PEAK_CAP     = $0400            ; surge peak HARD CAP = 4.0 px/frame (the fastest a
+                                ;   surge is allowed to roll)
 NUM_HUMPS    = 3                ; surges per leg (speed up / slow down 3x per dir)
 HOLD_FRAMES  = 30               ; ~0.5 s dead-stop pause between legs (60 fps)
 RNG_SEED_F   = $A357            ; forward LFSR seed (the forward variance pattern)
@@ -152,6 +168,10 @@ NMI:
 NMI_STUB:
     rti
 
+; =============================================================================
+; INIT — power-on setup: upload the map + palette under forced blank, turn Mode 7
+; on, arm the four per-scanline HDMA effects, seed the roll, then screen + NMI on.
+; =============================================================================
 RESET:
     sf_coldstart                ; forced blank; WRAM/CGRAM/VRAM cleared
     sf_engine_init
@@ -165,12 +185,12 @@ RESET:
     .a8
     rep #$10
     .i16
-    stz $2121                   ; CGADD = 0
+    stz $2121                   ; CGADD (CGRAM address): start at colour 0
     ldx #$0000
 cpal_loop:
     .a8
     lda f:chamber_pal, x
-    sta $2122                   ; CGDATA (low then high byte, auto-pair)
+    sta $2122                   ; CGDATA (CGRAM data): write; low then high byte auto-pair
     inx
     cpx #(CHAMBER_PAL_COUNT * 2)
     bne cpal_loop
@@ -221,7 +241,7 @@ cpal_loop:
     ; the origin (cheap M7X/M7Y via sf_mode7_cam -> M7_DIRTY_ORIGIN), and never
     ; sets M7_DIRTY_REBUILD — so pv_rebuild/barrel_apply run exactly ONCE, here,
     ; and the barrel persists (the double-buffer never flips again). This is why
-    ; the undulation costs LESS than the old spin: no 10k-cycle rebuild per frame.
+    ; the undulation is cheap: the ~10k-cycle perspective rebuild runs only once.
     sep #$20
     .a8
     lda #$01
@@ -236,14 +256,17 @@ cpal_loop:
     sep #$20
     .a8
     lda #$0F
-    sta $2100                   ; INIDISP: bright 15, display on
+    sta $2100                   ; INIDISP (display control): brightness 15, blank off
     sta SHADOW_INIDISP          ; the NMI re-commits INIDISP from this shadow
     lda #$81
-    sta $4200                   ; NMI + auto-joypad
+    sta $4200                   ; NMITIMEN (interrupt enable): VBlank NMI + auto-joypad read
     rep #$30
     .a16
     .i16
 
+; =============================================================================
+; MAIN LOOP — game_loop runs once per frame: step the roll state machine (surge /
+; hold / reverse), apply the signed velocity to posy, re-anchor the Mode 7 origin.
 ; =============================================================================
 game_loop:
     .a16
@@ -379,6 +402,11 @@ game_loop:
     jmp game_loop
 
 ; =============================================================================
+; ============================== SUBROUTINES ==================================
+; chamber_draw_peak (next surge's random peak) + chamber_new_leg (reset a leg).
+; =============================================================================
+
+; =============================================================================
 ; chamber_draw_peak — HCUR = clamp(PEAK_MIN + (dirRNG & PEAK_RNGMASK), PEAK_CAP),
 ; stepping the LFSR that belongs to the CURRENT direction. Forward and reverse
 ; have SEPARATE streams (RNG_F / RNG_R), so each direction evolves its own
@@ -458,8 +486,11 @@ mode7_sin_lut:
 .include "mode7_hdma.asm"
 .include "mode7_engine.asm"
 
-; --- first-party data: the barrel curve + the COLDATA vignette (factual
-;     hardware register values; see assets/make_chamber_tables.py) ---
+; =============================================================================
+; DATA — first-party tables (factual hardware register values; see
+; assets/make_chamber_tables.py): the barrel curve + the COLDATA vignette + the
+; chamber palette, and below in BANK1, the 32KB Mode 7 chamber-map blob.
+; =============================================================================
 .segment "RODATA"
 .include "assets/chamber_tables.inc"
 .include "assets/chamber_palette.inc"

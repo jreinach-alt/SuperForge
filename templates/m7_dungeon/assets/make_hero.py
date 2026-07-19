@@ -1,108 +1,96 @@
 #!/usr/bin/env python3
-"""make_hero.py — a 16x16 hero OBJ for the m7_dungeon rail.
+"""make_hero.py — the m7_dungeon hero OBJ, converted from a CC0 pack sprite.
 
-The hero is an ARROW pointing UP (the tank-control "facing stays up" cue): the
-rendered frame shows the hero pinned screen-centre, nose up, while the floor
-rotates and scrolls under it. 4bpp planar CHR; 16x16 = 4 tiles at the hardware
-16x16 OBJ layout (top row tiles 0/1, bottom row tiles 16/17).
+Wave-D dressing: the hero is the dungeonSprites **knight** (a real hardware-scale
+pixel-art character), converted through the kit front door `tools/png2snes.py`
+(its recenter + <=15-colour palette + 4bpp VRAM-grid encoder are imported here so
+the conversion IS png2snes's), then emitted in the .inc shape main.asm already
+consumes (hero_chr / HERO_CHR_BYTES / hero_pal / HERO_TILE), so the ROM's CHR/pal
+load path is unchanged — only the pixels + palette change.
 
-Emits hero.inc (hero_chr + HERO_CHR_BYTES + hero_pal + HERO_PAL_COUNT + HERO_TILE).
-Regenerate (from the materialized kit root):
-    python3 templates/m7_dungeon/assets/make_hero.py
+Why the knight (not the S1 "top-down RPG character pack"): that pack
+(SNES_overworld_RPG_character_sprite_top-down_persp) is the converter's canonical
+REJECT fixture (AI art, 40 colours) — png2snes must reject it, so it cannot dress
+a rail. The knight is a cool/neutral steel+bone hero, kept distinct from the warm
+demon enemy and the warm brick walls for a clean color-band split.
+
+  cmd (equivalent CLI): png2snes.py sprite \\
+      art/dungeonSprites_v1.0/knight_/idle_/lIdle_0.png --size 16 --frames 0-0 \\
+      --name hero --out templates/m7_dungeon/assets/hero.inc
+  pack:  dungeonSprites_v1.0 — analogStudios_ (Kevin's Mom's House), the fantasy_ series
+  grant: CC0 (public domain; no attribution required) — see examples/itch_cc0/LICENSES.md
+
+Regenerate (from the materialized kit root, after unzipping the pack):
+    unzip -o -q examples/itch_cc0/dungeonSprites_v1.0.zip -d art/
+    PYTHONPATH=. python3 templates/m7_dungeon/assets/make_hero.py
 """
 from __future__ import annotations
+import importlib.util
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-
-# 16x16 arrow pointing up. '.' = transparent, '1' body, '2' outline, '3' nose.
-HERO = [
-    ".......33.......",
-    "......3223......",
-    ".....322223.....",
-    "....32222223....",
-    "...3222222223...",
-    "..322222222223..",
-    ".32221111122223.",
-    "3222211111222223",
-    "...2211111122...",
-    "...2111111112...",
-    "...2111111112...",
-    "...2111111112...",
-    "...2111111112...",
-    "...2111111112...",
-    "...2221111222...",
-    "....22222222....",
-]
+KIT_ROOT = HERE.parents[2]                     # templates/m7_dungeon/assets -> kit root
+SRC_PNG = KIT_ROOT / "art" / "dungeonSprites_v1.0" / "knight_" / "idle_" / "lIdle_0.png"
+NAME = "hero"
 
 
-def encode_tile_4bpp(rows, ox, oy):
-    out = bytearray(32)
-    for y in range(8):
-        p = [0, 0, 0, 0]
-        for x in range(8):
-            ch = rows[oy + y][ox + x]
-            v = 0 if ch == "." else int(ch, 16)
-            assert 0 <= v <= 15
-            for plane in range(4):
-                p[plane] |= ((v >> plane) & 1) << (7 - x)
-        out[y * 2 + 0] = p[0]
-        out[y * 2 + 1] = p[1]
-        out[16 + y * 2 + 0] = p[2]
-        out[16 + y * 2 + 1] = p[3]
-    return bytes(out)
+def _load_png2snes():
+    spec = importlib.util.spec_from_file_location(
+        "png2snes", str(KIT_ROOT / "tools" / "png2snes.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
-def bgr555(rgb):
-    r, g, b = rgb
-    return ((b >> 3) << 10) | ((g >> 3) << 5) | (r >> 3)
+def build_inc(name: str, src_png: Path) -> str:
+    p = _load_png2snes()
+    if not src_png.exists():
+        raise SystemExit(f"{src_png} not found — unzip the pack into art/ first "
+                         f"(see this file's header).")
+    img = p.load_rgba(src_png)
+    boxed, over = p.recenter(img, 16, "center")    # 24x24 pack frame -> 16x16 OBJ box
+    if over:
+        raise SystemExit(f"{src_png}: content {over} exceeds the 16x16 OBJ box.")
+    cols = p.opaque_colors(boxed)
+    if len(cols) > 15:
+        raise SystemExit(f"{src_png}: {len(cols)} colours > 15 (OBJ palette limit).")
+    pal_words, c2i = p.build_palette(cols)          # 16 words, idx0 transparent
+    rows = p.index_frame(boxed, c2i)                # 16 rows x 16 indices
 
-
-PAL = [
-    (0, 0, 0),          # 0 transparent
-    (90, 200, 255),     # 1 body (cyan)
-    (20, 40, 90),       # 2 outline (dark blue)
-    (255, 240, 120),    # 3 nose (yellow — points along facing)
-]
-
-
-def main():
-    assert len(HERO) == 16 and all(len(r) == 16 for r in HERO)
-    # 16x16 sprite VRAM layout: tile0=TL, tile1=TR, tile16=BL, tile17=BR.
-    # sf_load_obj_chr uploads a contiguous blob; the 16x16 OBJ reads its lower
-    # row 16 tiles later, so we upload 18 tiles (0..17) with tiles 2..15
-    # zero-filled. That keeps tile17 (=BR) at the right VRAM offset.
-    tiles = {
-        0: encode_tile_4bpp(HERO, 0, 0),
-        1: encode_tile_4bpp(HERO, 8, 0),
-        16: encode_tile_4bpp(HERO, 0, 8),
-        17: encode_tile_4bpp(HERO, 8, 8),
-    }
+    # 16x16 OBJ VRAM layout: tile0=TL, tile1=TR, tile16=BL, tile17=BR. Upload 18
+    # tiles (0..17) with 2..15 zero-filled so tile17 lands at the right VRAM offset
+    # (identical layout to the pre-dressing generator, so main.asm is unchanged).
+    def quad(ox, oy):
+        return p.encode_tile_4bpp([rows[oy + y][ox:ox + 8] for y in range(8)])
+    tiles = {0: quad(0, 0), 1: quad(8, 0), 16: quad(0, 8), 17: quad(8, 8)}
     blob = bytearray()
     for t in range(18):
         blob.extend(tiles.get(t, bytes(32)))
-    assert len(blob) == 18 * 32
 
     lines = [
-        "; hero.inc — GENERATED (make_hero.py). 16x16 up-arrow hero OBJ.",
+        f"; hero.inc — GENERATED ({Path(__file__).name}); DO NOT EDIT BY HAND.",
+        f"; cmd: png2snes.py sprite {src_png.relative_to(KIT_ROOT)} --size 16 "
+        f"--frames 0-0 --name {name} (re-emitted to the hero_chr/HERO_* contract)",
+        "; pack: dungeonSprites_v1.0 — analogStudios_ (Kevin's Mom's House)",
+        "; grant: CC0 (public domain, no attribution) — examples/itch_cc0/LICENSES.md",
         "HERO_TILE = 0",
         "hero_chr:",
     ]
     for i in range(0, len(blob), 16):
-        row = ", ".join(f"${b:02X}" for b in blob[i:i + 16])
-        lines.append(f"    .byte {row}")
+        lines.append("    .byte " + ", ".join(f"${b:02X}" for b in blob[i:i + 16]))
     lines.append(f"HERO_CHR_BYTES = {len(blob)}")
     lines.append("")
     lines.append("hero_pal:")
-    for rgb in PAL:
-        lines.append(f"    .word ${bgr555(rgb):04X}")
-    # pad to 16 colours
-    for _ in range(16 - len(PAL)):
-        lines.append("    .word $0000")
+    for w in pal_words:                              # 16 words (padded by build_palette)
+        lines.append(f"    .word ${w:04X}")
     lines.append("HERO_PAL_COUNT = 16")
     lines.append("")
-    (HERE / "hero.inc").write_text("\n".join(lines))
-    print(f"wrote hero.inc ({len(blob)} CHR bytes)")
+    return "\n".join(lines)
+
+
+def main() -> None:
+    (HERE / "hero.inc").write_text(build_inc(NAME, SRC_PNG))
+    print(f"wrote hero.inc (knight, from {SRC_PNG.name})")
 
 
 if __name__ == "__main__":

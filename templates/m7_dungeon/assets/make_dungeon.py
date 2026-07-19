@@ -35,13 +35,23 @@ from PIL import Image
 
 HERE = Path(__file__).resolve().parent
 
-# --- colours (RGB) ---
-FLOOR_A = (40, 44, 60)     # floor checker dark  -> reserved to CGRAM index 0
-FLOOR_B = (70, 78, 104)    # floor checker light (motion cue)
-WALL    = (180, 90, 60)    # solid wall (distinct warm colour)
-WALL_LT = (220, 140, 100)  # wall edge highlight (relief under rotation)
-GOAL    = (90, 210, 120)   # GOAL floor (distinct GREEN — reads as the destination)
-GOAL_LT = (150, 245, 180)  # GOAL highlight (checker light variant)
+# --- colours (RGB) — camelot-dungeon stone theme (Wave-D dressing) ------------
+# camelot_ ships CHARACTER sheets only (no tileset), so the painter AUTHORS the
+# stone texture; the palette evokes the pack's medieval-dungeon theme: cool
+# blue-grey flagstone floor, warm brown brick walls, a green exit. The 2-tone
+# checker is KEPT as the rotation MOTION CUE (the rail's whole point), enriched
+# with a third mortar/seam tone per surface for a flagstone/brick read.
+# Palette discipline: floor stays COOL (b>r) and DARK, walls stay WARM (r>b) and
+# below r=205 (so the demon enemy's bright orange r>=205 separates by brightness),
+# goal stays GREEN — a clean 4-way split floor/wall/enemy/hero. CGRAM idx0=FLOOR_A.
+FLOOR_A = (32, 40, 64)     # flagstone dark   -> reserved to CGRAM index 0
+FLOOR_B = (72, 92, 132)    # flagstone light  (motion cue)
+FLOOR_M = (52, 64, 96)     # flagstone mortar/seam (mid cool tone)
+WALL    = (144, 92, 60)    # brick body   (warm brown)
+WALL_LT = (184, 120, 84)   # brick face highlight (r<205, warm)
+WALL_MO = (104, 64, 44)    # brick mortar (dark warm seam)
+GOAL    = (88, 196, 116)   # GOAL floor (distinct GREEN — reads as the destination)
+GOAL_LT = (150, 232, 176)  # GOAL highlight (checker light variant)
 
 # =============================================================================
 # AUTHORED MAZE — a SHORT, SIMPLE maze on a logical CELL grid. Each char:
@@ -134,10 +144,19 @@ def cell_world_center(ch: str):
 
 
 def tile_color(tx: int, ty: int):
+    """Per-tile stone colour. The BOLD 2-tile checker (light/dark) is kept as the
+    rotation motion cue; a third mortar/seam tone is laid on a sparse diagonal so
+    the surfaces read as flagstone / brick without adding sub-tile detail that
+    would shimmer at Mode 7 scale (every colour is a whole 8px tile)."""
+    seam = ((tx + ty) & 3) == 0                      # sparse diagonal mortar/seam
     if is_wall(tx, ty):
+        if seam:
+            return WALL_MO                           # brick mortar joint
         return WALL_LT if not (tx & 1) or not (ty & 1) else WALL
     if is_goal(tx, ty):
         return GOAL_LT if ((tx >> 1) ^ (ty >> 1)) & 1 else GOAL
+    if seam:
+        return FLOOR_M                               # flagstone seam
     return FLOOR_B if ((tx >> 1) ^ (ty >> 1)) & 1 else FLOOR_A
 
 

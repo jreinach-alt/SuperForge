@@ -7,6 +7,9 @@
 ; state, all from the macro library. Adapt it: change the sprites, the control,
 ; what "catching" does.
 ;
+; Controls:
+;   D-pad   move the red player (up / down / left / right)
+;
 ; State (DP, main-thread DP=$0000): player $32/$34, dot $36/$38, score $3A,
 ; dot-index $3C. Sprites: slot 0 = player (OBJ palette 0, red), slot 1 = dot
 ; (OBJ palette 1, yellow) — slot order is set by spr_clear + the draw order.
@@ -18,12 +21,21 @@
 ;     (OAM slot 1 / $36,$38) jumps to the next preset; driving onto it again ->
 ;     score 2, dot at the following preset
 ;
+; File layout (top to bottom; the major === section banners):
+;   INIT       — RESET: palette + tile upload, PPU, start positions, boot
+;   MAIN LOOP  — game_loop, the once-per-frame heartbeat (read this first)
+;   DATA       — the sprite tile art, the dot presets, then the engine includes
+; game_loop is the frame heartbeat; start reading there to see the whole shape.
+;
 ; Build:  make sprite_game      (-> build/sprite_game.sfc)
 ; =============================================================================
 
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "DOT CHASER"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic
 .include "sf_video.inc"         ; sf_obj_color, sf_load_obj_tile
@@ -33,18 +45,21 @@
 .include "sf_collision.inc"     ; col_box (+ engine_api)
 .include "engine_state.inc"
 
-OBJ_RED    = $001F              ; 15-bit BGR
-OBJ_YELLOW = $03FF
-PLAYER_X   = $32
-PLAYER_Y   = $34
-DOT_X      = $36
-DOT_Y      = $38
-SCORE      = $3A
-DOT_IDX    = $3C
-SPEED      = 2
+OBJ_RED    = $001F              ; player colour (15-bit BGR)
+OBJ_YELLOW = $03FF              ; dot colour (15-bit BGR)
+PLAYER_X   = $32                ; player screen X (DP word)
+PLAYER_Y   = $34                ; player screen Y (DP word)
+DOT_X      = $36                ; dot screen X (DP word)
+DOT_Y      = $38                ; dot screen Y (DP word)
+SCORE      = $3A                ; catches so far (DP word)
+DOT_IDX    = $3C                ; which preset the dot sits on (0-3, DP word)
+SPEED      = 2                  ; player move step in pixels per frame
 
 .segment "CODE"
 
+; =============================================================================
+; INIT — interrupt vectors + one-time boot (RESET: uploads, PPU, start state)
+; =============================================================================
 NMI:
 .include "nmi_handler.asm"
 
@@ -60,7 +75,10 @@ RESET:
 
     jsr init_ppu
 
-    rep #$30
+    ; (.a16/.i16 track the CPU's register width for ca65 — the 65816 switches
+    ;  between 8- and 16-bit registers and the assembler must match the CPU so
+    ;  immediates are sized right; the first of several width blocks here.)
+    rep #$30                    ; go 16-bit: accumulator + index registers
     .a16
     .i16
     lda #120
@@ -80,11 +98,16 @@ RESET:
     sep #$20
     .a8
     lda #$81
-    sta $4200
+    sta $4200                   ; NMITIMEN (interrupt + joypad enable): turn on
+                                ;   the VBlank NMI (bit 7) and auto joypad read
+                                ;   (bit 0) so the loop's btn reads have data
     rep #$30
     .a16
     .i16
 
+; =============================================================================
+; MAIN LOOP — once per frame: read the d-pad, test the catch, draw both sprites
+; =============================================================================
 game_loop:
     sf_frame_begin
 
@@ -155,6 +178,9 @@ game_loop:
     sf_frame_end
     jmp game_loop
 
+; =============================================================================
+; DATA — the sprite tile art, the dot presets, then the engine includes
+; =============================================================================
 ; one solid 8x8 4bpp tile (all colour index 1)
 sprite_tile:
     .byte $FF,$00, $FF,$00, $FF,$00, $FF,$00

@@ -74,7 +74,8 @@ TESTROMS  := window_test col_box_test bg_scroll_test text_test col_map_test jump
              colormath_test bright_fade_test pal_cycle_test save_test \
              dialog_test mosaic_transition_test mode7_stream_test mode7_chamber_cycles_test persp_cycles_test \
              mode0_test mode1_test mode2_test mode3_test mode4_test mode5_test mode6_test \
-             obj_hud_test obj_hud_mode3_test opt_curve_test
+             obj_hud_test obj_hud_mode3_test opt_curve_test \
+             plat_cyc_base_test plat_cyc_parallax_test plat_cyc_fade_test
 
 # Audio-linked ROMs (different build shape: lorom_tad.cfg + the TAD objects)
 AUDIOROMS := audio_test
@@ -99,7 +100,7 @@ LINT_ASM := $(wildcard lib/macros/*.inc) $(wildcard examples/*/main.asm) \
             $(wildcard tests/*.asm) \
             $(wildcard templates/*/assets/*.inc) $(wildcard examples/*/assets/*.inc)
 
-.PHONY: all examples templates testroms test check width-check zp-check zp-baseline cleanroom-check provenance-check clean $(PROJECTS) $(TESTROMS)
+.PHONY: all examples templates testroms test check width-check zp-check zp-baseline cleanroom-check provenance-check clean $(PROJECTS) $(TESTROMS) $(AUDIOROMS)
 
 all: examples templates testroms audioroms
 
@@ -253,6 +254,12 @@ $(PROJECTS): %: build/%.sfc
 
 # Per-test-ROM phony aliases: `make mode0_test`, `make colormath_test`, etc.
 $(TESTROMS): %: build/%.sfc
+
+# Per-audio-ROM phony alias: `make audio_test` (same static-pattern form as
+# above). The ROM basename matches the kit-wide `make <name>` convention, so
+# following it no longer hits "No rule to make target 'audio_test'" — the
+# plural `make audioroms` still works too.
+$(AUDIOROMS): %: build/%.sfc
 
 # Projects live in examples/ or templates/; make picks whichever has the source.
 build/%.sfc: examples/%/main.asm $(ENGINE_DEPS)

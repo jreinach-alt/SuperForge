@@ -267,6 +267,22 @@ def _px(path, x, y):
     return Image.open(path).convert("RGB").load()[x, y]
 
 
+# --- OBJ palette colours the OBSEL-size bug leaks into the wrong place (make_rpg
+#     _assets.py OBJ_PAL): index 5 = the bright-yellow "!" glyph, index 6 = the
+#     cream sprite-text fill. Both are unique on the Mode 7 floor, so counting
+#     them in a region is a direct read of the rendered sprite (not a proxy). ---
+OBJ_YELLOW = (252, 232, 96)          # OBJ index 5 — the "!" indicator glyph
+OBJ_CREAM = (248, 248, 232)          # OBJ index 6 — the sprite-text glyph fill
+
+
+def _count_color(path, box, target, tol):
+    """Count screenshot pixels within `tol` of `target` inside box (x0,y0,x1,y1)."""
+    px = Image.open(path).convert("RGB").load()
+    x0, y0, x1, y1 = box
+    return sum(1 for y in range(y0, y1) for x in range(x0, x1)
+               if all(abs(px[x, y][i] - target[i]) <= tol for i in range(3)))
+
+
 def _is_sky(rgb):
     """A sky pixel: BLUE-DOMINANT (blue is the top channel, clearly above red,
     and the pixel is NOT green-dominant). The defining negative — the floor-in-sky
@@ -274,12 +290,13 @@ def _is_sky(rgb):
     which is green/tan-dominant and so is rejected here.
 
     HAZE-AWARE (overworld fog gradient): the static daytime haze SUBTRACTS the
-    racer's proven keyframes (TR=0,TG=6,TB=14) on BG1 + the backdrop, so the
-    CGRAM[0] sky (raw ~(99,156,231)) renders graded toward (99,115,123) near the
-    horizon — still blue-dominant, but no longer the bright b>150 of the un-hazed
-    backdrop. The old absolute thresholds (b>r+40, b>g+30, b>150) were written
-    against the un-hazed sky; this haze-aware form keeps the floor negative
-    control (green/tan smear → rejected) while accepting the graded blue sky."""
+    keyframes (TR=0,TG=6,TB=14) on BG1 + the backdrop, so the bright CGRAM[0]
+    daytime-blue backdrop (~(120,168,248), Wave-D sky pass) renders graded toward
+    ~(123,132,148) in the sampled band — clearly blue-dominant, but no longer the
+    bright b>150 of the un-hazed backdrop. The old absolute thresholds (b>r+40,
+    b>g+30, b>150) were written against a different backdrop; this haze-aware form
+    keeps the floor negative control (green/tan smear → rejected) while accepting
+    the graded blue sky."""
     r, g, b = rgb
     return b >= g and b > r + 15 and not (g > r + 15 and g > b + 15)
 
@@ -639,6 +656,20 @@ def test_overworld_avatar_visible_on_screen(runner):
         "no avatar pixels found in the 16x16 screen box at centre " \
         f"({AV_CENTER_X},{AV_CENTER_Y}) — the player is not visible on screen"
 
+    # NO phantom "!" in the 32x32 footprint the OBSEL bug rendered. The old scan
+    # above reads only the intended 16x16 box, so it passes whether the avatar is
+    # 16x16 or (wrongly) 32x32 — the phantom "!" leaks OUTSIDE that box, in the
+    # top-right of the 32x32 quad (~x=147). Count bright-yellow "!" pixels (OBJ
+    # index 5, unique on the green/tan Mode 7 floor) in that surround: a correct
+    # 16x16 avatar leaves it floor (zero yellow). On the pre-fix OBSEL=$62 ROM the
+    # avatar reads a 4x4 tile quad from base tile 5, pulling CHR tile 8 (the "!")
+    # into its corner — ~14 yellow pixels here — so this FAILS on the bug.
+    yellow = _count_color(p, (AV_CENTER_X + 16, AV_CENTER_Y,
+                              AV_CENTER_X + 32, AV_CENTER_Y + 18), OBJ_YELLOW, 40)
+    assert yellow < 4, \
+        f"phantom '!' pixels ({yellow}) in the avatar's 32x32 surround — OBSEL is " \
+        "rendering the 16x16 avatar as 32x32 (pulling CHR tile 8, the '!', in)"
+
 
 # =============================================================================
 # The CORE — Mode7 -> Mode1 -> Mode7 round-trip, asserted on shadow registers,
@@ -775,8 +806,9 @@ def test_battle_scene_also_swaps_and_returns(runner):
     """The third scene (BATTLE, Mode 1) is reachable from the overworld (START)
     and returns (A), proving the scene table + dispatch work for ALL THREE
     scenes. The battle renders a Mode-1 room visually distinct from the town
-    (blue field vs gray cobble). Reads SHADOW_BGMODE + the rendered screen.
-    State cycle: OW -> battle -> OW."""
+    (blue field vs gray cobble) AND a face-off tableau: the hero (OAM 0) on the
+    left and a distinct foe (OAM 1, H-flipped, OBJ palette 1) on the right. Reads
+    SHADOW_BGMODE + OAM + the rendered screen. State cycle: OW -> battle -> OW."""
     rom = BUILD / "rpg.sfc"
     runner.load_rom(str(rom), run_seconds=1.0)
     runner.run_frames(10)
@@ -787,9 +819,33 @@ def test_battle_scene_also_swaps_and_returns(runner):
     assert _u8(runner, SHADOW_BGMODE) == 0x09, "battle BGMODE not Mode 1"
     assert _u8(runner, M7_PV_ACTIVE) == 0, "Mode 7 still active in battle"
     assert _u8(runner, M7_OWNED_MASK) == 0x00, "CH5/6 not released in battle"
-    runner.take_screenshot(str(E2E / "rpg_4_battle.png"))
-    bt_g, bt_gray, bt_blue = _color_counts(E2E / "rpg_4_battle.png")
+    bp = E2E / "rpg_4_battle.png"
+    runner.take_screenshot(str(bp))
+    bt_g, bt_gray, bt_blue = _color_counts(bp)
     assert bt_blue > 400, f"battle field not a blue Mode 1 room (blue px={bt_blue})"
+
+    # The battle draws two COMBATANTS (not an empty room): the hero (OAM 0) on the
+    # left and a foe (OAM 1, H-flipped, OBJ palette 1) on the right, both 16x16.
+    # Assert the OAM entries AND the rendered pixels — a blue hero on the left, a
+    # RED foe on the right (the palette-1 recolour) — so the scene is not vacuous.
+    BATTLE_HERO_X, BATTLE_FOE_X, BATTLE_Y = 64, 176, 100    # main.asm battle layout
+    hx, hy, htile, _ = runner.read_bytes(OAM, 0, 4)
+    assert (hx, hy, htile) == (BATTLE_HERO_X, BATTLE_Y, 5), \
+        f"battle hero OAM wrong: ({hx},{hy},tile{htile})"
+    fx, fy, ftile, fattr = runner.read_bytes(OAM, 4, 4)
+    assert (fx, fy, ftile) == (BATTLE_FOE_X, BATTLE_Y, 5), \
+        f"battle foe OAM wrong: ({fx},{fy},tile{ftile})"
+    assert fattr & 0x40, "battle foe is not H-flipped (should face the hero)"
+    px = Image.open(bp).convert("RGB").load()
+    hero_blue = sum(1 for y in range(BATTLE_Y, BATTLE_Y + 18)
+                    for x in range(BATTLE_HERO_X, BATTLE_HERO_X + 16)
+                    if px[x, y][2] > 150 and px[x, y][2] > px[x, y][1] + 40)
+    foe_red = sum(1 for y in range(BATTLE_Y, BATTLE_Y + 18)
+                  for x in range(BATTLE_FOE_X, BATTLE_FOE_X + 16)
+                  if px[x, y][0] > 110 and px[x, y][0] > px[x, y][1] + 50
+                  and px[x, y][0] > px[x, y][2] + 40)
+    assert hero_blue > 20, f"hero not rendered blue on the left (blue px={hero_blue})"
+    assert foe_red > 3, f"foe not rendered red on the right (red px={foe_red})"
 
     _tap(runner, a=True)
     assert _state(runner) == SC_OVERWORLD, "A did not return from battle"
@@ -1194,7 +1250,19 @@ def test_npc_no_floating_prompt_when_far_or_adjacent(runner):
         f"OAM slot 1 rendered while adjacent — a floating prompt leaked: y={ny} (want 240)"
     # the avatar is still on-screen at centre
     assert _oam4(runner, 0)[:2] == (AV_CENTER_X, AV_CENTER_Y), "avatar not centred while adjacent"
-    runner.take_screenshot(str(E2E / "rpg_s2_adjacent_no_prompt.png"))
+    adj = E2E / "rpg_s2_adjacent_no_prompt.png"
+    runner.take_screenshot(str(adj))
+    # RENDERED check: the slot-1 OAM cull above is a proxy for "no floating '!'",
+    # but the "!" the OBSEL bug actually shows comes from the AVATAR being drawn
+    # 32x32 (not from slot 1). Read the framebuffer: count bright-yellow "!" pixels
+    # (OBJ index 5) in the avatar's 32x32 surround. Zero on a correct 16x16 avatar;
+    # ~14 when OBSEL renders it 32x32 and pulls CHR tile 8 in — so this FAILS on
+    # the pre-fix ROM the OAM-only asserts pass right past.
+    yellow = _count_color(adj, (AV_CENTER_X + 16, AV_CENTER_Y,
+                                AV_CENTER_X + 32, AV_CENTER_Y + 18), OBJ_YELLOW, 40)
+    assert yellow < 4, \
+        f"a phantom '!' rendered beside the hero ({yellow} yellow px) while adjacent " \
+        "— the avatar is drawn 32x32 (OBSEL), pulling the '!' glyph into its corner"
 
 
 def test_npc_full_interaction_cycle(runner):
@@ -1278,6 +1346,19 @@ def test_npc_sprite_text_pixels_render_on_screen(runner):
                 cream += 1
     assert cream > 10, \
         f"no sprite-text glyph pixels rendered in the strip box (cream px={cream})"
+
+    # RENDERED clean-strip check: the cream census above passes even when the
+    # glyphs render 16x16 (the OBSEL bug) — the letters are just mashed together.
+    # The tell is the 4th cell (the 2nd 'L', sprite at x=120): a clean 8x8 'L' has
+    # a TRANSPARENT top-right (floor shows through), but at 16x16 the sprite reads
+    # a 2x2 CHR quad and overlays the next tile ('O') there, painting cream where
+    # floor should be. Count cream in that should-be-transparent corner: ~0 for a
+    # clean 8x8 strip, ~13 on the pre-fix ROM — so this FAILS on the bug that the
+    # OAM-tile and gross cream-census asserts pass right past.
+    corner_cream = _count_color(p, (123, 76, 128, 84), OBJ_CREAM, 24)
+    assert corner_cream < 4, \
+        f"the HELLO strip is garbled ({corner_cream} cream px overlay the 2nd 'L'): " \
+        "OBSEL is rendering the 8x8 glyphs as 16x16 and compositing neighbouring CHR"
 
 
 # =============================================================================

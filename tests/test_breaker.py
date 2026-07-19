@@ -23,7 +23,10 @@ Geometry (from templates/breaker/main.asm):
   debug:  $E010 score (10/brick), $E012 balls, $E014 bricks left,
           $E016 state (0=wait 1=play 2=game-over 3=win)
 """
+import math
+import struct
 import time
+import wave
 from pathlib import Path
 
 import pytest
@@ -60,9 +63,18 @@ _GREY = lambda p: 90 < p[0] < 180 and 90 < p[1] < 180 and 90 < p[2] < 180
 
 @pytest.fixture(scope="module")
 def runner():
-    r = MesenRunner()
+    r = MesenRunner(enable_audio=True)   # audio on: the blip tests record WAV
     yield r
     r.stop()
+
+
+def _wav_peak(path):
+    """Max |sample| in a WAV — a blip registers as a nonzero peak."""
+    w = wave.open(str(path))
+    n = w.getnframes()
+    s = struct.unpack(f"<{n * w.getnchannels()}h", w.readframes(n))
+    w.close()
+    return max(abs(x) for x in s) if s else 0
 
 
 def _rom():
@@ -124,6 +136,23 @@ def _read_hud_u16(r, col):
         word = w[0] | (w[1] << 8)
         digits += chr(((word & 0x3FF) - 160 + 0x20) & 0x7F)
     return digits
+
+
+def _read_hud_char(r, col):
+    """Decode ONE printed glyph at BG3 row 1, tile column `col`."""
+    w = r.read_bytes(VR, BG3_MAP + (1 * 32 + col) * 2, 2)
+    word = w[0] | (w[1] << 8)
+    return chr(((word & 0x3FF) - 160 + 0x20) & 0x7F)
+
+
+def _assert_balls_digit(r, expect):
+    """BALLS is a single digit at col 26, with cols 27-30 blank (never the
+    zero-padded '0000N' that reads like a score)."""
+    assert _read_hud_char(r, 26) == expect, \
+        f"BALLS digit {expect!r} at col 26, got {_read_hud_char(r, 26)!r}"
+    for c in range(27, 31):
+        assert _read_hud_char(r, c) not in "0123456789", \
+            f"BALLS trails a stale digit at col {c} (should be blank)"
 
 
 def _paddle_x(r):
@@ -190,7 +219,7 @@ def test_boots_field_rendered(runner):
         w = runner.read_bytes(VR, BG3_MAP + (1 * 32 + 1 + i) * 2, 2)
         assert w[0] | (w[1] << 8) == _bg3_glyph(ch), f"HUD glyph {ch!r}"
     assert _read_hud_u16(runner, 7) == "00000"
-    assert _read_hud_u16(runner, 26) == "00003"
+    _assert_balls_digit(runner, "3")
 
     # OAM: paddle centred (slot 0 x=116), ball riding it (slot 3, +8 / y192)
     assert _paddle_x(runner) == 116
@@ -374,8 +403,8 @@ def test_lose_ball_returns_to_wait(runner):
     bx, by = _ball(runner)
     assert by == 192 and bx == _paddle_x(runner) + 8, \
         "ball not riding the paddle after the loss"
-    # BALLS HUD counter reprinted on BG3
-    assert _read_hud_u16(runner, 26) == "00002"
+    # BALLS HUD counter reprinted on BG3 (single digit, not zero-padded)
+    _assert_balls_digit(runner, "2")
     # "PRESS A" prompt rendered in the message band
     img = _shot(runner)
     msg = _blob_centroid(img, _WHITE, y_min=124, y_max=142)
@@ -406,6 +435,12 @@ def test_full_cycle_game_over_restart(runner):
     assert d["state"] == 2, f"never reached GAME OVER ({d}, {frames} frames)"
     assert d["balls"] == 0
     assert {2, 1, 0} <= balls_seen, "ball count did not step down through 2,1,0"
+
+    # the dead ball is parked offscreen (OAM slot 3 Y >= 0xE0), not frozen
+    # mid-flight on the GAME OVER screen
+    runner.run_frames(2)
+    assert runner.read_bytes(OAM, 12, 4)[1] >= 0xE0, \
+        "ball not parked offscreen in GAME OVER"
 
     # GAME OVER / PRESS START rendered: white pixels in the message band
     img = _shot(runner)
@@ -457,6 +492,12 @@ def test_win_full_clear_renders_you_win(runner):
         assert d["balls"] == 3, "bot lost a ball on the way to the win"
         assert d["score"] == BRICK_TOTAL * 10, f"score {d['score']} != 1800"
 
+        # the winning ball is parked offscreen (OAM slot 3 Y >= 0xE0), not
+        # frozen mid-flight over the WIN card
+        runner.frame_step(2)
+        assert runner.read_bytes(OAM, 12, 4)[1] >= 0xE0, \
+            "ball not parked offscreen on the WIN screen"
+
         # the printed HUD score counter shows 1800 (BG3 VRAM glyphs)
         assert _read_hud_u16(runner, 7) == "01800"
 
@@ -474,3 +515,84 @@ def test_win_full_clear_renders_you_win(runner):
         )
         assert band >= 60, "'YOU WIN!' text not rendered on screen"
     # context manager restored free-running for any test that follows
+
+
+# ---------------------------------------------------------------------------
+# audio: the rail shipped SILENT (no LDCFG sentinel, so the TAD objects were
+# never linked, and no audio calls). It now wires TAD and blips every gameplay
+# event. Assert RECORDED audio energy (WAV peak), not a status var — a broken
+# link or driver handshake passes any WRAM read and fails exactly here. (The
+# old build measured a flat peak=0 over an identical rally.)
+# ---------------------------------------------------------------------------
+
+def test_audio_blips_during_rally(runner, tmp_path):
+    runner.load_rom(_rom(), run_seconds=0.5)
+    assert runner.read_bytes(WR, 0xE000, 4) == b"SFDB"
+    # a beat of WAIT with no input must stay quiet (proves the peak below is
+    # the blips, not idle driver hum)
+    idle = tmp_path / "idle.wav"
+    runner.start_audio_recording(str(idle))
+    runner.run_frames(30)
+    runner.stop_audio_recording()
+    assert _wav_peak(idle) < 200, "idle WAIT is not silent — cannot attribute blips"
+
+    _tap(runner, a=True)                        # launch
+    rally = tmp_path / "rally.wav"
+    runner.start_audio_recording(str(rally))
+    deadline = time.time() + 8
+    while time.time() < deadline and runner.read_u16(WR, DBG_STATE) == 1:
+        _bot_step(runner)
+    runner.set_input(0)
+    runner.stop_audio_recording()
+    broke = BRICK_TOTAL - runner.read_u16(WR, DBG_BRICKS)
+    assert broke >= 1, "rally broke no bricks — cannot judge the blips"
+    peak = _wav_peak(rally)
+    assert peak > 800, f"bounce/brick blips silent (WAV peak={peak})"
+
+
+def test_audio_ball_lost_blip(runner, tmp_path):
+    runner.load_rom(_rom(), run_seconds=0.5)
+    _tap(runner, frames=120, left=True)         # park paddle at the left wall
+    _tap(runner, a=True)                         # launch; the ball misses on descent
+    wav = tmp_path / "lost.wav"
+    runner.start_audio_recording(str(wav))
+    deadline = time.time() + 30
+    while time.time() < deadline and runner.read_u16(WR, DBG_BALLS) == 3:
+        runner.run_frames(6)
+    runner.run_frames(20)                        # capture the blip tail
+    runner.stop_audio_recording()
+    assert runner.read_u16(WR, DBG_BALLS) == 2, "ball never fell past the paddle"
+    peak = _wav_peak(wav)
+    assert peak > 800, f"ball-lost blip silent (WAV peak={peak})"
+
+
+# ---------------------------------------------------------------------------
+# title card: WAIT shows a persistent "BRICK BUSTER" with a blinking "PRESS A".
+# The state machine is unchanged, so A still launches (the launch tests hold).
+# ---------------------------------------------------------------------------
+
+def _band_white(img, y0, y1):
+    return sum(1 for x in range(img.width) for y in range(y0, y1)
+               if _WHITE(img.getpixel((x, y))))
+
+
+def test_title_card_blinks_press_a(runner):
+    runner.load_rom(_rom(), run_seconds=0.5)
+    assert _dbg(runner)["state"] == 0
+    a_seen = a_gone = False
+    title_min = 10_000
+    for _ in range(10):                     # ~80 frames = >1 full blink period
+        runner.run_frames(8)
+        img = _shot(runner)
+        press_a = _band_white(img, 126, 140)     # PRESS A row (pixel y=128)
+        title = _band_white(img, 110, 122)       # BRICK BUSTER row (pixel y=112)
+        a_seen = a_seen or press_a > 20
+        a_gone = a_gone or press_a == 0
+        title_min = min(title_min, title)
+    assert a_seen, "PRESS A never rendered on the title card"
+    assert a_gone, "PRESS A never blinked off"
+    assert title_min > 20, "BRICK BUSTER title not persistent through the blink"
+    # the state machine is untouched: A still launches WAIT -> PLAY
+    _tap(runner, a=True)
+    runner.run_frames(10)
+    assert _dbg(runner)["state"] == 1, "A no longer launches from the title card"

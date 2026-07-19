@@ -34,7 +34,18 @@
 ; set to $62 (name base word $4000, 16x16/32x32 size pair) and the CHR
 ; uploads at word $4000. OBJ rendering itself is mode-independent.
 ;
-; Controls: B = accelerate, LEFT/RIGHT = steer. No button = coast to a stop.
+; Controls: B = accelerate, LEFT/RIGHT = steer, START = pause/unpause.
+; No button = coast to a stop.
+;
+; File layout (the section banners below, in order):
+;   INIT             — NMI vector, cold boot, uploads, effect arm, screen-on
+;   MAIN LOOP        — the once-per-frame heartbeat; START READING AT game_loop
+;   SUBROUTINES      — game helpers (day-night machine, sky split), then the
+;                      engine modules the macros JSR into
+;   DATA             — perspective LUT, first-party assets, the track blob
+;
+; game_loop is the once-per-frame heartbeat: input -> physics -> camera ->
+; draw -> effects, bracketed by sf_frame_begin/sf_frame_end.
 ;
 ; Tuning (override by defining before .include, or just edit):
 ;   ACCEL      speed gained per frame holding B   (8.8; default $0010)
@@ -52,23 +63,32 @@
 ;   - steering LEFT and RIGHT changes the angle byte and the rendered view
 ;
 ; Build:  make racer   (the generic templates rule reads the LDCFG sentinel below)
-; LDCFG: lorom_64k.cfg
-;   ^ Linker-config sentinel (GAP-2): 64KB image, the 32KB Mode 7 track-map blob
-;     fills BANK1. The generic build/%.sfc rule reads this and links lorom_64k.cfg
-;     instead of the default lorom.cfg; copy-to-adapt keeps the line, no Makefile
-;     edit needed. (See docs/guides/adapting_a_rail.md.)
+; LDCFG: lorom_tad_m7.cfg
+;   ^ Linker-config sentinel: this ROM needs BOTH a dedicated 32KB bank for
+;     the Mode 7 track-map blob (BANK1) and the TAD audio banks (driver +
+;     compiled song set). The generic build/%.sfc rule reads this line and
+;     links lorom_tad_m7.cfg instead of the default lorom.cfg — a *_tad*.cfg
+;     name also links the TAD audio objects and adds the audio include path.
+;     Copy-to-adapt keeps the line; no Makefile edit needed. (See
+;     docs/guides/adapting_a_rail.md.)
 ; =============================================================================
 
 .p816
 .smart
 
+; ROM header title (opt-in; see infrastructure/rom_template/header.inc)
+.define SF_HDR_TITLE "NITRO RACER"
+SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "sf_core.inc"          ; sf_coldstart, sf_debug_magic
 .include "sf_frame.inc"         ; sf_engine_init, sf_frame_begin/end
 .include "sf_video.inc"         ; sf_load_obj_chr, sf_load_obj_pal
 .include "sf_sprite.inc"        ; spr, spr_clear
 .include "sf_mode7.inc"         ; the Mode 7 macro group
-.include "sf_fx.inc"            ; gradient + color math + palette cycle (S6)
+.include "sf_fx.inc"            ; gradient + color math + palette cycle
+.include "tad-audio.inc"        ; TAD driver ca65 API (the vendored audio driver)
+.include "tad_audio_enums.inc"  ; Song:: / SFX:: ids for the shipped song set
+.include "sf_audio.inc"         ; sf_audio_init / sf_audio_tick / sf_music
 .include "engine_state.inc"
 
 ; --- tuning (assemble-time) ---
@@ -80,6 +100,12 @@ DECEL = $0008                   ; 8.8: -0.03 px/f per frame coasting
 .endif
 .ifndef SPEED_CAP
 SPEED_CAP = $0300               ; 8.8: 3 px/frame top speed
+.endif
+.ifndef GRASS_CAP
+GRASS_CAP = $00C0               ; 8.8: off-road crawl speed (0.75 px/frame)
+.endif
+.ifndef OFFROAD_DRAG
+OFFROAD_DRAG = $0038            ; 8.8: speed bled per frame while on grass
 .endif
 
 ; --- the racing-camera parameter set (arcade kart-racer forward view) ---
@@ -93,7 +119,14 @@ PV_L1_RACING     = 224          ; bottom scanline
 PV_S0_RACING     = 576          ; far-scale (long forward view; bigger = see further)
 PV_S1_RACING     = 28           ; near-scale (texel step at the bottom)
 PV_SH_RACING     = 16           ; vertical squash (road aspect)
-PV_INTERP_RACING = 2
+PV_INTERP_RACING = 4            ; compute every 4th scanline, lerp between.
+                                ;   The budget knob that keeps steering at 60fps:
+                                ;   a rebuild at this trapezoid measures 245,779
+                                ;   master clocks (interp 4) vs 293,612 (interp 2)
+                                ;   on the emulator, and the rendered frames are
+                                ;   indistinguishable here (3% of pixels differ,
+                                ;   all sub-texel edge jitter) — this ramp is too
+                                ;   gentle for the lerp to show.
 PV_WRAP_RACING   = 1
 FOCUS_Y_RACING   = 200          ; car planted low under the higher horizon
 
@@ -109,16 +142,17 @@ VEHICLE_BASE = 0
 ; --- joypad masks (JOY1_CURRENT bit layout) ---
 JOY_RIGHT = $0100
 JOY_LEFT  = $0200
+JOY_START = $1000
 JOY_B     = $8000
 
 ; --- sky TM-split (see arm_sky_split) ---
 ; A 5-byte $212C HDMA table in free low WRAM ($7E:2010): BG1 off above the
 ; horizon (so the CGRAM[0] sky backdrop shows), BG1+OBJ on below it.
 SKY_SPLIT_TABLE = $7E0000 + $2010
-SKY_HORIZON     = PV_L0_RACING          ; scanline where the floor begins (96)
+SKY_HORIZON     = PV_L0_RACING          ; scanline where the floor begins (56)
 
 ; =============================================================================
-; Day-night cycle (S6 M3b) — the owner's signature look on the Mode 7 rail.
+; Day-night cycle — the signature look on the Mode 7 rail.
 ; =============================================================================
 ; Two effects compose it:
 ;
@@ -141,13 +175,15 @@ SKY_HORIZON     = PV_L0_RACING          ; scanline where the floor begins (96)
 ;    Verified at runtime: $7E:E012 holds the first gradient channel
 ;    (expect 3).
 ;
-; 2. PALETTE-CYCLE ACCENT — CGRAM entries 2 (white: stripes + start line),
-;    3 (rumble red), 4 (road checker gray B) rotate right every
-;    PALCYC_SPEED frames: kerbs and the start line strobe red/white/gray
-;    like trackside lights. Per the sf_fx.inc contract the three entries
-;    are fed through sf_pal (shadow + dirty); sf_pal_cycle_tick commits the
-;    dirty range only, so the rest of the direct-uploaded track palette is
-;    untouched.
+; 2. PALETTE-CYCLE ACCENT — CGRAM entries 2 (kerb white) and 3 (kerb red)
+;    swap every PALCYC_SPEED frames: the rumble stripes at the road edges
+;    flash red/white like trackside lights. ONLY the kerb pair cycles — the
+;    road checker and the start line own dedicated CGRAM indices that never
+;    rotate (make_track.py authors the start-line white one RGB step off the
+;    kerb white precisely so the converter gives it its own index). Per the
+;    sf_fx.inc contract the two entries are fed through sf_pal (shadow +
+;    dirty); sf_pal_cycle_tick commits the dirty range only, so the rest of
+;    the direct-uploaded track palette is untouched.
 ;
 ; Phase machine (R_TODPH): DAY(0) -> TO_NIGHT(1) -> NIGHT(2) -> TO_DAY(3).
 ; Holds last TOD_HOLD frames; blends last TOD_BLEND frames, stepping six
@@ -206,8 +242,16 @@ R_GTB    = $52                  ;   between the DAY_*/NIGHT_* keyframes
 R_GBR    = $54
 R_GBG    = $56
 R_GBB    = $58
+R_PVPH   = $5A                  ; perspective-rebuild pacing: 0 = idle,
+                                ;   1 = a rebuild's finish half runs this frame
+R_SURF   = $5C                  ; off-road probe scratch: map byte offset
+R_PAUSE  = $5E                  ; pause: 0 = racing, 1 = frozen (START toggles)
 
 .segment "CODE"
+
+; =============================================================================
+; INIT — NMI vector, cold boot, uploads, effect arm, screen-on
+; =============================================================================
 
 NMI:
 .include "nmi_handler.asm"      ; pulls mode7_nmi.inc (M7SEL/M7X/M7Y commit)
@@ -219,13 +263,19 @@ RESET:
     sf_coldstart                ; forced blank; WRAM/CGRAM/VRAM cleared
     sf_engine_init
     jsr hdma_alloc_init         ; allocator baseline (reserves CH0/CH1)
+    sf_audio_init               ; boot the S-SMP + TAD driver ONCE, before NMI
+                                ;   is enabled (the SPC700 must still be in
+                                ;   its IPL state for the synchronous upload)
 
     ; --- track upload (under the coldstart forced blank) ---
     sf_mode7_load_map track_map, #$8000
 
     ; track palette -> CGRAM 0.. (the floor's colors)
     sep #$20
-    .a8
+    .a8                         ; the 65816 switches the accumulator between
+                                ;   8- and 16-bit; .a8/.a16 marks tell the
+                                ;   assembler (and the reader) which mode the
+                                ;   CPU is in — a mismatch corrupts silently
     rep #$10
     .i16
     stz $2121                   ; CGADD = 0
@@ -306,14 +356,16 @@ tpal_loop:
     lda #$0000
     sta f:$7E0000 + $E014, x    ; debug: phase mirror = DAY
 
-    ; --- palette-cycle accent: stripes / start line / road checker ---
-    ; Feed the cycled range through the shadow path (sf_pal — values
+    ; --- palette-cycle accent: the kerb rumble stripes ONLY ---
+    ; Feed the cycled pair through the shadow path (sf_pal — values
     ; byte-identical to track_pal, so the first tick's commit is seamless),
-    ; then arm the rotation: entries 2..4, one step every PALCYC_SPEED frames.
-    sf_pal #2, #29, #29, #29    ; entry 2 = white ($77BD)
-    sf_pal #3, #26, #5,  #5     ; entry 3 = stripe red ($14BA)
-    sf_pal #4, #13, #13, #14    ; entry 4 = road gray B ($39AD)
-    sf_pal_cycle #2, #3, #PALCYC_SPEED
+    ; then arm the rotation: entries 2..3, one swap every PALCYC_SPEED
+    ; frames. The road checker (entries 4..5) and the start line (6..7)
+    ; sit OUTSIDE the cycled range and hold still — cycling them once made
+    ; ~40% of the screen strobe.
+    sf_pal #2, #29, #29, #29    ; entry 2 = kerb white ($77BD)
+    sf_pal #3, #26, #5,  #5     ; entry 3 = kerb red ($14BA)
+    sf_pal_cycle #2, #2, #PALCYC_SPEED
 
     ; --- Mode 7 on + the racing camera ---
     sf_mode7_on
@@ -328,14 +380,21 @@ tpal_loop:
     stz R_POSY + 0
     stz R_ANGLE
     stz R_SPEED
+    stz R_PVPH                  ; no rebuild in flight
+    stz R_PAUSE                 ; racing (START toggles the freeze)
     sf_mode7_cam R_POSX + 2, R_POSY + 2, R_ANGLE
 
-    sf_mode7_tick               ; first table build BEFORE screen-on
+    sf_mode7_tick               ; first table build BEFORE screen-on (one-shot:
+                                ;   under forced blank the frame budget is moot)
 
     jsr arm_sky_split           ; CH2 TM-split: reveal the sky above the horizon
 
     spr_clear
     sf_debug_magic
+
+    ; --- race music (asynchronous: the song streams to the SPC700 over the
+    ; game loop's sf_audio_ticks; ~10-60 frames until it audibly starts) ---
+    sf_music #Song::gimo_297
 
     ; --- screen on + NMI on ---
     sep #$20
@@ -350,9 +409,39 @@ tpal_loop:
     .i16
 
 ; =============================================================================
+; MAIN LOOP — the once-per-frame heartbeat
+; =============================================================================
+; (Branch targets in this loop are plain labels, not @-locals: every sf_
+; macro invocation emits labels of its own, which ends a ca65 cheap-local
+; scope — an @label defined before a macro call can't be referenced after
+; it.)
 game_loop:
     .a16
     sf_frame_begin              ; wait for the NMI; latch input
+    sf_audio_tick               ; pump TAD every frame (streams the song load
+                                ;   + the command queue; skip it and the
+                                ;   SPC700 never hears anything)
+
+    ; ---------------- pause: START freezes the race -------------------------
+    ; Rising-edge toggle from the engine's per-frame pressed latch (stable
+    ; for exactly one frame after sf_frame_begin). While paused, the frame
+    ; bracket and the audio pump keep running (music plays on) but the whole
+    ; per-frame body is skipped: the shadow OAM keeps last frame's sprites,
+    ; the palette cycle and day-night clock stop, the camera holds — a true
+    ; freeze-frame. Any in-flight perspective rebuild resumes on unpause.
+    lda JOY1_PRESSED_LATCH
+    bit #JOY_START
+    beq pz_no_toggle
+    lda R_PAUSE
+    eor #$0001
+    sta R_PAUSE
+pz_no_toggle:
+    .a16
+    lda R_PAUSE
+    beq pz_run
+    jmp game_heartbeat          ; paused: only the heartbeat + frame end run
+pz_run:
+    .a16
 
     ; ---------------- steering: LEFT/RIGHT rotate 1/256 turn per frame ------
     ; (also selects the kart's draw frame: lean toward the turn)
@@ -457,9 +546,154 @@ th_done:
     .a16
     .i16
 
-    ; ---------------- camera + Mode 7 service --------------------------------
+    ; ---------------- off-road: grass drags the kart ------------------------
+    ; The track is not just paint — the Mode 7 map doubles as the collision
+    ; ground truth. The camera's integer position picks the map tile under
+    ; the kart: tilemap byte offset = (tile_y * 128 + tile_x) * 2, because
+    ; the committed blob interleaves tilemap bytes at even offsets (that IS
+    ; the Mode 7 VRAM word layout). The generated track_surface table then
+    ; classifies the tile; above a crawl on grass, speed bleeds off fast —
+    ; cutting the circuit costs time. (Reads the ROM copy of the map, not
+    ; VRAM: VRAM is unreadable outside blanking, the ROM blob is identical.)
+    lda R_POSY + 2
+    and #$03F8                  ; y & ~7  =  tile row * 8
+    asl
+    asl
+    asl
+    asl
+    asl                         ; * 32 -> tile row * 256 = the row's byte offset
+    sta R_SURF
+    lda R_POSX + 2
+    and #$03F8                  ; x & ~7  =  tile col * 8
+    lsr
+    lsr                         ; / 4 -> tile col * 2 = byte offset in the row
+    ora R_SURF                  ; row bits (>= 256) and col bits (< 256) are
+                                ;   disjoint, so OR composes the full offset
+    tax
+    sep #$20
+    .a8
+    lda f:track_map, x          ; even byte = tile number under the kart
+    rep #$20
+    .a16
+    and #$00FF
+    tax
+    sep #$20
+    .a8
+    lda f:track_surface, x      ; 1 = grass, 0 = paved
+    beq or_paved
+    rep #$20
+    .a16
+    lda R_SPEED
+    cmp #GRASS_CAP
+    bcc or_done                 ; already at crawl speed: no extra drag
+    sbc #OFFROAD_DRAG           ; carry is set from the cmp above
+    cmp #GRASS_CAP
+    bcs or_store
+    lda #GRASS_CAP              ; floor the bleed at the crawl speed
+or_store:
+    .a16
+    sta R_SPEED
+    bra or_done
+or_paved:
+    .a8
+    rep #$20
+    .a16
+or_done:
+    .a16
+
+    ; ---------------- camera + Mode 7 service (60 fps, frame-paced) ---------
+    ; A full perspective rebuild — what an angle change demands — costs 69% of
+    ; a frame at this trapezoid (measured on the emulator: 245,779 master
+    ; clocks at interp 4; interp 2 costs 293,612 = 82%), and this rail also
+    ; spends every scanline on HDMA (matrix, gradient, sky split) plus the
+    ; per-frame game work. One frame cannot hold all of it, so a naive
+    ; sf_mode7_tick halves the loop to 30 fps whenever the kart steers.
+    ;
+    ; The fix is the classic racing-game trick: SPREAD the rebuild across two
+    ; frames using the engine's split entry points (see pv_rebuild in
+    ; engine/mode7_hdma.asm). Frame A runs pv_rebuild_pass1 — the per-scanline
+    ; coefficient emit (measured 136,890 mc at interp 4), into the hidden half
+    ; of the double buffer, so the displayed frame still shows the previous
+    ; view. Frame B runs pv_rebuild_pass2 — interpolation + pointing the HDMA
+    ; channels at the new half (108,351 mc). Each half fits its frame beside
+    ; the HDMA + game overhead. The view turns in 2-unit steps every other
+    ; frame (the same average rate as 1/frame), but position, sprites, and
+    ; effects update every frame and the loop never misses a NMI. The cheap
+    ; origin re-anchor (camera translation) still runs EVERY frame, so
+    ; forward motion stays 60 Hz smooth even while a rebuild is in flight.
+    ;
+    ; This block is sf_mode7_tick's dispatch with the rebuild split in two;
+    ; the Mode 7 HUD-overlay hook is omitted (this rail's HUD is sprites).
+    ; A copied rail that arms the barrel effect keeps working: the hook runs
+    ; after pass 2, when the new tables are complete.
     sf_mode7_cam R_POSX + 2, R_POSY + 2, R_ANGLE
-    sf_mode7_tick
+    ; --- yield to the day-night gradient's table rebuild. On the frames a
+    ; blend steps COLDATA (every 8th blend frame, plus the hold-entry snap),
+    ; tod_update below rebuilds three 225-entry HDMA tables — a whole-frame-
+    ; class cost by itself. Pausing the perspective pacing for that one frame
+    ; keeps the two big table builds out of the same frame, so steering
+    ; through a blend degrades no further than idling through one. (The
+    ; gradient-step frame itself still overruns — an engine-wide cost every
+    ; gradient-blending rail pays; see tests/test_racer.py for the pinned
+    ; cadence.) This predicts tod_update's own step condition one call early.
+    lda R_TODPH
+    and #$0001
+    beq m7svc_no_pause          ; DAY/NIGHT holds: no gradient work, no pause
+    lda R_TODT
+    dec a
+    beq m7svc_pause             ; timer expiring: hold-entry snap rebuilds
+    and #$0007
+    cmp #$0001
+    bne m7svc_no_pause          ; not a step frame
+m7svc_pause:
+    .a16
+    sep #$20
+    .a8
+    bra m7svc_origin            ; skip launch/finish; origin re-anchor still runs
+m7svc_no_pause:
+    .a16
+    sep #$20
+    .a8                         ; 8-bit accumulator for the 1-byte flags
+    lda R_PVPH
+    bne m7svc_finish            ; a rebuild is in flight -> finish it now
+    lda M7_DIRTY_REBUILD
+    beq m7svc_origin            ; angle unchanged -> cheap path only
+    stz M7_DIRTY_REBUILD        ; consume the flag (this scheduler owns it)
+    rep #$30
+    .a16
+    .i16
+    jsr pv_rebuild_pass1        ; frame A: emit into the hidden buffer half
+    sep #$20
+    .a8
+    lda #$01
+    sta R_PVPH                  ; remember: finish half is due next frame
+    bra m7svc_origin
+m7svc_finish:
+    .a8
+    rep #$30
+    .a16
+    .i16
+    jsr pv_rebuild_pass2        ; frame B: interpolate + flip the channels
+    jsr mode7_barrel_apply      ; post-rebuild hook (no-op: no barrel armed)
+    sep #$20
+    .a8
+    stz R_PVPH
+m7svc_origin:
+    .a8
+    lda M7_DIRTY_ORIGIN
+    beq m7svc_done              ; camera did not move (never true while driving)
+    stz M7_DIRTY_ORIGIN
+    rep #$30
+    .a16
+    .i16
+    jsr mode7_set_origin        ; re-anchor M7X/M7Y + scroll (the ~1% path)
+    sep #$20
+    .a8
+m7svc_done:
+    .a8
+    rep #$30
+    .a16
+    .i16
 
     ; ---------------- draw: stable OAM slots (0 = kart, 1-6 = speed bar) ----
     spr_clear
@@ -508,6 +742,8 @@ hud_put:
                                 ;   BEFORE sf_frame_end — the queue contract)
 
     ; ---------------- heartbeat: frame counter -> debug region --------------
+game_heartbeat:
+    .a16
     lda FRAME_COUNTER
     ldx #$0000
     sta f:$7E0000 + $E010, x
@@ -516,6 +752,10 @@ hud_put:
 
     sf_frame_end                ; resolve sprites; signal the OAM DMA
     jmp game_loop
+
+; =============================================================================
+; SUBROUTINES — game helpers (day-night machine, sky split)
+; =============================================================================
 
 ; =============================================================================
 ; tod_update — the day-night phase machine (call once per frame, A16/I16).
@@ -703,10 +943,10 @@ tod_update:
 ; CH3) — here it earns its keep. We program CH2's DMA registers DIRECTLY and OR
 ; its bit into NMI_HDMA_ENABLE; the engine NMI then re-arms $420C every VBlank
 ; but leaves CH2's hardware config alone (it is not Mode-7-owned). This mirrors
-; exactly how gradient_rgb drives its non-Mode-7 channels (nmi_handler.asm
-; "Phase 5" ownership gate). Budget: CH0/1 reserved + CH3/4/7 gradient +
-; CH5/6 matrix + CH2 here = all 8 channels, no spare (verified by
-; toolchain.composition.feasibility for the racer composition).
+; exactly how gradient_rgb drives its non-Mode-7 channels — the engine NMI
+; only rewrites channel configs it owns (see nmi_handler.asm's HDMA
+; ownership gate). Budget: CH0/1 reserved + CH3/4/7 gradient + CH5/6 matrix
+; + CH2 here = all 8 channels, no spare.
 ;
 ; WIDTH-RISK: entry A16/I16. Sets A8 for the byte writes to $43xx + the
 ; NMI_HDMA_ENABLE RMW, restores caller width via PLP. I16 unchanged.
@@ -717,11 +957,11 @@ arm_sky_split:
     rep #$10
     .i16
     ; --- build the 2-band TM table in WRAM ($7E:2010) ---
-    ; [96, $10]  : lines 0..95  -> TM = OBJ only (BG1 off): the sky backdrop
-    ; [ 1, $11]  : line 96      -> TM = BG1 + OBJ: the Mode 7 floor
+    ; [56, $10]  : lines 0..55  -> TM = OBJ only (BG1 off): the sky backdrop
+    ; [ 1, $11]  : line 56      -> TM = BG1 + OBJ: the Mode 7 floor
     ; [ 0]       : terminator   -> TM holds $11 for the rest of the frame
     ldx #$0000
-    lda #(SKY_HORIZON)          ; 96 lines, non-repeat (bit7=0)
+    lda #(SKY_HORIZON)          ; 56 lines, non-repeat (bit7=0)
     sta f:SKY_SPLIT_TABLE + 0, x
     lda #$10                    ; BG1 off, OBJ on
     sta f:SKY_SPLIT_TABLE + 1, x
@@ -750,8 +990,9 @@ arm_sky_split:
     rts
 
 ; =============================================================================
-; Engine includes — the documented sf_mode7.inc link-partner order, plus the
-; sprite + DMA engines sf_frame_end / spr require.
+; SUBROUTINES — engine modules (the documented sf_mode7.inc link-partner
+; order, plus the sprite + DMA engines sf_frame_end / spr require; the
+; perspective LUT slots into RODATA mid-list)
 ; =============================================================================
 .include "sprite_engine.asm"
 .include "dma_scheduler.asm"
@@ -764,6 +1005,7 @@ mode7_sin_lut:
                                 ;   pulls gradient_ease_lut.inc itself)
 .include "colormath_engine.asm" ; sf_colormath_* (shadow-only; NMI commits)
 .include "palette_engine.asm"   ; sf_pal / sf_pal_cycle (+ dma_scheduler tick)
+.include "tad_bridge.asm"       ; the tad_* entry points sf_audio.inc JSRs into
 .include "mode7_math.asm"
 
 .segment "RODATA"
@@ -773,13 +1015,18 @@ mode7_sin_lut:
 .include "mode7_hdma.asm"
 .include "mode7_engine.asm"
 
+; =============================================================================
+; DATA — first-party assets + the track blob
+; =============================================================================
+
 ; --- first-party assets (committed generator output; see assets/*.py) ---
 .include "assets/vehicle.inc"
 .include "assets/track_palette.inc"
 
-; --- the 32KB interleaved track blob (bank 1 of the 64KB image) ---
+; --- the 32KB interleaved track blob (its own ROM bank) ---
 .segment "BANK1"
-; .incbin (GAP-3): resolved relative to THIS file's dir, not via -I — so the
-; "assets/<basename>" form is copy-safe (copy-to-adapt only changes the basename).
+; ca65 resolves .incbin relative to THIS file's directory, not via -I — so
+; the "assets/<basename>" form is copy-safe (copy-to-adapt only changes the
+; basename).
 track_map:
     .incbin "assets/track_map.bin"
