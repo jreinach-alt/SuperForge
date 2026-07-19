@@ -648,11 +648,26 @@ def test_rot256_bank_delivery_render_period(roms, runner):
         c192 = _grab(runner, "period_c192")
         assert (runner.read_u16(WR, H1_ADDR) - h_ref) & 0xFF == 192
         runner.frame_step(64)
-        w256 = _grab(runner, "period_w256")
         assert (runner.read_u16(WR, H1_ADDR) - h_ref) & 0xFF == 0
-        runner.frame_step(256)
-        w512 = _grab(runner, "period_w512")
-        assert (runner.read_u16(WR, H1_ADDR) - h_ref) & 0xFF == 0
+        # Wrap-aligned capture set, lag-proof: parked captures carry a small
+        # per-capture frame lag (0/1 typically; a loaded CI runner produced
+        # THREE distinct lags across three captures, so a fixed trio can miss
+        # a matching pair). Generalize the pigeonhole: keep taking wrap-
+        # aligned captures (up to 6 total) until two are pixel-identical —
+        # any lag set smaller than the capture count must repeat. The
+        # identity assertion itself stays EXACTLY == 0.
+        def full_identical(a, b):
+            return all(a[x, y] == b[x, y]
+                       for y in range(OFF, 224 + OFF) for x in range(256))
+
+        wraps = [_grab(runner, "period_w256")]
+        for i in range(4):
+            if any(full_identical(a, b)
+                   for k, a in enumerate(wraps) for b in wraps[:k]):
+                break
+            runner.frame_step(256)
+            wraps.append(_grab(runner, f"period_w{512 + 256 * i}"))
+            assert (runner.read_u16(WR, H1_ADDR) - h_ref) & 0xFF == 0
 
     def band_px_diff(a, b, y0, y1):
         return sum(1 for y in range(y0, y1)
@@ -669,13 +684,12 @@ def test_rot256_bank_delivery_render_period(roms, runner):
             f"the fetching channel"
         assert d192 > 8000, \
             f"{name}: +192-frame same-(h&63) hop differs by only {d192} px"
-        wrap_min = min(band_px_diff(ref, w256, y0, y1),
-                       band_px_diff(ref, w512, y0, y1),
-                       band_px_diff(w256, w512, y0, y1))
+        wrap_min = min(band_px_diff(a, b, y0, y1)
+                       for k, a in enumerate(wraps) for b in wraps[:k])
         assert wrap_min == 0, \
             f"{name}: full +256 wrap not pixel-identical (min pairwise " \
-            f"{wrap_min} px over 3 wrap-aligned captures — period-256 " \
-            f"identity broken beyond the 0/1-frame capture-lag class)"
+            f"{wrap_min} px over {len(wraps)} wrap-aligned captures — " \
+            f"period-256 identity broken beyond the capture-lag class)"
 
 
 def test_rot256_bank_boundary_crossing(roms, runner):

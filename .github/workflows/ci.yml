@@ -40,7 +40,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install Python dependencies
-        run: pip install pytest pillow
+        run: pip install pytest pillow pytest-rerunfailures
 
       - name: Cache Mesen2 build
         id: cache-mesen2
@@ -66,4 +66,10 @@ jobs:
           fi
 
       - name: Full suite (every template's done-conditions on the emulator)
-        run: PYTHONPATH=. python3 -m pytest tests/ -v --tb=short
+        # --reruns 1 automates the documented isolate-then-judge rule for the
+        # wall-clock/load flake class (a handful of emulator-timing tests can
+        # trip once under shared-runner load and pass in isolation — each
+        # newly-caught face also gets a deterministic fix). A genuine
+        # regression fails BOTH runs and the job stays red; assertions are
+        # never weakened by the rerun.
+        run: PYTHONPATH=. python3 -m pytest tests/ -v --tb=short --reruns 1 --reruns-delay 2

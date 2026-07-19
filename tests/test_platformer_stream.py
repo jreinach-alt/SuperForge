@@ -378,39 +378,40 @@ def test_jump_apex_and_landing(runner):
     # settle-jump cycle lets the integrator's landing-snap establish the stable
     # rest the test then asserts the real jump returns to — so the apex+landing
     # assertion is self-consistent, not comparing two different landing regimes.
-    runner.set_input(0, a=True)
-    runner.run_frames(6)
-    runner.set_input(0)
-    for _ in range(120):
-        runner.run_frames(1)
-        if _u16(runner, DBG_GROUNDED) == 1 and _u16(runner, DBG_VY) == 0:
-            break
-    rest_y = _u16(runner, DBG_PYF)
-    assert _u16(runner, DBG_GROUNDED) == 1, "player did not settle to a stable floor rest"
-    assert rest_y in (FLOOR_TOP_PX - 1, FLOOR_TOP_PX), (
-        f"settled rest {rest_y} is not on the floor surface ({FLOOR_TOP_PX-1}/{FLOOR_TOP_PX})"
-    )
+    # Deterministic arc: with the emulator free-running, the settle poll's
+    # three WRAM reads land on DIFFERENT emulated frames on a slow host —
+    # GROUNDED can read 1 (pre-takeoff) while VY reads 0 (apex), breaking the
+    # loop mid-air (CI caught exactly that: rest 952 vs floor 959/960).
+    # frame_step parks the emulator between steps so every poll is atomic.
+    with runner.frame_stepping():
+        runner.frame_step(6, a=True)
+        for _ in range(120):
+            runner.frame_step(1)
+            if _u16(runner, DBG_GROUNDED) == 1 and _u16(runner, DBG_VY) == 0:
+                break
+        rest_y = _u16(runner, DBG_PYF)
+        assert _u16(runner, DBG_GROUNDED) == 1, "player did not settle to a stable floor rest"
+        assert rest_y in (FLOOR_TOP_PX - 1, FLOOR_TOP_PX), (
+            f"settled rest {rest_y} is not on the floor surface ({FLOOR_TOP_PX-1}/{FLOOR_TOP_PX})"
+        )
 
-    # hold A for the jump; sample world-Y every frame to find the apex (min Y).
-    runner.set_input(0, a=True)
-    min_y = rest_y
-    left_ground = False
-    for _ in range(60):
-        runner.run_frames(1)
-        y = _u16(runner, DBG_PYF)
-        if _u16(runner, DBG_GROUNDED) == 0:
-            left_ground = True
-        if y < min_y:
-            min_y = y
-        # release A after a few frames so the variable-height cut is exercised
-    runner.set_input(0)
+        # hold A for the jump; sample world-Y every frame to find the apex (min Y).
+        min_y = rest_y
+        left_ground = False
+        for _ in range(60):
+            runner.frame_step(1, a=True)
+            y = _u16(runner, DBG_PYF)
+            if _u16(runner, DBG_GROUNDED) == 0:
+                left_ground = True
+            if y < min_y:
+                min_y = y
 
-    assert left_ground, "player never left the ground on A (jump did not fire)"
-    apex_rise = rest_y - min_y
-    assert apex_rise >= 24, (
-        f"apex rise only {apex_rise}px above rest (y_rest={rest_y}, y_apex={min_y}); "
-        f"the jump arc did not clear a believable height"
-    )
+        assert left_ground, "player never left the ground on A (jump did not fire)"
+        apex_rise = rest_y - min_y
+        assert apex_rise >= 24, (
+            f"apex rise only {apex_rise}px above rest (y_rest={rest_y}, y_apex={min_y}); "
+            f"the jump arc did not clear a believable height"
+        )
 
     # let it fall back and LAND. The user-visible invariant (the one a player
     # sees) is: the player returns to STAND ON THE SAME FLOOR — not embedded
@@ -420,24 +421,24 @@ def test_jump_apex_and_landing(runner):
     # the snap, NOT a user-visible embed/hover. So the invariant is "on the
     # surface AND stable", asserted over several frames (no drift = no embed/
     # hover oscillation), not a single exact pixel.
-    for _ in range(120):
-        runner.run_frames(1)
-        if _u16(runner, DBG_GROUNDED) == 1 and _u16(runner, DBG_VY) == 0:
-            break
-    land_y = _u16(runner, DBG_PYF)
-    assert _u16(runner, DBG_GROUNDED) == 1, "player never landed after the jump"
-    # on the floor surface: never BELOW the floor top (embedded), never above the
-    # clean rest (hovering).
-    assert FLOOR_TOP_PX - 1 <= land_y <= FLOOR_TOP_PX, (
-        f"landing rest {land_y} not on the floor surface "
-        f"[{FLOOR_TOP_PX-1}..{FLOOR_TOP_PX}] (embedded in / hovering above the floor)"
-    )
-    # STABLE: holding still, the feet do not drift (no embed/hover oscillation).
-    for _ in range(20):
-        runner.run_frames(1)
-        y = _u16(runner, DBG_PYF)
-        assert y == land_y, f"rest drifted {land_y}->{y} (unstable landing snap)"
-        assert _u16(runner, DBG_GROUNDED) == 1, "lost grounded while standing still"
+        for _ in range(120):
+            runner.frame_step(1)
+            if _u16(runner, DBG_GROUNDED) == 1 and _u16(runner, DBG_VY) == 0:
+                break
+        land_y = _u16(runner, DBG_PYF)
+        assert _u16(runner, DBG_GROUNDED) == 1, "player never landed after the jump"
+        # on the floor surface: never BELOW the floor top (embedded), never above
+        # the clean rest (hovering).
+        assert FLOOR_TOP_PX - 1 <= land_y <= FLOOR_TOP_PX, (
+            f"landing rest {land_y} not on the floor surface "
+            f"[{FLOOR_TOP_PX-1}..{FLOOR_TOP_PX}] (embedded in / hovering above the floor)"
+        )
+        # STABLE: holding still, the feet do not drift (no embed/hover oscillation).
+        for _ in range(20):
+            runner.frame_step(1)
+            y = _u16(runner, DBG_PYF)
+            assert y == land_y, f"rest drifted {land_y}->{y} (unstable landing snap)"
+            assert _u16(runner, DBG_GROUNDED) == 1, "lost grounded while standing still"
 
 
 # =============================================================================
