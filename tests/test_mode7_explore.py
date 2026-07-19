@@ -176,6 +176,13 @@ def test_mx004_walk_east_streams_columns(runner, tilemap):
     assert cam_tx > start_tx + 4, f"camera did not walk east (cam_tx={cam_tx})"
     assert garbage == 0, f"garbage after east walk: {garbage}"
     assert mism == 0, f"east window mismatches world at ({cam_tx},{cam_ty}): {mism}"
+    # Elnora TURNS to face the walk: east -> RIGHT profile (tile 20, no H-flip).
+    # Non-vacuous: this differs from the down (16) / up (18) facings, so it fails
+    # loudly if the facing latch is broken or never leaves the boot (down) sprite.
+    oam = bytes(runner.read_bytes(MemoryType.SnesSpriteRam, 0, 4))
+    assert oam[2] == world.AVATAR_TILE_SIDE, \
+        f"east walk should face RIGHT (tile {world.AVATAR_TILE_SIDE}); OAM tile={oam[2]}"
+    assert oam[3] == 0x20, f"RIGHT facing must not be H-flipped (attr 0x20); got {hex(oam[3])}"
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +195,11 @@ def test_mx005_walk_south_streams_rows(runner, tilemap):
     assert cam_ty > start_ty + 4, f"camera did not walk south (cam_ty={cam_ty})"
     assert garbage == 0, f"garbage after south walk: {garbage}"
     assert mism == 0, f"south window mismatches world at ({cam_tx},{cam_ty}): {mism}"
+    # south -> DOWN (front) facing = tile 16, no H-flip.
+    oam = bytes(runner.read_bytes(MemoryType.SnesSpriteRam, 0, 4))
+    assert oam[2] == world.AVATAR_TILE_DOWN, \
+        f"south walk should face DOWN (tile {world.AVATAR_TILE_DOWN}); OAM tile={oam[2]}"
+    assert oam[3] == 0x20, f"DOWN facing must not be H-flipped (attr 0x20); got {hex(oam[3])}"
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +213,13 @@ def test_mx006_walk_west_reverse(runner, tilemap):
     assert cam_tx < start_tx - 4, f"camera did not walk west (cam_tx={cam_tx})"
     assert garbage == 0, f"garbage after west walk: {garbage}"
     assert mism == 0, f"west window mismatches world at ({cam_tx},{cam_ty}): {mism}"
+    # west -> LEFT = the SIDE profile (tile 20) H-FLIPPED via the OAM attr bit, so
+    # the staff leads on the left. attr 0x60 = priority 2 (0x20) | H-flip (0x40).
+    oam = bytes(runner.read_bytes(MemoryType.SnesSpriteRam, 0, 4))
+    assert oam[2] == world.AVATAR_TILE_SIDE, \
+        f"west walk should use the SIDE sprite (tile {world.AVATAR_TILE_SIDE}); OAM tile={oam[2]}"
+    assert oam[3] == 0x60, \
+        f"LEFT facing must be H-flipped (attr 0x60 = pri2|hflip); got {hex(oam[3])}"
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +232,11 @@ def test_mx007_walk_north_reverse(runner, tilemap):
     assert cam_ty < start_ty, f"camera did not walk north (cam_ty={cam_ty})"
     assert garbage == 0, f"garbage after north walk: {garbage}"
     assert mism == 0, f"north window mismatches world at ({cam_tx},{cam_ty}): {mism}"
+    # north -> UP (back) facing = tile 18, no H-flip.
+    oam = bytes(runner.read_bytes(MemoryType.SnesSpriteRam, 0, 4))
+    assert oam[2] == world.AVATAR_TILE_UP, \
+        f"north walk should face UP (tile {world.AVATAR_TILE_UP}); OAM tile={oam[2]}"
+    assert oam[3] == 0x20, f"UP facing must not be H-flipped (attr 0x20); got {hex(oam[3])}"
 
 
 # ---------------------------------------------------------------------------

@@ -106,6 +106,17 @@ tgt_ty       = $40             ; candidate destination tile Y
 col_ptr      = $42             ; 3 bytes: 24-bit pointer into the FLAT tilemap (collision read)
 col_scratch  = $46             ; collision row-base scratch
 av_y         = $48             ; avatar screen Y for this frame (walk-bob target)
+facing       = $4A             ; latched facing (FACE_*): last d-pad direction Elnora turned to
+av_tile      = $4C             ; draw scratch: OAM base tile resolved from `facing`
+av_attr      = $4E             ; draw scratch: OAM attribute flags resolved from `facing`
+
+; --- facing codes: Elnora turns to face the last direction the d-pad pushed.
+;     draw_avatar maps these to (OAM base tile, attribute flags) via face_*_lut.
+;     LEFT reuses the RIGHT profile CHR, H-flipped by the OAM attribute bit. ------
+FACE_DOWN    = 0
+FACE_UP      = 1
+FACE_LEFT    = 2
+FACE_RIGHT   = 3
 
 ; --- grid + world constants ---
 TILE_PX      = 8               ; one tile = 8 world px (the grid step)
@@ -259,6 +270,7 @@ RESET:
     stz step_remain
     stz step_dx
     stz step_dy
+    stz facing                  ; boot idle -> DOWN (FACE_DOWN=0); mx002/oracle read tile 16
 
     ; --- arm streaming for the spawn tile -----------------------------------
     sf_mode7_stream_init #WORLD_SPAWN_TX, #WORLD_SPAWN_TY
@@ -349,6 +361,8 @@ explore_tick:
     lda JOY1_CURRENT
     bit #JOY_LEFT
     beq @chk_right
+    lda #FACE_LEFT              ; latch facing to the held direction (turn even vs a wall)
+    sta facing
     ldx #$FFFF                  ; dx = -1 tile
     ldy #$0000
     jsr try_start_step
@@ -359,6 +373,8 @@ explore_tick:
     lda JOY1_CURRENT
     bit #JOY_RIGHT
     beq @chk_up
+    lda #FACE_RIGHT            ; latch facing RIGHT
+    sta facing
     ldx #$0001
     ldy #$0000
     jsr try_start_step
@@ -369,6 +385,8 @@ explore_tick:
     lda JOY1_CURRENT
     bit #JOY_UP
     beq @chk_down
+    lda #FACE_UP               ; latch facing UP
+    sta facing
     ldx #$0000
     ldy #$FFFF
     jsr try_start_step
@@ -379,6 +397,8 @@ explore_tick:
     lda JOY1_CURRENT
     bit #JOY_DOWN
     beq @apply
+    lda #FACE_DOWN             ; latch facing DOWN
+    sta facing
     ldx #$0000
     ldy #$0001
     jsr try_start_step
@@ -425,14 +445,17 @@ apply_camera:
     rts
 
 ; =============================================================================
-; draw_avatar — draw the explorer avatar (OAM slot 0, 16x16, OBJ palette 0) at
-; screen centre; the world scrolls under it (camera-follows-player). A subtle
-; WALK BOB hops the sprite 1px on a 2-frame cadence WHILE a slide is in progress,
-; so it looks like it's stepping; it rests flat at AV_Y0 when idle (the tests read
-; OAM slot 0 at rest, so the idle Y stays exactly AV_Y0).
+; draw_avatar — draw Elnora (OAM slot 0, 16x16, OBJ palette 0) at screen centre;
+; the world scrolls under her (camera-follows-player). Her FACING (latched from
+; the last d-pad direction) selects one of the authored sprites: DOWN (tile 16),
+; UP (18), or the RIGHT profile (20); LEFT reuses tile 20 H-FLIPPED via the OAM
+; attribute bit (av_attr bit 6). A subtle WALK BOB hops the sprite 1px on a
+; 2-frame cadence WHILE a slide is in progress (per facing — the Y hop is
+; facing-independent), so she looks like she's stepping; she rests flat at AV_Y0
+; when idle (the tests read OAM slot 0 at rest, so the idle Y stays exactly AV_Y0).
 ; Entry/Exit: A16/I16. Clobbers A, X, Y.
-; WIDTH-RISK: A16/I16 entry; the bob branch stays A16/I16; spr/spr_clear run their
-; own widths and return A16/I16.
+; WIDTH-RISK: A16/I16 entry; the bob branch + facing LUT lookup stay A16/I16;
+; spr/spr_clear run their own widths and return A16/I16.
 ; =============================================================================
 draw_avatar:
     .a16
@@ -447,9 +470,34 @@ draw_avatar:
     ldx #(AV_Y0 - 1)            ; up-phase -> hop the avatar 1px while it walks
 @have_y:
     .a16                        ; branch target: A16/I16, X holds the screen Y
-    stx av_y
-    spr #AVATAR_TILE, #AV_X0, av_y, #$0080, #2   ; OBJ palette 0, priority 2, 16x16
+    stx av_y                    ; Y committed; X is now free for the facing index
+    ; --- resolve facing -> (tile, attr) via word LUTs (X = facing*2 word index) ---
+    ; WIDTH-RISK: A16/I16 throughout; `tax` transfers the full 16-bit index (A is
+    ; A16 here, high byte cleared by the and #$00FF), so no stale-high-byte hazard.
+    lda facing
+    and #$00FF                  ; defensively keep the facing code in 0..3
+    asl a                       ; *2 -> word index into the LUTs
+    tax
+    lda f:face_tile_lut, x      ; OAM base tile for this facing
+    sta av_tile
+    lda f:face_attr_lut, x      ; OAM attribute flags (bit6 H-flip for LEFT, else 0)
+    sta av_attr
+    spr av_tile, #AV_X0, av_y, av_attr, #2   ; OBJ palette 0, priority 2, 16x16
     rts
+
+; --- facing (FACE_*) -> OAM base tile + attribute flags. 16x16 sprite (size bit
+;     CLEAR): DOWN/UP/RIGHT draw unflipped ($0000); LEFT reuses the RIGHT profile
+;     CHR H-FLIPPED ($0040 = attr bit 6) so Elnora's staff leads on the left. -----
+face_tile_lut:
+    .word AVATAR_TILE_DOWN      ; FACE_DOWN  -> 16 {16,17,32,33}
+    .word AVATAR_TILE_UP        ; FACE_UP    -> 18 {18,19,34,35}
+    .word AVATAR_TILE_SIDE      ; FACE_LEFT  -> 20 (H-flipped)
+    .word AVATAR_TILE_SIDE      ; FACE_RIGHT -> 20 {20,21,36,37}
+face_attr_lut:
+    .word $0000                 ; FACE_DOWN  — 16x16, no flip, palette 0
+    .word $0000                 ; FACE_UP
+    .word $0040                 ; FACE_LEFT  — H-flip (OAM attr bit 6)
+    .word $0000                 ; FACE_RIGHT
 
 ; =============================================================================
 ; try_start_step — start a grid slide in tile-direction (X=dx, Y=dy) IF the

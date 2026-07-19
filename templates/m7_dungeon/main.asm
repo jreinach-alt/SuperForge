@@ -1460,11 +1460,12 @@ mode7_sin_lut:
 
 .if ENEMY_MISCOLOR
 ; Non-vacuity control palette (only compiled for -DENEMY_MISCOLOR): a COOL blue
-; ramp so the demon CHR renders blue instead of warm -> the rendered enemy-warm
-; band reads 0. The DEFAULT ROM contains none of this (guarded), so it stays
-; byte-for-byte identical to a build without the toggle.
+; ramp so the slime CHR renders blue instead of warm -> the rendered enemy-warm
+; band reads 0. Covers every slime index (1..4, incl. the glossy highlight) with a
+; cool tone so NO pixel can read warm. The DEFAULT ROM contains none of this
+; (guarded), so it stays byte-for-byte identical to a build without the toggle.
 miscolor_pal:
-    .word $0000, $34E6, $4569, $5A0D, $0000, $0000, $0000, $0000
+    .word $0000, $34E6, $4569, $5A0D, $6ED2, $0000, $0000, $0000
     .word $0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000
 .endif
 

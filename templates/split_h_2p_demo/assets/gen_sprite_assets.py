@@ -19,13 +19,16 @@ Emits (all deterministic, seeded; provenance manifest references this script):
   sp_recip_lo.bin  112 x low byte of recip(k) = round(65536 / S8.8(k))
   sp_recip_hi.bin  112 x high byte (0/1; recip is 9 bits, 171..410) —
                    sxoff = (|u|*recip_lo)>>8 (+|u| if hi) via ONE HW multiply.
-  sp_tier_lut.bin  112-byte row->tier LUT WITH the seam-margin culls folded in:
-                   tier T(k) by apparent diameter (14-px world disc), then
-                   $FF where the tier's OBJ box would bleed across the band
-                   edge (16x16-class: k<9 or k>103; 32x32-class: k<17 or
-                   k>95 — the measured trial datum, scaled per tier size).
-  sp_tier_nocull.bin  the same ladder with NO margin culls (every k 0..111
-                   maps to a tier) — the -DSP_CULLOFF seam-bleed control.
+  sp_tier_lut.bin  112-byte row->tier LUT WITH the symmetric seam margins
+                   folded in ($FF for k<9 or k>95). The RUNTIME cull no longer
+                   reads this (it moved to a PER-BAND check in sp_project_band —
+                   each band guards only its seam-facing edge so the true-screen
+                   edge slides off); this file now only marks the k in [9,95]
+                   CORE-visible band for the asset generator's own d_lo/d_hi
+                   world-depth window.
+  sp_tier_nocull.bin  the FULL ladder (every k 0..111 maps to a tier) — the
+                   runtime SIZE source for BOTH bands (read after the recip),
+                   and the -DSP_CULLOFF seam-bleed control (cull disabled).
   sp_chr.bin       64 OBJ tiles (2 KB, 4bpp): five CHARACTER-TOKEN size
                    variants (was: solid discs) — three 16x16 (names 0/2/4,
                    heights 10/12/14 px) and two 32x32 (names 8/12, heights
@@ -97,6 +100,14 @@ TIERS = [
 ]
 MARGIN16 = (9, 103)             # measured seam-margin datum (trial, 16x16)
 MARGIN32 = (17, 95)             # scaled for the 32x32 box
+# The seam cull is now PER-BAND (in sp_project_band): each band guards only the
+# edge that faces the k=111/112 seam, and lets its true-SCREEN edge slide off.
+# Band 1's bottom is the seam -> cull band-local k > SEAM_HI; band 2's top is
+# the seam -> cull band-local k < SEAM_LO. (Tiers are k-segregated, so these
+# flat cutoffs ARE the per-tier margins: only 32x32 rows reach SEAM_HI, only
+# 16x16 rows reach SEAM_LO.)
+SEAM_LO = MARGIN16[0]           # 9  — band-2 top-seam cutoff (16x16 rows)
+SEAM_HI = MARGIN32[1]           # 95 — band-1 bottom-seam cutoff (32x32 rows)
 
 
 def g(k: int) -> float:
@@ -194,9 +205,16 @@ def project(wx, wy, px, py, h, band_top, forward=False, nocull=False):
     if d > 255 or vk[d] == 0xFF:
         return None
     k = vk[d]
-    tier = tier_nocull[k] if nocull else tier_lut[k]
-    if tier == 0xFF:
-        return None                      # tier-scaled seam-margin cull
+    tier = tier_nocull[k]                 # full ladder — valid at every row
+    if not nocull:
+        # per-band SEAM-margin cull (matches sp_project_band + the test mirror):
+        # band 1 (band_top=0) guards its BOTTOM/seam edge; band 2 its TOP/seam
+        # edge. The other (true-screen) edge slides off.
+        if band_top == 0:
+            if k > SEAM_HI:
+                return None
+        elif k < SEAM_LO:
+            return None
     # u = dx*c - dy*s
     t1 = (adx * ac + 128) >> 8
     t2 = (ady * asn + 128) >> 8
@@ -412,27 +430,30 @@ assert n_row >= 30, f"overflow cluster too small on-screen: {n_row}"
 # --- seam-margin probes (entries 60..65): sprites whose rows fall INSIDE the
 # margin dead zones — the DEFAULT build must cull them (no white near the
 # seam); -DSP_CULLOFF renders them and their boxes cross the band edges.
-def find_probe(zone, uu):
-    """A world point that DEFAULT-culls (margin) but nocull-projects into the
-    given dead-zone row range — scanned through the REAL projection mirror
-    (the clamped-sin rounding shifts far-field d, so geometric d is not the
-    row picker)."""
+def find_probe(zone, uu, band_top):
+    """A world point that DEFAULT-culls at the given band's SEAM but
+    nocull-projects into the dead-zone BAND-LOCAL row range — scanned through
+    the REAL projection mirror (the clamped-sin rounding shifts far-field d, so
+    geometric d is not the row picker). The high-k dead zones live at band 1's
+    bottom seam; the low-k zone at band 2's top seam (with SAME_ORIGIN the row
+    k is identical in both bands, so the probe world point is band-invariant)."""
     for d in range(1, 200):
         wpt = ((512 - d) & 1023, (512 - uu) & 1023)
-        if project(*wpt, 512, 512, 64, 0) is not None:
+        if project(*wpt, 512, 512, 64, band_top) is not None:
             continue
-        pn = project(*wpt, 512, 512, 64, 0, nocull=True)
-        if pn is not None and zone[0] <= pn[1] <= zone[1]:
+        pn = project(*wpt, 512, 512, 64, band_top, nocull=True)
+        if pn is not None and zone[0] <= pn[1] - band_top <= zone[1]:
             return wpt, pn
     return None, None
 
 
 probes = []
-for zone, uu in (((105, 110), -24), ((96, 104), 0), ((1, 7), 24)):
-    wpt, pn = find_probe(zone, uu)
+probe_ks = []
+for zone, uu, bt in (((105, 110), -24, 0), ((96, 104), 0, 0), ((1, 7), 24, 112)):
+    wpt, pn = find_probe(zone, uu, bt)
     assert wpt is not None, f"no probe found for dead zone {zone}"
     probes.append((wpt, pn))
-probe_ks = [pn[1] for _w, pn in probes]
+    probe_ks.append(pn[1] - bt)          # band-local dead-zone row
 PROBE_START = len(tier_world)
 for wpt, _pn in probes:
     tier_world.append(wpt)

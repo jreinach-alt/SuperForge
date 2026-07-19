@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 WR = MemoryType.SnesWorkRam
 
 SCENE, LIVES, COINS = 0x1804, 0x1800, 0x1802
+IRIS, IRISPHASE = 0x1818, 0x181A     # death-iris state (0x181A: 0 idle / 1 close / 2 done)
 E2X = 0x46
 TAD_SONG = 0x016C
 SONG_TITLE, SONG_GAME = 3, 2          # Song::chords / Song::ode_to_joy
@@ -155,6 +156,53 @@ def test_ghost_contact_costs_a_life(runner):
         runner.run_frames(2)
     assert bot.st(runner)["px"] == 24, \
         f"hurt did not respawn the player: {bot.st(runner)}"
+
+
+def _is_black(px, thresh=24):
+    return px[0] < thresh and px[1] < thresh and px[2] < thresh
+
+
+def test_pit_death_iris_closes_to_black_then_respawns(runner):
+    """The death transition is a circular PPU-window iris that closes to black,
+    centred on the screen, then the deferred respawn fades back in. Asserts the
+    RENDERED output mid-close (a screenshot): the screen corners are black
+    (masked to the black backdrop OUTSIDE the shrinking circle) while the centre
+    still shows the game (INSIDE the circle) — i.e. a real iris, not a flat cut
+    or a blank frame. Then confirms the deferred outcome: a life lost and the
+    player respawned at spawn (x=24)."""
+    runner.load_rom(_rom(), run_seconds=1.0)
+    _start(runner)
+    assert bot.st(runner)["sc"] == 1
+    lives0 = bot.st(runner)["lv"]
+    # hold right off the ground into pit1 -> a death arms the iris (IRISPHASE>0)
+    runner.set_input(0, right=True)
+    deadline = time.time() + 30
+    while runner.read_u16(WR, IRISPHASE) == 0 and time.time() < deadline:
+        runner.run_frames(1)
+    runner.set_input(0)
+    assert runner.read_u16(WR, IRISPHASE) != 0, "pit fall never armed the death iris"
+    # step a few frames INTO the close so the circle has shrunk off the corners
+    # but not yet fully shut (IRISPHASE still 1 = closing)
+    for _ in range(10):
+        if runner.read_u16(WR, IRISPHASE) == 1 and runner.read_u16(WR, IRIS) < 24:
+            break
+        runner.run_frames(1)
+    img = _shot(runner)
+    W, H = img.size
+    corners = [img.getpixel((6, 6)), img.getpixel((W - 6, 6)),
+               img.getpixel((6, H - 6)), img.getpixel((W - 6, H - 6))]
+    center = img.getpixel((W // 2, H // 2))
+    assert all(_is_black(c) for c in corners), \
+        f"iris did not black out the corners (outside the circle): {corners}"
+    assert not _is_black(center), \
+        f"iris centre should still show the game (inside the circle): {center}"
+    # let the iris finish and the respawn fade in; assert the deferred outcome
+    deadline = time.time() + 20
+    while runner.read_u16(WR, IRISPHASE) != 0 and time.time() < deadline:
+        runner.run_frames(2)
+    s = bot.st(runner)
+    assert s["sc"] == 1 and s["lv"] == lives0 - 1 and s["px"] == 24, \
+        f"iris finish did not lose a life + respawn at spawn: {s}"
 
 
 # BG1 level tilemap: two 32x32 hardware pages (word $5800 / $5C00; VRAM is

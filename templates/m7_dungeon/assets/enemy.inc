@@ -1,13 +1,12 @@
 ; enemy.inc — GENERATED (make_enemy.py); DO NOT EDIT BY HAND.
-; cmd: png2snes.py sprite art/dungeonSprites_v1.0/demon_/idle_/lIdle_0.png --size 16 --frames 0-0 --name enemy (re-emitted to the enemy_chr/ENEMY_* contract)
-; pack: dungeonSprites_v1.0 — analogStudios_ (Kevin's Mom's House)
-; grant: CC0 (public domain, no attribution) — examples/itch_cc0/LICENSES.md
+; Procedural SLIME: warm orange dome, glossy highlight, two eyes, puddle base.
+; Bright warm body (231,107,74) — the Wave-D enemy-warm band anchor.
+; original kit art (no pack source); CC0.
 ENEMY_TILE = 0
 enemy_chr:
-    .byte $1F, $00, $1F, $0F, $1F, $0F, $3F, $0F, $2F, $0F, $27, $07, $3F, $07, $1F, $07
-    .byte $00, $00, $00, $00, $00, $00, $00, $00, $10, $00, $18, $00, $00, $00, $00, $00
-    .byte $F8, $00, $88, $80, $E8, $E0, $F8, $F0, $D8, $D0, $9C, $90, $FC, $38, $FC, $38
-    .byte $00, $00, $70, $00, $10, $00, $00, $00, $20, $00, $60, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $03, $01, $07, $03, $0C, $04, $0E, $06, $1F, $0F, $1F, $0D
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $03, $00, $01, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $C0, $80, $E0, $C0, $F0, $E0, $F0, $E0, $E8, $F0, $F8, $B0
     .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
     .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
     .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
@@ -36,18 +35,19 @@ enemy_chr:
     .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
     .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
     .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
-    .byte $1F, $0F, $1F, $0F, $10, $0F, $10, $0F, $10, $0F, $1F, $0C, $1E, $04, $0E, $00
     .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
-    .byte $FC, $F0, $F8, $F0, $08, $F0, $08, $F0, $08, $F0, $F8, $30, $78, $10, $38, $00
+    .byte $1F, $0D, $3F, $1F, $3D, $1F, $3F, $1F, $33, $1F, $7F, $3F, $7F, $26, $30, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $F8, $B0, $F4, $F8, $FC, $F8, $FC, $F8, $2C, $F8, $FC, $F8, $FC, $C8, $30, $00
     .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
 ENEMY_CHR_BYTES = 576
 
 enemy_pal:
     .word $0000
-    .word $20C6
-    .word $216E
+    .word $0C66
+    .word $1935
     .word $25BC
-    .word $6F9D
+    .word $5B7F
     .word $0000
     .word $0000
     .word $0000

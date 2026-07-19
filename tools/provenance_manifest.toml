@@ -138,22 +138,20 @@ kind = "generator"
 regenerate = "python3 templates/m7_dungeon/assets/make_dungeon.py"
 produces = ["templates/m7_dungeon/assets/dungeon.png", "templates/m7_dungeon/assets/dungeon_map.bin", "templates/m7_dungeon/assets/dungeon_terrain.bin"]
 
-# m7_dungeon hero/enemy are png2snes conversions of the dungeonSprites CC0 pack
-# (registered third-party zip below). make_hero/make_enemy read the EXTRACTED
-# png under art/dungeonSprites_v1.0/, so the self-contained regen unzips the pack
-# into art/ first (multi-step shell chain, mirroring the railshooter vehicle.inc
-# `&& cp` entry). The gate's sandbox is a throwaway tree copy that carries the
-# committed zip, so the extraction + byte-diff both run inside it. Verified to
+# m7_dungeon hero/enemy are PROCEDURAL kit art (gallery-polish): a top-down knight
+# (make_hero) + a warm slime (make_enemy), authored as 16x16 index grids so they
+# read from the crawler's above-behind perspective. stdlib-only generators with no
+# third-party source, so the regen is just the script (no pack unzip). Verified to
 # reproduce byte-for-byte from a fresh materialization.
 [[asset]]
 path = "templates/m7_dungeon/assets/enemy.inc"
 kind = "generator"
-regenerate = "unzip -o -q examples/itch_cc0/dungeonSprites_v1.0.zip -d art/ && python3 templates/m7_dungeon/assets/make_enemy.py"
+regenerate = "python3 templates/m7_dungeon/assets/make_enemy.py"
 
 [[asset]]
 path = "templates/m7_dungeon/assets/hero.inc"
 kind = "generator"
-regenerate = "unzip -o -q examples/itch_cc0/dungeonSprites_v1.0.zip -d art/ && python3 templates/m7_dungeon/assets/make_hero.py"
+regenerate = "python3 templates/m7_dungeon/assets/make_hero.py"
 
 # Wave-D goal win-card: original kit UI art (4-point gold sparkle star), no pack
 # source. Deterministic stdlib-only generator; reproduces byte-for-byte.
@@ -344,10 +342,29 @@ path = "templates/brawler/assets/*.inc"
 kind = "generator"
 generator = "tools/png2snes.py"
 
+# shmup terrain: RE-AUTHORED seamless grass-capped island (the pack's raw cells
+# are free-standing outlined blocks, not tileable terrain — a raw conversion
+# borders every island). Its own in-tree generator reads the registered Four
+# Seasons zip DIRECTLY for the palette and emits the CHR/map/pal + the HUD-bar
+# tile — deterministic, so the gate re-runs it and byte-diffs (strong proof).
+# (hero.inc/ghost.inc below stay png2snes conversions.)
+[[asset]]
+path = "templates/shmup/assets/terrain.inc"
+kind = "generator"
+regenerate = "python3 templates/shmup/assets/make_terrain.py"
+
 [[asset]]
 path = "templates/shmup/assets/*.inc"
 kind = "generator"
 generator = "tools/png2snes.py"
+
+[[asset]]
+# iris.inc is NOT a png2snes sprite blob — it is the death-fade's precomputed
+# shrinking-circle HDMA tables (WH0/WH1 per scanline). Registered before the
+# png2snes glob below so first-match attributes it to the right generator.
+path = "templates/platformer/assets/iris.inc"
+kind = "generator"
+generator = "tools/gen_iris_table.py"
 
 [[asset]]
 path = "templates/platformer/assets/*.inc"
@@ -359,13 +376,24 @@ path = "templates/platformer_stream/assets/hero.inc"
 kind = "generator"
 generator = "tools/png2snes.py"
 
-# split_v_fight fighters + stage: png2snes conversions of the camelot (Arthur
-# Pendragon, CC0) + Four Seasons Tileset packs (registered zips below). The CHR /
-# palette DATA regenerates byte-identically (verified with unzip + png2snes), but
-# each file carries a hand-authored `source-pack:` attribution comment block that
-# png2snes does not emit, so a raw byte-diff regen is not clean — coverage-only,
-# matching the other png2snes-from-pack entries. Chain is complete via the in-tree
-# generator, the `; cmd: png2snes.py ...` header, and the registered source zips.
+# split_v_fight stage: RE-AUTHORED seamless grass-topped-dirt floor (the pack's
+# raw cells are free-standing outlined blocks, not tileable terrain — a raw
+# conversion borders every floor cell). Its own in-tree generator derives the
+# palette byte-for-byte from the registered Four Seasons zip and re-authors the
+# seamless CHR — deterministic, so the gate re-runs it and byte-diffs (strong
+# proof). (knight.inc below stays a png2snes conversion of the camelot pack.)
+[[asset]]
+path = "templates/split_v_fight/assets/stage.inc"
+kind = "generator"
+regenerate = "python3 templates/split_v_fight/assets/make_stage.py"
+
+# split_v_fight fighters (knight.inc): png2snes conversion of the camelot (Arthur
+# Pendragon, CC0) pack (registered zip below). The CHR / palette DATA regenerates
+# byte-identically (verified with unzip + png2snes), but the file carries a
+# hand-authored `source-pack:` attribution comment block that png2snes does not
+# emit, so a raw byte-diff regen is not clean — coverage-only, matching the other
+# png2snes-from-pack entries. Chain is complete via the in-tree generator, the
+# `; cmd: png2snes.py ...` header, and the registered source zips.
 [[asset]]
 path = "templates/split_v_fight/assets/*.inc"
 kind = "generator"

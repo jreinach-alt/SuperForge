@@ -7,7 +7,8 @@
 ;   floor (scanline k, band-local): texel = P + S(k)/256 * R(th) * (sx-128, k-112)
 ;   sprite:  (u,v) = R(-th) * (W - P)
 ;            k     = sp_vk[-v]                  (build-time inverse LUT)
-;            tier  = sp_tier[k]                 (size ladder + seam-margin cull)
+;            tier  = sp_tier[k]                 (full size ladder; the per-band
+;                                               SEAM cull is separate — see below)
 ;            sx    = 128 + u * recip(k) >> 8    (recip(k) = 65536 / s8.8(k))
 ;            sy    = band_top + k
 ;
@@ -595,13 +596,27 @@ sp_project_band:
     beq @cullj1                 ; horizon / behind-pivot band
     tax                         ; X = band-local row k (0..111) — kept
                                 ; through the u dot and the recip lookup
-    ; --- tier-margin cull check BEFORE the u dot ($FF = cull; the tier
-    ;     VALUE is re-read after the recip while X still holds k) ---
+    ; --- per-band SEAM-margin cull BEFORE the u dot. X = band-local row k.
+    ;     Each band guards ONLY its seam-facing edge; its SCREEN-facing edge is
+    ;     left to slide off (the hardware clips the OAM box past the screen and
+    ;     the 9-bit X wraps, so a sprite stays until its TRAILING edge exits —
+    ;     no leading-edge pop). Cutoffs from gen_sprite_assets.py: band 1's
+    ;     BOTTOM is the seam -> cull k>=96 (MARGIN32 hi=95); band 2's TOP is the
+    ;     seam -> cull k<=8 (MARGIN16 lo=9). The tier SIZE is read after the
+    ;     recip from the FULL ladder (sp_tier_nocull), valid at every k. ---
 .ifndef SP_TIEROFF
-    lda f:sp_tier_tbl, x
-    and #$00FF
-    cmp #$00FF
-    beq @cullj1
+.ifndef SP_CULLOFF
+    ldy z:sp_top                ; 0 = band 1 (screen top far), <>0 = band 2
+    bne @seam_b2
+    cpx #96
+    bcs @cullj1                 ; band 1: k>=96 would cross the seam guard
+    bra @udot
+@seam_b2:
+    .a16
+    .i16
+    cpx #9
+    bcc @cullj1                 ; band 2: k<=8 would cross the seam guard
+.endif
 .endif
     bra @udot
 @cullj1:
@@ -1885,11 +1900,15 @@ sp_sincos:    .incbin "assets/sp_sincos.bin"   ; 256 x (cos,sin) s8.8, |.|<=255
 sp_vk:        .incbin "assets/sp_vk.bin"       ; d -> band row k ($FF = cull)
 sp_recip_lo:  .incbin "assets/sp_recip_lo.bin" ; recip(k) low byte
 sp_recip_hi:  .incbin "assets/sp_recip_hi.bin" ; recip(k) bit 8
-.ifdef SP_CULLOFF
-sp_tier_tbl:  .incbin "assets/sp_tier_nocull.bin" ; CONTROL: no margin culls
-.else
-sp_tier_tbl:  .incbin "assets/sp_tier_lut.bin" ; tier ladder + margin culls
-.endif
+sp_tier_tbl:  .incbin "assets/sp_tier_nocull.bin" ; FULL row->tier size ladder
+                                               ; (every k 0..111 maps to a tier).
+                                               ; The seam-margin cull is now
+                                               ; PER-BAND in sp_project_band; the
+                                               ; -DSP_CULLOFF control disables it
+                                               ; there. sp_tier_lut.bin keeps the
+                                               ; $FF seam marks purely for the
+                                               ; asset generator's core-visible
+                                               ; depth window (d_lo/d_hi).
 sp_tier_tile:  .byte 0, 2, 4, 8, 12            ; CHR name per tier
 sp_tier_half:  .byte 8, 8, 8, 16, 16           ; half box size (size bit is
                                                ; derived: (half>>3) & 2)

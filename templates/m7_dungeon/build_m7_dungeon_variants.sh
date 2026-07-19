@@ -51,20 +51,20 @@ echo "built build/m7_dungeon_projfwd.sfc"
 
 # SPRITE-SIZE NON-VACUITY control: -DBUGGY_SPRITE_SIZE restores the old size bit
 # (bit7 SET) on the hero + enemies, selecting the 32x32 LARGE size of OBSEL pair
-# $62. A 32x32 hero reads a 4x4 tile block; its lower-left quadrant is tile 32 =
-# the enemy CHR -> a phantom yellow diamond bleeds into the hero's lower body.
-# The sprite-size regression test MUST FAIL on this ROM (size bit set + diamond
-# pixels below the hero) and PASS on the fixed default — proving the test is not
-# vacuous (it can tell a 16x16 hero from a 32x32 one).
+# $62. A 32x32 hero reads a 4x4 tile block; its lower quadrant is tile 32 = the
+# enemy (slime) CHR -> a phantom grey/bone diamond (the slime shape drawn in the
+# hero's steel palette) bleeds into the hero's lower body. The sprite-size
+# regression test MUST FAIL on this ROM (size bit set + diamond pixels below the
+# hero) and PASS on the fixed default — proving the test is not vacuous.
 ca65 --cpu 65816 $INC -D BUGGY_SPRITE_SIZE=1 $SRC -o build/m7_dungeon_bigspr.o
 ld65 -C $CFG build/m7_dungeon_bigspr.o $TAD_OBJS -o build/m7_dungeon_bigspr.sfc
 echo "built build/m7_dungeon_bigspr.sfc"
 
-# ENEMY-COLOUR NON-VACUITY control (Wave-D dressing): -DENEMY_MISCOLOR loads a COOL
-# (floor-blue) OBJ palette for the enemy instead of the demon's warm enemy_pal, so
-# the demon renders BLUE and the rendered enemy-warm band reads 0 pixels. The enemy
-# colour-band tests MUST FAIL on this ROM (0 enemy-warm pixels) and PASS on the real
-# demon build — proving the retuned enemy colour band is not vacuous.
+# ENEMY-COLOUR NON-VACUITY control: -DENEMY_MISCOLOR loads a COOL (floor-blue) OBJ
+# palette for the enemy instead of the slime's warm enemy_pal, so the slime renders
+# BLUE and the rendered enemy-warm band reads 0 pixels. The enemy colour-band tests
+# MUST FAIL on this ROM (0 enemy-warm pixels) and PASS on the real slime build —
+# proving the enemy colour band is not vacuous.
 ca65 --cpu 65816 $INC -D ENEMY_MISCOLOR=1 $SRC -o build/m7_dungeon_miscolor.o
 ld65 -C $CFG build/m7_dungeon_miscolor.o $TAD_OBJS -o build/m7_dungeon_miscolor.sfc
 echo "built build/m7_dungeon_miscolor.sfc"

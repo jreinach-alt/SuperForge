@@ -115,6 +115,8 @@ SF_HDR_TITLE_SET = 1
 .include "sf_save.inc"          ; battery-SRAM coin bank (save / continue)
 .include "sf_fx.inc"            ; parallax bands, RGB gradient, color math,
                                 ;     brightness fades (the look-&-feel group)
+.include "sf_window.inc"        ; PPU windows (the death iris masks BG+OBJ
+                                ;     OUTSIDE a shrinking circle -> close to black)
 .include "engine_state.inc"
 .include "tad-audio.inc"
 .include "tad_audio_enums.inc"
@@ -132,7 +134,9 @@ COIN_HI     = $4BFF             ; coin highlight (index 6)
 ; LOOK & FEEL — VRAM / CGRAM / HDMA-channel map (re-check before reusing a channel!)
 ; =============================================================================
 ; VRAM (words):
-;   $0000-$0FFF  OBJ CHR (hero + ghost, OBSEL name base 0)
+;   $0000-$0FFF  OBJ CHR (hero tiles 0-31, ghost tiles 32-63; OBSEL name base 0.
+;                Each 4-frame 16x16 sheet spans 2 tile-rows = 32 tiles — see the
+;                HERO_BASE/GHOST_BASE note for the +16 bottom-row spacing rule.)
 ;   $2000-$27FF  BG1 CHR (game tiles 0-79; font tiles 80-127, sf_text)
 ;   $4000-$403F  BG2 CHR (sky tiles 1-3, BG12NBA=$42 engine default)
 ;   $4400-$47FF  BG2 SKY TILEMAP (32x32, STATIC — uploaded once at init;
@@ -201,6 +205,21 @@ RESPAWN_IFRAMES = 90            ; i-frames granted on a mid-level respawn
 HERO_TITLE_X = 120              ; title-card hero pose: screen x (centered-ish)
 HERO_TITLE_Y = 168              ; ...and screen y, below the menu text lines
 
+; --- death iris (a circular PPU-window close-to-black over every death) ---
+; assets/iris.inc holds IRIS_STEPS precomputed HDMA tables (WH0/WH1 per scanline,
+; a shrinking screen-centred circle). One allocated HDMA channel feeds the pair
+; per line (DMAP mode 1); the window masks BG1/BG2/BG3/OBJ OUTSIDE the circle and
+; colour math is switched off so the revealed backdrop (CGRAM 0) is black — so
+; outside the circle reads black and the circle irises shut. life_lost + the
+; respawn / GAME-OVER outcome are DEFERRED to iris_finish (once fully closed).
+IRIS_EFFECT_ID = $12            ; hdma_alloc effect id owning the iris channel
+IRIS_BBAD  = $26                ; HDMA dest low byte = $2126 (WH0); mode 1 -> +WH1
+IRIS_DMAP  = $01                ; HDMA transfer mode 1: 2 regs (WH0,WH1) per line
+IRIS_W12   = SF_WIN1_OUTSIDE | (SF_WIN1_OUTSIDE << 4)   ; W12SEL: BG1+BG2 win1 out
+IRIS_W34   = SF_WIN1_OUTSIDE                            ; W34SEL: BG3 win1 outside
+IRIS_WOBJ  = SF_WIN1_OUTSIDE                            ; WOBJSEL: OBJ win1 outside
+IRIS_TMW   = SF_WIN_BG1 | SF_WIN_BG2 | SF_WIN_BG3 | SF_WIN_OBJ  ; mask all 4 layers
+
 ; --- scenes ---
 SC_TITLE = 0
 SC_GAME  = 1
@@ -216,8 +235,15 @@ SAVE_VER = 1                    ; bump when the payload layout changes
 SAVE_LEN = 2                    ; payload = the 16-bit COINS word
 
 ; --- OBJ VRAM + sprite attributes (the spr macro's flags word) ---
-HERO_BASE  = 0                  ; 4 frames @ 16x16 -> tiles 0-15
-GHOST_BASE = 16                 ; 4 frames @ 16x16 -> tiles 16-31
+; A 16x16 OBJ reads a 2x2 tile QUAD: top row N,N+1 and BOTTOM row N+16,N+17
+; (the OBJ name table is 16 tiles wide, so "one row down" = +16). So each of
+; these 4-frame 16x16 sheets occupies TWO VRAM tile-rows = 32 tiles, NOT 16.
+; They must therefore be spaced 32 tiles (2 rows) apart, or the second upload
+; clobbers the first's bottom row. (This bit before: GHOST_BASE=16 put the
+; ghost's top row on top of the hero's bottom row — the hero rendered with a
+; ghost-shaped blob for legs, a "doubled top". See the hero.inc LOAD CONTRACT.)
+HERO_BASE  = 0                  ; 4 frames @ 16x16 -> tiles 0-31 (0-7 top, 16-23 bottom)
+GHOST_BASE = 32                 ; 4 frames @ 16x16 -> tiles 32-63 (32-39 top, 48-55 bottom)
 SPR_LARGE  = $0080              ; spr flags: 16x16 sprite (bit 7)
 SPR_HFLIP  = $0040              ; spr flags: horizontal flip (face left)
 GHOST_ATTR = $0082              ; ghost spr flags: large + OBJ palette 1 ($02)
@@ -264,6 +290,9 @@ CONTPEND = $1810                ; menu -> scene_game: 1 = SELECT continue
 PAUSED   = $1812                ; 1 = gameplay frozen (START toggles it)
 LIVES_STR = $1814               ; 2-byte HUD buffer: LIVES as 1 ASCII digit + NUL
 DEATHBEAT = $1816               ; >0 = pit-fall death pause counting down to respawn
+IRIS      = $1818               ; death iris: steps remaining while the circle closes
+IRISPHASE = $181A               ; 0 = idle, 1 = closing, 2 = closed (apply outcome)
+IRISCH    = $181C               ; iris HDMA channel mask (0 = none -> instant fallback)
 SAVEBUF  = $1900                ; sf_load staging (SAVE_LEN bytes used).
                                 ;   Deliberately NOT COINS itself, and placed
                                 ;   with headroom: cont_gate proves the length
@@ -420,6 +449,17 @@ RESET:
     scroll #2, CAMX, #0         ; world-X feed: SHADOW_BG2HOFS = camera X (0)
     sf_parallax_bands #2, #PLX_YSPLIT, #PLX_RTOP, #PLX_RBOT
 
+    ; reserve ONE HDMA channel for the death iris, kept for the ROM's life (armed
+    ; only during a death, idle otherwise). 4 of 5 pool channels are the dusk
+    ; look; this takes the 5th. A 0 mask (no free channel) makes the death fall
+    ; back to an instant cut — see iris_arm.
+    lda #$0001                  ; request 1 channel (priority 0, mode 0)
+    ldx #IRIS_EFFECT_ID
+    jsr hdma_request            ; -> A = channel mask (0 + carry on failure)
+    sta IRISCH
+    stz IRIS
+    stz IRISPHASE
+
     sf_debug_magic
 
     sep #$20
@@ -544,6 +584,33 @@ gf_pause_state:
 gf_running:
     .a16
 
+    ; ---- death iris: while a death is closing the circular window to black,
+    ; freeze the world and step the iris; once fully shut, iris_finish applies
+    ; the deferred outcome (respawn while lives remain, else GAME OVER). ----
+    lda IRISPHASE
+    beq gf_no_iris
+    cmp #2
+    beq gf_iris_finish
+    jsr iris_bind_current       ; point the HDMA at this step's WH0/WH1 circle
+    dec IRIS
+    bne gf_iris_hold            ; more steps to close -> hold this frame
+    lda #2                      ; last (fully-closed) step bound -> finish next frame
+    sta IRISPHASE
+gf_iris_hold:
+    .a16
+    sf_frame_end                ; hold the closing frame, sync VBlank, return
+    sf_debug_complete
+    rts
+gf_iris_finish:
+    .a16
+    jsr iris_finish             ; window off, restore dusk, life_lost + outcome
+    lda SCENE
+    cmp #SC_GAME
+    beq gf_no_iris              ; survived -> fall through into this frame's tick
+    rts                         ; GAME OVER took the scene -> back to loop top
+gf_no_iris:
+    .a16
+
     ; ---- death beat: hold the fallen frame after a pit fall (a beat, not an
     ; instant teleport) then respawn when it expires ----
     lda DEATHBEAT
@@ -638,19 +705,13 @@ gf_jump_held:
     and #$00FF
     sta PIXY
 
-    ; ---- pit: lose a life (with a death beat before respawn) ----
+    ; ---- pit: fall past the death plane -> start the death iris. The circle
+    ; closes to black over the next IRIS_STEPS frames; life_lost + respawn (or
+    ; GAME OVER) is deferred to iris_finish, so the fall reads as a real beat. ----
     sf_pit PYF, #PIT_DEATH_Y
     beq gf_no_pit
-    jsr life_lost               ; life-- + game-over check; does NOT reposition
-    lda SCENE
-    cmp #SC_GAME
-    bne gf_pit_over
-    lda #DEATHBEAT_FRAMES
-    sta DEATHBEAT               ; start the beat; the fallen player draws this
-    bra gf_no_pit               ;   frame, holds, then respawn_player fires
-gf_pit_over:
-    .a16
-    rts                         ; scene changed (game over) — back to loop top
+    jsr iris_arm                ; begin the close (outcome deferred to iris_finish)
+    bra gf_no_pit               ; finish this frame; the iris freezes from next
 gf_no_pit:
     .a16
 
@@ -756,15 +817,8 @@ gf_check_e2:
     bne gf_combat_done
 gf_hurt:
     .a16
-    jsr life_lost               ; life-- + game-over check; does NOT reposition
-    lda SCENE
-    cmp #SC_GAME
-    bne gf_hurt_over
-    jsr respawn_player          ; a ghost hit respawns at once — the i-frame
-    jmp gf_combat_done          ;   blink is the feedback (no death beat)
-gf_hurt_over:
-    .a16
-    rts                         ; game over took the scene — back to loop top
+    jsr iris_arm                ; ghost hit -> the same death iris as a pit fall;
+    jmp gf_combat_done          ;   life_lost + respawn deferred to iris_finish
 gf_combat_done:
     .a16
 
@@ -959,6 +1013,8 @@ scene_game:
     stz FACING
     stz PAUSED                  ; start un-paused (WRAM is random at power-on)
     stz DEATHBEAT               ; and with no death beat pending
+    stz IRIS                    ; and no death iris mid-close (window stays off
+    stz IRISPHASE               ;   until a death arms it — see iris_arm)
     lda #3
     sta LIVES
     stz COINS
@@ -1069,6 +1125,122 @@ respawn_player:
     stz GROUNDED
     lda #RESPAWN_IFRAMES
     sta HURTLOCK
+    rts
+
+; -----------------------------------------------------------------------------
+; DEATH IRIS — a circular PPU-window close-to-black over every death (pit + ghost)
+; -----------------------------------------------------------------------------
+; iris_arm turns on the window (BG1/BG2/BG3/OBJ masked OUTSIDE window 1) + colour
+; math off (black backdrop), then enters the closing phase. The game loop's top
+; steps the circle (iris_bind_current) one table per frame, frozen, until shut;
+; iris_finish then removes the window and runs the deferred life_lost + respawn /
+; GAME-OVER outcome, fading the survivor back in. WIDTH: entry/exit A16/I16.
+iris_arm:
+    rep #$30
+    .a16
+    .i16
+    lda IRISCH
+    bne @have_ch
+    ; no reserved channel -> degrade to an instant close (finish next frame)
+    stz IRIS
+    lda #$0002
+    sta IRISPHASE
+    rts
+@have_ch:
+    .a16
+    .i16
+    sf_window_bg12 #IRIS_W12         ; BG1+BG2 masked OUTSIDE window 1 (the circle)
+    sf_window_bg34 #IRIS_W34         ; BG3 (HUD text) likewise
+    sf_window_obj  #IRIS_WOBJ        ; OBJ (hero + ghosts) likewise
+    sf_window_logic #SF_WINLOG_OR    ; single window -> OR is the safe combine
+    sf_window_mask_main #IRIS_TMW    ; TMW: those layers off inside the final area
+    sf_colormath_off                 ; backdrop -> CGRAM 0 (black) outside the circle
+    lda #IRIS_STEPS
+    sta IRIS
+    lda #$0001
+    sta IRISPHASE
+    jsr iris_bind_current            ; arm the fully-open circle (step 0)
+    rts
+
+; iris_bind_current — point the iris HDMA channel at this step's WH0/WH1 circle
+; table (step = IRIS_STEPS - IRIS). WIDTH: A16/I16 in/out; DB forced $00 for the
+; $43xx + NMI_HDMA_ENABLE writes inside hdma_bind_direct (restored after).
+iris_bind_current:
+    rep #$30
+    .a16
+    .i16
+    phb                              ; save caller DB
+    sep #$20
+    .a8
+    lda #$00
+    pha
+    plb                              ; DB = $00: the bank-$00 pointer read + the
+                                     ;   $43xx / NMI_HDMA_ENABLE writes are abs
+    rep #$30
+    .a16
+    .i16
+    lda #IRIS_STEPS
+    sec
+    sbc IRIS                         ; step = IRIS_STEPS - IRIS (0..IRIS_STEPS-1)
+    asl a
+    tax
+    lda iris_step_tbl, x             ; step's 16-bit table addr (all iris = bank $00)
+    sta API_BLOCK_BASE + $00         ; A1TnL/H via +0/+1 (DP, bank-agnostic)
+    sep #$20
+    .a8
+    stz API_BLOCK_BASE + $02         ; A1Bn = bank $00
+    lda #IRIS_DMAP
+    sta API_BLOCK_BASE + $03         ; DMAPn = mode 1 (WH0,WH1 per line)
+    rep #$30
+    .a16
+    .i16
+    lda IRISCH                       ; A16 = channel mask (single bit)
+    ldx #IRIS_BBAD                   ; X16 = BBAD ($26 -> $2126 WH0)
+    jsr hdma_bind_direct
+    plb                              ; restore caller DB
+    rts
+
+; iris_finish — the circle is fully shut (screen black). Hold black by brightness,
+; drop the window + iris HDMA, restore the dusk backdrop, then apply the deferred
+; outcome: respawn (fading back in) while lives remain, else GAME OVER (its scene
+; init already fired inside life_lost). WIDTH: A16/I16 in/out.
+iris_finish:
+    rep #$30
+    .a16
+    .i16
+    sf_bright_fade #0, #0            ; hold black by brightness (no flash off-window)
+    sf_window_off                    ; remove the circular mask
+    sf_colormath_on #1, #$20         ; restore the dusk backdrop (hidden under black)
+    lda IRISCH
+    beq @no_ch                       ; no channel armed -> nothing to disable
+    phb                              ; save caller DB
+    sep #$20
+    .a8
+    lda #$00
+    pha
+    plb                              ; DB = $00 (NMI_HDMA_ENABLE is a bank-$00 mirror)
+    lda IRISCH                       ; low byte = the iris channel bit
+    eor #$FF
+    and NMI_HDMA_ENABLE              ; clear it from the NMI $420C re-arm mask
+    sta NMI_HDMA_ENABLE
+    rep #$30
+    .a16
+    .i16
+    plb                              ; restore caller DB
+@no_ch:
+    .a16
+    .i16
+    stz IRISPHASE
+    stz IRIS
+    jsr life_lost                    ; life-- (+ GAME OVER on the last life)
+    lda SCENE
+    cmp #SC_GAME
+    bne @done                        ; GAME OVER: scene_over already inited + fading
+    jsr respawn_player
+    sf_bright_fade #15, #FADE_FRAMES  ; fade the level back in on the respawn
+@done:
+    .a16
+    .i16
     rts
 
 ; -----------------------------------------------------------------------------
@@ -1361,6 +1533,7 @@ sky_pattern:
 ; --- converted art (committed png2snes output; regen-guarded) ---
 .include "assets/hero.inc"
 .include "assets/ghost.inc"
+.include "assets/iris.inc"      ; death-iris HDMA tables (IRIS_STEPS circles)
 
 .include "ppu_init.inc"
 .include "input_handler.asm"

@@ -184,7 +184,50 @@ RESET:
     sf_bg_color 0, 0, NIGHT_SKY ; backdrop (CGRAM 0): a night sky, not a black void
 
     jsr init_ppu                ; engine PPU defaults (OBSEL $00: 8x8/16x16)
-    gfxmode #1                  ; enable BG1+BG3 (zeros the shadow tilemaps)
+    gfxmode #1                  ; enable BG1+BG2+BG3 (engine TM=$17; zeros the shadow maps)
+
+    ; --- HUD backing band: a fixed dark bar on BG2, behind the BG3 SCORE/LIVES
+    ;     text, so the HUD stays legible when a bright island scrolls under the
+    ;     top row. The engine already has BG2 on the main screen (TM=$17); point
+    ;     its CHR at BG1's ($2000) so it can use terrain_hud_tile, then write the
+    ;     bar STRAIGHT into BG2's VRAM tilemap ($5C00) rows 0-2 under a brief
+    ;     forced blank. Direct VRAM — NOT the mset/shadow path — because that
+    ;     would add a 3rd 2KB tilemap DMA to frame 1's VBlank, which already
+    ;     commits BG1 (islands) + BG3 (text); a 3rd transfer overruns VBlank and
+    ;     truncates the text DMA (the multi-tilemap-DMA landmine). The priority
+    ;     bit ($2000) lifts the bar above the BG1 terrain; the high-priority BG3
+    ;     text stays above the bar. BG2 never scrolls, so the bar stays put. ---
+    sep #$20
+    .a8
+    lda #$80
+    sta $2100                   ; INIDISP: forced blank for the direct VRAM write
+    lda #$22
+    sta $210B                   ; BG12NBA: BG2 CHR -> $2000 (shares BG1's tiles); BG1 unchanged
+    lda #$80
+    sta $2115                   ; VMAIN: word access, increment after the high byte
+    rep #$20
+    .a16
+    lda #$5C00
+    sta $2116                   ; VMADD = BG2 tilemap word $5C00 (row 0, col 0)
+    lda #(terrain_hud_tile | $2000)  ; bar tile + BG priority bit (above the terrain)
+    ldx #(32*3)                 ; rows 0-2 x 32 columns
+@hud_bar_vram:
+    .a16
+    .i16
+    sta $2118                   ; write the tile word to VMDATA; VMADD auto-increments
+    dex
+    bne @hud_bar_vram
+    sep #$20
+    .a8
+    lda BG_TILEMAP_DIRTY
+    and #$FD                    ; clear BG2's gfxmode-set dirty bit -> frame 1 DMAs BG1+BG3 only
+    sta BG_TILEMAP_DIRTY
+    lda #$0F
+    sta $2100                   ; INIDISP: screen back on (full brightness)
+    sta SHADOW_INIDISP          ; keep the engine brightness shadow in sync
+    rep #$30
+    .a16
+    .i16
 
     ; --- scatter terrain ISLANDS over the black backdrop ---
     ; The converted 8x6-cell patch is stamped at staggered origins (the

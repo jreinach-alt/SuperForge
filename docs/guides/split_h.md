@@ -694,12 +694,26 @@ zero floor/sprite skew by construction).
 **Distance tiers (5 apparent sizes on 2 hardware sizes).** OBSEL `$62` gives
 the 16×16/32×32 pair; five disc CHR variants (diameters 10/12/14/18/22 px,
 32×32 variants on fully-padded 4×4 name blocks — the phantom-quadrant
-lesson) are selected by ONE row→tier LUT that also folds in the **measured
-seam margins**: 16×16-class rows k∈[9,103], 32×32-class k∈[17,95], `$FF` =
-cull. The rendered guard band (PPU rows 111–112) stays white-free;
-`-DSP_CULLOFF` renders the dead-zone probes and the same metric flips.
-Tier switches land exactly on the LUT boundaries (extent-measured on the
-render; `-DSP_TIEROFF` collapses the ladder).
+lesson) are selected by ONE row→tier size ladder (`sp_tier_nocull`, valid at
+every row). Tier switches land exactly on the ladder boundaries (extent-measured
+on the render; `-DSP_TIEROFF` collapses the ladder).
+
+**Seam vs SCREEN edges (per-band cull — owner edge-exit fix).** The two
+vertical band edges are NOT symmetric: band 1's bottom (`k→111`) and band 2's
+top (`k→0`) are the SEAM; band 1's top and band 2's bottom (the near, big-token
+edge) are the true SCREEN. An earlier single symmetric LUT (`$FF` for `k<9` or
+`k>95`) guarded both, so a fully-visible follower was culled the instant its
+LEADING edge neared a screen edge — a big band-2 token popped at `k=96` with its
+box bottom still ~13 rows above the screen. The cull is now **per-band** in
+`sp_project_band`: each band guards ONLY its seam-facing edge (band 1 culls
+`k≥96`, band 2 `k≤8` — cutoffs from `MARGIN32` hi=95 / `MARGIN16` lo=9, per-tier
+by k-segregation) and lets its screen edge slide off (hardware clips the OAM box
+/ 9-bit X wraps → the follower stays until its TRAILING edge exits). The seam
+guard band (PPU rows 111–112) still stays white-free; `-DSP_CULLOFF` disables
+the per-band cull and the dead-zone probes bleed (the metric flips). `sp_tier_lut`
+keeps its `$FF` marks only as the generator's core-visible depth window
+(`d_lo/d_hi`). **Measured cost held** — the dp+`cpx` per-band test is cost-neutral
+vs the old abs-long LUT read (per-sprite/visible-band 5,595 mc unchanged).
 
 **Programmed inputs (the test pattern).** `$4200 = $81` (composed: NMI |
 auto-joypad); after the VBlank commits the loop polls `$4212` bit 0 then

@@ -69,8 +69,9 @@ rendered output (`docs/screenshots/` has stills for every rail):
 | | |
 |---|---|
 | ![platformer gameplay](docs/screenshots/gifs/platformer.gif) `platformer` — the flagship: run, jump, coins, enemies | ![seamless 2P fight split](docs/screenshots/gifs/split_v_fight.gif) `split_v_fight` — one camera splits in two and merges back, seamlessly |
-| ![rotating-floor dungeon](docs/screenshots/gifs/m7_dungeon.gif) `m7_dungeon` — tank-control Mode 7, enemies glued to the spinning floor | ![sprite swarm on two rotating cameras](docs/screenshots/gifs/split_h_2p_sprites.gif) `split_h_2p_demo` — a swarm of AI followers projected onto two independently rotating per-scanline cameras (the measured sprite-stress rail) |
-| ![streaming overworld](docs/screenshots/gifs/mode7_explore.gif) `mode7_explore` — walking a world far bigger than VRAM | ![vertical shmup](docs/screenshots/gifs/shmup.gif) `shmup` — pools, autoscroll, converted CC0 art |
+| ![rotating-floor dungeon](docs/screenshots/gifs/m7_dungeon.gif) `m7_dungeon` — tank-control Mode 7: a knight holds screen-centre while slimes stay glued to the spinning floor | ![sprite swarm on two rotating cameras](docs/screenshots/gifs/split_h_2p_sprites.gif) `split_h_2p_demo` — a swarm of AI followers projected onto two independently rotating per-scanline cameras (the measured sprite-stress rail) |
+| ![streaming overworld](docs/screenshots/gifs/mode7_explore.gif) `mode7_explore` — Elnora walks a world far bigger than VRAM, turning to face each way she steps | ![vertical shmup](docs/screenshots/gifs/shmup.gif) `shmup` — pools, autoscroll, converted CC0 art |
+| ![paddle-and-ball block-breaker](docs/screenshots/gifs/breaker.gif) `breaker` — bat a ball through a rainbow brick wall; where it strikes the paddle picks its outgoing angle, so the paddle english is a physics receipt a closed-loop bot rallies on | ![streaming side-view platformer](docs/screenshots/gifs/platformer_stream.gif) `platformer_stream` — a side-view level four screens wide *and* tall; fall in, run, and climb as it streams seamlessly on both axes with no pop-in |
 
 ## Working with an AI agent
 

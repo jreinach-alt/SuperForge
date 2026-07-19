@@ -789,9 +789,17 @@ def sp_project(wx, wy, px, py, h, band_top, forward=False, nocull=False):
     if d > 255 or _VK[d] == 0xFF:
         return None
     k = _VK[d]
-    tier = (_TIER_NOCULL if nocull else _TIER_LUT)[k]
-    if tier == 0xFF:
-        return None                      # tier-scaled seam-margin cull
+    tier = _TIER_NOCULL[k]               # full ladder — valid at every row
+    if not nocull:
+        # per-band SEAM-margin cull (matches sp_project_band): each band guards
+        # ONLY its seam-facing edge; the SCREEN-facing edge slides off (hardware
+        # clip). Band 1 (band_top=0): bottom is the seam -> cull k>=96. Band 2
+        # (band_top!=0): top is the seam -> cull k<=8.
+        if band_top == 0:
+            if k >= 96:
+                return None
+        elif k <= 8:
+            return None
     t1 = (adx * ac + 128) >> 8           # u = dx*cos - dy*sin
     t2 = (ady * asn + 128) >> 8
     u = (-t1 if mdx ^ mc else t1) + (-t2 if mdy ^ (not ms) else t2)

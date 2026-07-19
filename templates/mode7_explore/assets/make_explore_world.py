@@ -536,49 +536,138 @@ def emit_inc(palette_words: list[int], terr_lut: bytes, n_banks: int) -> str:
 
 
 # =============================================================================
-# AVATAR OBJ asset (self-contained — no cross-template dependency).  A 16x16
-# hero sprite (the explorer) as four 8x8 4bpp tiles laid out for the SNES PPU
-# 16x16 quad {N, N+1, N+16, N+17}.  Tile base 16 (VRAM-row aligned, a multiple
-# of 16) -> quad {16,17,32,33}.  OBJ palette 0: skin / tunic / cape / outline.
+# AVATAR OBJ asset — ELNORA, the purple-robed staff-wielding heroine.
 # =============================================================================
-AVATAR_BASE_TILE = 16              # OBJ tile base (16x16 reads {16,17,32,33})
+# Self-contained (no cross-template dependency).  Elnora is a 16x16 hero sprite
+# authored with FOUR FACINGS — down / up / left / right — so she turns to face
+# the direction she walks.  Each facing is a 16x16 sprite = four 8x8 4bpp tiles
+# in the SNES PPU quad {N, N+1, N+16, N+17}:
+#
+#     DOWN  base tile 16 -> {16,17,32,33}   (front view, face + eyes visible)
+#     UP    base tile 18 -> {18,19,34,35}   (back view, hair only, no face)
+#     SIDE  base tile 20 -> {20,21,36,37}   (RIGHT-facing profile; LEFT is this
+#                                            sprite H-FLIPPED via the free OAM
+#                                            attribute flip bit — the staff then
+#                                            lands on the leading (left) side)
+#
+# The sprite is a TRUE 16x16 OBJ (OBSEL $62 = size mode 3 -> small=16x16), so the
+# H-flip mirrors in place (a 32x32 box with 16x16 art would slide the art +16px
+# when flipped).  main.asm latches the facing from the last d-pad direction and
+# picks base tile + flip bit accordingly; the 2-frame walk bob (Y hop) rides on
+# top of every facing unchanged.
+#
+# OBJ palette 0 (Elnora's colours): 3 distinct PURPLE robe shades (mid / dark /
+# light) that read as purple over grass, road, water AND coast (none of the Mode
+# 7 terrain tones are purple), a warm brown-gold STAFF shaft with a bright gold
+# tip gem, skin, dark chestnut hair, a near-black outline, and a white sheen.
+# The avatar is an OBJ sprite, so it is EXCLUDED from the mx-series rendered-VRAM
+# tilemap asserts (those read BG tile ids); the purple can never collide with a
+# terrain classifier.
+# =============================================================================
+AVATAR_BASE_TILE = 16              # DOWN facing base tile (mx002 / oracle read this)
+AVATAR_TILE_DOWN = 16              # front view  -> quad {16,17,32,33}
+AVATAR_TILE_UP = 18                # back view   -> quad {18,19,34,35}
+AVATAR_TILE_SIDE = 20              # right view  -> quad {20,21,36,37} (LEFT = H-flip)
+AVATAR_TILE_MAX = AVATAR_TILE_SIDE + 17   # highest tile index any facing occupies (37)
 
 OBJ_PAL = [
     (0, 0, 0),           # 0 transparent
-    (240, 220, 180),     # 1 skin
-    (40, 80, 210),       # 2 tunic blue
-    (190, 50, 50),       # 3 cape red
-    (28, 28, 38),        # 4 outline / boots
-    (110, 70, 40),       # 5 hair brown
-    (248, 248, 232),     # 6 highlight
-    (0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0),
-    (0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0),
+    (242, 214, 176),     # 1 skin
+    (126, 52, 166),      # 2 robe purple (mid)   — Elnora's mantle
+    (74, 26, 104),       # 3 robe purple (dark)  — robe shadow / hem flare / edge
+    (26, 26, 36),        # 4 outline / boots     — near-black
+    (72, 46, 34),        # 5 hair                — dark chestnut
+    (250, 250, 236),     # 6 highlight           — eye spark / gem shine / sheen
+    (176, 108, 210),     # 7 robe purple (light) — robe highlight
+    (168, 120, 56),      # 8 staff shaft         — warm brown-gold
+    (255, 202, 82),      # 9 staff tip           — bright gold gem
+    (0, 0, 0), (0, 0, 0), (0, 0, 0),
+    (0, 0, 0), (0, 0, 0), (0, 0, 0),
 ]
 
-# 16x16 explorer drawn as palette indices.  Rows of 16; split into the PPU quad.
-AVATAR16 = [
-    "0000044444400000",
-    "0000455555540000",
-    "0004555555554000",
-    "0004511111154000",
-    "0004151111514000",
-    "0004111111114000",
-    "0000041111400000",
-    "0003322222233000",
-    "0033222222223300",
-    "0332222222222330",
-    "0042222222222400",
-    "0004222222224000",
-    "0000411111140000",
-    "0000041001400000",
-    "0000044004400000",
-    "0000440000440000",
+# --- Elnora, FRONT (walking DOWN).  Hair frames the face (feminine), two eyes,
+#     a purple robe that FLARES at the hem (dress silhouette), and the staff held
+#     on the viewer-left with its gold tip up beside her head. --------------------
+AVATAR_DOWN = [
+    "0000055555500000",  # 0  hair crown
+    "0090555555550000",  # 1  gold tip beside her head, hair
+    "0080551111550000",  # 2  staff shaft, hair frames skin forehead
+    "0080511111150000",  # 3  hair, skin face
+    "0080514114150000",  # 4  skin face, two eyes
+    "0080511111150000",  # 5  skin face
+    "0080551111550000",  # 6  hair falls to the sides (long)
+    "0081322222231000",  # 7  hand grips the staff, robe collar
+    "0080272222272000",  # 8  robe with a light-purple sheen
+    "0080222222222000",  # 9  robe body
+    "0000322222223000",  # 10 robe, dark side shading
+    "0000322222223000",  # 11 robe waist
+    "0003222222222300",  # 12 robe begins to flare
+    "0032222222222230",  # 13 robe flare wider
+    "0032722222272300",  # 14 wide hem with sheen
+    "0003300440330000",  # 15 hem shadow + little boots
 ]
 
+# --- Elnora, BACK (walking UP).  Same silhouette from behind: the head is all
+#     hair (NO face), the robe shows a centre pleat, staff + gold tip on the
+#     viewer-left. --------------------------------------------------------------
+AVATAR_UP = [
+    "0000055555500000",  # 0  hair crown
+    "0090555555550000",  # 1  gold tip, hair
+    "0080555555550000",  # 2  back of the head — all hair
+    "0080555555550000",  # 3  hair
+    "0080555555550000",  # 4  hair (no face)
+    "0080555555550000",  # 5  hair
+    "0080555555550000",  # 6  hair falls down her back
+    "0081322222231000",  # 7  robe collar, hand on the staff
+    "0080272222272000",  # 8  robe with centre pleat sheen
+    "0080222222222000",  # 9  robe body
+    "0000322222223000",  # 10 robe, dark side shading
+    "0000322222223000",  # 11 robe waist
+    "0003222222222300",  # 12 robe flare
+    "0032222222222230",  # 13 flare wider
+    "0032722222272300",  # 14 wide hem with pleat sheen
+    "0003300440330000",  # 15 hem shadow + boots
+]
 
-def _avatar_quad():
-    """Split the 16x16 grid into four 8x8 index grids (TL, TR, BL, BR)."""
-    g = [[int(c, 16) for c in row] for row in AVATAR16]
+# --- Elnora, SIDE profile facing RIGHT.  Hair sweeps back (left), one eye + nose
+#     face right, robe flares behind her stride, and the STAFF is held FORWARD on
+#     the leading (right) side, gold tip up.  LEFT facing = this sprite H-flipped
+#     (the staff then leads on the left).  Leading-side staff per the spec. ------
+AVATAR_SIDE = [
+    "0000555550000000",  # 0  hair crown, swept back
+    "0005555511009000",  # 1  hair back, skin brow, gold tip (right)
+    "0055555111008000",  # 2  hair, face, staff shaft
+    "0055551141108000",  # 3  hair, eye, nose bulge, shaft
+    "0005551111108000",  # 4  hair sweeps back, face, shaft
+    "0000551111108000",  # 5  jaw / neck, shaft
+    "0000322222218000",  # 6  robe collar, hand reaches the staff
+    "0003222222281000",  # 7  robe, hand grips shaft
+    "0003272222280000",  # 8  robe with sheen, shaft lower
+    "0003222222200000",  # 9  robe body
+    "0003222222230000",  # 10 robe
+    "0003222222230000",  # 11 robe waist
+    "0032222222223000",  # 12 robe flares behind the stride
+    "0322222222223000",  # 13 flare wider (trailing)
+    "0327222222232000",  # 14 hem with sheen
+    "0033004400330000",  # 15 back foot + front foot mid-step
+]
+
+# facing name -> (grid, base tile).  SIDE authored facing RIGHT; LEFT reuses it
+# H-flipped at draw time, so it is NOT emitted as separate CHR.
+AVATAR_FACINGS = {
+    "down": (AVATAR_DOWN, AVATAR_TILE_DOWN),
+    "up": (AVATAR_UP, AVATAR_TILE_UP),
+    "side": (AVATAR_SIDE, AVATAR_TILE_SIDE),
+}
+
+
+def _split_quad(grid16):
+    """Split a 16x16 index grid into four 8x8 index grids (TL, TR, BL, BR) for
+    the SNES PPU 16x16 tile quad {N, N+1, N+16, N+17}."""
+    assert len(grid16) == 16, f"avatar grid must be 16 rows, got {len(grid16)}"
+    g = [[int(c, 16) for c in row] for row in grid16]
+    for r in grid16:
+        assert len(r) == 16, f"avatar row must be 16 cols: {r!r}"
     tl = [row[0:8] for row in g[0:8]]
     tr = [row[8:16] for row in g[0:8]]
     bl = [row[0:8] for row in g[8:16]]
@@ -608,27 +697,38 @@ def encode_4bpp(tile):
 
 
 def emit_obj():
-    """Emit explore_obj.inc: a 34-tile 4bpp OBJ CHR blob whose tiles 16,17,32,33
-    form the 16x16 avatar (the PPU quad for OBJ base tile 16), an OBJ palette,
-    and the AVATAR_TILE / EXPLORE_OBJ_BYTES equates."""
+    """Emit explore_obj.inc: a 4bpp OBJ CHR blob holding Elnora's THREE authored
+    facing sprites (down/up/right; left is right H-flipped at draw time) laid out
+    as 16x16 PPU quads at base tiles 16/18/20, plus the OBJ palette and the
+    AVATAR_TILE* / EXPLORE_OBJ_BYTES equates.  The blob spans tiles 0..37."""
     EMPTY = [[0] * 8 for _ in range(8)]
-    tl, tr, bl, br = _avatar_quad()
-    tiles = [EMPTY] * 34
-    tiles[16] = tl
-    tiles[17] = tr
-    tiles[32] = bl
-    tiles[33] = br
+    n_tiles = AVATAR_TILE_MAX + 1               # 38 tiles (0..37)
+    tiles = [EMPTY] * n_tiles
+    for _name, (grid, base) in AVATAR_FACINGS.items():
+        tl, tr, bl, br = _split_quad(grid)
+        tiles[base] = tl                        # {base, base+1, base+16, base+17}
+        tiles[base + 1] = tr
+        tiles[base + 16] = bl
+        tiles[base + 17] = br
     chr_bytes = b"".join(encode_4bpp(t) for t in tiles)
     pal_words = [rgb_to_bgr555(*c) for c in OBJ_PAL]
     L = []
     L.append("; ===========================================================================")
-    L.append("; explore_obj.inc — avatar OBJ CHR + palette (GENERATED)")
+    L.append("; explore_obj.inc — Elnora avatar OBJ CHR + palette (GENERATED)")
     L.append("; ===========================================================================")
     L.append("; Regenerate: python3 templates/mode7_explore/assets/make_explore_world.py")
-    L.append("; 16x16 explorer avatar: OBJ base tile 16 -> PPU quad {16,17,32,33}.")
+    L.append("; Elnora, the purple-robed staff-wielder, in FOUR FACINGS. Three authored")
+    L.append("; 16x16 sprites (down/up/right); LEFT is the right sprite H-flipped via the")
+    L.append("; free OAM attribute flip bit. PPU 16x16 quads {N,N+1,N+16,N+17}:")
+    L.append(";   AVATAR_TILE_DOWN 16 -> {16,17,32,33}   front (face + eyes)")
+    L.append(";   AVATAR_TILE_UP   18 -> {18,19,34,35}   back (hair, no face)")
+    L.append(";   AVATAR_TILE_SIDE 20 -> {20,21,36,37}   right profile (LEFT = H-flip)")
     L.append("; ===========================================================================")
     L.append("")
-    L.append(f"AVATAR_TILE       = {AVATAR_BASE_TILE}")
+    L.append(f"AVATAR_TILE       = {AVATAR_BASE_TILE}   ; DOWN facing (default / idle)")
+    L.append(f"AVATAR_TILE_DOWN  = {AVATAR_TILE_DOWN}")
+    L.append(f"AVATAR_TILE_UP    = {AVATAR_TILE_UP}")
+    L.append(f"AVATAR_TILE_SIDE  = {AVATAR_TILE_SIDE}   ; RIGHT; LEFT = this tile H-flipped")
     L.append(f"EXPLORE_OBJ_BYTES = {len(chr_bytes)}")
     L.append("")
     L.append(".pushseg")
@@ -645,7 +745,8 @@ def emit_obj():
     L.append(".popseg")
     L.append("")
     (HERE / "explore_obj.inc").write_text("\n".join(L) + "\n")
-    print(f"  obj        : explore_obj.inc ({len(chr_bytes)} CHR bytes, avatar base tile {AVATAR_BASE_TILE})")
+    print(f"  obj        : explore_obj.inc ({len(chr_bytes)} CHR bytes, "
+          f"{n_tiles} tiles, Elnora facings down/up/side @ 16/18/20)")
 
 
 def _open_run(tx: int, ty: int, length: int) -> bool:
