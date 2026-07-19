@@ -281,7 +281,13 @@ produces = ["templates/mode7_explore/assets/explore_flat_bank*.bin", "templates/
 path = "templates/mode7_explore/assets/explore_world.inc"
 kind = "generator"
 regenerate = "python3 templates/mode7_explore/assets/make_explore_world.py"
-produces = ["templates/mode7_explore/assets/explore_flat_bank*.bin", "templates/mode7_explore/assets/explore_seed.bin", "templates/mode7_explore/assets/explore_obj.inc", "templates/mode7_explore/assets/explore_world.inc"]
+produces = ["templates/mode7_explore/assets/explore_flat_bank*.bin", "templates/mode7_explore/assets/explore_seed.bin", "templates/mode7_explore/assets/explore_obj.inc", "templates/mode7_explore/assets/explore_world.inc", "templates/mode7_explore/assets/explore_town.inc"]
+
+[[asset]]
+path = "templates/mode7_explore/assets/explore_town.inc"
+kind = "generator"
+regenerate = "python3 templates/mode7_explore/assets/make_explore_world.py"
+produces = ["templates/mode7_explore/assets/explore_flat_bank*.bin", "templates/mode7_explore/assets/explore_seed.bin", "templates/mode7_explore/assets/explore_obj.inc", "templates/mode7_explore/assets/explore_world.inc", "templates/mode7_explore/assets/explore_town.inc"]
 
 # --- engine + macro LUTs (numeric, deterministic, no external input) ---
 [[asset]]

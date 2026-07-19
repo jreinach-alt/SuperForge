@@ -86,12 +86,15 @@ SF_HDR_TITLE_SET = 1
 .include "sf_mode7.inc"         ; sf_mode7_load_map (the seed upload) + M7 equates
 .include "sf_mode7_stream.inc"  ; sf_mode7_stream_init / _set_cam / _tick (2-axis streamer)
 .include "sf_input.inc"         ; btn / btnp (+ buttons.inc)
+.include "sf_scene_mode.inc"    ; sf_blank_enter / sf_blank_exit (forced-blank bracket)
+.include "sf_mosaic_transition.inc" ; sf_mosaic_transition_arm/tick/active (the scene wipe)
 .include "engine_state.inc"
 .include "tad-audio.inc"        ; TAD driver ca65 API (the vendored audio driver)
 .include "tad_audio_enums.inc"  ; Song:: / SFX:: ids for the shipped song set
 .include "sf_audio.inc"         ; sf_audio_init / sf_audio_tick / sf_music
 .include "explore_world.inc"    ; world dims, spawn, TILE_*/TERR_*, palette
 .include "explore_obj.inc"      ; avatar OBJ CHR + palette + AVATAR_TILE
+.include "explore_town.inc"     ; Mode 1 town-interior CHR + palette + TOWN_TILE_*
 
 ; --- game DP state ($32-$5F per kit convention; clear of the kit API block
 ;     $60-$9F and the streaming engine's ES_M7S_PTR scratch at $9A). ----------
@@ -109,6 +112,19 @@ av_y         = $48             ; avatar screen Y for this frame (walk-bob target
 facing       = $4A             ; latched facing (FACE_*): last d-pad direction Elnora turned to
 av_tile      = $4C             ; draw scratch: OAM base tile resolved from `facing`
 av_attr      = $4E             ; draw scratch: OAM attribute flags resolved from `facing`
+
+; --- town-visit arc DP state ($50-$5F; still the template game-DP window, clear
+;     of the engine ES_* block at $0100+ and the streamer's $9A scratch). The
+;     mosaic town-visit: step onto the demo house -> Mode 1 interior -> step onto
+;     the door -> back to the streamed Mode 7 overworld at the SAVED camera. ------
+scene_id     = $50             ; 0 = overworld (Mode 7 stream), 1 = town (Mode 1)
+ovw_camx     = $52             ; saved overworld camera X px (restored on town exit)
+ovw_camy     = $54             ; saved overworld camera Y px
+town_px      = $56             ; town player tile X (0..31)
+town_py      = $58             ; town player tile Y (0..31)
+town_facing  = $5A             ; town avatar facing (FACE_*)
+town_ctx     = $5C             ; town_classify query scratch: tile X
+town_cty     = $5E             ; town_classify query scratch: tile Y
 
 ; --- facing codes: Elnora turns to face the last direction the d-pad pushed.
 ;     draw_avatar maps these to (OAM base tile, attribute flags) via face_*_lut.
@@ -159,12 +175,49 @@ REG_M7C    = $211D
 REG_M7D    = $211E
 REG_M7X    = $211F
 REG_M7Y    = $2120
+REG_BG1SC   = $2107            ; BG1 tilemap base + size (Mode 1 town)
+REG_BG12NBA = $210B            ; BG1/BG2 CHR base (Mode 1 town)
+REG_TM      = $212C            ; main-screen layer designation
 
 ; --- joypad masks (JOY1_CURRENT bit layout, matches the kit templates) ---
 JOY_RIGHT = $0100
 JOY_LEFT  = $0200
 JOY_UP    = $0800
 JOY_DOWN  = $0400
+
+; --- TOWN scene (Mode 1 single-screen interior). A designed room: a plank floor
+;     framed by stone walls, a table, and an EXIT DOOR in the bottom wall. The
+;     avatar SPRITE walks the room (camera fixed at scroll 0). Collision + the
+;     rendered tilemap both derive from town_classify (the room geometry is the
+;     single source of truth). BG1 CHR/tilemap live in UPPER VRAM so the Mode 7
+;     image ($0000-$3FFF) survives the visit (return needs no re-stream). --------
+TOWN_ROOM_X0 = 2               ; room wall rectangle (tile coords)
+TOWN_ROOM_X1 = 29
+TOWN_ROOM_Y0 = 1
+TOWN_ROOM_Y1 = 26
+TOWN_DOOR_TX = 15              ; exit door: a gap in the bottom wall — step on it to
+TOWN_DOOR_TY = 26             ;   mosaic back out to the overworld
+TOWN_TABLE_X0 = 13            ; a 2x2 table (blocked) in the upper room
+TOWN_TABLE_X1 = 14
+TOWN_TABLE_Y0 = 10
+TOWN_TABLE_Y1 = 11
+TOWN_SPAWN_TX = 15            ; avatar spawn (a few tiles above the door)
+TOWN_SPAWN_TY = 22
+; town cell CLASS == the BG1 tile id used to render it (TOWN_TILE_* from
+; explore_town.inc): FLOOR/DOOR walk, WALL/TABLE block, DOOR also EXITS.
+TOWN_CLS_FLOOR = 0
+TOWN_CLS_WALL  = 1
+TOWN_CLS_DOOR  = 2
+TOWN_CLS_TABLE = 3
+; town BG1 VRAM (UPPER VRAM: clear of the Mode 7 image $0000-$3FFF AND the avatar
+;   OBJ CHR at word $4000). CHR base word $5000 (BG12NBA nibble 5); tilemap base
+;   word $5800 (BG1SC $58 = $5800>>10<<2, 32x32). The stock NMI's BG1 tilemap DMA
+;   also targets word $5800 — but this rail never sets BG_TILEMAP_DIRTY, so the
+;   town map is written DIRECTLY to VRAM under blank and never DMA-clobbered.
+TOWN_CHR_VWORD = $5000
+TOWN_MAP_VWORD = $5800
+TOWN_BG1SC_VAL   = $58         ; BG1SC: tilemap base word $5800, 32x32
+TOWN_BG12NBA_VAL = $05         ; BG12NBA: BG1 CHR base word $5000
 
 .segment "CODE"
 
@@ -307,8 +360,27 @@ game_loop:
     .i16
     sf_frame_begin              ; wait for NMI; latch input
     sf_audio_tick               ; pump TAD every frame (streams the song load + SFX queue)
+    ; boot dawn-in ramp — but NOT while a mosaic wipe owns the brightness (else the
+    ; fade snaps the screen back to full-bright every frame and defeats the dissolve).
+    sf_mosaic_transition_active ; A = nonzero while a scene wipe is in flight
+    bne @skip_fade
     jsr boot_fade               ; boot dawn-in brightness ramp (no-op once full)
-    jsr explore_tick
+@skip_fade:
+    .a16
+    .i16
+    sf_mosaic_transition_tick   ; advance any wipe (JSRs the swap at peak black; idle = no-op)
+    ; dispatch the active scene's per-frame tick
+    lda scene_id
+    bne @town_frame
+    jsr explore_tick            ; SC 0: streamed Mode 7 overworld
+    bra @loop_end
+@town_frame:
+    .a16
+    .i16
+    jsr town_tick               ; SC 1: Mode 1 town interior
+@loop_end:
+    .a16
+    .i16
     sf_frame_end
     jmp game_loop
 
@@ -333,6 +405,16 @@ game_loop:
 explore_tick:
     .a16
     .i16
+    ; while a scene wipe runs the overworld is FROZEN — no input, no streaming, no
+    ; state change; the Mode 7 floor keeps rendering (and mosaic-dissolving) from
+    ; static VRAM. Resume when the wipe goes idle. (Also: a step onto the demo
+    ; house arms the wipe, so this same guard suppresses further input that frame.)
+    sf_mosaic_transition_active
+    beq @run
+    rts
+@run:
+    .a16
+    .i16
     ; --- (1) a slide is in progress: advance it, ignore new input ---
     lda step_active
     beq @idle
@@ -349,6 +431,7 @@ explore_tick:
     sta step_remain
     bne @apply
     stz step_active             ; slide complete — camera grid-aligned again
+    jsr check_town_entry        ; landed on the demo house? -> arm the town wipe
     bra @apply
 @idle:
     .a16
@@ -709,6 +792,480 @@ boot_fade:
     rts
 
 ; =============================================================================
+; check_town_entry — after a grid slide lands, if the camera tile is the authored
+; demo house (terrain class TERR_TOWN_ENTER) arm the mosaic wipe into the Mode 1
+; town interior. ONLY the demo house carries TERR_TOWN_ENTER — the decorative
+; 32-tile lattice houses are TERR_TOWN — so a streaming sweep crossing a lattice
+; house never warps. Entry/Exit: A16/I16. Clobbers A, X, Y, tgt_tx/ty, col_*.
+; WIDTH-RISK: A16/I16 entry; terr_at_world toggles A8 internally and restores A16.
+; =============================================================================
+check_town_entry:
+    .a16
+    .i16
+    lda cam_px
+    lsr a
+    lsr a
+    lsr a                       ; camera tile X = cam_px / 8
+    sta tgt_tx
+    lda cam_py
+    lsr a
+    lsr a
+    lsr a
+    sta tgt_ty
+    jsr terr_at_world           ; A = terrain class (A16, high byte 0)
+    cmp #TERR_TOWN_ENTER
+    bne @no
+    sf_mosaic_transition_arm #$01, swap_to_town  ; BG1-only mosaic; swap at peak black
+@no:
+    .a16
+    .i16
+    rts
+
+; =============================================================================
+; swap_to_town — mosaic-wipe swap callback: Mode 7 overworld -> Mode 1 town.
+; JSR'd by the stepper at PEAK BLACK (A8/I16 entry). Under one forced-blank
+; bracket: save the live camera, halt streaming (so the NMI can't touch the
+; PRESERVED Mode 7 image at $0000-$3FFF), switch to Mode 1 with BG1 in UPPER VRAM,
+; upload the town CHR/palette, draw the room, seed the player. Ends A8/I16
+; re-darkened so the IN ramp brightens from black.
+; WIDTH-RISK: A8/I16 entry; rep to A16 for the work; sf_blank_enter/exit + the
+; upload helpers manage their own widths and exit A16; ends A8 (re-darken + rts).
+; =============================================================================
+swap_to_town:
+    .a8
+    .i16
+    rep #$30
+    .a16
+    .i16
+    lda cam_px                  ; save the overworld camera for restore-on-exit
+    sta ovw_camx
+    lda cam_py
+    sta ovw_camy
+    stz step_active             ; drop any grid-slide state (overworld resumes at rest)
+    stz step_remain
+    ; zero the streaming leading-edge counts so the NMI's Mode 7 tilemap DMA
+    ; can't fire while we are in Mode 1 (long-indexed store: DB=$00 needs a 24-bit addr)
+    ldx #0
+    lda #0
+    sta f:$7E0000 + M7S_ROW_COUNT, x
+    sta f:$7E0000 + M7S_COL_COUNT, x
+    sf_blank_enter              ; forced blank + NMI mask for the discontinuous rebuild
+    sep #$20
+    .a8
+    lda #$01
+    sta REG_BGMODE              ; BGMODE = 1 (immediate, under blank)
+    sta SHADOW_BGMODE           ; ...and the shadow the NMI re-commits each frame
+    lda #TOWN_BG1SC_VAL
+    sta REG_BG1SC               ; BG1 tilemap base word $5800, 32x32
+    lda #TOWN_BG12NBA_VAL
+    sta REG_BG12NBA             ; BG1 CHR base word $5000
+    rep #$30
+    .a16
+    .i16
+    jsr upload_town_chr         ; town BG1 CHR -> VRAM word $5000 (under blank)
+    jsr upload_town_pal         ; town interior palette -> CGRAM 0..15
+    jsr build_town_vram         ; draw the room tilemap directly -> VRAM word $5800
+    sep #$20
+    .a8
+    lda #$11
+    sta REG_TM                  ; main screen: BG1 (Mode 1) + OBJ
+    sta SHADOW_TM
+    rep #$30
+    .a16
+    .i16
+    stz SHADOW_BG1HOFS          ; town camera fixed at scroll 0 (NMI commits it)
+    stz SHADOW_BG1VOFS
+    lda #TOWN_SPAWN_TX          ; seed the town player + facing
+    sta town_px
+    lda #TOWN_SPAWN_TY
+    sta town_py
+    lda #FACE_UP
+    sta town_facing
+    lda #1
+    sta scene_id                ; dispatch town_tick from next frame
+    jsr draw_town_avatar        ; place OAM 0 so the first (dark) IN frame is correct
+    sf_blank_exit               ; drop forced blank + re-enable NMI
+    sep #$20                    ; re-darken: IN ramp starts from black (matches rpg swap)
+    .a8
+    lda SHADOW_INIDISP
+    and #$F0                    ; keep blank/high bits, brightness nibble -> 0
+    sta SHADOW_INIDISP
+    sta $2100                   ; commit now so this frame is black (no bright flash)
+    rts                         ; A8/I16 -> stepper resumes
+
+; =============================================================================
+; swap_to_overworld — mosaic-wipe swap callback: Mode 1 town -> Mode 7 overworld.
+; JSR'd at PEAK BLACK (A8/I16). Under one forced-blank bracket: restore the Mode 7
+; PPU registers (BGMODE 7, identity affine, WRAP), re-stage the world palette (the
+; town clobbered CGRAM 0..11), restore the SAVED camera + scroll. The Mode 7
+; tilemap image ($0000-$3FFF) was PRESERVED across the visit, so NO re-stream is
+; needed — the window is byte-identical to how it was left (the mosaic-out masks
+; even the palette re-stage). Ends A8/I16 re-darkened.
+; WIDTH-RISK: A8/I16 entry; rep to A16 for the work; ends A8 (re-darken + rts).
+; =============================================================================
+swap_to_overworld:
+    .a8
+    .i16
+    rep #$30
+    .a16
+    .i16
+    sf_blank_enter
+    sep #$20
+    .a8
+    lda #$07
+    sta REG_BGMODE              ; BGMODE = 7
+    sta SHADOW_BGMODE
+    stz REG_M7SEL               ; M7SEL = $00 (WRAP)
+    lda #$00                    ; identity affine A=$0100 B=0 C=0 D=$0100
+    sta REG_M7A
+    lda #$01
+    sta REG_M7A
+    lda #$00
+    sta REG_M7B
+    sta REG_M7B
+    sta REG_M7C
+    sta REG_M7C
+    sta REG_M7D
+    lda #$01
+    sta REG_M7D
+    stz REG_M7X                 ; centre = 0
+    stz REG_M7X
+    stz REG_M7Y
+    stz REG_M7Y
+    lda #$11
+    sta REG_TM                  ; BG1 (Mode 7) + OBJ
+    sta SHADOW_TM
+    rep #$30
+    .a16
+    .i16
+    jsr restage_world_pal       ; Mode 7 world palette -> CGRAM 0.. (town overwrote 0..15)
+    lda ovw_camx               ; restore the saved overworld camera
+    sta cam_px
+    lda ovw_camy
+    sta cam_py
+    lda #0
+    sta scene_id                ; back to the overworld dispatch
+    jsr apply_camera            ; pan the Mode 7 view to the saved camera
+    sf_mode7_stream_set_cam cam_px, cam_py  ; sync the streamer's camera tile
+    jsr draw_avatar             ; screen-centred overworld avatar
+    sf_blank_exit
+    sep #$20                    ; re-darken so the IN ramp brightens from black
+    .a8
+    lda SHADOW_INIDISP
+    and #$F0
+    sta SHADOW_INIDISP
+    sta $2100
+    rts
+
+; =============================================================================
+; upload_town_chr — copy the town BG1 CHR blob (TOWN_CHR_BYTES) to VRAM word
+; $5000 (above the preserved Mode 7 image + the avatar OBJ CHR at $4000). CPU word
+; writes; call under forced blank. Entry/Exit A16/I16. Clobbers A, X.
+; WIDTH-RISK: A16/I16 entry; A8 only for the VMAIN byte; restored A16.
+; =============================================================================
+upload_town_chr:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115                   ; VMAIN: +1 word after high byte
+    rep #$30
+    .a16
+    .i16
+    lda #TOWN_CHR_VWORD
+    sta $2116                   ; VMADD = $5000
+    ldx #0
+@lp:
+    .a16                        ; loop body: A16/I16
+    lda f:town_chr, x
+    sta $2118                   ; VMDATA word; VMADD++
+    inx
+    inx
+    cpx #TOWN_CHR_BYTES
+    bne @lp
+    rts
+
+; =============================================================================
+; upload_town_pal — town interior palette (TOWN_PAL_COUNT colours) -> CGRAM 0..15
+; (BG palette 0; overwrites the Mode 7 world colours, re-staged on return). Colour
+; 0 = the floor base, also the backdrop, so tile gaps read as floor. Under blank.
+; Entry/Exit A16/I16. Clobbers A, X. WIDTH-RISK: A16/I16 entry; A8 for the CGDATA
+; byte writes with I16 index; A16 exit.
+; =============================================================================
+upload_town_pal:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    stz $2121                   ; CGADD = 0
+    ldx #0
+@lp:
+    .a8                         ; loop body: A8/I16
+    lda f:town_pal, x
+    sta $2122                   ; CGDATA byte (low then high auto-pair)
+    inx
+    cpx #(TOWN_PAL_COUNT * 2)
+    bne @lp
+    rep #$20
+    .a16
+    rts
+
+; =============================================================================
+; restage_world_pal — re-upload the Mode 7 world palette to CGRAM 0.. (the town
+; interior palette overwrote CGRAM 0..15). Mirrors the boot palette upload. Under
+; blank. Entry/Exit A16/I16. Clobbers A, X.
+; WIDTH-RISK: A16/I16 entry; A8 for the CGDATA byte writes; A16 exit.
+; =============================================================================
+restage_world_pal:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    stz $2121                   ; CGADD = 0
+    ldx #0
+@lp:
+    .a8                         ; loop body: A8/I16
+    lda f:world_palette, x
+    sta $2122
+    inx
+    cpx #(WORLD_PAL_COUNT * 2)
+    bne @lp
+    rep #$20
+    .a16
+    rts
+
+; =============================================================================
+; build_town_vram — draw the town room tilemap DIRECTLY into VRAM word $5800 (BG1
+; tilemap). 32x32 cells; each cell's CLASS (town_classify) IS its BG1 tile id
+; (palette 0). Written directly (not via the BG shadow/mset), so it needs no
+; BG_TILEMAP_DIRTY — the rail never arms the NMI tilemap DMA, so this map is never
+; clobbered. Call under forced blank. Entry/Exit A16/I16. Clobbers A, X, Y,
+; town_ctx, town_cty.
+; WIDTH-RISK: A16/I16 entry; A8 only for the VMAIN byte; the loop stays A16/I16.
+; =============================================================================
+build_town_vram:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115                   ; VMAIN: +1 word after high byte
+    rep #$30
+    .a16
+    .i16
+    lda #TOWN_MAP_VWORD
+    sta $2116                   ; VMADD = $5800
+    stz town_cty                ; row ty = 0
+@rows:
+    .a16
+    stz town_ctx                ; col tx = 0
+@cols:
+    .a16
+    jsr town_classify           ; A = class (== BG1 tile id) for (town_ctx, town_cty)
+    sta $2118                   ; write tilemap word (palette 0, no flip); VMADD++
+    lda town_ctx
+    inc a
+    sta town_ctx
+    cmp #32
+    bne @cols
+    lda town_cty
+    inc a
+    sta town_cty
+    cmp #32
+    bne @rows
+    rts
+
+; =============================================================================
+; town_classify — classify town cell (town_ctx, town_cty) -> class in A (A16,
+; high byte 0). The room geometry (walls / door / table) is the SINGLE SOURCE OF
+; TRUTH for BOTH the rendered tilemap AND collision. FLOOR=0 WALL=1 DOOR=2 TABLE=3.
+; Reads town_ctx/town_cty (unchanged). Entry/Exit A16/I16. Clobbers A.
+; WIDTH-RISK: A16/I16 throughout — pure 16-bit compares + immediate loads.
+; =============================================================================
+town_classify:
+    .a16
+    .i16
+    lda town_ctx                ; the door sits IN the bottom wall — test it first
+    cmp #TOWN_DOOR_TX
+    bne @not_door
+    lda town_cty
+    cmp #TOWN_DOOR_TY
+    bne @not_door
+    lda #TOWN_CLS_DOOR
+    rts
+@not_door:
+    .a16
+    lda town_ctx                ; outside the room rectangle -> wall
+    cmp #TOWN_ROOM_X0
+    bcc @wall
+    cmp #(TOWN_ROOM_X1 + 1)
+    bcs @wall
+    lda town_cty
+    cmp #TOWN_ROOM_Y0
+    bcc @wall
+    cmp #(TOWN_ROOM_Y1 + 1)
+    bcs @wall
+    lda town_ctx                ; on the room border -> wall
+    cmp #TOWN_ROOM_X0
+    beq @wall
+    cmp #TOWN_ROOM_X1
+    beq @wall
+    lda town_cty
+    cmp #TOWN_ROOM_Y0
+    beq @wall
+    cmp #TOWN_ROOM_Y1
+    beq @wall
+    lda town_ctx                ; the 2x2 table -> table (blocked)
+    cmp #TOWN_TABLE_X0
+    bcc @floor
+    cmp #(TOWN_TABLE_X1 + 1)
+    bcs @floor
+    lda town_cty
+    cmp #TOWN_TABLE_Y0
+    bcc @floor
+    cmp #(TOWN_TABLE_Y1 + 1)
+    bcs @floor
+    lda #TOWN_CLS_TABLE
+    rts
+@floor:
+    .a16
+    lda #TOWN_CLS_FLOOR
+    rts
+@wall:
+    .a16
+    lda #TOWN_CLS_WALL
+    rts
+
+; =============================================================================
+; town_tick — Mode 1 town per-frame: gate ALL input while a wipe runs (draw only),
+; else one grid step per D-pad PRESS (edge latch, first match L,R,U,D). Stepping
+; onto the DOOR arms the mosaic wipe back to the overworld. Then draw the avatar.
+; Entry/Exit A16/I16. WIDTH-RISK: A16/I16 entry; town_try_step stays A16.
+; =============================================================================
+town_tick:
+    .a16
+    .i16
+    sf_mosaic_transition_active ; gate input during the wipe (entering OR leaving)
+    bne @draw
+    lda JOY1_PRESSED_LATCH
+    bit #JOY_LEFT
+    beq @chk_r
+    lda #FACE_LEFT
+    sta town_facing
+    ldx #$FFFF
+    ldy #$0000
+    jsr town_try_step
+    bra @draw
+@chk_r:
+    .a16
+    lda JOY1_PRESSED_LATCH
+    bit #JOY_RIGHT
+    beq @chk_u
+    lda #FACE_RIGHT
+    sta town_facing
+    ldx #$0001
+    ldy #$0000
+    jsr town_try_step
+    bra @draw
+@chk_u:
+    .a16
+    lda JOY1_PRESSED_LATCH
+    bit #JOY_UP
+    beq @chk_d
+    lda #FACE_UP
+    sta town_facing
+    ldx #$0000
+    ldy #$FFFF
+    jsr town_try_step
+    bra @draw
+@chk_d:
+    .a16
+    lda JOY1_PRESSED_LATCH
+    bit #JOY_DOWN
+    beq @draw
+    lda #FACE_DOWN
+    sta town_facing
+    ldx #$0000
+    ldy #$0001
+    jsr town_try_step
+@draw:
+    .a16
+    .i16
+    jsr draw_town_avatar
+    rts
+
+; =============================================================================
+; town_try_step — attempt a one-tile town move by (X=dx, Y=dy signed). Walkable
+; (FLOOR/DOOR) commits the move; the DOOR also arms the mosaic wipe back to the
+; overworld. WALL/TABLE reject. Entry: A16/I16, X=dx, Y=dy. Exit A16/I16.
+; Clobbers A, X, Y, town_ctx/cty. WIDTH-RISK: A16/I16 throughout.
+; =============================================================================
+town_try_step:
+    .a16
+    .i16
+    txa
+    clc
+    adc town_px
+    sta town_ctx                ; destination tile X
+    tya
+    clc
+    adc town_py
+    sta town_cty                ; destination tile Y
+    jsr town_classify           ; A = class of the destination cell
+    cmp #TOWN_CLS_WALL
+    beq @blocked
+    cmp #TOWN_CLS_TABLE
+    beq @blocked
+    lda town_ctx                ; walkable -> commit the move
+    sta town_px
+    lda town_cty
+    sta town_py
+    jsr town_classify           ; re-read (town_ctx/cty unchanged): is it the DOOR?
+    cmp #TOWN_CLS_DOOR
+    bne @done
+    sf_mosaic_transition_arm #$01, swap_to_overworld
+@done:
+    .a16
+    rts
+@blocked:
+    .a16
+    rts
+
+; =============================================================================
+; draw_town_avatar — draw Elnora (OAM 0, 16x16) at her TOWN tile (town_px*8,
+; town_py*8); the town camera is fixed so the SPRITE moves. Facing selects the
+; same authored sprites via the shared face_*_lut. Entry/Exit A16/I16.
+; Clobbers A, X, Y, town_ctx, town_cty, av_tile, av_attr.
+; WIDTH-RISK: A16/I16 entry; the facing tax runs A16 (and #$00FF clears the high
+; byte first); spr/spr_clear run their own widths and return A16.
+; =============================================================================
+draw_town_avatar:
+    .a16
+    .i16
+    spr_clear
+    lda town_px
+    asl a
+    asl a
+    asl a                       ; screen X = town_px * 8
+    sta town_ctx
+    lda town_py
+    asl a
+    asl a
+    asl a                       ; screen Y = town_py * 8
+    sta town_cty
+    lda town_facing
+    and #$00FF                  ; keep facing 0..3 (clears high byte for tax)
+    asl a                       ; *2 -> word LUT index
+    tax
+    lda f:face_tile_lut, x      ; OAM base tile for this facing
+    sta av_tile
+    lda f:face_attr_lut, x      ; OAM attribute flags (bit6 H-flip for LEFT)
+    sta av_attr
+    spr av_tile, town_ctx, town_cty, av_attr, #2   ; OBJ palette 0, priority 2, 16x16
+    rts
+
+; =============================================================================
 ; Engine includes — the subroutine bodies the boot + loop above call into. The
 ; Mode 7 streamer needs its partners present: input (reads the pad), sprite (the
 ; avatar OAM), the DMA scheduler + BG engine (the streamer queues its VRAM writes
@@ -736,6 +1293,9 @@ mode7_sin_lut:
 .include "tad_bridge.asm"        ; tad_* entry points the sf_audio macros call
                                  ;   (the TAD driver + song blob link as separate
                                  ;   objects, pulled in by the *_tad*.cfg build rule)
+; the mosaic scene-wipe curves + stepper (the emitted half of sf_mosaic_transition
+; .inc): the town-visit dissolve. Included ONCE, in CODE, next to the engine .asm.
+.include "sf_mosaic_transition_data.inc"
 
 ; --- BANK1: the 32KB interleaved Mode 7 seed (initial 128x128 window) --------
 ; .incbin resolves relative to THIS file's dir, so "assets/<basename>" is

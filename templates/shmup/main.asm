@@ -4,8 +4,11 @@
 ; The genre rail for vertical shmups, and the proof-of-pipeline template: every
 ; visible asset came through tools/png2snes.py from the packs in
 ; examples/itch_cc0/ (see assets/*.inc headers for the exact commands):
-;   - ship    = dungeonSprites fHero idle (24x24 P-mode -> re-centered 16x16)
-;   - enemies = dungeonSprites ghost (16x16, own OBJ palette)
+;   - ship    = AlcWilliam Spaceship Pack ship_2 delta fighter (48x48 pack art
+;               downscaled 3x to 16x16 + turbo_blue engine-flame flicker; the
+;               8-frame idle is the flame alternation — see assets/make_ships.py)
+;   - enemies = AlcWilliam Spaceship Pack ship_5 fighter, nosed DOWN at the
+;               player (48x48 -> 16x16, own OBJ palette, blue thrusters)
 ;   - terrain = Four Seasons tileset spring patch (8x6 metacells, 1 BG palette,
 ;               mset-ready map words)
 ; Composes: sf_pool (bullets + enemies), sf_autoscroll_v (terrain drift),

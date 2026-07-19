@@ -581,3 +581,168 @@ def test_mx013_diagonal_falls_through_blocked_axis(tilemap):
             f"through to the open UP axis"
     finally:
         r.stop()
+
+
+# ---------------------------------------------------------------------------
+# MX-014 — TOWN-VISIT ARC (the rail's unique demo): the streamed Mode 7 overworld
+# -> step onto the authored demo house -> MOSAIC wipe -> Mode 1 town interior ->
+# step onto the exit door -> MOSAIC wipe -> back to the streamed overworld at the
+# SAVED camera. Asserts the FULL register + render cycle end-to-end:
+#   * BGMODE $07 (Mode 7) -> $01 (Mode 1) -> $07, from the WRAM shadow AND the LIVE
+#     Mesen PPU BgMode (the actual mode in play, not a proxy);
+#   * scene_id 0 -> 1 -> 0;
+#   * a TOWN-ONLY pixel signature (the green Mode 7 grass is gone, the warm Mode 1
+#     floor is present) — the rendered framebuffer flips, not just a flag;
+#   * the MOSAIC register genuinely engaged during BOTH wipes (non-vacuous) with a
+#     near-black masked frame (the swap is hidden, no torn Mode7/Mode1 frame);
+#   * on RETURN the streamed VRAM window matches the AUTHORED WORLD ground-truth at
+#     the saved camera (254,254) with 0 mismatches / 0 garbage — the streaming
+#     state survives the round trip (the Mode 7 image was preserved, no pop-in).
+# Reads OUTPUT (WRAM shadow, live PPU state, framebuffer pixels, VRAM tilemap), no
+# proxy variables. State cycle: overworld -> town -> overworld, driven by real input.
+# ---------------------------------------------------------------------------
+SHADOW_BGMODE = 0x012C          # engine BGMODE shadow ($07 Mode 7, $01 Mode 1)
+SHADOW_MOSAIC = 0x012D          # engine MOSAIC shadow ($2106); high nibble = size
+SCENE_ID = 0x0050               # main.asm scene_id (0 overworld / 1 town)
+
+
+def _ppu_bgmode(r):
+    """Live Mesen PPU BgMode (the actual mode the PPU is rendering). Offset 40 of
+    the SnesPpuState struct — self-verified below by reading 7 at the overworld."""
+    import ctypes
+    lib = r._frame_step_lib()
+    if r._ppu_state_buf is None:
+        r._ppu_state_buf = (ctypes.c_uint8 * 16384)()
+    lib.GetPpuState(r._ppu_state_buf, 0)
+    return bytes(r._ppu_state_buf)[40]
+
+
+def _green_warm(path):
+    """(#grass-green pixels, #warm-brown pixels) on the framebuffer — the Mode 7
+    overworld reads green, the Mode 1 town interior reads warm brown/gray."""
+    from PIL import Image
+    img = Image.open(path).convert("RGB")
+    w, h = img.size
+    px = img.load()
+    green = warm = 0
+    for y in range(0, h, 2):
+        for x in range(0, w, 2):
+            rr, gg, bb = px[x, y]
+            if gg > 70 and gg > rr + 15 and gg > bb + 15:
+                green += 1
+            elif rr > 55 and rr >= gg and gg >= bb:
+                warm += 1
+    return green, warm
+
+
+def _lit(path, thresh=48):
+    from PIL import Image
+    img = Image.open(path).convert("RGB")
+    w, h = img.size
+    px = img.load()
+    return sum(1 for y in range(0, h, 2) for x in range(0, w, 2)
+               if max(px[x, y]) > thresh)
+
+
+def test_mx014_town_visit_arc_full_cycle(tilemap):
+    import os
+    shots = "/tmp/s2_shots"
+    os.makedirs(shots, exist_ok=True)
+    r = MesenRunner()
+    try:
+        r.load_rom(ROM, run_seconds=0.5)
+        r.run_frames(10)
+        # --- leg 1: streamed Mode 7 overworld ---
+        assert r.read_u16(MemoryType.SnesWorkRam, SCENE_ID) == 0
+        assert r.read_bytes(MemoryType.SnesWorkRam, SHADOW_BGMODE, 1)[0] == 0x07
+        assert _ppu_bgmode(r) == 7, "live PPU is not Mode 7 at the overworld"
+        assert r.read_u16(MemoryType.SnesWorkRam, DBG_CAM_TX) == world.SPAWN_TX
+        ow_shot = f"{shots}/mx014_1_overworld.png"
+        r.take_screenshot(ow_shot)
+        ow_green, ow_warm = _green_warm(ow_shot)
+        assert ow_green > 1500, f"overworld not green (grass={ow_green})"
+
+        # --- walk WEST 4 tiles to the house's column, then NORTH onto the demo
+        #     house (254,254); the step-on arms the mosaic wipe into the town. ---
+        for _ in range(4):
+            r.set_input(0, left=True); r.run_frames(8); r.set_input(0); r.run_frames(4)
+        assert r.read_u16(MemoryType.SnesWorkRam, DBG_CAM_TX) == world.DEMO_HOUSE_TX
+
+        # frame-step NORTH onto the house and ride the WHOLE mosaic-in wipe,
+        # sampling the mosaic register + darkness EVERY frame so we catch the OUT
+        # phase's near-black swap frame (it lands the instant scene flips to town).
+        enter_peak = 0
+        enter_black = False
+        settled = 0
+        r.set_input(0, up=True)
+        for _ in range(220):
+            r.run_frames(1)
+            enter_peak = max(enter_peak, r.read_bytes(
+                MemoryType.SnesWorkRam, SHADOW_MOSAIC, 1)[0] >> 4)
+            p = f"{shots}/mx014_wipe.png"
+            r.take_screenshot(p)
+            if _lit(p) < 320:
+                enter_black = True
+            if r.read_u16(MemoryType.SnesWorkRam, SCENE_ID) == 1:
+                if settled == 0:
+                    r.set_input(0)   # stop walking the instant we enter the town
+                settled += 1
+                if settled > 45:     # let the IN de-pixelate settle
+                    break
+        r.set_input(0); r.run_frames(10)
+
+        # --- leg 2: the Mode 1 town RENDERS ---
+        assert r.read_u16(MemoryType.SnesWorkRam, SCENE_ID) == 1, "did not enter the town"
+        assert r.read_bytes(MemoryType.SnesWorkRam, SHADOW_BGMODE, 1)[0] == 0x01, \
+            "town BGMODE shadow not Mode 1"
+        assert _ppu_bgmode(r) == 1, "live PPU is not Mode 1 in the town"
+        tn_shot = f"{shots}/mx014_2_town.png"
+        r.take_screenshot(tn_shot)
+        tn_green, tn_warm = _green_warm(tn_shot)
+        assert tn_green < ow_green // 4, \
+            f"town still green (grass not gone): town={tn_green} vs overworld={ow_green}"
+        assert tn_warm > 2500, \
+            f"town interior floor/walls not rendered (warm px={tn_warm})"
+        # mosaic non-vacuity (entry): the wipe genuinely pixelated + masked the swap
+        assert enter_peak >= 8, \
+            f"entry mosaic never engaged (peak size {enter_peak} of 15) — vacuous wipe"
+        assert enter_black, "entry wipe never reached a near-black frame (swap not masked)"
+
+        # --- walk DOWN to the exit door (town spawn 15,22 -> door 15,26); the
+        #     step-on arms the reverse mosaic wipe back to the overworld. ---
+        exit_peak = 0
+        for _ in range(8):
+            r.set_input(0, down=True); r.run_frames(8); r.set_input(0)
+            for _ in range(6):
+                exit_peak = max(exit_peak, r.read_bytes(
+                    MemoryType.SnesWorkRam, SHADOW_MOSAIC, 1)[0] >> 4)
+                r.run_frames(1)
+            if r.read_u16(MemoryType.SnesWorkRam, SCENE_ID) == 0:
+                break
+        r.set_input(0); r.run_frames(50)
+
+        # --- leg 3: back on the streamed overworld at the SAVED camera ---
+        assert r.read_u16(MemoryType.SnesWorkRam, SCENE_ID) == 0, "exit did not return to overworld"
+        assert r.read_bytes(MemoryType.SnesWorkRam, SHADOW_BGMODE, 1)[0] == 0x07, \
+            "returned BGMODE shadow not Mode 7"
+        assert _ppu_bgmode(r) == 7, "live PPU is not Mode 7 after return"
+        assert exit_peak >= 8, \
+            f"exit mosaic never engaged (peak size {exit_peak} of 15) — vacuous wipe"
+        cam_tx = r.read_u16(MemoryType.SnesWorkRam, DBG_CAM_TX)
+        cam_ty = r.read_u16(MemoryType.SnesWorkRam, DBG_CAM_TY)
+        assert (cam_tx, cam_ty) == (world.DEMO_HOUSE_TX, world.DEMO_HOUSE_TY), \
+            f"camera not restored to the house tile: ({cam_tx},{cam_ty})"
+        # the streamed world renders correctly at the saved camera after the round
+        # trip (the Mode 7 image was preserved; the window is byte-exact, no pop-in).
+        _cam_tx, _cam_ty, mism, garbage = _window_mismatches(r, tilemap)
+        assert garbage == 0, f"garbage in the returned overworld window: {garbage}"
+        assert mism == 0, \
+            f"returned overworld window mismatches world at ({cam_tx},{cam_ty}): {mism} " \
+            f"(streaming state did not survive the town round trip)"
+        # the framebuffer flipped back to green grass
+        rt_shot = f"{shots}/mx014_3_returned.png"
+        r.take_screenshot(rt_shot)
+        rt_green, _ = _green_warm(rt_shot)
+        assert rt_green > 1500, f"returned overworld not green again (grass={rt_green})"
+    finally:
+        r.stop()

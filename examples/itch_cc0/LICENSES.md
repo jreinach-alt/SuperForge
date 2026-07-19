@@ -12,10 +12,14 @@ no-strings permissive grant instead of literal CC0 — the grant covers
 everything the kit does with it (free + commercial use, modification, no
 attribution required); it is recorded as what it actually is.
 
-All four grants below were re-verified against the live itch.io pages on
+The first four grants below were re-verified against the live itch.io pages on
 **2026-07-18** (push-checklist item F4). The analogStudios_ pages now
 redirect to the author's renamed account, `kevins-moms-house.itch.io` —
-both URLs are recorded.
+both URLs are recorded. The fifth pack (`Spaceship Pack.zip` — AlcWilliam) was
+owner-added later and verified live on **2026-07-19**: the reachable page grants
+"Free for commercial use" but shows **no explicit CC0 deed label**, so its row
+records the live permissive grant verbatim alongside the owner's CC0 attestation
+(confirm the explicit deed at next release).
 
 | Pack (zip) | Author | Source | License |
 |---|---|---|---|
@@ -23,6 +27,7 @@ both URLs are recorded.
 | `Four_Seasons_Platformer_Sprites.zip` | analogStudios_ (Kevin's Mom's House) | https://analogstudios.itch.io/four-seasons-platformer-sprites → https://kevins-moms-house.itch.io/four-seasons-platformer-sprites | CC0 — verified live 2026-07-18; page links the CC-0 deed ("credit would be appreciated but not necessary [CC-0]") |
 | `camelot_ [version 1.0].zip` | analogStudios_ (Kevin's Mom's House) — the `legends_` series | https://analogstudios.itch.io/camelot → https://kevins-moms-house.itch.io/camelot | CC0 — verified live 2026-07-18; page links the CC-0 deed |
 | `dungeonSprites_v1.0.zip` | analogStudios_ (Kevin's Mom's House) — the `fantasy_` series | https://analogstudios.itch.io/dungeonsprites → https://kevins-moms-house.itch.io/dungeonsprites | CC0 — verified live 2026-07-18; page links the CC-0 deed |
+| `Spaceship Pack.zip` | **AlcWilliam** (hosted via the `pixel-by-pixel.itch.io` account, which titles it "AlcWilliam Spaceship Pack") | https://pixel-by-pixel.itch.io/alcwilliam-space-ship-pack | **Owner-attested CC0** (added 2026-07 as the "CC0 Spaceship Pack"; source material for the shmup hero/enemy). The reachable itch.io page states, quoted live 2026-07-19: "Free for commercial use." (+ "No generative AI was used") — a permissive commercial grant; the page carries **no explicit CC0 deed label**. Recorded here as the honest form: owner CC0 attestation + the live "free for commercial use" grant verbatim. **Confirm the explicit CC0 deed / attribution terms with the author at next release.** |
 | `SNES_overworld_RPG_character_sprite_top-down_persp.zip` | project-owner-generated via an AI sprite tool (2026-04) | n/a (generated, not downloaded) | Included **solely as the converter's canonical reject fixture** — it is deliberately *not* hardware-scale pixel art and `png2snes.py` must reject it with a useful error. The zip's `metadata.json` embeds the original generation prompt (style reference scrubbed to mechanism-only — no commercial-game titles); no commercial asset is contained or extracted, and nothing in the kit's templates derives from this pack. |
 
 Converted derivatives in this repo (e.g. `templates/brawler/assets/*.inc`,

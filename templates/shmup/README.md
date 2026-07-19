@@ -2,11 +2,13 @@
 
 ## What it is
 
-A vertical shmup in one ROM, built entirely from converted CC0 art: fly a ship
-over a drifting island field, shoot the ghosts that descend at you, and don't get
-touched. It is the kit's **proof-of-pipeline** template — the ship, the enemies,
-and the terrain all came through `tools/png2snes.py` from the packs in
-`examples/itch_cc0/` (each `assets/*.inc` header records the exact command).
+A vertical shmup in one ROM, built entirely from converted CC0 art: fly a
+spaceship over a drifting island field, shoot the enemy fighters that descend at
+you, and don't get touched. It is the kit's **proof-of-pipeline** template — the
+hero + enemy ships (AlcWilliam's CC0 Spaceship Pack, downscaled to 16x16 by
+`assets/make_ships.py`) and the terrain all came through `tools/png2snes.py` from
+the packs in `examples/itch_cc0/` (each `assets/*.inc` header records the exact
+command; the enemy pool is still named `ghost` in the code and tests).
 
 | Button | Action |
 | --- | --- |

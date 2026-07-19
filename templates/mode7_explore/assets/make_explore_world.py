@@ -75,7 +75,11 @@ TERR_GRASS = 0      # walkable
 TERR_PATH = 1       # walkable (road)
 TERR_WATER = 2      # BLOCKED
 TERR_MOUNTAIN = 3   # BLOCKED
-TERR_TOWN = 4       # walkable landmark
+TERR_TOWN = 4       # walkable landmark (DECORATIVE — the 32-lattice houses)
+TERR_TOWN_ENTER = 5 # walkable landmark that TRIGGERS the town-visit arc (the one
+                    #   authored demo house near spawn; distinct from the decorative
+                    #   lattice houses so ONLY it enters the Mode 1 interior — a
+                    #   streaming-sweep test crossing a decorative house never warps)
 BLOCKED = {TERR_WATER, TERR_MOUNTAIN}
 TERR_BLOCKED_MIN = TERR_WATER
 TERR_BLOCKED_MAX = TERR_MOUNTAIN
@@ -92,10 +96,13 @@ TILE_WATER_DK = 3   # water ripple (deep)
 TILE_WATER_LT = 4   # water ripple (shallow)
 TILE_MTN_DK = 5     # mountain rock (dark)
 TILE_MTN_LT = 6     # mountain rock (lit)
-TILE_TOWN = 7       # town roof (landmark)
+TILE_TOWN = 7       # town roof (DECORATIVE landmark house — the 32-lattice)
 TILE_COAST = 8      # sand / coastline (walkable beach band)
 TILE_FOREST = 9     # forest canopy (walkable, decorative)
-N_TILES = 10
+TILE_TOWN_DOOR = 10 # the ENTERABLE demo house (a roof with a bright DOOR) — its
+                    #   own tile so the avatar can SEE which house enters the town,
+                    #   and so only its terrain class (TERR_TOWN_ENTER) triggers
+N_TILES = 11
 
 # tile id -> terrain id.  This is the SSoT-aligned mapping emitted as the ROM's
 # 256-entry tile_terrain_lut (collision reads the flat tilemap byte then LUTs).
@@ -105,6 +112,7 @@ TILE_TERRAIN = {
     TILE_WATER_DK: TERR_WATER, TILE_WATER_LT: TERR_WATER,
     TILE_MTN_DK: TERR_MOUNTAIN, TILE_MTN_LT: TERR_MOUNTAIN,
     TILE_TOWN: TERR_TOWN,
+    TILE_TOWN_DOOR: TERR_TOWN_ENTER,   # the enterable demo house
     TILE_COAST: TERR_GRASS,        # beach is walkable (treated as grass terrain)
     TILE_FOREST: TERR_GRASS,       # forest is walkable (decorative grass terrain)
 }
@@ -137,6 +145,28 @@ N_COLORS = 12
 SPAWN_TX = 258
 SPAWN_TY = 258
 SPAWN_CLEAR_R = 3                  # carve a (2R+1)^2 grass clearing around spawn
+
+# --- DEMO TOWN house: an authored house a SHORT walk NW of the spawn, the
+#     landmark whose tile the avatar steps onto to trigger the Mode 1 town-visit
+#     arc (mosaic-in -> Mode 1 interior -> mosaic-out and back). The 32-tile TOWN
+#     lattice's nearest point to spawn (256,256) is SUPPRESSED (it falls inside the
+#     spawn grass clearing), so per the rail brief a reachable house is seeded
+#     adjacent to the spawn. It sits OFF both spawn AXES (row/col 258) — the axes
+#     are the open road corridors the streaming sweeps (mx004/006/012/013) walk, so
+#     an on-axis house would be stepped onto by those tests; placing it NW with a
+#     small authored grass APPROACH keeps every streaming assert green (the avatar
+#     only reaches it by walking NW off the tested corridors). The world is
+#     regenerated with the ROM so the tilemap ground-truth carries the house. -----
+DEMO_HOUSE_TX = 254                # NW of spawn (258,258); off row/col 258
+DEMO_HOUSE_TY = 254
+# walkable grass APPROACH: a small strip at tx 253..255, ty 254..257. Its bottom
+# (ty 257) sits just above the spawn ROW corridor (ty 258), so the reach is a
+# clean L: walk WEST along the corridor to tx 254, then NORTH up the strip onto
+# the house at (254,254). Entirely off the tested spawn axes (row/col 258).
+DEMO_APPROACH_X0 = 253
+DEMO_APPROACH_X1 = 255
+DEMO_APPROACH_Y0 = 254
+DEMO_APPROACH_Y1 = 257
 
 # --- camera-clamp box (mirror of main.asm CLAMP_*): the camera tile is clamped
 #     to [CLAMP_MIN .. CLAMP_MAX] each axis so the 128 window never crosses the
@@ -268,6 +298,16 @@ def terrain_at(tx: int, ty: int) -> int:
     # spawn clearing: forced walkable grass so boot is never boxed in
     if _in_spawn_clearing(tx, ty):
         return TERR_GRASS
+    # DEMO house + its walkable grass approach: the authored town landmark a short
+    # walk NW of spawn. The house tile is TERR_TOWN (walkable; stepping onto it
+    # triggers the Mode 1 town-visit arc); the surrounding approach block is forced
+    # grass so the house is reachable from the spawn clearing without depending on
+    # the natural geography there. Checked before the corridors/geography.
+    if tx == DEMO_HOUSE_TX and ty == DEMO_HOUSE_TY:
+        return TERR_TOWN_ENTER
+    if (DEMO_APPROACH_X0 <= tx <= DEMO_APPROACH_X1
+            and DEMO_APPROACH_Y0 <= ty <= DEMO_APPROACH_Y1):
+        return TERR_GRASS
     # EXPLORER ROAD corridors along the two spawn axes: forced walkable PATH so
     # the avatar traverses the full clamp box (>= 3 windows) each axis. These
     # override water/mountain (an authored road/causeway). Checked before the
@@ -306,6 +346,8 @@ def tile_at(tx: int, ty: int) -> int:
     terrain is rendered as grass / coast / forest variants for a believable
     look (all share TERR_GRASS collision)."""
     terr = terrain_at(tx, ty)
+    if terr == TERR_TOWN_ENTER:
+        return TILE_TOWN_DOOR
     if terr == TERR_TOWN:
         return TILE_TOWN
     if terr == TERR_PATH:
@@ -386,6 +428,14 @@ TEX = {
     TILE_TOWN: _tex([
         "00077000", "00777700", "07777770", "77777777",
         "08888880", "08588580", "08855880", "08855880",
+    ]),
+    # ENTERABLE demo house: like the town roof but with a tall, bright DOOR (gold
+    #   tip colour 9) centred in the sand-tan (8) wall, framed by dark (4) posts —
+    #   reads as "the house you can go into" vs the decorative red-roof lattice
+    #   houses. The 0 corners fall back to grass so it nests on the meadow.
+    TILE_TOWN_DOOR: _tex([
+        "00077000", "00777700", "07777770", "77777777",
+        "08888880", "08849880", "08849880", "08849880",
     ]),
     # sand / coast: tan beach (8) with a few darker (2) grains
     TILE_COAST: _tex([
@@ -493,12 +543,20 @@ def emit_inc(palette_words: list[int], terr_lut: bytes, n_banks: int) -> str:
     L.append(f"WORLD_SPAWN_TY  = {SPAWN_TY}")
     L.append(f"WORLD_LANDMARK_STEP = {LANDMARK_STEP}  ; TOWN (house) landmark lattice spacing, tiles")
     L.append("")
+    L.append("; --- DEMO town house: the enterable house a short walk NW of spawn. Stepping")
+    L.append(";     onto (WORLD_DEMO_HOUSE_TX, WORLD_DEMO_HOUSE_TY) triggers the Mode 1")
+    L.append(";     town-visit arc (mosaic-in -> interior -> mosaic-out). Off the tested spawn")
+    L.append(";     axes so the streaming sweeps never step onto it. ---")
+    L.append(f"WORLD_DEMO_HOUSE_TX = {DEMO_HOUSE_TX}")
+    L.append(f"WORLD_DEMO_HOUSE_TY = {DEMO_HOUSE_TY}")
+    L.append("")
     L.append("; --- terrain ids (collision-class vocabulary; tile_terrain_lut maps to these) ---")
     L.append(f"TERR_GRASS    = {TERR_GRASS}")
     L.append(f"TERR_PATH     = {TERR_PATH}")
     L.append(f"TERR_WATER    = {TERR_WATER}    ; BLOCKED")
     L.append(f"TERR_MOUNTAIN = {TERR_MOUNTAIN}    ; BLOCKED")
-    L.append(f"TERR_TOWN     = {TERR_TOWN}    ; walkable landmark")
+    L.append(f"TERR_TOWN     = {TERR_TOWN}    ; walkable landmark (decorative lattice houses)")
+    L.append(f"TERR_TOWN_ENTER = {TERR_TOWN_ENTER}  ; walkable landmark that ENTERS the town (demo house)")
     L.append(f"TERR_BLOCKED_MIN = {TERR_BLOCKED_MIN}")
     L.append(f"TERR_BLOCKED_MAX = {TERR_BLOCKED_MAX}")
     L.append("")
@@ -513,6 +571,7 @@ def emit_inc(palette_words: list[int], terr_lut: bytes, n_banks: int) -> str:
     L.append(f"TILE_TOWN     = {TILE_TOWN}")
     L.append(f"TILE_COAST    = {TILE_COAST}")
     L.append(f"TILE_FOREST   = {TILE_FOREST}")
+    L.append(f"TILE_TOWN_DOOR = {TILE_TOWN_DOOR}")
     L.append("")
     L.append("; --- CGRAM palette + tile_terrain_lut: emitted into RODATA via pushseg/popseg")
     L.append(";     so this .inc can be included in the equate region (before the ROM's")
@@ -749,6 +808,120 @@ def emit_obj():
           f"{n_tiles} tiles, Elnora facings down/up/side @ 16/18/20)")
 
 
+# =============================================================================
+# TOWN INTERIOR asset — a small Mode 1 single-screen room (the mosaic town).
+# =============================================================================
+# When Elnora steps onto the demo house, the rail mosaic-swaps from the streaming
+# Mode 7 overworld to THIS Mode 1 interior: a cosy room with a plank FLOOR, stone
+# WALLS framing it, a wooden TABLE, and an exit DOOR in the bottom wall (step onto
+# it to mosaic back out to the overworld). Authored 4bpp CHR + a 16-colour warm
+# interior palette, laid out procedurally (build_town_map, main.asm) with mset.
+# The town BG1 CHR/tilemap live in UPPER VRAM ($5000/$5800), so the Mode 7 image
+# ($0000-$3FFF) is PRESERVED across the visit — the return needs no re-stream.
+#
+# Tile legend (TOWN_TILE_* equates): 0=floor 1=wall 2=door 3=table.
+# Palette 0 (CGRAM 0..15): 0=floor base (also the backdrop, so gaps read as floor).
+# -----------------------------------------------------------------------------
+TOWN_TILE_FLOOR = 0
+TOWN_TILE_WALL = 1
+TOWN_TILE_DOOR = 2
+TOWN_TILE_TABLE = 3
+TOWN_N_TILES = 4
+
+TOWN_PAL_RGB = [
+    (72, 52, 34),      # 0  floor base (warm brown plank) — ALSO the backdrop
+    (104, 78, 50),     # 1  floor light (plank face)
+    (52, 36, 24),      # 2  floor dark (plank seam)
+    (96, 100, 112),    # 3  wall base (cool stone)
+    (140, 146, 158),   # 4  wall light (lit brick)
+    (60, 62, 72),      # 5  wall dark (mortar / shadow)
+    (150, 96, 44),     # 6  door wood
+    (196, 140, 70),    # 7  door light (planks)
+    (40, 26, 16),      # 8  door frame / dark
+    (120, 82, 42),     # 9  table wood
+    (168, 120, 64),    # 10 table top (lit)
+    (36, 24, 14),      # 11 table legs / shadow
+    (214, 198, 140),   # 12 warm highlight (door knob / sheen)
+    (0, 0, 0), (0, 0, 0), (0, 0, 0),
+]
+TOWN_N_COLORS = 16
+
+
+def _town_tile(rows):
+    """8 strings of 8 hex chars -> an 8x8 index grid (0..15) for encode_4bpp."""
+    assert len(rows) == 8, rows
+    g = []
+    for r in rows:
+        assert len(r) == 8, r
+        g.append([int(c, 16) for c in r])
+    return g
+
+
+TOWN_TEX = {
+    # plank floor: light face (1) with darker (2) seams every few px, base (0).
+    TOWN_TILE_FLOOR: _town_tile([
+        "11111112", "11111112", "11111112", "22222222",
+        "11111112", "11111112", "11111112", "22222222",
+    ]),
+    # stone wall: brick courses (3 base, 4 lit top, 5 mortar seam), offset rows.
+    TOWN_TILE_WALL: _town_tile([
+        "44444444", "33333335", "33333335", "55555555",
+        "44444444", "53333333", "53333333", "55555555",
+    ]),
+    # exit door: wood planks (6/7) in a dark frame (8), a bright knob (C=12).
+    TOWN_TILE_DOOR: _town_tile([
+        "88888888", "87676768", "87676768", "8767676C",
+        "87676768", "87676768", "87676768", "88888888",
+    ]),
+    # table: a lit top slab (9/10) on dark legs (11), floor (0) around it.
+    TOWN_TILE_TABLE: _town_tile([
+        "00000000", "0AAAAAA0", "A999999A", "A999999A",
+        "0B0000B0", "0B0000B0", "0B0000B0", "00000000",
+    ]),
+}
+
+
+def emit_town() -> None:
+    """Emit explore_town.inc: the Mode 1 interior 4bpp CHR + 16-colour palette +
+    TOWN_TILE_* / TOWN_CHR_BYTES / TOWN_PAL_COUNT equates."""
+    tiles = [TOWN_TEX[t] for t in range(TOWN_N_TILES)]
+    chr_bytes = b"".join(encode_4bpp(t) for t in tiles)
+    pal_words = [rgb_to_bgr555(*c) for c in TOWN_PAL_RGB]
+    L = []
+    L.append("; ===========================================================================")
+    L.append("; explore_town.inc — Mode 1 town-interior CHR + palette (GENERATED)")
+    L.append("; ===========================================================================")
+    L.append("; Regenerate: python3 templates/mode7_explore/assets/make_explore_world.py")
+    L.append("; The mosaic town-visit interior: a plank floor, stone walls, a table, and")
+    L.append("; an exit door. 4bpp BG1 CHR (uploaded to VRAM word $5000, above the")
+    L.append("; preserved Mode 7 image) + a 16-colour palette (CGRAM 0..15; colour 0 is")
+    L.append("; the floor base, also the backdrop so gaps read as floor).")
+    L.append("; ===========================================================================")
+    L.append("")
+    L.append(f"TOWN_TILE_FLOOR = {TOWN_TILE_FLOOR}")
+    L.append(f"TOWN_TILE_WALL  = {TOWN_TILE_WALL}")
+    L.append(f"TOWN_TILE_DOOR  = {TOWN_TILE_DOOR}")
+    L.append(f"TOWN_TILE_TABLE = {TOWN_TILE_TABLE}")
+    L.append(f"TOWN_CHR_BYTES  = {len(chr_bytes)}")
+    L.append(f"TOWN_PAL_COUNT  = {TOWN_N_COLORS}")
+    L.append("")
+    L.append(".pushseg")
+    L.append('.segment "RODATA"')
+    L.append("town_chr:")
+    for i in range(0, len(chr_bytes), 16):
+        chunk = chr_bytes[i:i + 16]
+        L.append("    .byte " + ", ".join(f"${b:02X}" for b in chunk))
+    L.append("")
+    L.append("town_pal:")
+    for i, w in enumerate(pal_words):
+        L.append(f"    .word ${w:04X}    ; color {i}")
+    L.append(".popseg")
+    L.append("")
+    (HERE / "explore_town.inc").write_text("\n".join(L) + "\n")
+    print(f"  town       : explore_town.inc ({len(chr_bytes)} CHR bytes, "
+          f"{TOWN_N_TILES} tiles, {TOWN_N_COLORS}-colour interior palette)")
+
+
 def _open_run(tx: int, ty: int, length: int) -> bool:
     """True iff there is a contiguous walkable run of `length` tiles in EACH
     cardinal direction from (tx,ty) (so streaming actually fires from the start —
@@ -763,6 +936,7 @@ def _open_run(tx: int, ty: int, length: int) -> bool:
 
 def main() -> None:
     emit_obj()
+    emit_town()
     tilemap = build_tilemap()
     chr_data = build_chr()
     seed = build_seed(tilemap, chr_data)
@@ -804,6 +978,33 @@ def main() -> None:
             f"open run in every cardinal direction. Streaming would not fire from boot. "
             f"Move SPAWN_TX/SPAWN_TY to open ground or widen SPAWN_CLEAR_R.")
     print(f"  spawn ({SPAWN_TX},{SPAWN_TY}): {SPAWN_OPEN_RUN}-tile open run each direction: OK")
+
+    # --- DEMO house validity: it must (a) be OFF both spawn axes (row/col 258 are
+    #     the open corridors the streaming sweeps walk — an on-axis house would be
+    #     stepped onto by mx004/006/012/013), (b) actually carry TERR_TOWN_ENTER,
+    #     and (c) be walkable-connected to the spawn clearing via the approach so
+    #     the town-visit arc is reachable without leaving walkable ground. --------
+    assert DEMO_HOUSE_TX != SPAWN_TX and DEMO_HOUSE_TY != SPAWN_TY, \
+        f"demo house ({DEMO_HOUSE_TX},{DEMO_HOUSE_TY}) is on a spawn axis — a " \
+        f"streaming-sweep test would step onto it and warp into the town"
+    assert terrain_at(DEMO_HOUSE_TX, DEMO_HOUSE_TY) == TERR_TOWN_ENTER
+    assert tile_at(DEMO_HOUSE_TX, DEMO_HOUSE_TY) == TILE_TOWN_DOOR
+    # a 4-neighbour walkable path bridges spawn -> house (BFS over walkable tiles)
+    seen = {(SPAWN_TX, SPAWN_TY)}
+    frontier = [(SPAWN_TX, SPAWN_TY)]
+    while frontier:
+        cx, cy = frontier.pop()
+        if (cx, cy) == (DEMO_HOUSE_TX, DEMO_HOUSE_TY):
+            break
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nb = ((cx + dx) % WORLD_T, (cy + dy) % WORLD_T)
+            if nb not in seen and terrain_at(*nb) not in BLOCKED:
+                seen.add(nb)
+                frontier.append(nb)
+    assert (DEMO_HOUSE_TX, DEMO_HOUSE_TY) in seen, \
+        f"demo house ({DEMO_HOUSE_TX},{DEMO_HOUSE_TY}) is not walkable-reachable from spawn"
+    print(f"  demo house ({DEMO_HOUSE_TX},{DEMO_HOUSE_TY}): off-axis, TERR_TOWN_ENTER, "
+          f"walkable from spawn: OK")
 
     # --- traversal proof (F1): the camera-clamp box must allow >= 3 streaming
     #     windows (128 tiles) of CAMERA travel each axis. The main.asm clamp is

@@ -9,9 +9,17 @@ the window seamlessly as the camera walks (no pop-in, tearing, or black bands),
 and water + mountains block movement. The overworld dawns in from black at boot
 while the music rises, and the explorable region is framed by an ocean coast.
 
+Walk onto the **house** a short way north-west of the spawn and a **mosaic wipe**
+dissolves the streaming overworld into a **Mode 1 town interior** — a small room
+with a plank floor, stone walls, a table, and a door. Walk the room, step onto the
+**door**, and a mosaic wipe carries you back out to the Mode 7 overworld at the
+exact spot you left (the streamed world resumes with no pop-in). This
+streaming-overworld ⇆ Mode-1-interior scene transition is the rail's signature.
+
 | Input | Action |
 |---|---|
-| D-pad Up / Down / Left / Right | walk the avatar one tile (the camera scrolls the world under it) |
+| D-pad Up / Down / Left / Right | walk the avatar one tile (overworld: the camera scrolls the world under it; town: the avatar walks the fixed room) |
+| step onto the house / the door | trigger the mosaic wipe into the town / back to the overworld |
 | — | holding a diagonal against a wall slides along the open axis; music plays throughout |
 
 The avatar stays screen-centred; the **camera** carries the world position.
