@@ -1893,47 +1893,64 @@ def test_contact_knockback_and_hits(runner):
     # one frame at a time, stopping the FRAME the hit registers — so we read the
     # knockback pos before the (still-held) throttle drives the hero off spawn.
     _turn_to_heading(runner, 192)
+    # Deterministic drive + capture: the get-hit flash is a fixed ~24-frame
+    # fade, so the capture must land a FIXED frame count after contact.
+    # Wall-clock driving (set_input + run_frames + poll) free-runs between
+    # Python round-trips — on a slow host the whole flash can fade before the
+    # screenshot (CI caught exactly that). frame_step parks the emulator
+    # between steps: the poll happens frozen and the capture lands one frame
+    # after the hit registers, on any host speed.
     hit_pos = None
-    for _ in range(160):
-        runner.set_input(0, b=True)
-        runner.run_frames(1)
-        if _hits(runner) > h0:
-            hit_pos = (_posx(runner), _posy(runner))
-            break
-    runner.set_input(0)
+    with runner.frame_stepping():
+        for _ in range(600):
+            runner.frame_step(1, b=True)
+            if _hits(runner) > h0:
+                hit_pos = (_posx(runner), _posy(runner))
+                break
 
-    assert _hits(runner) > h0, \
-        f"HITS did not increment after driving into E0 ({h0} -> {_hits(runner)}) " \
-        f"— hero pos {(_posx(runner), _posy(runner))}"
-    # the hero world pos was reset to the spawn cell ON the hit frame (knockback)
-    px, py = hit_pos
-    assert abs(px - SPAWN_PX[0]) <= 2 and abs(py - SPAWN_PX[1]) <= 2, \
-        f"hero not knocked back to spawn {SPAWN_PX} on the hit frame: at {(px, py)}"
-    # the hero sprite renders at screen-centre (slot 0) on the spawn tile
-    x, y, tile, attr = _oam(runner, HERO_SLOT)
-    assert (x, y) == (HERO_X, HERO_Y), \
-        f"hero sprite not re-centred after knockback: OAM {(x, y)}"
-    assert tile == 0 and attr == HERO_ATTR, \
-        f"hero sprite wrong after knockback: tile={tile} attr={attr:#04x}"
+        assert _hits(runner) > h0, \
+            f"HITS did not increment after driving into E0 ({h0} -> {_hits(runner)}) " \
+            f"— hero pos {(_posx(runner), _posy(runner))}"
+        # the hero world pos was reset to the spawn cell ON the hit frame (knockback)
+        px, py = hit_pos
+        assert abs(px - SPAWN_PX[0]) <= 2 and abs(py - SPAWN_PX[1]) <= 2, \
+            f"hero not knocked back to spawn {SPAWN_PX} on the hit frame: at {(px, py)}"
+        # the hero sprite renders at screen-centre (slot 0) on the spawn tile
+        x, y, tile, attr = _oam(runner, HERO_SLOT)
+        assert (x, y) == (HERO_X, HERO_Y), \
+            f"hero sprite not re-centred after knockback: OAM {(x, y)}"
+        assert tile == 0 and attr == HERO_ATTR, \
+            f"hero sprite wrong after knockback: tile={tile} attr={attr:#04x}"
 
-    # RENDERED get-hit FLASH (the non-vacuous rendered proof). The knockback-to-
-    # spawn is invisible when the hero was already near spawn (its OAM is pinned at
-    # centre — the old assert was vacuous). The visible cue is the whole screen
-    # flashing DARK on contact (INIDISP dip), then fading back. Read the frame right
-    # after the hit: it must be far darker than the pre-hit baseline; a build
-    # without the flash stays at full brightness and fails this.
-    runner.run_frames(1)              # let the NMI commit the flash brightness
-    flash_shot = "/tmp/m7dungeon_contact_flash.png"
-    runner.take_screenshot(flash_shot)
-    flash_bright = _frame_brightness(flash_shot)
-    assert flash_bright < base_bright * 0.4, \
-        f"no get-hit flash: post-hit brightness {flash_bright:.1f} not << baseline " \
-        f"{base_bright:.1f} (the screen must flash dark on contact)"
-    # ...and it recovers to (near) full brightness as the fade completes.
-    runner.run_frames(30)
-    rec_shot = "/tmp/m7dungeon_contact_recovered.png"
-    runner.take_screenshot(rec_shot)
-    rec_bright = _frame_brightness(rec_shot)
+        # RENDERED get-hit FLASH (the non-vacuous rendered proof). The knockback-
+        # to-spawn is invisible when the hero was already near spawn (its OAM is
+        # pinned at centre — the old assert was vacuous). The visible cue is the
+        # whole screen flashing DARK on contact (INIDISP dip), then fading back.
+        # Read the frame right after the hit: it must be far darker than the
+        # pre-hit baseline; a build without the flash stays at full brightness
+        # and fails this. Parked captures render a frame or so behind just-read
+        # WRAM (the debug-park presentation lag), and the exact offset depends
+        # on prior runner state — so scan the first 8 post-hit frames and take
+        # the darkest: the ~24-frame dark fade MUST intersect the scan, while a
+        # build without the flash never renders a dark frame at all (the
+        # non-vacuity is unchanged).
+        flash_shot = "/tmp/m7dungeon_contact_flash.png"
+        flash_bright = None
+        for _ in range(8):
+            runner.frame_step(1)
+            runner.take_screenshot(flash_shot)
+            b = _frame_brightness(flash_shot)
+            flash_bright = b if flash_bright is None else min(flash_bright, b)
+            if b < base_bright * 0.4:
+                break
+        assert flash_bright < base_bright * 0.4, \
+            f"no get-hit flash: darkest of 8 post-hit frames {flash_bright:.1f} not " \
+            f"<< baseline {base_bright:.1f} (the screen must flash dark on contact)"
+        # ...and it recovers to (near) full brightness as the fade completes.
+        runner.frame_step(30)
+        rec_shot = "/tmp/m7dungeon_contact_recovered.png"
+        runner.take_screenshot(rec_shot)
+        rec_bright = _frame_brightness(rec_shot)
     assert rec_bright > base_bright * 0.8, \
         f"flash did not recover: brightness {rec_bright:.1f} still low vs baseline " \
         f"{base_bright:.1f}"
