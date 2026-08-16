@@ -227,7 +227,8 @@ Then [`docs/01`](docs/01_substrate_reference.md) — the hardware budget and the
 constraints the allocator solves against. What each feature supplies and claims
 is [`docs/09`](docs/09_feature_register.md), which `make register` gates against
 the tree; [`docs/08`](docs/08_feature_register_spec.md) is the spec that
-register is written to.
+register is written to. The design story — what this engine is, why it is
+shaped this way, and what holds it true — is [`design.md`](design.md).
 
 ## Licence
 
