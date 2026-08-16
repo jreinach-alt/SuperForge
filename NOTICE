@@ -137,14 +137,16 @@ domain and this project cannot so dedicate it.
 
 Reaches `game/brawler`, `game/split_v_fight` and `game/platformer_stream`.
 
-### AlcWilliam (via `pixel-by-pixel.itch.io`) — "Spaceship Pack" — **permissive commercial grant; CC0 deed unconfirmed**
+### AlcWilliam (via `pixel-by-pixel.itch.io`) — "Spaceship Pack" — **page-stated permissive grant ("Free for commercial use"); not a CC0 dedication**
 
 **Upstream:** https://pixel-by-pixel.itch.io/alcwilliam-space-ship-pack
-**Licence, recorded as it actually stands:** the reachable itch.io page states
-*"Free for commercial use."* and carries **no explicit CC0 deed label**. The
-recorded verification of 2026-07-19 carries the owner's own CC0 attestation
-alongside that live grant and flags the deed as an open question. **This audit
-did not close it** — see `docs/92` §7 Q1.
+**Licence, recorded as it actually stands:** the itch.io page states
+*"Free for commercial use."* and nothing more — no CC0 deed, no further
+terms. Verified on the live page by the project owner, 2026-08-16. The grant
+plainly covers the art shipping inside a game; it is silent on source-form
+redistribution of the pack files themselves, which is what `vendor/art/`
+does — the project treats that as within the page's evident intent and will
+seek the author's confirmation before wider distribution. See `docs/92` §7.
 
 | file in this tree | what our copy is |
 |---|---|

@@ -41,8 +41,9 @@ SuperForge is licensed per component:
       vendor/art/ (four itch.io packs and the blobs derived from them,
         under FOUR states, not one: camelot and dungeonSprites are CC0;
         the Four Seasons tileset is a custom permissive grant that is
-        NOT CC0; the Spaceship Pack is a permissive commercial grant
-        whose CC0 deed this project has NOT confirmed. Per pack: NOTICE)
+        NOT CC0; the Spaceship Pack is under its page's own grant —
+        "Free for commercial use" — a permissive grant, not a
+        public-domain dedication. Per pack: NOTICE)
       assets/audio/export/ (the tad-compiler wrapper is Unlicense; the
         SPC700 loader + driver binaries inside the .bin are zlib)
       vendor/mesen_patches/lockstep_core_edits.patch (quotes Mesen2
