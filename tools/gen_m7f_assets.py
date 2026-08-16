@@ -60,7 +60,7 @@ SPAWN_X, SPAWN_Y = 872, 512
 # across the top third of the screen: a bright
 # base plus an ADD saturates in the first few lines and there is no gradient
 # left to see. Kept in step with the generator by
-# test_the_backdrop_word_is_the_day_snapshot_zenith.
+# test_the_sky_is_the_generators_ramp_at_every_scanline.
 SKY = (4 << 3, 12 << 3, 24 << 3)  # index 0 — CGRAM[0], the backdrop's ZENITH
 PALETTE = [
     SKY,
