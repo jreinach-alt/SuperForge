@@ -1,0 +1,75 @@
+# meteor_event user state. The matrix shadow is m7_affine's
+# dp claim; the track pointer is m7_track's; the draw scratch is met_obj's; the
+# tilemap shadow the capture reads is met_bg's. What lives here is what the
+# GAME owns: the state machine, the walk, and the glow's ramp state.
+#
+# NO [init] zero. `game_init` (scenes/level.asm) writes every `[global]`
+# variable below before the first NMI is armed — it runs in MAIN's boot block,
+# ahead of the boot scene's `enter` — and the per-scene scratch is written
+# before read inside one tick (rule 5: power-on WRAM is random, and a zero fill
+# would hide the day that stops being true).
+
+# =============================================================================
+# GLOBAL — the state machine spans the swap, so its variables must outlive it
+# =============================================================================
+# SCENE DP IS REUSED ACROSS SCENES (allocate.py:1003 — each scene's free list
+# forks the globals'), so nothing in a `[scene.*]` block can carry the cutscene
+# across the transition. These nine words are exactly the facts that have to:
+# which state the machine is in, where the walk got to, what the capture froze,
+# and how far the glow has ramped.
+[global]
+
+g_state = "u16@dp"         # MET_ST_* (meteor.inc). PLAY/FREEZE/CAPTURE run in
+                           #   the `level` scene, SCENE in `impact`; RESTORE is
+                           #   the request that carries the machine back.
+g_timer = "u16@dp"         # per-state frame counter. In ST_SCENE it is ALSO
+                           #   the track cursor: the Mode-7 phase's index is
+                           #   g_timer - MET_SPRITE_END, so the cursor has no
+                           #   variable of its own and cannot disagree with the
+                           #   state clock (m7_track's contract, the boss
+                           #   rail's idiom taken with an ADVANCING timer
+                           #   instead of a countdown).
+g_worldx = "u16@dp"        # the player's world X in pixels; the walk advances
+                           #   it by MET_WALK_SPEED while RIGHT is held.
+g_camx = "u16@dp"          # BG1 scroll = world X of screen column 0. Committed
+                           #   through m7_affine's shadow, not a port.
+g_frozen_camx = "u16@dp"   # the camera latched at the FREEZE, so the capture
+                           #   reads the frozen view rather than a live one.
+g_event_done = "u16@dp"    # 1 once the meteor event has fired. One-shot: after
+                           #   the restore releases control the player is
+                           #   already past TRIGGER_X, so without this the walk
+                           #   would re-trigger on its first frame.
+g_glow = "u16@dp"          # the current QUANTISED bottom-red intensity 0..31.
+                           #   The gate: the HDMA table is rebuilt only when
+                           #   this changes — a real performance gate, not a
+                           #   cosmetic one.
+g_cm_on = "u16@dp"         # colour-math-armed one-shot guard (0 = off).
+g_scr = "u16@dp"           # one-word frame-transient scratch (the slide/glow
+                           #   ramps are recomputed from g_timer every frame,
+                           #   so no position state is stored).
+
+# =============================================================================
+# level — the capture's scan cursor
+# =============================================================================
+# Write-before-read inside one call of `capture_emit`, which runs ONCE per
+# event. In DP because the scan is a tight loop over eight words and the scene
+# has DP to spare.
+[scene.level]
+
+cap_row = "u16@dp"         # index into the candidate-row table
+cap_rowbase = "u16@dp"     # row * 32 — the tilemap word index of column 0
+cap_basecol = "u16@dp"     # leftmost on-screen tilemap column = frozen_camx>>3
+cap_sc = "u16@dp"          # current screen block column (0,2,..,32)
+cap_sy = "u16@dp"          # screen y of the row being scanned = row * 8
+cap_sx = "u16@dp"          # screen x of the block = sc*8 - subx
+cap_subx = "u16@dp"        # frozen_camx & 7, the sub-tile scroll remainder
+cap_n = "u16@dp"           # emit cursor, 0..MET_CAP_N — the declared bound
+
+# =============================================================================
+# impact — the meteor sprite's sweep
+# =============================================================================
+[scene.impact]
+
+spr_x = "u16@dp"           # the far-approach meteor sprite's top-left x
+spr_y = "u16@dp"           # ...and y (centre minus half the frame's size)
+spr_tile = "u16@dp"        # the chosen growth frame's base tile | attr

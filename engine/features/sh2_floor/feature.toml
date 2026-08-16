@@ -1,0 +1,73 @@
+# sh2_floor — the split_h_2p rail's Mode 7 plane. Scene-scoped.
+#
+# The world under BOTH cameras: one 128x128 wrapping checker plane, uploaded
+# once at scene enter and never touched again. Everything that makes the two
+# bands look different is the CAMERA's doing (sh2_cam), not this feature's —
+# which is the whole point of the rail and the reason the plane is declared
+# separately from the split.
+#
+# WHY NOT `m7dg_floor`, which this is otherwise shaped exactly like: that
+# feature's `depends = ["m7dg_rom"]` binds it to the dungeon's blobs, its CGRAM
+# claim is nine words rather than five, and its floor_arm names the dungeon's
+# labels. Three of three differ, so this is a sibling feature rather than a
+# parameterisation — the ruling `col_map` took four times and `m7dg_floor`
+# itself took against `mode7_floor`. What transfers is the SHAPE, not the code.
+#
+# WHY NO `hdma` CLAIM. The plane is static: the world does not scroll, rotate
+# or stream. Every per-scanline channel on this rail belongs to sh2_cam.
+name = "sh2_floor"
+role = "feature"
+depends = ["sh2_rom"]
+
+# The enter-time upload: ONE DMA for the whole interleaved blob. Mode 1 drives
+# VMDATAL then VMDATAH alternately, which IS the interleave — even source byte
+# to $2118 (tilemap), odd to $2119 (CHR) — so the blob streams straight in with
+# no unpacking and no second pass. Phase forced_blank: scene_mgr's enter clears
+# HDMAEN and zeroes NMITIMEN, so this cannot race an active or vblank claim
+# even on a shared channel number.
+[[claims.dma_init]]
+name = "sh2_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# The Mode 7 region is the fixed pinned 32 KB at words $0000-$3FFF — a hardware
+# address, not a packing decision, which is why `kind = "mode7"` takes neither
+# `words` nor `tiles` (giving them is a schema error).
+[[claims.vram]]
+name = "m7"
+kind = "mode7"
+
+# HARDWARE CONTRACT: a Mode 7 8bpp pixel value IS an absolute CGRAM index, so
+# this palette can only live at 0. Five colours is the whole world.
+#
+# Word 0 is included DELIBERATELY and is not spare: it is both palette index 0
+# and the Mode 7 BACKDROP slot, and it holds the dusk backdrop. A scene
+# composing `backdrop` alongside this must refuse the build — colour 0 has one
+# owner (and m7dg_floor / mode7_floor make the same statement).
+[[claims.cgram]]
+name = "sh2_pal"
+words = 5
+at = 0
+
+# C4 (docs/09 §2.1): the scene's base display shape, written ONCE under forced
+# blank for the whole frame.
+#
+# THIS RAIL DOES NOT SPLIT THE VIDEO MODE. Both bands are Mode 7 for all 224
+# lines; the "2-band split" is a split of the camera ORIGIN, not of BGMODE/TM.
+# That is why `split_band` is not composed and is not generalised — there is no
+# second splitter here. BGMODE and TM are therefore plain
+# constants, not HDMA-driven, and this claim is their sole owner.
+#
+# ATTRIBUTION. M7SEL is written by this feature's own floor_arm — it is a Mode
+# 7 register and Mode 7 is this feature's mechanism. BGMODE and TM are written
+# by the scene's enter code (game/split_h_2p_demo/scenes/split.asm), which has
+# no feature.toml of its own, so they are attributed to the feature they SERVE
+# and opened through `scene_writes` — the same shape m7dg_floor, room_bg and
+# split_v_bg use. The lies-check compares per REGISTER, which is exactly why
+# this works: the opened set (BGMODE, TM) and the owner-written set (M7SEL) are
+# disjoint.
+[[claims.reg]]
+name = "sh2_display"
+registers = ["BGMODE", "TM", "M7SEL"]
+scene_writes = ["BGMODE", "TM"]

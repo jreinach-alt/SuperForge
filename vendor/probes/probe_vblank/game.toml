@@ -1,0 +1,6 @@
+# One-scene "game" wrapping the VBlank probe so its map is allocator-emitted.
+globals = []
+
+[[scene]]
+id = "probe"
+features = ["probe_vblank"]

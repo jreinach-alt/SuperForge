@@ -1,0 +1,123 @@
+# scroller_bg — BG1: a 32x32 checkerboard and the two-axis camera that slides
+# it. The whole of this rail's display.
+#
+# =============================================================================
+# WHY THIS FEATURE EXISTS AT ALL, AND WHY IT IS NOT `room_bg`
+# =============================================================================
+# `scroller` is the BG pipeline alone — the sanity rail for the keystone BG
+# pattern outside the `room` game — so the obvious composition is `room_bg`,
+# `oam_sprites`, `input`, `backdrop`. Read as "compose room_bg here", that is
+# not possible, and the reason is in room_bg's own code rather than in any
+# doc about it:
+#
+#  - room_bg/feature.toml declares `depends = ["room_rom"]`;
+#  - room_bg.asm hardcodes `bg1_chr_bin` / `bg1_map_bin` / `bg2_chr_bin` /
+#  `bg2_map_bin` / `bg1_pal_bin` / `bg2_pal_bin` and their
+#  `ES_R_BG1_*_ROM_SIZE` sizes — room_rom's symbols, by name;
+#  - it claims TWO layers' worth of VRAM and CGRAM at fixed sub-palettes 2
+#  and 3, which a one-layer rail whose BG reads palette group 0 cannot use;
+#  - and it PINS the scroll registers at zero, with the comment "the room is
+#  one screen and does not scroll" — the exact degree of freedom this rail
+#  is about.
+#
+# So `room_bg` is welded to `room` the way `mode7_stream` is welded to
+# microzero. What carries across rails is the PATTERN — a per-rail
+# `<rail>_bg` feature modelled on room_bg — which breaker_bg, shmup_bg,
+# platformer_bg and pfs_bg each instantiate.
+#
+# The sanity property therefore lands as: the keystone BG pattern — enter-time
+# forced-blank CHR + palette upload through a declared dma_init channel, an
+# allocator-emitted SC_BASE/NBA register encoding, a built tilemap, layer
+# identity attributed through `scene_writes` — instantiated in a game that is
+# NOT `room`, with the one axis `room_bg` deliberately does not have: SCROLL.
+# `tests/test_scroller.py::test_bg_pattern_matches_room_bg_upload_shape` is
+# where that is asserted rather than asserted-about.
+#
+# =============================================================================
+# THE MAP IS BUILT, NOT UPLOADED
+# =============================================================================
+# `scr_build_map` writes 1024 tilemap words straight to VMDATA under the enter
+# forced blank, tile = (col ^ row) & 1. See scroller_rom/feature.toml for why
+# that is a fidelity requirement and not a shortcut.
+#
+# =============================================================================
+# ONE FEATURE, ONE LAYER — and here it costs nothing
+# =============================================================================
+# A BG feature owns all its rail's co-resident BG layers, because
+# BG12NBA is one write-only port with one owner per scene. This rail has only
+# BG1: the source writes `gfxmode #1` and nothing else, so the other cell of
+# the checkerboard is the BACKDROP, not a second layer.
+name = "scroller_bg"
+role = "feature"
+depends = ["scroller_rom"]
+
+# The enter-time CHR upload, word-port (mode 1 drives VMDATAL+VMDATAH). Phase
+# is forced_blank by class: scene_mgr's enter clears HDMAEN and zeroes
+# NMITIMEN, so it cannot race an active- or vblank-phase claim on a shared
+# channel number.
+[[claims.dma_init]]
+name = "scr_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "scr_chr"
+kind = "chr"
+tiles = 2                # tile 0 empty, tile 1 solid — the two checker cells
+tile_bytes = 32          # 4bpp
+
+[[claims.vram]]
+name = "scr_map"
+kind = "tilemap"
+words = 0x400            # 32x32; BG1SC bases are 0x400-word granular
+
+# THE PALETTE AND THE BACKDROP ARE ONE CLAIM, by hardware contract.
+#
+# The map authors palette group 0, so a tilemap word IS its tile id and the BG
+# reads CGRAM words 0..15. Word 0 of that group is also the BACKDROP slot — one
+# word, two meanings, therefore necessarily one owner. Pfs_bg and m7x_floor
+# record the identical fold for the identical reason.
+#
+# And this scene cannot ALSO compose `backdrop`, because `backdrop` declares
+# BGMODE + TM and so does this feature. The allocator refuses that
+# composition, and the refusal is right — colour 0 has one owner per scene.
+[[claims.cgram]]
+name = "scr_pal"
+words = 16
+at = 0
+
+# THE CAMERA. Two axes, both live — this is the whole rail.
+#
+# The tick advances it from the d-pad; the NMI hook commits BG1HOFS/BG1VOFS
+# from it every armed frame. Committing in the hook rather than the tick is
+# pfs_bg's reasoning and it holds for the same reason: one source of truth for
+# "which window is on screen", read at the one moment the PPU will accept it.
+#
+# WRAPS RATHER THAN CLAMPS. The camera adds/subtracts SPEED with no bound at
+# all, and a 32x32 map on a 10-bit scroll latch wraps every 256 px on both
+# axes — so scrolling forever is a torus, not a wall. U16
+# wraparound at 65536 is a multiple of 256, so the picture is continuous across
+# it too.
+#
+# NO [init] zero: `scr_arm` writes both at scene enter, and scene_mgr holds NMI
+# masked across the whole switch, so the first NMI that can see this scene is
+# the first one after the arm (shmup_bg reaches the same conclusion).
+[[claims.dp]]
+name = "scr_cam"
+bytes = 4                # +0 cam_x, +2 cam_y (world px, u16, wrapping)
+
+# C4 (docs/09 §2.1): the BG1 layer configuration and the scene's base display.
+#
+# ATTRIBUTION. BGMODE/TM/BG1SC/BG12NBA are written by the scene's enter code in
+# game/scroller/scenes/world.asm, which has no feature.toml of its own and no
+# `[[scene]]` claim vocabulary, so ownership is attributed to the feature the
+# write SERVES — this one, which is what makes `world` a Mode 1 BG1 scene at
+# all. BG1HOFS/BG1VOFS are written by scroller_bg.asm itself, from the NMI
+# hook, every armed frame; they are therefore NOT in scene_writes, and
+# no_literals' declaration-that-lies check refuses the mistake in either
+# direction.
+[[claims.reg]]
+name = "scr_layers"
+registers = ["BGMODE", "TM", "BG1SC", "BG12NBA", "BG1HOFS", "BG1VOFS"]
+scene_writes = ["BGMODE", "TM", "BG1SC", "BG12NBA"]

@@ -1,0 +1,59 @@
+# scroller_obj — the one sprite that does NOT move.
+#
+# A single 8x8 OBJ pinned at screen (120, 100), written into the oam_sprites
+# shadow every frame — never into hardware OAM, which the engine's declared
+# VBlank GP-DMA owns.
+#
+# THE SPRITE HOLDING STILL IS THE ASSERTION, not a detail. This rail's subject
+# is sprite-over-BG COMPOSITING: the world slides and the sprite does not, so
+# what a viewer reads as motion is the background moving under a fixed object.
+# The whole done-condition is *"each d-pad direction scrolls the BG the right
+# way, while the sprite holds its screen position"* — and the second half is
+# the one a BG-only test cannot see.
+#
+# It is re-staged every frame anyway (`scr_obj_draw` from the tick) rather than
+# written once at enter, so the staging path runs on every frame.
+# That is deliberate: a sprite that is written once and then merely NOT
+# overwritten would pass a "sprite holds" assertion for the wrong reason, and
+# the staging path would go untested for the entire run.
+#
+# CPU-WRITTEN REGISTER, DECLARED: OBSEL $2101, which sets sprite size AND OBJ
+# CHR base for EVERY sprite — the same global-to-all-sprites register
+# breaker_obj, room_hero and player_car each declare in their own games, for
+# the same reason: composing two games' sprite features in one scene must
+# refuse. The VALUE comes from ES_V_SCR_OBJ_CHR_OBSEL_BASE, so the address
+# discipline holds independently of the ownership.
+#
+# SIZE MODE 0 (small 8x8 / large 16x16) and the one sprite is SMALL, so the hi
+# table's size bit stays clear exactly as oam_park_all left it. Only the X9 bit
+# is touched, and it is DERIVED from bit 8 every frame rather than assumed
+# clear — a stale X9 renders a sprite 256 px away, which is a failure this
+# project has a lessons-learned entry about.
+name = "scroller_obj"
+role = "consumer"
+depends = ["oam_sprites", "scroller_rom"]
+
+[[claims.dma_init]]
+name = "scr_obj_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "scr_obj_chr"
+kind = "chr"
+obj = true
+words = 16               # 1 tile x 16 words
+
+[[claims.cgram]]
+name = "scr_obj_pal"
+words = 16
+at = 128                 # hardware contract: OBJ palette 0 = CGRAM 128..143
+
+[[claims.oam]]
+name = "rider"
+sprites = 1
+
+[[claims.reg]]
+name = "scr_obj_obsel"
+registers = ["OBSEL"]

@@ -1,0 +1,9 @@
+# reg-gate fixture: an undeclared write INSIDE the ALU's span but not at its
+# base port. The span table is what makes $4203 (WRMPYB) answer to the same
+# name as $4202; without it this write would be invisible.
+name = "rgfx_alu_fires"
+role = "fixture"
+
+[[claims.dp]]
+name = "rgfx_aluf_state"
+bytes = 2

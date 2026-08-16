@@ -1,0 +1,100 @@
+# meteor_event — the in-level cutscene that swaps Mode 1 <-> Mode 7.
+# A tiny platformer slice becomes a set-piece and
+# returns: you walk right, the screen FREEZES, the BG platforms are CAPTURED as
+# sprites, the game swaps to a static Mode-7 meteor scene, the meteor grows in
+# place while it slides off the bottom and a red glow rises behind the captured
+# sprites, and then it swaps back and hands control over. One state machine:
+# PLAY -> FREEZE -> CAPTURE -> SCENE -> RESTORE -> PLAY.
+#
+# THE SCALE-RAMPING RAIL. The Mode-7 meteor grows IN PLACE about a pinned
+# pivot, composed with a +4/frame tumble. `m7_affine`'s scale-1.0 LUT cannot
+# express that; `m7_track` is the shared player and `met_rom`'s `met_grow` is
+# this rail's own baked blob. The player is composed UNCHANGED, which is the
+# contract m7_track/feature.toml states.
+#
+# TWO SCENES, AND THE ALLOCATOR IS THE REASON. Swapping video modes in place
+# under a forced blank would give BGMODE, TM, BG1SC/BG12NBA and M7SEL two owners
+# in one scene (check_reg_ownership's reg x reg pass), and Mode 1 and Mode 7 are
+# exactly two owners of that set — so the swap is spelled as a scene transition
+# and the allocator PROVES the two never coexist. mode7_explore took the
+# identical ruling for its Mode-1 town interior. Unlike that rail this one CAN
+# use scene_mgr's own phase machine: there is no state to preserve across the
+# switch that scene DP holds (everything that outlives it is in state.toml's
+# `[global]`).
+#
+# NOT COMPOSED, each measured against the implementing file:
+#   pool        -- THERE IS NOTHING TO POOL. No alive[] array exists on this
+#                  rail: the far-approach meteor is a SINGLE OBJ, the captured
+#                  ground is a one-shot scan of the tilemap, and there are no
+#                  projectiles or particles at all.
+#   mode7_floor -- depends on world_rom (256 KB this rail never reads) and pins
+#                  CGRAM 0..16 for microzero. met_floor's header carries the
+#                  ruling (mo_floor's, taken again).
+#   rgb_gradient-- its three channels stream STATIC ROM tables (its own
+#                  feature.toml); this rail's glow RISES and RECEDES.
+#                  met_glow's header carries the full argument.
+#   room_bg     -- microzero's two-layer room, welded to room_rom's blobs. The
+#                  SHAPE transfers to met_bg; the binding does not (mo_floor's
+#                  ruling again).
+#   col_map     -- no tile flag is read for collision: the player walks a flat
+#                  ground at a constant y, and there is no gravity, no jump and
+#                  no probe. The one tilemap read on the rail is the CAPTURE's,
+#                  which is a render question.
+#   m7_project  -- nothing projects. Every actor is SCREEN-space: the player is
+#                  pinned at screen x 96, the meteor sprite sweeps screen
+#                  pixels, the captured blocks land on the screen pixels the BG
+#                  tiles occupied.
+#   mode7_persp -- its HDMA claims own M7A-D; the reg x hdma check refuses it
+#                  beside m7_affine, correctly (two mechanisms, one register
+#                  set).
+#   backdrop    -- both scenes pin CGRAM word 0 themselves (Mode 7: the 8bpp
+#                  pixel value IS the CGRAM index; Mode 1: BG palette 0 colour 0
+#                  IS the backdrop), in both scenes.
+#   bg_text/vwf -- there is no text on this rail at all.
+#   audio       -- this rail composes no audio, exactly as `boss` measured for
+#                  itself.
+#   save        -- nothing persists; the event is one-shot within a power-on.
+globals = ["scene_mgr", "input", "fade", "oam_sprites",
+           "m7_affine", "m7_track", "met_rom", "met_obj"]
+
+[[scene]]
+id = "level"
+features = ["met_bg"]
+
+[[scene]]
+id = "impact"
+features = ["met_floor", "met_glow"]
+
+# The two edges. `style = "cut"` is load-bearing rather than descriptive: the
+# allocator emits ES_E_<SRC>_TO_<DST>_CUT from it, and scenes/*.asm request the
+# swap through SM_SWITCH, which picks the entry point from that symbol at
+# assembly time. Flip either line to "fade" and this rail's ROM fades again;
+# nothing else has to change, and nothing else CAN disagree.
+#
+# WHY CUT, measured. Spelling the mode swap as a scene transition is what makes
+# the allocator prove the two mode owners never coexist (the header above), but
+# it also handed this rail scene_mgr's hard-wired fade: 15 frames out + 15 back,
+# MEASURED at 31 transition frames on each of the two swaps, where a plain
+# forced-blank swap costs 2. The fade buys nothing here — both swaps land on a
+# black screen either way, because the outgoing picture on the forward swap is
+# the captured ground over black and the incoming one on the return is the same
+# frozen level. The cut keeps the allocator's proof and drops the ramp.
+#
+# NO `budget_bytes`, and the omission is the honest answer rather than a
+# skipped field. The edge model bills a transition for the destination scene's
+# WHOLE VRAM+CGRAM footprint on the assumption that the switch reloads it under
+# forced blank. Into `impact` that IS what happens (32 KB of plane + 16 words
+# of palette). Out of it, it is not: the Mode-1 CHR and tilemap are pinned above
+# the Mode 7 region and were never clobbered, so the return re-uploads 128 B of
+# CHR and 2 KB of tilemap shadow because the enter contract says to, not
+# because anything needs restoring. Quoting the model's figure on the return
+# edge would be a false statement about the one property the pins buy.
+[[edge]]
+from = "level"
+to = "impact"
+style = "cut"
+
+[[edge]]
+from = "impact"
+to = "level"
+style = "cut"

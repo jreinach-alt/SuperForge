@@ -1,0 +1,18 @@
+# room user game state.
+[global]
+visits = "u16"           # times the room has been entered — survives the loop
+
+[scene.title]
+t_frames = "u16"         # frames on title (drives nothing yet; proves scope)
+
+[scene.room]
+px = "u16@dp"            # hero top-left x, pixels, screen space (hot: the
+py = "u16@dp"            # movement and the iris both read these every frame)
+px2 = "u16@dp"           # the second hero (pad 2) — same screen space, moved
+py2 = "u16@dp"           # by input2's JOY2 word
+
+[scene.room_b]
+px = "u16@dp"            # the cavern's own hero position — same shape as
+py = "u16@dp"            # room's (room_logic is scene-scoped)
+px2 = "u16@dp"           # ...and the cavern's own second hero (pad 2)
+py2 = "u16@dp"

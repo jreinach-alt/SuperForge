@@ -1,0 +1,16 @@
+# reg-gate fixture (FIRES, item 5 rule 2): the same lie in the OTHER
+# direction. The claim declares a co-write on M7SEL that its ASM does not have,
+# which silently widens the gate -- the co-write it excuses does not exist.
+# `seed` carries no free-text reason either; a declaration is checkable or it
+# is decoration.
+name = "rgfx_lies_shared_bad"
+role = "fixture"
+
+[[claims.reg]]
+name = "rl_mode"
+registers = ["MOSAIC", "M7SEL"]
+scene_writes = ["MOSAIC", "M7SEL"]
+# MOSAIC IS written below and is correctly declared shared, so rule 1 is
+# silent on it. M7SEL is not written anywhere, so rule 2 fires on it
+# ALONE -- which is what keeps one fixture to one rule.
+scene_writes_shared = ["MOSAIC", "M7SEL"]

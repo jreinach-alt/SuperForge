@@ -1,0 +1,21 @@
+# reg-gate fixture: every COVERED write shape from docs/09 §2.1, plus one
+# declared reg claim. The SILENT sibling of rgfx_fires.
+name = "rgfx_covered"
+role = "fixture"
+
+[[claims.vram]]
+name = "rgfx_covered_map"
+kind = "tilemap"
+words = 0x400
+
+[[claims.cgram]]
+name = "rgfx_covered_pal"
+words = 16
+
+[[claims.oam]]
+name = "rgfx_covered_oam"
+sprites = 4
+
+[[claims.reg]]
+name = "rgfx_covered_obsel"
+registers = ["OBSEL"]

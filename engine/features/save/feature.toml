@@ -1,0 +1,54 @@
+# save — battery-backed SRAM save/load with CRC-16 integrity (global feature).
+#
+# The first holder of the `sram` class: 2 slots of 32 B over the save_slots
+# claim. Per-slot format:
+#
+#  +0 2 B magic "SF"
+#  +2 1 B version (SV_FORMAT_VER — bump when the payload layout changes)
+#  +3 1 B reserved ($00)
+#  +4 2 B payload length (0..24)
+#  +6 2 B CRC-16/CCITT poly $1021 over header+payload (CRC field = 0)
+#  +8 24 B payload
+#
+# Slot geometry is a choice, not a law: 2 x 32 B — two slots so slot INDEXING
+# is exercised rather than only offset 0, and a 24 B payload cap that holds a
+# visit counter with headroom. The CLASS supports any geometry a game wants;
+# these constants are this generation's convention.
+#
+# Rejection semantics: sv_load / sv_exists verify magic + version + length +
+# CRC BEFORE copying a single byte. $FFFF = no save (magic missing), $FFFE =
+# corrupt (bad version / impossible length / CRC mismatch, or — sv_load only —
+# a stored length above the caller's declared dest capacity SV_CAP: a CRC-valid
+# slot that would overrun the dest is corrupt-shaped and is rejected whole,
+# never clamped) — dest untouched on every reject. Always gate on these codes;
+# never branch on raw SRAM bytes (virgin SRAM is power-on GARBAGE under the
+# random regime, exactly like a real cart's first power-up — the gate is what
+# makes that detectable).
+#
+# NO [init] zero, structurally: sram cannot be named there (an init-zeroed save
+# is not a save — schemas.py's sram class comment), and the sv_args DP scratch
+# is write-before-read by construction (every field is stored by the caller or
+# the kernel before the engine reads it — the col_map form).
+name = "save"
+role = "feature"
+
+[[claims.sram]]
+name = "save_slots"
+bytes = 64               # 2 slots x 32 B. Demand -> the allocator derives
+                         # the cart header: $FFD8 = $01 (2 KiB declared, the
+                         # minimum), $FFD6 = $02 (battery). The 64 B mirror
+                         # across the 2 KiB window — the canonical bytes are
+                         # the emitted ES_S_SAVE_SLOTS offsets, nothing reads
+                         # the mirrors.
+
+[[claims.dp]]
+name = "sv_args"
+bytes = 17               # +0 slot base, +2 len, +4 ver, +6 CRC accum,
+                         # +8 tmp, +10 CRC region len, +12 payload ptr (24-bit),
+                         # +15 dest capacity (sv_load's overrun gate)
+
+[[claims.rom]]
+name = "crc16_lut_rom"
+bytes = 512              # 256-entry CRC-16/CCITT table (tools/gen_crc16_lut.py;
+                         # its tests assert the table against an independent
+                         # bit-by-bit CRC, not against itself)

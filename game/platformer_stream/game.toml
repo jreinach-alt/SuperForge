@@ -1,0 +1,72 @@
+# platformer_stream — the two-axis streaming rail.
+#
+# A side-view level four screens wide *and* tall; fall in, run, and climb as it
+# streams seamlessly on both axes with no pop-in.
+#
+# ONE SCENE, and it is the only single-scene rail in the set. That is not an
+# omission: a streaming rail has no title screen by design — it boots straight
+# into gameplay. You spawn in the mouth of an air shaft and gravity carries you
+# ~5 screens down to the bedrock floor before you have touched the pad, which is
+# also what makes the down-axis streaming proof need no scripted input.
+#
+# `scene_mgr` is still composed rather than skipped: every feature in the tree
+# is written against its enter contract (forced blank, HDMAEN cleared, NMITIMEN
+# zeroed across the switch) and its NMI hook, and one scene uses all of that.
+# What it does not use is the phase machine, since there is nowhere to go.
+globals = ["scene_mgr", "input", "fade", "oam_sprites", "pfs_rom"]
+
+[[scene]]
+id = "play"
+features = ["pfs_bg", "pfs_stream", "pfs_logic", "col_map", "rgb_gradient"]
+
+# WHAT IS REUSED, both checked against the implementing code:
+#
+#   col_map — a DIRECT fit. Its general form is `rpc = 32768/W`,
+#     `bank = T0_BANK + (ty >> log2 rpc)`, `offset = (ty & (rpc-1))*W + tx`.
+#     Bind W_LOG2 = H_LOG2 = 7 and it folds at assembly time to
+#     `level_collision + tile_row*128 + tile_col`, instruction for instruction.
+#     The 16 KB blob is ONE chunk, so it owes the `.assert CHUNKS = 1`
+#     (m7_dungeon's shape) rather than the consecutive-banks pair. Zero engine
+#     change.
+#
+#     The 4096-px-torus caution in col_map/feature.toml does not bite: at
+#     W_LOG2 = 7 the fold is `and #127`, i.e. a 1024-px torus, which is exactly
+#     this world's size — and the camera and player are clamped inside it
+#     anyway, so the wrap is unreachable rather than merely harmless.
+#
+#   rgb_gradient — the dusk sky. It LOOKS welded to microzero (it names
+#     ES_R_GRAD_TABS_ADDR outright, and tools/gen_gradient.py bakes
+#     microzero's sky/floor zones at HUD_LINES = 44). It is not: the grad_tabs
+#     `rom` claim lives in the feature but its BYTES are supplied at the
+#     COMPOSITION site — game/platformer/scenes/play.asm .incbin's its own
+#     `plf_grad.bin` against that same claim. So this rail supplies
+#     `pfs_grad.bin` and touches no shared engine file, and no engine audit
+#     chain is owed.
+#
+#     Building the identical ramp at RUNTIME from six endpoints is the
+#     alternative, and it buys nothing here: the ramp is static — no phase — so
+#     a standing-still frame is byte-identical either way. Baking the
+#     interpolation into ROM takes the per-frame cost to zero.
+#
+# WHAT IS NOT COMPOSED, each for a reason the allocator would enforce anyway:
+#
+#   backdrop     — it declares BGMODE + TM and so does pfs_bg; a CPU-written
+#                  register has one owner per scene. pfs_bg claims CGRAM word 0
+#                  itself, which is where the dusk sky colour goes.
+#   bg_text/vwf  — there is no HUD. The picture is the rail, and this rail draws
+#                  no text at all.
+#   platformer_bg — that BG feature is a 512x224 NON-scrolling level with a
+#                  parallax BG2 and BG1VOFS pinned at 0 for its rail's life. This
+#                  rail scrolls both axes over a 64x64 ring. Same word in the
+#                  name, different mechanism: a sibling, not a parameterisation.
+#   save         — the arc is one continuous level, not a run with a continue,
+#                  so there is nothing to persist.
+#   audio        — adding it would be a claim here plus Tad_Init/Tad_Process in
+#                  main.asm, not a rework — but this rail's subject is the
+#                  streaming picture.
+#
+# NO [[edge]]. The edge model bills a transition for the destination scene's
+# whole VRAM+CGRAM footprint, and there is no transition: one scene, entered
+# once, for the ROM's life. Declaring a self-edge would be a false statement
+# about the one structural thing this rail does differently from the other
+# seven.

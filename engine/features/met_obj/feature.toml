@@ -1,0 +1,132 @@
+# met_obj — the meteor_event rail's whole OBJ cast. GLOBAL, not scene-scoped.
+#
+# The cast is the player, the far-approach meteor sprite, and the CAPTURED BG —
+# and it SPANS THE SWAP, which is why this feature is global rather than
+# scene-scoped. `mosaic` is global in mode7_explore for the identical reason
+# (its wipe is in flight in both scenes within one dissolve); here the captured
+# ground is written in the Mode-1 scene and composited over the Mode-7 meteor
+# in the next one, so its CHR, its palette, its OBSEL and its OAM slots have to
+# be the SAME resources on both sides of the transition. A scene-scoped OBJ
+# feature would be re-placed per scene (scene free lists fork the globals'),
+# and the captured sprites would point at a different VRAM base after the swap.
+#
+# THE CAPTURE IS WRITTEN ONCE, NOT REBUILT PER FRAME. A draw that wipes shadow
+# OAM at the top of every frame has to re-emit the whole captured set every
+# frame. The OAM shadow here is STATE: nothing clears it, so ST_CAPTURE
+# writes the blocks once, they survive the fade-out/enter/fade-in of the scene
+# switch untouched, and the return's `enter` re-parks them. Same pixels, none
+# of the per-frame cost.
+#
+# OBSEL IS CLAIMED HERE (breaker_obj / m7dg_obj / mo_obj / bs_obj precedent):
+# oam_sprites is the OAM transport, not the sprite size/base authority. Size
+# pair 3 (16x16 / 32x32) is the pair this cast needs: the capture blocks, the
+# player and the FIERY meteor specks are 16x16 while the ROCKY crossover
+# frames are 32x32.
+name = "met_obj"
+role = "consumer"
+depends = ["oam_sprites", "met_rom"]
+
+# The enter-time CHR + palette upload path. Channel is declared; DAS re-armed
+# at the one arming site in met_obj.asm (single-shot, per transfer).
+[[claims.dma_init]]
+name = "met_obj_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# Per-frame draw scratch — a call frame, not state. Every byte is written
+# before it is read inside one `met_put`, so no `[init] zero` (rule 5).
+#  +0 the OAM x being placed (9-bit space) +4 the hi-table SIZE bit
+#  +2 the OAM y +6 tile|attr scratch
+[[claims.dp]]
+name = "met_draw"
+bytes = 8
+
+# 96 tiles x 16 words. PINNED at $4000, which is both the OBSEL granularity
+# (bits 0-2 are the base in 8K-word steps) and the first word past the Mode 7
+# region met_floor pins in the other scene. A GLOBAL vram claim is placed
+# before any scene's free list forks, so an unpinned one would be handed word 0
+# and then collide with that scene's `mode7` pin — the pin is what states the
+# coexistence instead of discovering it.
+[[claims.vram]]
+name = "obj_chr"
+kind = "chr"
+obj = true
+words = 1536
+at = 0x4000
+
+# One OBJ palette for the whole cast. OBJ palette 0 = CGRAM 128..143, a
+# hardware contract.
+[[claims.cgram]]
+name = "obj_pal"
+words = 16
+at = 128
+
+# =============================================================================
+# THE SLOT MAP — PINNED, AND THE CAPTURE'S BOUND IS THE POINT
+# =============================================================================
+# docs/09 §3.1 files this rail's capture as the hard part precisely because
+# its "OAM cost is bounded by nothing declared". The natural shape makes that
+# literally true: walk four candidate rows x seventeen block columns, emit at
+# every platform cell found, and state the bound in a COMMENT — "4 rows x 16
+# block-cols = 64 max + 1 player -> within the 128-OBJ budget" — which is
+# unenforced, and off by one column of blocks besides.
+#
+# Here the bound is a claim, and the emit loop stops at it. The count is
+# derived from the level's own geometry (met_bg's paint) and from the scan's
+# shape, and it is MEASURED on the emulator rather than argued:
+#
+#  the scan walks four candidate rows x seventeen block columns (sc = 0, 2,
+#  .. 32), emitting where the tilemap cell is the platform tile and the
+#  block's screen x lands in [-15, 255]
+#
+#  ground band, BG rows 24..27, ALL 32 columns are the platform tile
+#  -> two 16x16 block rows (candidate rows 24 and 26)
+#  -> 16 block columns when the camera is 8-aligned (sc = 32 lands at
+#  x 256 and is skipped), 17 otherwise = at most 34
+#  platform A, rows 18..19, four contiguous cells (6..9)
+#  -> four consecutive block columns contain exactly two EVEN ones, plus
+#  at most one alias: the scan's 17th column wraps onto the same
+#  tilemap column as its first = at most 3
+#  platform B, rows 14..15, four contiguous cells (20..23) = at most 3
+#  worst = 40
+#
+# MEASURED on the shipped path: 36 blocks (plus the player, so 37 live
+# sprites). The trigger fires at world x 240 with the player pinned at screen x
+# 96, so the frozen camera is 144 = 18*8 — 8-aligned, hence 16 ground blocks
+# per row and exactly two block columns per platform. Forty is the structural
+# worst case over every camera alignment the scan supports, and `sprites = 40`
+# is what makes an overrun impossible rather than unlikely: the emit cursor is
+# compared against ES_O_CAPTURE_SPRITES before every write and stops.
+#
+# tests/test_meteor_event.py asserts BOTH halves — exactly 36 live blocks at
+# the capture's peak (so the bound is tight and the guard is not silently
+# truncating), and every OAM slot outside this claim parked (so nothing leaked
+# into a table this rail does not own).
+[[claims.oam]]
+name = "player"
+sprites = 1
+at = 0
+
+[[claims.oam]]
+name = "meteor"
+sprites = 1
+at = 1
+
+[[claims.oam]]
+name = "capture"
+sprites = 40
+at = 2
+
+# The two pad slots that complete hi byte 10 (slots 42..43), parked for the
+# ROM's life so every hi-table byte this feature touches has ONE owner and can
+# be rebuilt whole — mo_obj's ruling, bs_obj's after it. Forty-four slots is
+# exactly eleven bytes.
+[[claims.oam]]
+name = "hi_pad"
+sprites = 2
+at = 42
+
+[[claims.reg]]
+name = "met_obsel"
+registers = ["OBSEL"]

@@ -1,0 +1,35 @@
+# rpg_logic — the rpg rail's GAME code (not engine). Grid movement on the Mode
+# 7 overworld, the town walk, NPC adjacency, the save payload staging and the
+# scene-swap request. Lives under engine/features/ only because that is where
+# the allocator looks (schemas.py's `game_logic` role exists for exactly this).
+name = "rpg_logic"
+role = "game_logic"
+
+# Cross-scene game state, GLOBAL lifetime because the overworld camera must
+# survive the town visit. Tearing the Mode 7 camera down on the way in means
+# something has to hold the position across the transition; a GLOBAL claim
+# says that once, instead of a save/restore pair at every door.
+#  +0 cam_tx +2 cam_ty overworld camera tile (the player's world position)
+#  +4 town_tx +6 town_ty town avatar tile
+#  +8 step_dx +10 step_dy in-flight grid slide delta (px)
+#  +12 step_n frames remaining in the overworld slide
+#  +13 pend pending scene swap id + 1 (0 = none)
+#  +14 t0 (2 B) shared TRANSIENT scratch, consumed inside one call
+#  +16 town_rep town hold-to-walk auto-repeat throttle, frames
+#  Town-only: the overworld's slide gate is step_n,
+#  this is its tile-jump-throttle sibling one scene over.
+#  +17 town_flare save-torch flare countdown, frames;
+#  NMI-driven. 0 = idle.
+[[claims.dp]]
+name = "rpg_hot"
+bytes = 18
+
+[init]
+zero = ["rpg_hot"]
+
+# The save payload, staged in WRAM before sv_save reads it (the save feature's
+# calling convention).
+#  +0 scene(1) +1 ver(1) +2 tx(2) +4 ty(2) +6 visits(2)
+[[claims.wram]]
+name = "rpg_save"
+bytes = 8

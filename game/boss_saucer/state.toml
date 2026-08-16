@@ -1,0 +1,79 @@
+# boss_saucer user state. The matrix shadow is m7_affine's
+# dp claim; the track pointer is m7_track's; the shot pool's arrays are
+# sau_obj's sau_actors wram claim (POOL_BIND needs a constant base — that
+# feature.toml carries the reasoning). What lives here is what the GAME owns:
+# the state machine, the lunge/beam sub-machines, the combat counters, and the
+# draw/update cursors.
+#
+# NO [init] zero. battle_init writes every persistent variable below before the
+# first NMI is armed and re-writes them on every loop RESET; the per-frame
+# scratch is written before read inside one tick (rule 5 — a zero fill would
+# hide the day that stops being true).
+[scene.arena]
+
+# --- the state machine -----------------------------------------------------
+b_state = "u16@dp"       # ST_* index (saucer.inc). Eight states — this rail
+                         #   needs no ninth, because the fight's angle is 0 by
+                         #   construction so the death track's baked start is
+                         #   reached exactly and the boss rail's DYING capture
+                         #   beat would have nothing to correct
+b_timer = "u16@dp"       # per-state frame countdown (REVEAL/HOLD/DEATH/LOSE/
+                         #   RESULT/RESET). ALSO the ramp cursor's complement:
+                         #   the track index is FRAMES + 1 - timer, so the
+                         #   cursor needs no variable of its own and cannot
+                         #   disagree with the state's own clock
+b_heading = "u16@dp"     # rotation heading, low byte 0..255. Stepped +1 in
+                         #   REVEAL (where the baked angle IS the frame index)
+                         #   and +1 in HOLD on the ring; SNAPPED to 0 on the
+                         #   fight's first frame and held there for the whole
+                         #   fight; the death track bakes its own +3/frame
+b_hp = "u16@dp"          # saucer HP, 0..SAU_BOSS_HP0 (240)
+b_phase = "u16@dp"       # 0..2 from HP thirds; shortens the FAR dwell
+b_vuln = "u16@dp"        # 1 = player shots damage the saucer (FIGHT only)
+b_result = "u16@dp"      # 0 none / 1 win / 2 lose — picks the result card
+
+# --- the LUNGE sub-machine (the rail's headline) ---------------------------
+lunge_state = "u16@dp"   # SAU_LG_* : FAR / APPROACH / NEAR / RETREAT
+lunge_timer = "u16@dp"   # the FAR dwell, then the ramp cursor's complement for
+                         #   APPROACH and RETREAT (idx = FRAMES + 1 - timer),
+                         #   the same no-cursor-variable idiom b_timer uses
+
+# --- the BEAM sub-machine --------------------------------------------------
+beam_state = "u16@dp"    # SAU_BM_* : OFF / TELEGRAPH / FIRE
+beam_timer = "u16@dp"    # telegraph then active countdown. Folding this into
+                         #   lunge_timer would need an argument that the two
+                         #   phases never overlap; a second word is cheaper
+                         #   than that argument's maintenance cost, and removes
+                         #   a whole class of "the dwell reset the beam" defect
+beam_x = "u16@dp"        # the column, LOCKED to the player's body centre at
+                         #   the approach's last frame — the dodge window is
+                         #   the telegraph that follows
+
+# --- the player ------------------------------------------------------------
+p_x = "u16@dp"           # screen x, clamped 8..232; y is the constant PLAYER_Y
+p_hp = "u16@dp"          # 0..3
+p_iframe = "u16@dp"      # invulnerability frames after a beam hit (30); also
+                         #   the hit-flash blink phase (FRAME parity picks the
+                         #   flash tile)
+
+# --- combat pacing ---------------------------------------------------------
+fire_timer = "u16@dp"    # player shot cadence countdown (8 between shots)
+paused = "u16@dp"        # 1 = START froze the fight. The state machine and the
+                         #   fade advance are skipped; the draw, the matrix
+                         #   commit and the audio pump keep running, so the
+                         #   held frame shows and the music plays
+
+# --- per-frame cursors and scratch (write-before-read inside one tick) -----
+ui = "u16@dp"            # update-loop pool cursor (byte offset)
+di = "u16@dp"            # draw-loop cursor (pool slots, HUD pips, beam segs)
+hud_x = "u16@dp"         # HUD segment / beam segment x cursor
+hud_thr = "u16@dp"       # HUD segment threshold accumulator
+scr = "u16@dp"           # one-word scratch (the track index, the tile pick)
+pen_x = "u16@dp"         # glyph pen x (advanced SAU_GTEXT_ADV per cell)
+pen_y = "u16@dp"         # glyph pen y (held across a row)
+card_i = "u16@dp"        # the next free cell in the 24-slot card band
+frame = "u16@dp"         # free-running frame counter; read ONLY for its parity
+                         #   classes (the iframe blink, the thruster flicker).
+                         #   Persistent, so the scene's `enter` seeds it ONCE
+                         #   (rule 5) — deliberately not battle_init, which
+                         #   re-runs on every loop RESET

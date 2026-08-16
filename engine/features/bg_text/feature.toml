@@ -1,0 +1,40 @@
+# bg_text — BG3 2bpp fixed-width text: a 32x32 tilemap over the shared BG3
+# CHR page (scene-scoped spatial claims; the shared code's DP block is
+# text_dp, and the CHR page it draws glyphs into is text_chr).
+# Writes happen under forced blank (scene entry) — no steady-state VBlank
+# claim; a scene wanting live HUD updates declares its own dma queue claim.
+name = "bg_text"
+role = "feature"
+depends = ["text_dp", "font_rom", "text_chr"]
+
+# The 96 glyphs live in text_chr's page as tiles 0..95, NOT in a claim here:
+# BG3 has one base nibble, so vwf's composited strips must share the page, and
+# a claim shared by two renderers belongs to neither of them. See
+# text_chr/feature.toml for the argument and the sub-range map.
+
+[[claims.vram]]
+name = "text_map"
+kind = "tilemap"
+words = 0x400            # 32x32
+
+[[claims.cgram]]
+name = "text_pal"
+words = 4
+at = 28                  # hardware contract: BG3 2bpp palettes live in CGRAM
+                         # words 0..31; palette 7 = words 28..31 (attr ppp=7)
+
+# C4 (docs/09 §2.1): BG3's layer configuration. Written by each scene's enter
+# code (BG3SC + BG34NBA in all five scenes; BG3HOFS/BG3VOFS in
+# game/room/scenes/room.asm:62-65), and attributed here because BG3 is this
+# feature's layer -- it is the only thing that draws on it.
+#
+# Deliberately NOT BGMODE/TM, even though scene enter code writes those beside
+# these: bg_text ships in the race scene too, where split_band OWNS BGMODE and
+# TM through active-display HDMA. A bg_text claim on them would refuse the race
+# scene, and marking it `seed` would then lie in the four BG3-only scenes where
+# nothing overrides it. Those two registers belong to whichever feature defines
+# the scene's display shape -- backdrop, room_bg or split_band.
+[[claims.reg]]
+name = "text_bg3"
+registers = ["BG3SC", "BG34NBA", "BG3HOFS", "BG3VOFS"]
+scene_writes = ["BG3SC", "BG34NBA", "BG3HOFS", "BG3VOFS"]

@@ -1,0 +1,44 @@
+# split_v_seamtrial — the seamless split IN ISOLATION.
+#
+# The seamless split with nothing else in the frame: one stage, two cameras at
+# `mid ± spread`, an always-on centre window, and a bevelled BG3 bar whose band
+# half-width ramps from zero. `spread` sweeps 0 -> SPREAD_MAX -> 0 as a
+# triangle wave with no input at all.
+#
+# ZERO NEW ENGINE FEATURES. The mechanism is already shipped as `split_v_bg`;
+# this rail composes it and supplies a different DIRECTOR. That substitution is
+# the whole of it: `split_v_fight`'s director derives (mid, spread) from a
+# fighter distance through an ease and a dwell, this one derives them from a
+# frame counter. Everything below the (mid, spread) pair -- the two cameras, the
+# window recipe, the band, the bevel -- is byte-identical machinery.
+#
+# WHY THAT ISOLATION IS THE POINT rather than a smaller version of the same
+# thing: it makes the seam a PICTURE claim on an ABSOLUTE FRAME. There is no
+# input, no AI, no ease chasing a moving target, so `advance(N)` fixes `spread`
+# exactly and every screenshot assertion in tests/test_split_v_seamtrial.py is
+# a statement about a determined state. `split_v_fight` needs five `-D` variants
+# to get race-free proofs of the same mechanism; this rail needs none, and ships
+# none.
+#
+# WHAT IS *NOT* COMPOSED, and why each is a statement rather than an omission:
+#   input / input2 -- this rail is autonomous and reads no pad. Composing input
+#                     to have it would be surface the rail's subject does not
+#                     have.
+#   oam_sprites    -- the divider is ZERO-SPRITE by design. This rail's TM
+#                     leaves OBJ off the main screen, so power-on-random OAM
+#                     cannot reach the picture.
+#   audio          -- silent: nothing here is timed to sound.
+#   split_v_obj    -- the fighters are the thing this trial exists WITHOUT.
+#   backdrop       -- split_v_bg claims CGRAM word 0 itself.
+#   window_iris    -- claims W12SEL/WOBJSEL/TMW: the registers the split IS.
+#   bg_text        -- claims BG3SC/BG34NBA, and BG3 here is the divider.
+#
+# split_v_rom arrives whether or not it is asked for: split_v_bg declares
+# `depends = ["split_v_rom"]`, and that blob carries the FIGHTERS' three claims
+# next to the five the stage and bevel need. Those three are backed by zero
+# blobs here, which is the honest way to say a rail does not use them.
+globals = ["scene_mgr", "fade", "enter_scr", "split_v_rom"]
+
+[[scene]]
+id = "trial"
+features = ["split_v_bg"]

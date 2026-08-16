@@ -1,0 +1,341 @@
+# m7f_cam — the altitude-driven per-scanline Mode 7 camera. Scene-scoped. THIS
+# FEATURE IS THE RAIL: it is the one net-new mechanism in the sweep's last
+# template, and the reason `mode7_flight` needed a settlement of its own.
+#
+# =============================================================================
+# THE PROBLEM, AND THE RULING
+# =============================================================================
+# Every scale rail settled before this one had a scale axis that was SCRIPTED —
+# a closed finite list of tens of values, answered with a baked
+# matrix TRACK. This rail puts scale under the PLAYER's thumb: L descends, R
+# climbs, and the measured domain is 256 headings x 81 altitudes = 20,736
+# distinct poses, both axes free and both continuous-feeling
+#
+#
+# A 2-D (heading x scale) product table is the obvious answer "if a rail puts
+# scale under player control" — this rail — but the faithful product does not
+# fit any cartridge: 256 x 81 x 640 B = 12.7 MB against this repo's largest
+# linker config at 512 KB. So the choice was not LUT vs
+# solve. The usual dichotomy — "LUT when the domain is small and bounded; solve
+# only when it is unbounded" — has no third case, and this rail is the third
+# case: BOUNDED, and NOT PURCHASABLE.
+#
+# THE ANSWER IS THE SEPARABLE HYBRID: bake the two factors the pose already
+# decomposes into, and join them per frame:
+#
+#  pose(h, a)[k] = S_a(k) * R(h)
+#  A = S*cos B = S*sin C = -S*sin = -B D = S*cos = A
+#
+# which is how tools/ already writes it. Heading enters ONLY through (cos,
+# sin); altitude enters ONLY through the per-scanline scale profile. M7f_rom
+# bakes both — 25,920 B of profiles and 2,048 B of trig, EXACT on both axes, no
+# quantisation of either — and this feature joins them.
+#
+# =============================================================================
+# WHAT THE JOIN COSTS, MEASURED
+# =============================================================================
+# This started as a CYCLE PROBE, because "strictly less than ~10k" is not a
+# number and CLAUDE.md rule 1 says measure. The shape is 160
+# scanlines x TWO hardware multiplies (not four — C and D are a negate and a
+# copy of B and A), with the signs hoisted OUT of the inner loop into four loop
+# variants chosen once per frame.
+#
+# =============================================================================
+# WHY NOT `mode7_persp` — SIBLING, and the tree has ruled this five times
+# =============================================================================
+# `shp_cam/feature.toml:76-79` names it a sibling for four reasons that already
+# cover this rail, and a fifth applies here. Restated against THIS rail:
+#
+#  1. `mode7_persp` is HARD-BOUND to `pose_rom`'s emitted symbols
+#  (mode7_persp.asm:96,:113,:124 name ES_R_POSES_AB_T0_ADDR /
+#  _BANK / ES_R_POSES_CD_T0_BANK). A rail cannot point that player at its
+#  own blob, and growing `pose_rom` would grow it for the FIVE games that
+#  compose it (microzero, racer, railshooter, rpg, split_h_demo).
+#  2. 180 lines at a 1024 B stride vs 160 lines at 4 B/line composed live.
+#  3. A CPU NMI-hook origin shadow AND a head-skip index shape keyed on
+#  HUD_LINES — this rail's band opens at scanline 64 with a sky above it.
+#  4. `pose_rom`'s poses are ROM-resident and streamed INDIRECT; these are
+#  composed into WRAM and streamed DIRECT, which is a different DMAP and a
+#  different table shape, and a feature cannot conditionally claim.
+#  5. And the one that is this rail's alone: those poses have NO ALTITUDE
+#  AXIS. That is the whole subject here.
+#
+# WHY NOT `m7_track`, which is the tree's other scale answer. Read whole
+# (m7_track/feature.toml:16-25) it refuses three times over: one matrix per
+# entry where a flight pose is 160 (one per scanline); its player writes
+# `m7_affine`'s DP shadow where this streams HDMA with no CPU in the path; and
+# its C = -B / D = A halving exists BECAUSE a CPU derives at apply time, which
+# streamed bytes cannot. Its CONTRACT SHAPE transfers and is taken (D5):
+# consumer binds the blob, consumer owns the cursor, player holds no state.
+#
+# WHY NOT `m7_affine`. RUN, not reasoned, on the sibling rail: composing it
+# beside per-scanline matrix claims is refused on reg x reg before the matrix
+# conflict is reached, because its single `m7_matrix` claim covers the ORIGIN
+# registers too (sh2_cam/feature.toml:39-51, shp_cam:83-86).
+name = "m7f_cam"
+role = "feature"
+
+# m7f_rom for both factor blobs — the join names their emitted ADDR/BANK/SIZE
+# symbols and .asserts its own line/altitude/heading model against the claim
+# sizes, so a generator change that moved a stride would stop the build rather
+# than stream a neighbouring altitude's bytes.
+depends = ["m7f_rom"]
+
+# --- the two matrix channels ------------------------------------------------
+# DIRECT, not indirect, and that follows from where the data lives: the join
+# composes into WRAM every frame, and for a direct channel the TABLE IS THE
+# DATA, so one WRAM object serves both roles and there is no DASB to re-stamp.
+# (`sh2_cam` and `mode7_persp` are INDIRECT because their poses are ROM-
+# resident and only a POINTER changes per frame. Opposite data, opposite mode.)
+#
+# Mode 3 is write-two-registers-twice: 4 bytes per unit, exactly [lo, hi] for
+# each of two write-twice 13-bit registers. DMAP_MODE_SPAN[3] = 2 and
+# HdmaClaim.bbad derives $1B from M7A and $1D from M7C, so the encoding is
+# derived from this declaration and hand-narrated nowhere.
+#
+# `band = "scene"` is the honest statement: the table's FIRST entry is a
+# non-repeat count-64 skip that fires one unit at line 0 and then holds through
+# the sky, so the channel is live from line 0 even though the floor starts at
+# 64. Declaring the band as [64, 224] would claim the channel is silent over
+# lines it is in fact driving.
+[[claims.hdma]]
+name = "m7fab"
+registers = ["M7A", "M7B"]
+mode = 3
+band = "scene"
+phase = "active"
+channels = 1
+
+[[claims.hdma]]
+name = "m7fcd"
+registers = ["M7C", "M7D"]
+mode = 3
+band = "scene"
+phase = "active"
+channels = 1
+
+# --- the composed band tables, DOUBLE BUFFERED ------------------------------
+# 2 buffers x 2 channels x 648 B. Per channel per buffer:
+#
+#  +0 64 non-repeat: one unit at line 0, then hold 63 lines (sky)
+#  +1 4 B that unit — never seen, but WRITTEN (rule 5: the DMA
+#  controller really fetches it, so it may not be power-on
+#  garbage)
+#  +5 $80|80 repeat: a NEW unit every scanline, lines 64..143
+#  +6 320 B 80 x [lo, hi][lo, hi]
+#  +326 $80|80 lines 144..223
+#  +327 320 B
+#  +647 $00 terminator
+#
+# THE SPLIT INTO TWO 80-LINE RUNS IS FORCED, not chosen: an HDMA repeat count
+# is SEVEN BITS, so 160 lines cannot be one entry. 80+80 is the symmetric way
+# to spend the two entries a 160-line band needs, and it makes the join's two
+# segment passes identical in length.
+#
+# THE DOUBLE BUFFER IS THE COST THE SEPARABLE JOIN ACCEPTS. A table baked
+# whole has no tear discipline to keep, because the camera it describes is
+# finished before the frame starts; a table composed live has, and this claim
+# is that cost priced. The tick composes the BACK buffer during active
+# display; the NMI hook re-points both channels' A1T at it, so a channel never
+# reads a half-written table.
+[[claims.wram]]
+name = "m7f_tbl"
+bytes = 2592
+
+# --- the pose state the join reads ------------------------------------------
+# +0 posx 16.16 +4 posy 16.16 (the camera position, sub-pixel)
+# +8 heading 0..255, the trig blob's index
+# +10 alt_idx 0..80, the profile blob's index — NOT the altitude
+# +12 speed SIGNED 8.8 (B forward, Y reverse, release hovers)
+#
+# THE ALTITUDE IS STORED AS ITS INDEX, not as an altitude. The obvious form
+# keeps altitude as 0..240 in steps of 3, but then indexing the profile blob
+# costs a divide by 3 EVERY FRAME; storing the index makes the addressing a
+# shift-and-add. The 81 reachable altitudes and the clamps are identical
+# either way — alt = idx * 3 — so only the representation differs.
+[[claims.dp]]
+name = "m7f_pose"
+bytes = 14
+
+# --- the join's own scratch -------------------------------------------------
+# +0 cmag (p<<8)|cmag is one 16-bit store to $4202/$4203
+# +2 csxor cmag XOR smag — the whole reason the inner loop needs no second
+#  profile read and no DP round trip: EORing the staged cos operand
+#  with this yields the sin operand, because both magnitudes live in
+#  the low byte and p<<8 is untouched
+# +4 ptmp the staged sin operand, parked across the cos product's latency
+# +6 xend the segment's profile-index limit (a DP compare, so one loop body
+#  serves both 80-line segments)
+# +8 back 0 or 1: which buffer the tick composes into
+# +10 xcur } the segment's entry X and Y. They ride in DP rather than in the
+# +12 ycur } registers because the dispatch is `jsr (m7f_seg_tab, x)` and
+#  that needs X for the table index while the loop needs it for the
+#  profile.
+# +14 xbase } the frame's profile base and back-buffer offset. BOTH segments
+# +16 ybase } derive their entry state from these rather than from how the
+#  other segment exited — the shape an earlier version got wrong,
+#  recorded at M7F_JOIN_SEG.
+#
+# NO `[init] zero`: m7f_arm writes every one of these before the first read,
+# which is checkable by reading the routine (rule 5 — a zero-fill would hide
+# the day that stops being true).
+[[claims.dp]]
+name = "m7f_join"
+bytes = 38
+
+# --- the join's own measured cost, latched every frame ----------------------
+# +0 H,V at the join's start +4 H,V at its end — the PPU's own dot/line
+# counters, latched through SLHV. The host converts at 1 line = 1364 master
+# clocks and 1 dot = 4, which is ~4 mc of resolution with ZERO in-ROM
+# arithmetic.
+#
+# IT IS DECLARED IN THE SHIPPING RAIL, not behind an `.ifdef`. MesenRunner
+# exposes no cycle counter — tests/test_measure_rebuild.py's docstring says so
+# outright — so a cycle figure on this machine comes from an in-ROM latch ring,
+# and a figure measured on a SPECIAL build is a figure about a binary nobody
+# ships. Eight bytes make the rail's per-frame cost an output region of the
+# artifact whose md5 is pinned.
+[[claims.wram]]
+name = "m7f_cost"
+bytes = 8
+
+# --- the movement products' scratch -----------------------------------------
+# +0 absspd +2 spdneg +4 spdlo8 +6 spdhi8 +8 magtmp +10 p32 (4 B)
+# +14 stepneg
+#
+# `m7f_move` LIVES IN THIS FEATURE rather than in `m7f_logic`, and the reason
+# is the ALU claim below: the multiplier is WHOLE, one owner per scene, so a
+# second feature declaring it in this scene is a contention the allocator
+# refuses. The four products a frame's movement needs therefore live with the
+# owner — which is what keeps the "this feature's own ASM is the only writer"
+# statement true rather than convenient. The scratch travels with them.
+#
+# Every byte is dead between calls: it is a call frame, not state, so there is
+# no `[init] zero` (m7_persp_project's `mpp` claim takes the same position for
+# the same reason).
+[[claims.dp]]
+name = "m7f_mul"
+bytes = 16
+
+# --- the Mode 7 origin shadow -----------------------------------------------
+# +0 M7X +2 M7Y +4 HOFS +6 VOFS, committed together in the NMI hook so the
+# origin cannot tear against the matrix the same VBlank re-points.
+[[claims.dp]]
+name = "m7f_org"
+bytes = 8
+
+# --- THE HARDWARE MULTIPLIER, DECLARED --------------------------------------
+# `$4202-$4206` + `$4214-$4217` is ONE resource under ONE name in this repo's
+# vocabulary (schemas.py: the two entry points share a single AluMulDiv _state
+# and destroy each other's result), and it is WHOLE — one owner per scene.
+# `m7_project`'s header records refusing that contention for twelve products a
+# frame; here the trade runs the other way. This join does 320 products per
+# frame and the alternative is a software shift-add loop, so the ALU is worth
+# owning — and owning it is a DECLARATION the allocator checks, not an
+# assumption about who else might be using it.
+#
+# NOT `seed`, and no `scene_writes`: this feature's own ASM is the only writer,
+# which is what makes the claim true as written and what the
+# declaration-that-lies check would refuse otherwise.
+[[claims.reg]]
+name = "m7f_alu"
+registers = ["ALU"]
+
+# --- C4 (docs/09 §2.1): the Mode 7 camera origin ----------------------------
+# `mode7_persp`'s own toml records that $210D/$210E are M7HOFS/M7VOFS AND
+# physically BG1HOFS/BG1VOFS — one port, one name — which is why the footprint
+# is declared under the BG names. This feature's own NMI hook is the only
+# writer (no `seed`, no `scene_writes`): in Mode 7 they are the screen-space
+# origin, the band's value is pure subtraction, and nothing else in the rail
+# wants BG1 scroll.
+[[claims.reg]]
+name = "m7f_origin"
+registers = ["M7X", "M7Y", "BG1HOFS", "BG1VOFS"]
+
+# =============================================================================
+# HEADROOM — what is left, what it would cost, and what is NOT there
+# =============================================================================
+# The `window_iris` form: a decomposition of the measured cost, the structural
+# floor under it, and every idea that was PRICED and not taken with its price.
+# Written so the next agent to look for cycles here can see what has already
+# been looked at, and stop.
+#
+# --- THE THREE TIERS, MEASURED (deck level, the worst band) -----------------
+# From the shipping ROM's own `m7f_cost` latch ring, not an estimate:
+#
+#  full compose (altitude AND heading moved) 156,796 mc
+#  heading-only (the geometry claw-back engaged) 155,780 mc
+#  skipped (both buffers hold the pose) 732 mc
+#
+# The middle tier is this feature's whole subject and the third is the change
+# gate's. The gap between the first two is small — about 1,000 mc — because a
+# geometry derive is four words and a re-anchor is a handful of control bytes;
+# the gap to the third is 210x, because it is the whole join.
+#
+# ~3,800 mc OF THOSE FIGURES IS NOT CPU WORK. The showcase package's three
+# COLDATA channels are ACTIVE HDMA, and HDMA steals cycles on every scanline
+# the measured interval spans. Measured both ways with a flip build: 152,944 /
+# 151,204 / 732 with the channels' HDMAEN bits clear, against the figures
+# above. The delta is the SAME on both composing tiers and ZERO on the skip,
+# which is the signature of cycle steal rather than of added work — the skip's
+# interval spans almost no scanlines. So the package added no join cost, and
+# saying it added NOTHING would be false.
+#
+# --- THE BAND SHRINKS WITH ALTITUDE, and it is worth a quarter of the join --
+# The horizon is a function of altitude, so the composed band is 160
+# lines at the deck and 120 at the ceiling. Measured, same conditions:
+#
+#  heading-only at the DECK (160 lines) 155,006 mc
+#  heading-only at the CEILING (120 lines) 114,852 mc -25.9%
+#
+# The worst case is therefore pinned at deck level BY CONSTRUCTION and climbing
+# only ever makes the frame cheaper. That is why the deck is preserved as the
+# geometry exactly: every number promised before it was measured there, and
+# none of them went stale.
+#
+# --- THE STRUCTURAL FLOOR ---------------------------------------------------
+# What cannot be removed without changing what the rail computes: per composed
+# scanline the join must do TWO hardware multiplies, FOUR 16-bit stores into
+# the band table (M7A/M7B and M7C/M7D, two channels), one profile read, and the
+# index advances. The ALU ports live in `$4200-$43FF` at 12 master clocks per
+# access against FastROM's 6, and every WRAM store is 8 — which is most of the
+# gap between an instruction count of ~103 CPU cycles a line and the measured
+# ~160. The stores and this build accesses ARE the shape; there is no
+# arrangement of them that is cheaper while still writing 160 poses.
+#
+# --- DOCUMENTED-NOT-TAKEN, with prices --------------------------------------
+#
+# 1. THE TWO-PASS JOIN — compute all 160 A/B pairs in one pass and all 160 C/D
+#  in a second. It would halve the loop's index bookkeeping by amortising one
+#  cursor over twice the work. PRICE: the second pass re-reads all 160
+#  profile entries (they are consumed by both products), so it trades index
+#  arithmetic for ROM reads at the same order of cost, and it doubles the
+#  window in which the back buffer is half-written. Not taken: the measured
+#  saving would be inside the latch's own ~4 mc resolution, against a real
+#  increase in tear surface.
+#
+# 2. THE SHARED-MULTIPLICAND TWEAK — write `$4202` once per line and only
+#  `$4203` per product — the standard trick for a shared multiplicand, worth
+#  an estimated ~1,920 mc/frame on paper. ANALYSED AND NOT
+#  IMPLEMENTED: it is a NO-OP at two products, because the join already
+#  stages both operands as ONE 16-bit store to `$4202/$4203` — the multiplier
+#  and the multiplicand go in together. The general form, which is the part
+#  worth keeping: *the tweak pays in proportion to how many products share
+#  the multiplicand, minus one.* At four products it saves three writes a
+#  line; at two it saves one HALF of one 16-bit store, which is nothing. A
+#  rail that ever computes four independent products per line should revisit
+#  it; this one should not.
+#
+# 3. SKIPPING THE FAR ROWS — the top of the band changes least between
+#  neighbouring poses. PRICE: a per-line "has this changed" test costs more
+#  than the two multiplies it would guard, because the test has to read the
+#  previous value out of the OTHER buffer. Not taken, and this is the general
+#  shape of every per-line gate on this loop: the loop body is already about
+#  as cheap as a comparison against WRAM.
+#
+# --- WHERE THE REAL WIN CAME FROM, for the next reader ----------------------
+# The instruction-scheduling pass — 4x unroll plus software pipelining, with a
+# generator that refuses an under-filled multiplier latency window — measured
+# 2.5% (153,408 -> 149,608 mc). The CHANGE GATE, three DP words and a
+# countdown, measured two orders of magnitude. Ask "can this frame be skipped"
+# before "can this loop be tightened".

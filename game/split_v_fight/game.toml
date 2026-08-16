@@ -1,0 +1,23 @@
+# split_v_fight — the seamless distance-driven fighting split.
+#
+# ONE SCENE, deliberately. A rail whose subject is bricks or waves or a level
+# arc needs title/play/over framing; this rail's subject is the SPLIT ITSELF,
+# which one screen shows completely. Adding a title would also cost the one
+# thing the fight scene cannot have: bg_text owns BG3SC/BG34NBA, and BG3 here
+# IS the divider.
+#
+# NOT COMPOSED, and each for a reason the allocator would enforce anyway:
+#   backdrop     -- a scene with a BG feature cannot also compose it
+#                   (both declare BGMODE + TM). split_v_bg claims CGRAM word 0.
+#   window_iris  -- claims W12SEL/WOBJSEL/TMW, the registers the split IS.
+#   bg_text      -- claims BG3SC/BG34NBA; BG3 is the bevel divider.
+#   split_band   -- a different splitter (single-shape, scanline bands) and the
+#                   sole active-phase owner of BGMODE. Composing it would be a
+#                   second BGMODE writer, refused.
+globals = ["scene_mgr", "input", "input2", "oam_sprites", "enter_scr",
+           "fade",
+           "split_v_rom", "audio", "tad_rom"]
+
+[[scene]]
+id = "fight"
+features = ["split_v_bg", "split_v_obj"]

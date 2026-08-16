@@ -1,0 +1,13 @@
+name = "rgfx_ov_radius_leak"
+role = "fixture"
+
+[[claims.reg]]
+name = "rgfx_ovrl_mos"
+registers = ["MOSAIC"]
+
+# MOSAIC, not BGMODE: fixture claims are a SHARED NAMESPACE. The sibling
+# owner-survey globs every dir under this root, so a claim here appears in
+# every other fixture's refusal text — and rgfx_fires' test asserts BGMODE is
+# "declared by nobody". MOSAIC is already claimed by rgfx_rmw_silent, so this
+# adds no new port to the namespace. Pinned by
+# test_fixture_claims_do_not_collide_with_the_nobody_assertion.

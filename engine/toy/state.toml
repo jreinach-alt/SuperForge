@@ -1,0 +1,10 @@
+# allocator toy user game state — exercises both scopes + the @dp placement
+# class.
+[global]
+score = "u16"
+lives = "u8"
+
+[scene]
+player_x = "u16@dp"
+player_y = "u16@dp"
+scratch = "u8[16]"

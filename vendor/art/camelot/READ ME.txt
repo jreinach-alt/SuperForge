@@ -1,0 +1,75 @@
+
+
+                                                         - READ ME -  
+
+
+Thank you for using the camelot_...part of the legends_ series' of assets on itch.io!
+
+
+Stuff to know - Characters and Weapon animations
+
+- Each frame is 32x32 pixels
+- Each character animation has a right facing [columns 0-3] and left facing [columns 4-7] version
+- Each animation is 4 frames EXCEPT for the RUN, ROLL and SMOKE animations [8 frames, ROLL animation is LANCELOT, GAWAIN,
+  PERCIVAL and MORDRED ONLY, SMOKE animations are MERLIN ONLY]
+- Each weapon has a default sprite, followed by 3 empty frames, followed by its animations
+
+- Character animations [from top to bottom]
+  - merlin_
+    - idle [row 0], run [rows 1,2], jump [run] [row 3], smoke [disappear] [rows 4,5], smoke [appear] [rows 6,7],
+      turn [row 8], hit [row 9] and death [row 10]
+  - arthurPendragon_
+    - idle [row 0], run [rows 1,2], jump [idle] [row 3], jump [run] [row 4],
+      turn [row 5], hit [row 6] and death [row 7]
+  - guinevere_
+    - idle [row 0], run [rows 1,2], jump [run] [row 3],
+      turn [row 4], hit [row 5] and death [row 6]
+  - lancelot_
+    - idle [row 0], run [rows 1,2], jump [idle] [row 3], jump [run] [row 4], roll [rows 5,6],
+      turn [row 7], hit [row 8] and death [row 9]
+  - gawain_
+    - idle [row 0], run [rows 1,2], jump [idle] [row 3], jump [run] [row 4], roll [rows 5,6],
+      turn [row 7], hit [row 8] and death [row 9]
+  - percival_
+    - idle [row 0], run [rows 1,2], jump [idle] [row 3], jump [run] [row 4], roll [rows 5,6],
+      turn [row 7], hit [row 8] and death [row 9]
+  - ladyOfTheLake_
+    - idle [row 0], run [rows 1,2], jump [run] [row 3],
+      turn [row 4], hit [row 5] and death [row 6]
+  - mordred_
+    - spawn [row 0], idle [row 1], run [rows 2,3], jump [idle] [row 4], jump [run] [row 5], roll [rows 6,7],
+      turn [row 8], hit [row 9] and death [row 10]
+  - morganLeFay_
+    - idle [row 0], run [rows 1,2], jump [run] [row 3],
+      turn [row 4], hit [row 5] and death [row 6]
+  - fisherKing_
+    - idle [row 0], run [rows 1,2], jump [run] [row 3],
+      turn [row 4], hit [row 5] and death [row 6]
+
+- Weapon animations [from top to bottom]
+  - excalibur_
+    - idle [row 0, COLUMN 0 ONLY], swing [right] [row 1], swing [left] [row 2], stab [row 3]
+  - merlinsStaff_
+    - idle [row 0, COLUMN 0 ONLY], swing [right] [row 1], swing [left] [row 2]
+
+Stuff to know - Particle animations
+
+- Each frame is 8x8 pixels
+- Each animation is 6 frames
+
+
+
+Future updates - 
+
+- Upward-facing animations 
+- Spin animation
+- Updated death animation
+- More staff animations [magic!]
+
+If you have any questions or requests you can contact me at analogstudios.inc@gmail.com
+
+
+
+
+
+                                                             

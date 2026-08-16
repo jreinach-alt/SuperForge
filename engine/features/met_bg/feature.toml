@@ -1,0 +1,100 @@
+# met_bg — the Mode-1 platformer scene's BG layer. Scene-scoped ("level").
+#
+# The rail's opening and closing picture: a flat green ground band (BG1 tile
+# rows 24..27) and two raised platforms (rows 18 and 14), painted into a 32x32
+# BG1 tilemap that the camera scrolls under a fixed-screen-x player.
+#
+# ONE FEATURE OWNS ALL OF THE RAIL'S MODE-1 LAYERS. There is only one: TM is
+# BG1 + OBJ, and BG2/BG3 stay OFF because their CHR is uninitialised —
+# enabling a layer whose CHR is power-on garbage is exactly what rule 5
+# forbids.
+#
+# WHY IT IS SCENE-SCOPED AND WHY THE RAIL HAS TWO SCENES AT ALL. BGMODE, TM,
+# BG1SC and BG12NBA each have ONE owner per scene (check_reg_ownership's reg x
+# reg pass), and Mode 1 and Mode 7 are two owners of the same four — exactly
+# mode7_explore's answer for its town interior. Performing the swap in place
+# under a forced blank works, but nothing then proves the two owners are never
+# live at once; spelling the swap as a scene TRANSITION is what lets the
+# allocator prove it.
+#
+# WHY THE VRAM IS PINNED ABOVE THE MODE 7 REGION. Put the Mode-1 BG1 CHR at
+# word $2000 — the obvious place — and it lands inside the $0000-$3FFF the
+# Mode 7 image fills, so every swap back has to re-upload CHR and repaint the
+# tilemap purely to undo the clobber. Here BG1's CHR and tilemap are pinned at
+# $5000/$4800 and the Mode 7 blob never touches them, so the return needs no
+# restore code — the scene's own `enter` contract is the whole of it. Scene
+# VRAM free lists FORK the globals', so a scene-scoped claim would otherwise
+# be free to land inside the other scene's Mode 7 window and the allocator
+# would not object; the pins are what make the coexistence a declaration
+# instead of an accident.
+name = "met_bg"
+role = "feature"
+depends = ["met_rom"]
+
+# The enter-time upload path (CHR). Channel is declared; DAS is re-armed at the
+# one arming site in met_bg.asm — it is single-shot, consumed per transfer.
+[[claims.dma_init]]
+name = "met_bg_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# 4 tiles x 16 words (4bpp). Pinned at $5000: BG12NBA's BG1 nibble is base >>
+# 12, so a CHR base is only expressible on a $1000-word boundary.
+[[claims.vram]]
+name = "bg_chr"
+kind = "chr"
+words = 64
+at = 0x5000
+
+# 32x32 tilemap = 1,024 words. Pinned at $4800: BG1SC's base field is (addr >>
+# 8) & $7C, i.e. $400-word granularity.
+[[claims.vram]]
+name = "bg_map"
+kind = "tilemap"
+words = 1024
+at = 0x4800
+
+# THE TILEMAP SHADOW — 32x32 words in WRAM, and the reason the capture is a
+# READ of what the PPU is showing rather than an author-time guess.
+#
+# A capture has to read a WRAM mirror of BG1, because VRAM is not CPU-readable
+# during display. There is no engine-wide tilemap mirror here, so this feature
+# keeps its own: the paint writes the shadow, ONE DMA pushes the
+# shadow to VRAM under the enter blank, and the scene's capture reads the same
+# bytes the PPU is fetching. That equality is what makes the capture's
+# alignment claim testable rather than asserted — and it is the property the
+# -DNO_CAPTURE control was built to break.
+[[claims.wram]]
+name = "bg_shadow"
+bytes = 2048
+dma_source = true
+
+# BG palette 0 = CGRAM 0..15, and word 0 is ALSO the backdrop — one owner by
+# hardware contract, so this feature claims it rather than composing `backdrop`
+# beside itself.
+[[claims.cgram]]
+name = "bg_pal"
+words = 16
+at = 0
+
+# C4 (docs/09 §2.1): the scene's base display shape.
+#
+# BG1SC and BG12NBA are written by this feature's own bg_arm (the layer's
+# layout is this feature's mechanism, and the values are the allocator's
+# emitted encodings). BGMODE and TM are written by the scene: BGMODE 1 + TM at
+# enter, and TM again mid-scene when the capture BLACKS the BG so only the
+# captured OBJ ground remains.
+[[claims.reg]]
+name = "met_bg_display"
+registers = ["BGMODE", "TM", "BG1SC", "BG12NBA"]
+scene_writes = ["BGMODE", "TM"]
+
+# NOTE what is NOT claimed here: BG1HOFS. The camera is committed through
+# m7_affine's DP shadow (ES_M7AFF+12/+14) and its NMI commit, because that
+# global feature already owns the $210D/$210E ports for the whole composition —
+# they are M7HOFS/M7VOFS in Mode 7 and BG1HOFS/BG1VOFS in Mode 1, one port
+# under one name. Writing the shadow instead of this build costs nothing, keeps
+# the single owner, and gets the tear-free VBlank commit for free. The
+# Mode-7-only ports the same commit writes (M7A-D, M7X/M7Y) have no effect in
+# Mode 1.

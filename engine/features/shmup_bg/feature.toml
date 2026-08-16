@@ -1,0 +1,132 @@
+# shmup_bg — the drifting planet field on BG1 + the fixed HUD band on BG2.
+#
+# A BG feature following the keystone `breaker_bg`. It takes the
+# keystone's two properties -- a tilemap BUILT from declared geometry rather
+# than loaded from a blob, written under the enter-time forced blank -- and
+# adds the one thing `breaker` had no use for: THE LAYER MOVES.
+#
+# THE FIELD AUTOSCROLLS; IT DOES NOT STREAM. Calling this "a streaming planet
+# field" would be wrong: there is no stream unit here at all. The mechanism is
+# a wrapping 32x32 map plus a scroll register -- 32 cells x 8 px = exactly the
+# 256 px BG1VOFS wraps at, so the field loops with no seam and no per-frame
+# work. Real normal-BG streaming is `platformer_stream`'s problem, and it is a
+# different mechanism (see pfs_stream).
+#
+# BOTH LAYERS IN ONE FEATURE IS FORCED, not stylistic -- standing decision
+# BG12NBA is one write-only port carrying both layers' CHR base nibbles,
+# so a "planet field" feature owning BG1 and a "HUD band" feature owning BG2
+# would each have to claim it, and `check_reg_ownership`'s reg x reg loop has
+# no `seed` exemption: the allocator REFUSES that composition.
+#
+# ...AND HERE THE TWO LAYERS SHARE A CHR PAGE, which is why there is one
+# `shm_chr` claim and not two. BG12NBA's two nibbles may name the SAME base,
+# and the HUD band needs exactly one solid tile. Giving BG2 its own chr claim
+# would burn a second 4K-WORD-ALIGNED page (BGxxNBA's granularity) to hold 16
+# words. `breaker_bg` paid that because its BG2 bed carried its own palette
+# too; here one palette serves both layers, so the page is shared and BG2's
+# CHR base simply points at BG1's.
+name = "shmup_bg"
+role = "feature"
+depends = ["shmup_rom"]
+
+# The enter-time CHR upload, word-port (mode 1 drives VMDATAL+VMDATAH). Phase
+# forced_blank -- scene_mgr's enter clears HDMAEN and zeroes NMITIMEN, so this
+# cannot race an active or vblank claim even on a shared channel number.
+[[claims.dma_init]]
+name = "shm_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "shm_chr"
+kind = "chr"
+tiles = 66               # blank + 4 planets x 16 + the HUD bar; BG1 AND BG2
+tile_bytes = 32          # 4bpp
+
+[[claims.vram]]
+name = "shm_map"
+kind = "tilemap"
+words = 0x400            # 32x32 -- and 32 rows x 8 px = the 256 px BG1VOFS
+                         # wraps at, which is what makes the field seamless
+
+[[claims.vram]]
+name = "bar_map"
+kind = "tilemap"
+words = 0x400            # BG2: the HUD band, three rows of it, then nothing
+
+[[claims.cgram]]
+name = "shm_pal"
+words = 16
+at = 32                  # hardware contract: BG 4bpp palette 2 = words 32..47.
+                         # BG3's 2bpp palettes live in words 0..31 and bg_text
+                         # pins 28..31, so this feature starts above them --
+                         # the same split room_bg and breaker_bg made.
+
+# THE NIGHT SKY, and why it is here rather than the `backdrop` feature.
+#
+# Composing `backdrop` in a scene that also has a BG feature is REFUSED by the
+# allocator, and correctly: `backdrop` declares BGMODE + TM (it is the feature
+# whose scene membership matches the BG3-only scenes that write them), and so
+# does every per-rail BG feature, and a CPU-written register has one owner per
+# scene. Measured, not assumed --
+#
+#  ALLOCATION FAILED: REGISTER ownership contention in scene 'play':
+#  backdrop_mode (engine:backdrop) and shm_layers (engine:shmup_bg) both
+#  write ['BGMODE', 'TM']
+#
+# -- on the first run of `allocate.py` with both in the play scene. So the rule
+# the two waves establish together is: a scene with a BG feature does not
+# compose `backdrop`; the BG feature owns colour 0 as part of the same
+# statement it already makes about the scene's base display state. `breaker`'s
+# play scene never hit this only because it composes rgb_gradient instead.
+#
+# The colour matters here: the planet blocks are round, tile 0 is transparent,
+# and BG2 is transparent outside the HUD band -- so CGRAM word 0 is most of
+# what the player is looking at. It is a night sky, not a black void, and that
+# is a deliberate choice of colour rather than an unset register.
+[[claims.cgram]]
+name = "sky"
+words = 1
+at = 0                   # hardware contract: CGRAM word 0 IS the backdrop
+
+# THE SCROLL SHADOW, and why it is DP rather than a register write in the tick.
+#
+# BG1VOFS is a write-twice latch the PPU samples per scanline. Writing it from
+# the main thread while the display is ACTIVE tears the picture at whatever
+# scanline the write lands on. So the tick advances a shadow and the NMI hook
+# commits it during VBlank -- the shape mode7_persp already uses for M7X/M7Y/
+# HOFS/VOFS (mode7_persp.asm:133-153), and the only per-frame scroll precedent
+# in the tree.
+#
+# NO [init] zero, and no armed flag: main.asm's sm_nmi_hook calls the commit
+# only while the play scene is live. That gate is what makes this a plain
+# write-before-read claim (the enter_scr contract) rather than a byte with a
+# reader on frame one -- scene_mgr sets `cur = next` BEFORE calling the enter
+# routine and holds NMI masked across the whole switch (`@switch`, exit through
+# enter), so the first NMI that can see `cur == play` is the first one after
+# this feature's enter wrote the shadow. The alternative -- calling it every
+# frame and guarding on the feature's own state, which is what breaker's break
+# queue does -- would ALSO read a scene-scoped DP byte in a scene that does not
+# claim it, and one scene test in the hook is cheaper than reasoning about
+# that.
+[[claims.dp]]
+name = "shm_scroll"
+bytes = 2
+
+# C4 (docs/09 §2.1): the BG1+BG2 layer configuration AND the scene's base
+# display mode.
+#
+# ATTRIBUTION. BGMODE/TM are written by game/shmup/scenes/play.asm -- the
+# scene's enter code -- not by shmup_bg.asm; the rest are written by
+# shmup_bg.asm itself (BG1VOFS from the NMI hook, every armed frame). That is
+# why the field is a LIST and not a boolean, and why the lies-check compares
+# per REGISTER rather than per claim. Scene enter code has no feature.toml and
+# `[[scene]]` accepts no claims, so the ownership is attributed to the feature
+# the write SERVES, which is this one: shmup_bg is what makes `play` a
+# two-BG-layer Mode 1 scene.
+[[claims.reg]]
+name = "shm_layers"
+registers = ["BG1SC", "BG2SC", "BG12NBA", "BG1HOFS", "BG1VOFS",
+             "BG2HOFS", "BG2VOFS", "BGMODE", "TM"]
+scene_writes = ["BGMODE", "TM"]

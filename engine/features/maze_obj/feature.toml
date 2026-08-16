@@ -1,0 +1,48 @@
+# maze_obj — the red player, staged from the position the collision decided.
+#
+# One 8x8 OBJ written into the oam_sprites shadow every frame — never into
+# hardware OAM, which the engine's declared VBlank GP-DMA owns. scroller_obj's
+# shape with the one difference that IS this rail: the position is not a
+# constant, it is the game's US_PX/US_PY — the coordinate the per-axis
+# move-check commits — bound by the scene through MZO_PX/MZO_PY aliases (the
+# m7dg_obj MDO_ENEMY_POS pattern), so the sprite and the wall test cannot
+# disagree about where the player is.
+#
+# CPU-WRITTEN REGISTER, DECLARED: OBSEL $2101 — sprite size + OBJ CHR base for
+# EVERY sprite, the same global-to-all-sprites register breaker_obj /
+# scroller_obj / room_hero each declare, for the same reason: composing two
+# games' sprite features in one scene must refuse. The VALUE comes from
+# ES_V_MZ_OBJ_CHR_OBSEL_BASE.
+#
+# SIZE MODE 0, the one sprite SMALL, hi-table size bit left as oam_park_all
+# parked it; X9 is DERIVED from bit 8 of X every frame rather than assumed
+# clear (the stale-X9 lesson — a sprite 256 px away the first time the
+# coordinate grows).
+name = "maze_obj"
+role = "consumer"
+depends = ["oam_sprites", "maze_rom"]
+
+[[claims.dma_init]]
+name = "mz_obj_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "mz_obj_chr"
+kind = "chr"
+obj = true
+words = 16               # 1 tile x 16 words
+
+[[claims.cgram]]
+name = "mz_obj_pal"
+words = 16
+at = 128                 # hardware contract: OBJ palette 0 = CGRAM 128..143
+
+[[claims.oam]]
+name = "player"
+sprites = 1
+
+[[claims.reg]]
+name = "mz_obsel"
+registers = ["OBSEL"]

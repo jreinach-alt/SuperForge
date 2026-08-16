@@ -1,0 +1,37 @@
+# microzero — the tiny complete game: title + race (static Mode 7 floor) +
+# results, and the edges between them.
+globals = ["scene_mgr", "input", "fade", "text_dp", "font_rom", "enter_scr",
+           "world_rom", "pose_rom", "oam_sprites", "car_rom", "vwf_rom",
+           "col_map_rom"]
+
+[[scene]]
+id = "title"
+features = ["bg_text", "backdrop"]
+
+[[scene]]
+id = "race"
+features = ["mode7_floor", "split_band", "bg_text", "mode7_persp",
+            "rgb_gradient", "mode7_stream", "player_car", "race_logic",
+            "sky_band", "vwf", "col_map"]
+
+[[scene]]
+id = "results"
+features = ["bg_text", "backdrop"]
+
+[[edge]]
+from = "title"
+to = "race"
+style = "fade"
+budget_bytes = 40000     # race reload: 32 KB Mode 7 + HUD font/map/pals
+
+[[edge]]
+from = "race"
+to = "results"
+style = "fade"
+budget_bytes = 4096      # results reload: BG3 font + 32x32 map + 5 CGRAM words
+
+[[edge]]
+from = "results"
+to = "title"
+style = "fade"
+budget_bytes = 4096      # title reload: same shape as results

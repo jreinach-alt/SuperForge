@@ -1,0 +1,496 @@
+# AGENTS.md — SuperForge operating manual
+
+SuperForge is an SNES engine built around a declarative resource allocator.
+Games are hand-written WDC 65816 assembly (ca65/ld65 → `.sfc`) running on real
+hardware at a hard 60 fps, with ~28–37k CPU cycles per frame to spend.
+
+**`CLAUDE.md` is the rules — the seven non-negotiables. This file is the daily
+driver:** what to run, how the allocator changes the way you write code, which
+patterns are already established, and which mistakes this project has already
+paid for. Read both.
+
+---
+
+## The one idea that changes how you work
+
+**You do not allocate resources. You declare them, and the build proves the
+declaration is collision-free.**
+
+The conventional way to write an SNES engine is to claim
+WRAM/DP/VRAM/HDMA-channel/VBlank/ROM-bank resources ad hoc and keep them apart
+by unwritten "these won't be used together" assumptions. Split-mode rendering,
+large-world Mode 7 streaming and variable-width fonts are the three subsystems
+that reliably die of the resulting collisions, because each of them needs a
+resource somebody else already took without saying so. This repo replaces the
+assumption with a declarative allocator that runs *as part of the build*:
+
+- Features declare what they need in `feature.toml`; games in `game.toml` /
+  `state.toml`; the machine's real limits live in `allocator/substrate.toml`.
+- `allocator/allocate.py` packs the claims and **emits symbols** into
+  `build/*.inc` + `build/symbol_map.json`.
+- An infeasible declaration **stops the build**. That is the feature, not an
+  obstacle — it is a design answer arriving at build time instead of as a
+  corruption bug months later.
+- `allocator/no_literals.py` then fails the build if engine ASM contains a raw
+  address literal. You physically cannot hardcode an address.
+
+Practical consequences, and they are not optional:
+
+- **Never hardcode an address, a channel number, or a register encoding.** Use
+  the emitted symbol. HDMA channels come from `ES_H_<CLAIM>_CH`. BG register
+  encodings come from emitted `_SC_BASE` / `_NBA` symbols — do not hand-narrate
+  a VRAM base into a register value in ASM.
+- **Adding state means editing a `.toml`, then rebuilding**, not finding a free
+  byte. If the allocator refuses, the design is over budget — fix the design.
+- **Every `feature.toml` declares a `role`**, and the build refuses an unknown
+  one: `feature` (supplies a demanded capability) · `blob` (ROM data, no
+  behaviour) · `companion` (holds claims for shared top-level code) · `consumer`
+  (game-side user of an engine feature) · `game_logic` (**not engine** — game
+  code that lives under `engine/features/` only because that is where the
+  allocator looks) · `fixture` (a toy or probe declaration, never a supplier).
+  It exists because the supply census in `docs/09` §3 is generated from the
+  tree and this is the one column no claim can distinguish: `car_rom` and
+  `col_map_rom` both claim `rom` with no deps and are blobs, while `backdrop`
+  claims `cgram` with no deps and is a feature. A new dir also needs a
+  `supplies / serves` line in `09` §3.1 — `make register` refuses a census
+  entry with no serves entry, and vice versa.
+- `make toy-bad` exists to prove the refusal still works. **A build where the
+  ALLOCATOR accepts `engine/toy_bad` is a broken build** — so the target checks
+  that it refused, and refused on the VRAM collision rather than on some
+  unrelated error, and reports that verdict in its exit status: **0 = refused
+  correctly**. Run it plainly; do not invert it. (Every gate used to invert it,
+  back when it failed on every path — which meant none of them could tell a
+  refusal from a toothless allocator.)
+
+---
+
+## Build and test
+
+(`.claude/skills/test-authoring.md` and `inspect.md` carry the operational
+test-writing and debugging disciplines; the `.claude/hooks/` lint gate fires
+width-check + time-check on edits automatically.)
+
+```bash
+bash tools/setup.sh          # once: ca65/ld65, libSDL2, MesenCore.so, Pillow, pytest
+make toy                     # the allocator spine: allocator + gates + toy ROM (32,768 B)
+make microzero               # the smallest complete game (524,288 B)
+make toy-bad                 # the collision gate: passes iff the ALLOCATOR refused
+                             # the infeasible decl, on the collision. Not inverted.
+make rom-unbacked            # the backing gate: passes iff no_literals refused a
+                             # rom claim with no .incbin. Same polarity (docs/37).
+make width-check             # width-tracking lint, STRICT, zero findings tolerated
+                             # (annotations PRESENT and TRUE against same-file
+                             #  arrivals, jsr/jsl included — CLAUDE.md rule 6)
+make time-check              # the TIME-COUPLING lint (docs/45): wall-clock waits
+                             # in tests/ + tools/. 0.85 s, baseline currently
+                             # EMPTY. Override with
+                             # `# WALL-CLOCK: ok — <reason>`; a bare stamp is
+                             # itself a finding.
+make cleanroom               # the name tripwire: no committed file may carry a
+                             # retail game / company / brand name except through
+                             # an allowlisted entry with a written reason.
+make falsify                 # plant defects, require the named tests to go RED,
+                             # restore. NOT in `make gates` and NOT in the push
+                             # set — it rebuilds ROMs and must not run beside a
+                             # suite. `SET=` / `ONLY=` narrow it. docs/46
+make measure                 # re-measure the substrate pins and check them against substrate.toml
+make rail-registered         # a game/ rail is wired into every one of its
+                             # registration sites (the summary line prints the
+                             # site count it actually evaluated)
+make register                # docs/09's supply census still agrees with the tree
+                             # (make register-write regenerates; prose findings
+                             #  it reports are hand-fixes, never rewritten)
+make test                    # full suite with a TRUE exit code + full log in build/pytest.log
+make test XDIST=3            # ...the same target, parallel.
+python3 -m pytest tests/ -q  # same suite, direct        (measured 7:40)
+python3 -m pytest tests/ -q -n 3   # parallel, pytest-xdist  (measured 3:08 on 4 cores)
+                             # PICK -n FROM `nproc`, NOT FROM THIS LINE. The
+                             # suite is emulator-bound — one Mesen core per
+                             # worker — so oversubscription does not just slow
+                             # it, it can stall it: on a 2-core runner
+                             # -n 3 ran 4:05 once and then sat past 18 min with
+                             # no output. One worker per core is the safe rule.
+                             # BUILD FIRST — for the FULL suite that means EVERY
+                             # rail, i.e. `make gates`' own rail block plus the
+                             # probes:
+                             #   make toy microzero room probes breaker shmup \
+                             #        platformer split_v_fight m7_dungeon \
+                             #        split_h_2p_demo sh2-variants \
+                             #        mode7_explore platformer_stream boss \
+                             #        boss_saucer \
+                             #        meteor_event \
+                             #        hud_game scroller camera_follow \
+                             #        maze jumper patrol sprite_game stomper \
+                             #        scroll_run brawler \
+                             #        split_h_matrix_demo \
+                             #        split_h_persp3_demo split_v_demo \
+                             #        svd-nowin split_v_seamtrial \
+                             #        split_h_demo shd-autodemo \
+                             #        split_h_persp_demo shp-autodemo \
+                             #        racer mode7_chamber railshooter m7_oshoot rpg \
+                             #        mode7_flight \
+                             #        seam_irq_trial sit-origin sit-mistime \
+                             #        split_h_irq_grad_demo shg-nograd \
+                             #        shg-origin
+                             # (svd-nowin: test_split_v_demo's non-vacuity
+                             #  control ROM — running the module without it
+                             #  is 1 failed, for the same reason as below.
+                             #  shd-autodemo / shp-autodemo: the controller-
+                             #  free PILOT ROMs. Not controls — the BASE rails
+                             #  are this pair's controls — but
+                             #  test_autodemo_variants reads all four, so
+                             #  without them the module is 4 failed.
+                             #  sh2-variants: test_split_h_2p_sprites needs the
+                             #  FORWARD/TIEROFF/CULLOFF ROMs — running it alone
+                             #  without them is 3 failed, and under xdist two
+                             #  workers race the build script)
+                             # TWO independent reasons, and the second is the
+                             # one that bites. (1) several fixtures shell out to
+                             # make, and on a cold tree two workers race the
+                             # same build/*.o. (2) EIGHT modules read their
+                             # rail's symbol_map.json at MODULE SCOPE, i.e. at
+                             # COLLECTION, before any fixture can build it —
+                             # test_breaker, test_m7_dungeon, test_mode7_explore,
+                             # test_platformer_stream, test_shmup,
+                             # test_split_v_fight, test_split_h_2p_{demo,
+                             # sprites}, test_c2_slice_c / test_room_window /
+                             # test_slice_b_audio. Single-process the guard names
+                             # the map and the fix; UNDER XDIST a collection-time
+                             # failure presents as a crashed LAST worker holding
+                             # an innocent pure-Python test's name
+                             # (`AssertionError: ('tests/test_allocator.py::...',
+                             # <WorkerController gw3>)`, `no tests ran`) — which
+                             # reads like a build race and is not one. A shorter
+                             # `make toy microzero room probes` is NOT sufficient
+                             # and has cost two whole suite attempts.
+                             # Each worker gets its own SF_MESEN_HOME (conftest),
+                             # so Screenshots/ and Saves/*.srm do not collide,
+                             # and the two modules that plant into the working
+                             # tree (test_register, test_make_gates) hold a lock
+                             # so their save/restore windows cannot overlap.
+                             # -n 4 was faster (2:22) on a 4-core dev box.
+make gates                   # the whole gate block in its listed order,
+                             # one summary table + both ROM md5s at the end
+make bare-check              # THE LANDING GATE. `make gates`, but in a FRESH CLONE
+                             # of HEAD — so it sees only committed content and no
+                             # stale artifacts. Refuses loudly on a dirty tree.
+                             # Writes build/bare_check.json: the SHA, per-gate
+                             # verdicts, the suite summary, the eight ROM md5s.
+                             # ~8.5 min. Runs a suite of its own — do NOT run
+                             # `make test` alongside it. docs/44.
+make push                    # gated push: register + width-check + toy-bad +
+                             # rom-unbacked as prerequisites, then `git push`
+```
+
+**Pushing is gated.** `tools/setup.sh` installs `tools/git-hooks/pre-push`
+(via `git config core.hooksPath tools/git-hooks` — hooks do not clone with a
+repo), which runs the seconds-scale gates `make register`, `make width-check`,
+`make toy-bad` and `make rom-unbacked` before any `git push` leaves the machine
+and refuses the push naming the gate that failed. `make push` is the documented
+front door: it runs the same four gates as prerequisites and then delegates to
+`git push`, so it stays gated even on a clone where setup.sh has not run (fails
+closed; on a hook-installed clone the set runs twice, costing under a second).
+`rom-unbacked` joined the set late — it had shipped covered only by
+`make gates` and, indirectly, the ~8-minute `make test`, so the surfaces a human
+actually goes through did not run it. The gate set is deliberately seconds-scale
+only (no `make test`/`make measure`/ROM builds: a push gate that costs minutes
+gets bypassed). **Bypass, when you mean it:** `git push --no-verify` skips the
+hook — a guardrail, not a prison; use it for a deliberately-red WIP push and
+expect to answer for what you shipped.
+
+Everything runs from the repo root, and **nothing runs automatically**. There is
+no push-triggered CI: `make bare-check` is the landing gate, and it is a thing
+you run.
+
+**`make bare-check` is the isolation proof.** It clones HEAD into a scratch dir
+and runs the gate block there — so the build sees no uncommitted files, no stale
+`build/`, and nothing beside it on disk. What it does **NOT** buy, because it
+runs on this box: a different machine, an absent toolchain, a different OS image,
+full git history. That residue is recorded in the artifact under
+`isolation.not_reproduced` and explained in
+[`docs/44`](docs/44_bare_check_migration.md).
+
+**Never pipe pytest through `tail` without `PIPESTATUS`.** A masked exit code
+let a red suite land once. `make test` does it correctly; copy that pattern.
+
+## What each gate actually proves
+
+| gate | proves |
+|---|---|
+| `make toy` | the allocator emits a usable map and the ROM links |
+| `no_literals` (runs inside `make toy` / `microzero` / `room`) | engine ASM references allocated resources only through emitted symbols, **and — the reg-ownership pass — every CPU write to a bank-0 `$21xx`/`$42xx` port is declared by, or covered by, the claim set its file answers to** (docs/09 §2.1's writer-side gate). **On the three UNION tiers "declared" means the owner OPENED it**: a `[[claims.reg]]` carries an optional `scene_writes` (a subset of its own `registers`) meaning *"scene-enter or boot code may write these registers of mine"*, and the tiers narrow **both** arms of the acceptance test to it — `declared` keeps an in-class port only if its claim opens it, `covered` keeps an in-class port an `hdma`/`dma_init` claim covers only if the same feature opens it on a `[[claims.reg]]` **and lists it in `scene_writes`**. Narrowing `declared` alone is not a half-measure but *inert*: `race`'s `$2105`/`$212C` are declared AND covered. Region data/latch ports are not narrowed; the feature-strict tier is unchanged. `scene_writes` is a PERMISSION, not an exclusivity — where the owner writes the register too (`scene_mgr`/NMITIMEN, the tree's one case) `scene_writes_shared` declares it, and a **declaration-that-lies** check refuses an untrue declaration in either direction, per register and span-expanded. The summary line reports how many claims that check VALIDATED, so a zero reads as disarmed rather than clean. Write set = `sta/stx/sty/stz` **plus the RMW family** (`inc a:$2105` sets BGMODE). Tiers, strongest first: feature files → their own `feature.toml`; scene files → the scene's union in `symbol_map.json`; `main.asm` → the globals' union; **anything else → the composed union** (so `engine/toy` and the vendored probes are CHECKED and declare their boot writes — they are not path-exempt). A **latch** ($2115/$2116/$2121/…) rides the claim on the RESOURCE its data port serves; an **unnamed** port is a finding-with-override; an operand that will not fold (`sta a:$2107 - 1` IS MOSAIC) **fails closed**. Override: `; REG-LINT: ok [$port] — <reason>`, **port-scoped** — same-line binds to that write, a standalone one binds only when its window is unambiguous (a write whose port will not fold has no port to name, so only the same-line form reaches it). **That scoping is the reg lint's alone — do not assume symmetry**: `; CHANNEL-LINT: ok` and `; WIDTH-LINT: ok` keep pure ±3-line RADIUS semantics, and the channel form *parses* a `$port` token but ignores it, so writing one there silences the whole window regardless (an accepted divergence). The summary line reports the tier split + per-category site census, so a disarmed pass says so instead of printing "clean" |
+| `make toy-bad` | the **allocator** still refuses `engine/toy_bad`, *and* refuses it on the VRAM collision rather than some other error. The target passes (exit 0) when that held |
+| `make rom-unbacked` | every `rom` claim in a composition has bytes: some scanned `.asm` holds an `.incbin` whose declaration block ties it to the claim's emitted `ES_R_*` symbol (literally, or through a `.sprintf` template — the only shape a `bank_tiled` claim's chunk symbols can have), **or** the claim declares `backed_by = "<the unit outside the no_literals scope that supplies them>"`, non-empty, enforced in `schemas.py`. The **drift** direction was already asserted hard (`.assert ^label = ES_R_*_BANK`); the **presence** direction was not asked anywhere, and `grad_tabs` once shipped unbacked with every gate green — three HDMA channels streaming the neighbouring blob's bytes, one missing backdrop wash, nothing red. Note that `.assert`s still PASS with the `.incbin` gone (the label lands at the claim's address either way), so ca65 accepts the broken file and only a presence check sees it. Two arms over one allocation: the target passes (exit 0) iff the **backed** control arm was accepted AND the **unbacked** arm was refused naming both missing claims and not the `backed_by`-declared one. Same non-inverted polarity as `toy-bad`, for the same reason. A claim site only credits when it is in the composition's **translation unit** — the `.include` closure of the root `.asm` — because the Makefile's wildcard scans files the game never assembles; the reach is printed (`credited from 19/28 scanned file(s)`). `backed_by` must **cite a repo path that exists**, not just be non-empty. Five stated limits, three of them closed: chunk counts are now derived (`ES_R_*_CHUNKS`; a narrated `.repeat` count is a refusal), a `%s` template is a refusal, a claim site inside an unevaluated `.if`/`.ifdef` does not credit; the bytes are still uninspected and `.include`d files are still not opened (docs/37 §5) |
+| `make width-check` | label width annotations are present **and agree with every same-file arrival** — fall-through, branch/jmp, and `jsr`/`jsl` call sites (baseline is zero; a wrong bare annotation is a finding, and the summary line names what was examined). Remaining limit: callers in OTHER files are invisible, so an exported routine's width contract is still proven only on the emulator; see CLAUDE.md rule 6 |
+| `make time-check` | no NEW wall-clock coupling in `tests/` + `tools/`: `time.sleep`, `.run_frames(`, `run_seconds=`, `timeout_s=`, and a read of a FREE-RUNNING core whose only placement in time is one of those (per-function park model). Baseline `reports/time_lint_baseline.json` ships EMPTY — the 56 findings it started from were migrated, not grandfathered. Override is `# WALL-CLOCK: ok — <reason>` within ±3 lines, reason REQUIRED (a bare stamp is its own finding, and does not silence what it sits on). **Stated limits, and the fourth is the one to remember:** the park model is single-FUNCTION, so a fixture that parks and yields is invisible from the test; it does not see through a call; a wrong frame CONSTANT is not a coupling and is not caught; and **it does not know whether a capture lands on an ABSOLUTE frame** — `boot_rom(frames=N)` lands on `>= N` and a module can pass this gate and still be load-sensitive (that is `boot_to_frame`'s job, and neither subsumes the other). `time.monotonic` deadlines and subprocess/thread timeouts are deliberately NOT flagged: they are all legitimate process orchestration here, and a baseline of noise teaches people to ignore the gate. docs/45 |
+| `make cleanroom` | no committed file carries a retail game, company or hardware-brand name: a case-insensitive pattern set swept over the tracked tree and over the text members of any committed zip, plus a forbidden-filename class (ROMs, music rips, emulator cores, commercially-named media) and a >2 MB tripwire. **Two normalisations, and both were added because the naive form certifies nothing.** (1) The patterns are anchored on "not an alphanumeric" rather than on `\b` — `_` is a word character, so a `\b`-anchored pattern is blind to every title embedded in a snake_case identifier or a filename, which is where names in a source tree actually live. (2) The multiword titles are swept a SECOND time over a **comment-join** view — each line joined with the two after it, comment markers stripped, whitespace collapsed — because a line-oriented grep cannot see a title that a comment reflow broke across a wrap, and in a prose sweep of this tree that is where the majority of one phrase's occurrences were hiding. Any hit not covered by an entry in the allowlist fails the gate. **An allowlist entry carries a required written reason**, on the same convention as `; WIDTH-LINT: ok — <reason>` — legitimate third-party attribution (an upstream author, an upstream project name) is exactly what the allowlist is for, and a bare entry with no reason is itself a finding. Like every other gate here it prints its own reach — how much of the tree it swept and how many hits the allowlist absorbed — so a disarmed pass reads as disarmed rather than as clean. **Stated limit:** a wordlist is a FLOOR and can never be complete; the high-risk artifacts are copied assets and broken attribution, and those are guarded by NOTICE and the per-pack READMEs under `vendor/art/`, not by grep |
+| `make rail-registered` | every rail under `game/` is named at **all** of its registration sites — Makefile `.PHONY`, the `gates:` **rail** list, the `gates:` **md5** list (a separate list), `conftest.MAPS`, `conftest._SUBDIR_MAP`, `bare_check.sh`'s size-assert list, `bare_check.sh`'s rom_md5 list, `ci.yml`'s build list, `test_map_freshness_guard.py`'s reviewed dict (its `covered ==` literal, read via ast), AGENTS.md's own BUILD-FIRST `make` block (a textual prose check), the Makefile `determinism:` prerequisite list, and the Makefile `test:` prerequisite list (so `make test` cannot collect against an unbuilt rail). Four of the sites have each been missed once, and `MAPS`-without-`_SUBDIR_MAP` is **silent and misdirecting**: `_map_of()` keys off the second dict, so the freshness guard checks the TOY map and the module demands `make toy`, which reads as a missing prerequisite rather than an unregistered rail. Derived, not listed: rails are the `game.toml` dirs, a rail's map comes from the Makefile's own `allocate.py` invocation, the two conftest sites are demanded only where some `tests/test_*.py` reads that map at COLLECTION time (parsed, following a module-scope helper call, a path constant, and an `import` of a `tests/` sibling — the shape `test_platformer.py` uses), the freshness-guard site by that guard's OWN scanner (`maps_named_in` — narrower than the above, deliberately, so the gate never orders an edit the guard's equality test refuses), and the determinism site by any Machine-driving module that names the rail anywhere (ROM via `<rail>.sfc` or map constants) plus the rails the determinism gate's own `--falsify` plant hardcodes. Its first run named a live defect: `microzero`, the first rail in the tree, was absent from `.PHONY`. The summary prints the count of site checks that actually RAN (a deleted check drops the count — a disarmed pass reads as disarmed), and each site is proven against a real planted violation in `tests/test_rail_registered.py`. **Limit, stated:** it checks the rail is NAMED at each site, not that the site's recipe is correct; and a gate cannot detect its own absence from the runner that would have run it — it catches the asymmetric half (present in one list, missing from another) |
+| `pytest tests/` | behaviour on the cycle-accurate emulator, including the vendored CPU probe. **A module may not finish with the shared Mesen core PARKED** — `tests/conftest.py`'s module-boundary guard errors against the module that leaked the park and then resumes the core, so the failure names the culprit instead of the next module's runner dying on a 30 s "frame counter has not advanced" stall |
+| `make bare-check` | that everything above holds **on the commit, not on your machine** — the gate block re-run in a fresh `git clone` of HEAD. Two properties, each of which a local `make gates` structurally cannot have: **(1)** the tree contains only COMMITTED content, so a dirty tree is refused by name before anything runs and a file the build needs but HEAD lacks goes red; **(2)** there is no `build/`, so a stale artifact cannot make a target a no-op — a defect that escaped local runs THREE times. Writes `build/bare_check.json` — the SHA, per-gate verdicts, the suite summary, the eight ROM md5s — which is what the landing rule asks you to cite. Proven against real violations in `tests/test_bare_check.py`. **Stated limits:** it runs on THIS box, so it buys no different machine, no genuinely absent toolchain (the clone runs its own `setup.sh`, which verifies rather than bootstraps — a ~10-min Mesen rebuild per run would make the gate unusable, and an unusable gate gets skipped) and no different OS image; and the clone inherits this repo's git depth, so a check that needs full history skips where a full checkout would run it. All of that is recorded in the artifact under `isolation.not_reproduced`. docs/44 |
+| `make measure` | the substrate pins still match fresh measurements (vblank exact, CPU within 5%) |
+| `make register` | docs/09 §3's census matches the tree, **and** a bounded check on the prose that cites it: in `09`, a **table row** that resolves to an existing dir — via its subject cell or its `supplied by` column — may not also say `not built` / `not started` / `unimplemented` / `TODO` / ❌ (and no live row in §5 may resolve to one at all); a `` `engine/features/X` `` citation must name a real dir. **Not** a general check on prose: a claim in a *paragraph* is invisible to it, and so is a row that names no dir in either place (`AUD`, `OBJ-HUD`, `GRAD` — an example list that SHRINKS as features land; `POOL` and `SAVE` have both left it). The target prints its own reach — `demand lint reached N/M demand rows` — so the gap stays visible. See `lint_text`'s KNOWN LIMIT |
+
+`make bare-check` is the landing gate; `make gates` is the same block without
+either of the two properties above, and is the right thing to run *while*
+working. Neither runs automatically.
+
+`make measure` is the one people skip and shouldn't. The pins are *substrate
+facts* other work is budgeted against; drift there invalidates decisions made
+downstream, silently.
+
+---
+
+## Tooling
+
+| tool | use it for |
+|---|---|
+| `vendor/mesen_runner.py` | the cycle-accurate emulator harness — read VRAM/OAM/CGRAM/WRAM, inject input, screenshot |
+| `allocator/allocate.py` | emit the map; `build/*/allocation_report.txt` shows the live layout |
+| `allocator/no_literals.py` | the raw-address-literal gate + the reg-ownership pass |
+| `tools/reg_census.py` | what the reg gate RESOLVES and how it VERDICTS, per site — `--compare A B` answers "did this change alter a verdict I didn't intend" |
+| `tools/width_lint.py` | width-tracking static analysis (4 checks + an override convention) |
+| `tools/no_wallclock.py` | the time-coupling lint (`make time-check`) — 6 checks + the `# WALL-CLOCK: ok — <reason>` override. docs/45 |
+| `tools/falsify.py` | the falsification harness (`make falsify`) — patch, require the ARTIFACT MD5 to move, require the named tests RED, restore, require the md5 back. Plant sets live in `tools/plants/`. docs/46 |
+| `allocator/pin_budgets.py` | pin/check the measured substrate budgets |
+| `tests/mz_drive.py` | drive microzero deterministically (`brake_to_stop`, `coast_to_stop`, …) |
+| `tools/shot_microzero.py` | capture a frame for visual inspection |
+
+**A capability graduating to real work gets its register encodings re-derived
+from Mesen2 source — not from a summary document, and not from `fullsnes`
+alone.** A faithful *transcription* of one source is not the same as a true
+statement: `fullsnes`'s window-area encoding line is both self-contradictory and
+wrong, and a summary of it here had copied the error exactly — into the
+capability it named as the next thing to build. Mesen2's `Core/SNES/SnesPpu.cpp`
+is on disk at `/tmp/Mesen2` and settles these in a minute. This is CLAUDE.md
+rule 7's second source applied *before* the bug rather than after it, and it
+costs a grep. Corollary: where `fullsnes` hedges ("XXX or is it…", a trailing
+`?`), carry the hedge into your spec or resolve it against Mesen2 — do not
+launder it into a flat statement.
+
+**Debug with the emulator, not by reading source.** When something misbehaves,
+read the actual hardware state first — OAM, VRAM, CGRAM, WRAM — then go to the
+source with a specific question. Reading ASM to *guess* at a bug is how sessions
+burn their context.
+
+**This rule is now a GATE: `make time-check` (docs/45).** It was prose for a
+long time, and 56 violating call sites accumulated underneath it, which is
+why it is a target and not a paragraph. What follows is the reasoning; the
+gate is what enforces it — and read docs/45 §4 for what the gate cannot see,
+because a module can pass it and still be load-sensitive.
+
+**Deterministic captures use frame-step, not wall-clock.** `mesen_runner`
+exposes `debug_break` / `frame_step` / `debug_resume`, and parked reads are
+bit-identical across runs. `run_frames`/`set_input` are wall-clock and are for
+interactive verification only — a measurement or capture calibrated against them
+drifts with host load. This mattered: the CPU pin measured 12% off between
+same-day runs before the measurement paths moved to frame-step.
+
+**And when the picture is the assertion, land on an ABSOLUTE frame.**
+`boot_to_frame(rom, N)` free-runs most of the boot and STEPS the last 20
+frames, so every host photographs frame N exactly. `boot_rom(frames=N)` is
+immune to how FAST the host is but lands on ">= N": measured here, a fixed
+free-run budget landed on 90/91/92 under contention against a flat 91 idle,
+and those two frames moved the microzero track far enough that a scanline-223
+assertion failed 2 runs in 6 under load. The gradient was never wrong; the
+frame was a different frame.
+
+**And when you must wait on a free-running machine, wait in EMULATED frames.**
+`wait_frames(n)` / `wait_until(pred, max_frames=N)` / `run_to_break(max_frames=)`
+/ `boot_rom(rom, frames=)` bound the wait on the PPU's own frame counter, so
+host load changes how long a wait takes in seconds and never how many frames it
+covers. `run_frames(n)` sleeps n/60 WALL seconds beside a core that advances on
+its own thread: it buys ~4x its argument under free-run and **zero** on a parked
+runner. That was once claimed to be the whole of the suite's documented flake
+class; it was **one of four** timing defects — the others: `run_frames` beside a
+parked emulator advancing zero frames, so two tests asserted over nothing and
+passed; Mesen's own `_skipRender` wall timer defeating captures whenever the core
+is unthrottled; and `run_to_break` reporting breaks no breakpoint produced,
+because `IsExecutionStopped()` also covers thread pauses. The "same-tree re-run"
+grace that used to cover the class is gone either way — a red on those nodes is
+real on first occurrence, and four mechanisms is a better reason for that than
+one.
+
+**Hand the core back before your module ends.** The Mesen2 core is a
+process-global singleton while `MesenRunner` instances are per-module, so a
+module that parks it and finishes without `debug_resume` strands the NEXT
+module's brand-new runner — whose `_frame_stepping` is False, so nothing on it
+knows to resume — and the red lands on the victim as *"the emulated frame
+counter has not advanced for 30.0s … PARKED in frame-stepping mode"*. That
+once cost a `make gates` run four reds across two modules the branch never
+touched. `tests/conftest.py` now checks the core at every module boundary and
+errors against the module that leaked it, then resumes so the rest of the run is
+honest. Use `with runner.frame_stepping():` — the resume survives a failed
+assertion — or a yield-fixture whose teardown calls `stop()` (which resumes
+first).
+
+**The one deliberate exception is audio**, which is a recording of real time
+and stays wall-clock (`tests/test_slice_b_audio.py:17-19`, and the
+`enable_audio=True` runner in `tests/test_runner_guard.py` for the same
+reason). `MesenRunner` keeps those runners throttled to 60 fps so wall and
+emulated time coincide by construction.
+
+That claim was over-stated when it was first written: five wall budgets
+survived in the three breakpoint SAMPLE HUNTS
+(`test_dma_init_forced_blank`, `test_vwf_render`, `test_scene_mgr_shadow`),
+one of them gating an `n == SAMPLE_FIRES` equality. All five are now
+frame-counted, and `timeout_s=` appears nowhere in `tests/`. **If you add
+a `run_to_break`, pass `max_frames=` — reach for `timeout_s=` only for a wait
+that is genuinely on wall time, and say so in a comment.**
+
+---
+
+## Test discipline
+
+The full rule is CLAUDE.md #2. What it means in practice here:
+
+- **Assert on the output region the feature produces** — VRAM tilemap bytes, OAM
+  bytes, CGRAM words, screenshot pixels — **never a variable that "should"
+  reflect them.** A test that passes while the feature is broken is worse than
+  no test, because it is trusted.
+- **Compare whole declared state against an oracle, every frame**, rather than
+  spot-checking the feature's headline value. A per-field check on the headline
+  value shipped a real bug here: adding a subroutine call to a branch that held
+  a live index in X silently rewrote a sector byte, and the lap counter kept
+  counting correctly, so the obvious assertion passed.
+- **Drive whole state cycles, not snapshots.** Ascent → apex → landing → rest;
+  forward *and* reverse *and* idle. A test that only walks the camera one
+  direction locks that direction and ships the other broken.
+- **Read the skip count as a defect signal.** Skips report as not-failing. A
+  vendored suite arrived here once with seven skip-if-absent cases naming files
+  that do not exist in this repo — the integration surface covered zero files
+  while the summary read green. `make test` passes `-rs`, so every run prints
+  the REASON beside the count; a bare number cannot be read as a signal.
+
+  The skips that remain are environment-gated, and the one category that
+  persists is history-gated: `test_register.py::test_drift_fixtures_match_git_history`
+  is parametrized over `(ref, file)` pairs that a depth-limited clone does not
+  contain, so it skips there and runs after `git fetch --unshallow`. **A literal
+  count in prose ages badly against a parametrized test** — the number in this
+  paragraph drifted twice before it was replaced with the category. Read the
+  reasons `-rs` prints; do not trust a remembered total.
+
+  **`build/bare_check.json` records only the suite SUMMARY LINE, not the skip
+  reasons.** So the one artifact the landing rule tells you to cite drops exactly
+  the field that makes a skip count readable — and the scratch clone is deleted
+  on success, so the reasons are unrecoverable afterwards unless you knew to set
+  `BARE_CHECK_KEEP=1` beforehand. `make test` passes `-rs` precisely so they
+  print.
+- **Streaming's full-window invariant is a STOPPED-camera claim.**
+  `assert_window_exact` asserts `vel == 0` deliberately: while the camera moves,
+  VRAM trails it by the staging + VBlank-drain lag *by design*. Brake or coast
+  to a stop first.
+
+---
+
+## Established patterns (use them, don't reinvent)
+
+- **Scene-scoped feature code** lives inside the scene's `.scope`; shared cold
+  code is top-level with hot state in GLOBAL features (`text_dp`, `enter_scr` =
+  8-byte enter-time scratch, write-before-read).
+- **HDMA channels**: features declare `claims.hdma`; scenes arm the scene_mgr
+  128-byte shadow (`ES_SM_HDMA` + `ES_SM_NMI+2` mask) on enter; the NMI MVNs it
+  to `$4300` and applies HDMAEN every armed frame. Channel numbers come from
+  emitted `ES_H_<CLAIM>_CH` symbols.
+- **ROM claims**: the allocator packs largest-first from window 1 (window 0 =
+  code). `.incbin` sites carry `.assert ^label = *_BANK && .loword = *_ADDR`, so
+  a mismatch **refuses the build** — move the `.segment "BANKn"` to match the
+  allocation report.
+- **Live HUD cells**: `bg_text` writes VRAM under forced blank only, so a
+  *running* scene changes a cell through the one-cell VBlank queue —
+  `text_queue_cell` (main thread) + `text_vblank_commit` (called last in
+  `sm_nmi_hook`, though its position is free — it programs its own VMAIN/VMADD,
+  which is what makes the DMAs ahead of it unable to reach it). Two CPU stores,
+  no channel, no VBlank byte budget. `race_logic`'s lap digit is the worked
+  example. A multi-cell version should declare `claims.hdma` + `claims.dma` and
+  DMA the buffer instead.
+- **VBlank VRAM writers program their own VMAIN + VMADD, so hook order is
+  free.** Every one in the tree does it (`bg_text`, `mode7_stream` rows + cols,
+  `vwf`), which is why `sm_nmi_hook` has no ordering contract to honour —
+  measured twice: reordering `vwf_nmi_commit` ahead of `stream_nmi_dispatch`,
+  and moving `text_vblank_commit` to run first, each leave the suite green.
+  **The rule for a new consumer is "program your own VMAIN/VMADD, or be ordered
+  last".** The second clause currently has no instance, and the first is
+  load-bearing rather than incidental: deleting `vwf`'s single `sta a:$2116`
+  turns 8 of its 10 tests red.
+- **Audio: TAD is the occupant; game code asks, it never claims.** The `audio`
+  feature (global) holds `spc` + `reg` APUIO + the driver's pinned
+  lowram/DP state; `Tad_Init` runs once in MAIN's boot block (NMI off by
+  construction), `Tad_Process` once per frame from the MAIN LOOP (never the
+  NMI hook — the ABI forbids ISR calls; costs 438 mc ≈ 55 CPU cycles steady
+  state, measured). Scenes queue SFX through the `Tad_*` API and claim
+  nothing. Room acoustics = an ambience SFX queued at scene ENTER
+  (EVOL/EFB against the program-constant EDL — `set_echo_delay` is
+  compiler-refused in SFX at the pin); song persistence across scenes = the
+  *absence* of `Tad_LoadSong`. Content pipeline: `assets/audio/README.md`
+  (procedural samples, checked-in ca65-export, documented regen).
+- **Engine routines document their clobbers — read them.** Bracket calls that
+  clobber A/X/Y with `phx`/`plx` when you hold a live index.
+- **`no_literals` idioms**: decimal and character literals (`#127`, `#' '`) for
+  values; hex only for I/O ports — and a port that configures a layer or a
+  mode needs a `[[claims.reg]]` (docs/09 §2.1's boundary rule; the
+  reg-ownership pass refuses an undeclared one, naming who does own it).
+- **Seam line 44** renders backdrop (mode writes land during its HBlank). It is
+  asserted, not a bug.
+
+---
+
+## Anti-patterns this project has already paid for
+
+Each of these carries **the condition that makes it true**, and that condition is
+load-bearing: an anti-pattern remembered without it fires on the wrong cases. A
+rule recorded as "don't import an asset from outside the tree" once talked a
+session out of the *right* asset — the real rule was "don't import an asset whose
+source format you would have to infer," which permits a documented one. When you
+apply one of these, check the condition still holds; when you add one, write it
+down.
+
+- **Reading ASM to guess at a bug** instead of dumping hardware state. The
+  emulator is ground truth and it is faster. *Condition: this is about what the
+  **machine** does at runtime. It is the opposite for our own tooling — when you
+  assert what the allocator, a gate, or a converter does, read the code that
+  implements it (CLAUDE.md "Two kinds of question").*
+- **Asserting what a tool does from something adjacent to it** — a comment, a
+  count in a doc, a `feature.toml` note, a licence file shipped beside an asset.
+  All are usually right and none is evidence. Three such assertions shipped in
+  one session and every one was caught by someone else.
+- **Hardcoding an address** because the allocator was inconvenient. The gate
+  exists because this is the class of bug that kills compositions silently.
+- **Trusting a green test you have not tried to break.** When you add a gate,
+  prove it fails on a real violation before believing it. `make falsify`
+  (docs/46) is the harness — and note WHAT it adds: it requires the built
+  ARTIFACT's md5 to have MOVED before it will believe anything the tests say.
+  A plant that never reached the binary is reported as a failure of the
+  PLANT, separately from a test that could not see a defect that did reach
+  it. *Condition: the two are opposite findings. Three plants once no-op'd
+  silently, one of them leaving its test green.*
+- **Git-based restores as the undo for a planted-sabotage falsification pass.**
+  A `git checkout <file>` that reverts the sabotage restores HEAD — and silently
+  discards any uncommitted implementation it was wrapped around. *Condition:
+  only safe when the pre-sabotage state is committed. On a dirty tree, snapshot
+  by copy and restore by copy, and keep a guard `assert old in src` in the
+  sabotage script — it is what turns silent loss into a visible failure.*
+- **Committing while `make falsify` runs in the same worktree.** The harness
+  owns the tree for its duration: it patches a source in place, builds, runs,
+  and restores. A `git add -A` in that window captures the PLANT — and the
+  plant is a defect chosen to be invisible, so nothing goes red afterwards.
+  Worse, the edit arrives as a *"the file was modified, this change was
+  intentional, don't revert it"* notification, which reads as an instruction
+  to keep it. *Condition: the whole falsify run, not just the build step. Treat
+  any modification notice during a falsify run as the harness. This is the
+  MIRROR of the entry above — that one is git clobbering falsify; this one is
+  falsify clobbering git.* (Caught twice.)
+- **Asserting a spec's mechanism instead of the user-visible invariant.** A spec
+  can be wrong; "freeze" means pixels don't move, not "a variable reads zero."
+- **Estimating a cycle count.** Measure it.
+- **Claiming a gate passed because it probably will.** A gate is not met until
+  it is observed.
+
+## When you finish
+
+Report faithfully. If tests failed, say so with the output; if you skipped a
+step, say that. Then:
+
+1. State what you built and what you verified, separately — intent and evidence
+   are different claims.
+2. Name the test surface for anything you added: the feature, the output region
+   the test reads, and the state cycles it drives.

@@ -1,0 +1,31 @@
+# Probe control block. The host writes `cmd` + params, steps frames, and reads
+# `seq` to know the arm completed; `mark` brackets the timed loop.
+[scene]
+cmd = "u8"           # 0 idle
+                     #   1 pfs_stream_init ONLY — leaves the declared claims
+                     #     exactly as the init contract left them, so the host
+                     #     can read them back. [init] zero has no gate
+                     #, so this arm is how it gets one.
+                     #   2 init + set_cam(param, param2) + arm the whole ring
+                     #     under forced blank with NMI masked, then turn the
+                     #     display and NMI on. The rail's scene-enter shape.
+                     #   3 set_cam(param, param2) + tick, then WAI for the
+                     #     VBlank that drains it. ONE simulated game frame.
+                     #   6 set_cam + tick, then RE-RAISE PFS_BUSY and let a
+                     #     VBlank pass. The drain must DEFER, so the staged
+                     #     slots stay pending and VRAM keeps the old window.
+                     #     The host then clears the flag itself and watches
+                     #     them go out — which is the only way to drive the
+                     #     tick/drain interleave deterministically from
+                     #     outside.
+                     #   4 the timed staging loop: `param` staged columns
+                     #   5 the IDENTICAL loop with the staging removed — the
+                     #     control arm, so loop overhead cancels
+param = "u16"        # camera world pixel X, or the iteration count K
+param2 = "u16"       # camera world pixel Y
+mark = "u8"          # written once immediately before and once immediately
+                     # after the timed loop; the host breakpoints on this WRAM
+                     # address and subtracts master clocks
+seq = "u16"          # completion counter — the host's "the arm ran" proof
+acc = "u16"          # scratch the bench loop consumes so it cannot be
+                     # optimised away by inspection

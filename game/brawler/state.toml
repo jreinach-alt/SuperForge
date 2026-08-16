@@ -1,0 +1,91 @@
+# brawler user game state.
+#
+# All `@dp`, all scene-scoped: `fight` is the only scene and every word is on
+# the frame path. A hand-tuned DP budget would split these by ACCESS FREQUENCY
+# into a hot block and a cold one; here every word is a claim and the allocator
+# places them, so that split has no meaning and is not reproduced.
+#
+# NO [global] SECTION: game-lifetime state is what survives a scene
+# transition, and this rail has none (hud_game's argument, unchanged).
+
+[scene.fight]
+# --- Arthur -----------------------------------------------------------------
+px = "u16@dp"            # player x, top-left of the 32x32 box (world = screen)
+py = "u16@dp"            # player y, top-left. The DRAWN feet are py + 28
+facing = "u16@dp"        # 0 = right, 1 = left. Only right-facing frames are
+                         # stored; left is the OAM H-flip bit (the rail's
+                         # facing idiom, half the CHR)
+astate = "u16@dp"        # BR_ST_IDLE / BR_ST_RUN / BR_ST_ATTACK. ALSO the
+                         # anim-table stride index
+atick = "u16@dp"         # Arthur's anim clock (frame-rate divider)
+aframe = "u16@dp"        # Arthur's step index, 0..len-1
+attackt = "u16@dp"       # frames left in the swing; 0 = not attacking
+
+# --- Mordred ----------------------------------------------------------------
+ex = "u16@dp"            # enemy x, top-left
+ey = "u16@dp"            # enemy y, top-left
+eface = "u16@dp"         # enemy facing, computed toward the player each frame
+estate = "u16@dp"        # BR_ST_E_IDLE / BR_ST_E_RUN — his anim-table stride
+                         # index. Recomputing the choice from EMOV inside the
+                         # draw would let the clock and the draw pick different
+                         # tables; one word means they cannot
+etick = "u16@dp"         # enemy anim clock
+eframe = "u16@dp"        # enemy step index
+emov = "u16@dp"          # 1 = the enemy moved this frame (idle vs run table).
+                         # DOUBLE DUTY: the player's movement block reuses it
+                         # as "the player moved". The two uses never overlap in
+                         # a frame, so one word serves both
+
+# --- the swing's hitbox -----------------------------------------------------
+hx = "u16@dp"            # hitbox left, 16x16, placed in FRONT of Arthur
+hy = "u16@dp"            # hitbox top
+
+# --- the round --------------------------------------------------------------
+hp = "u16@dp"            # Arthur's hit points; 0 = GAME OVER
+foe = "u16@dp"           # Mordred's hit points; 0 = a win + respawn
+wins = "u16@dp"          # knights defeated (the third HUD counter)
+pinv = "u16@dp"          # player i-frames after taking a hit
+estun = "u16@dp"         # enemy stun frames after taking one
+eresp = "u16@dp"         # respawn countdown; 0 = enemy active (nonzero also
+                         # culls the hitbox, the contact check and the draw)
+ahit = "u16@dp"          # 1 = this swing already landed. The "one hit per
+                         # swing" latch that makes the active-frames window a
+                         # combat pattern rather than a per-frame damage tick
+gameover = "u16@dp"      # 1 = KO'd; the tick freezes INPUT and keeps drawing
+
+# --- the HUD pump (bg_text's queue holds ONE run of <=4 cells per frame) -----
+hudp = "u16@dp"          # 3..1 then 0: reprint HP, then FOE, then WINS, one
+                         # cell per frame. Set to 3 by any counter change --
+                         # a KO changes two counters in one frame, so a single
+                         # dirty FLAG could not say which
+overp = "u16@dp"         # 9..1 then 0: "GAME OVER" pumped one cell per frame
+                         # from the freeze frame onward
+
+# --- br_box argument slots (write-before-read per call) ---------------------
+# br_box is a subroutine, not a macro over verbatim operands, so its eight
+# arguments are argument SLOTS. Every caller writes all eight before the jsr --
+# the same contract as cm_hot's CM_PX/CM_PY.
+bax = "u16@dp"           # box A left / top / width / height
+bay = "u16@dp"
+baw = "u16@dp"
+bah = "u16@dp"
+bbx = "u16@dp"           # box B left / top / width / height
+bby = "u16@dp"
+bbw = "u16@dp"
+bbh = "u16@dp"
+
+# --- scratch ----------------------------------------------------------------
+col = "u16@dp"           # floor build loop: the screen column, 0..31
+row = "u16@dp"           # floor build loop: the tilemap row being filled
+tile = "u16@dp"          # draw scratch: the OAM tile byte being assembled
+attr = "u16@dp"          # draw scratch: the OAM attribute byte
+blink = "u16@dp"         # frames since enter. Drives nothing, and unlike the
+                         # five sibling rails that declare it, NOTHING READS IT:
+                         # reading a heartbeat to prove the tick runs
+                         # is the proxy-variable move rule 2 forbids. It is
+                         # kept as the tree's convention and costs one
+                         # increment a frame; the liveness signals this rail's
+                         # tests actually use are rendered output — the idle
+                         # animation's OAM tile cycle, and the GAME OVER
+                         # banner pumping one VRAM cell per frame inside the
+                         # freeze

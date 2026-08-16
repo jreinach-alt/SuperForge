@@ -1,0 +1,23 @@
+# dlg_rom — the dialog panel's ROM data (blob).
+#
+# Two blobs, both tiny and both generated (tools/gen_dialog_assets.py):
+#  dlg_chr_rom the 9-tile nine-patch, 2bpp, 16 B/tile
+#  dlg_pal_rom the 4-colour panel sub-palette, BGR555
+#
+# A blob rather than `.byte` in dialog.asm (mosaic's shape for its 35 B of ease
+# curve) because these ARE a DMA source: dialog uploads the CHR through its
+# dma_init channel at scene enter, and a DMA source needs a placement the
+# allocator knows about. `make rom-unbacked` then proves the `.incbin` really
+# fills both.
+name = "dlg_rom"
+role = "blob"
+
+[[claims.rom]]
+name = "dlg_chr"
+bytes = 144              # 9 tiles x 16 B, 2bpp
+dma_source = true
+
+[[claims.rom]]
+name = "dlg_pal"
+bytes = 8                # 4 BGR555 words
+dma_source = true

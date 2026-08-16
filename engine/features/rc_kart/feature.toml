@@ -1,0 +1,72 @@
+# rc_kart — the racer's OBJ surface: a screen-fixed kart with lean frames and a
+# six-tick sprite speed bar (scene-scoped consumer).
+#
+# WHY THE HUD IS SPRITES:
+# Mode 7 has exactly ONE BG layer plus OBJ, so BG3 — every text renderer's
+# canvas — does not exist here. The speed bar is therefore OBJ, and it sits at
+# y=16, ABOVE the horizon, in the band split_band gives to the sky.
+#
+# The CHR claim is obj = true: the allocator floors it past the Mode-7
+# interleaved region ($0000-$3FFF, which the map owns wholesale) and emits the
+# OBSEL name-base encoding, so ASM never mask-narrates a VRAM base. The
+# OBJ-over-Mode-7 gotcha — sprite CHR landing inside the region the Mode 7
+# image owns — is discharged by declaration rather than by a comment.
+#
+# EIGHT SPRITES CLAIMED FOR SEVEN DRAWN, and the reason is the hi table: a
+# hi-table byte covers FOUR sprites (2 bits each, X9 + size), so the slots are
+# claimed in whole bytes and the draw REBUILDS them rather than read-modify-
+# writing bits three quarters of which belong to nobody (hud_obj's argument).
+# Slot 0 is the kart, 1..6 the bar, 7 the pad — parked at y=$F0 by oam_sprites'
+# boot park and never rewritten.
+name = "rc_kart"
+role = "consumer"
+depends = ["oam_sprites", "rc_rom"]
+
+# The enter-time upload: kart CHR into OBJ VRAM. Mode 1 drives VMDATAL+VMDATAH
+# (word port). Phase forced_blank by construction — scene_mgr's enter clears
+# HDMAEN and zeroes NMITIMEN, so this cannot race the active/vblank claims that
+# share channel 0.
+[[claims.dma_init]]
+name = "kart_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "kart_chr"
+kind = "chr"
+obj = true
+words = 512              # 32 tiles x 16 words: one 16-wide OBJ tile grid row
+                         # pair, which is the smallest unit a 16x16 sprite's
+                         # N,N+1,N+16,N+17 layout can be allocated in
+
+[[claims.cgram]]
+name = "kart_pal"
+words = 16
+at = 128                 # hardware contract: OBJ palette 0 = CGRAM 128..143
+
+# Pinned, not packed: OAM index order IS sprite-vs-sprite priority, and the
+# kart must sit at a known index so a test can read entry 0 and say where it is
+# and which frame it is drawing.
+[[claims.oam]]
+name = "kart"
+sprites = 1
+at = 0
+
+[[claims.oam]]
+name = "bar"
+sprites = 6
+at = 1
+
+[[claims.oam]]
+name = "hi_pad"
+sprites = 1
+at = 7
+
+# C4 (docs/09 §2.1): OBSEL, CPU-written at enter. OBSEL sets sprite size AND
+# CHR base for EVERY sprite, so oam_sprites (the OAM transport) does not own it
+# and each rail's OBJ feature declares it — which is what makes composing
+# rc_kart beside player_car refuse instead of silently fighting.
+[[claims.reg]]
+name = "kart_obsel"
+registers = ["OBSEL"]

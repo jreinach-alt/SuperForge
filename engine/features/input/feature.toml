@@ -1,0 +1,18 @@
+# input — auto-joypad pad 1 with edge detection (global feature).
+name = "input"
+role = "feature"
+
+[[claims.dp]]
+name = "inp_cur"
+bytes = 2                # $4218/19 this frame
+
+[[claims.dp]]
+name = "inp_prev"
+bytes = 2                # last frame's state
+
+[[claims.dp]]
+name = "inp_press"
+bytes = 2                # cur & ~prev (new presses this frame)
+
+[init]
+zero = ["inp_cur", "inp_prev", "inp_press"]

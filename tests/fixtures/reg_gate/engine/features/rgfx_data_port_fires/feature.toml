@@ -1,0 +1,9 @@
+# reg-gate fixture: an UNDECLARED CPU write to a data port two siblings hold
+# as PORT claims — rgfx_hdma_port (hdma) and rgfx_dma_init_port (dma_init).
+# The refusal must name both, labelled by claim kind.
+name = "rgfx_data_port_fires"
+role = "fixture"
+
+[[claims.dp]]
+name = "rgfx_dpf_state"
+bytes = 2

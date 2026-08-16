@@ -1,0 +1,79 @@
+# platformer_obj — the hero and the two patrol ghosts.
+#
+# Three OBJs, positioned every frame into the oam_sprites shadow, never into
+# hardware OAM (the engine's declared VBlank GP-DMA owns that). Model:
+# breaker_obj / shmup_obj.
+#
+# FOUR SLOTS FOR THREE ACTORS, and the fourth is not padding by accident. A
+# hi-table BYTE covers four sprites (2 bits each: bit 0 = X9, bit 1 = size), so
+# a three-sprite cast ends mid-byte and the last two bits would belong to a
+# sprite this feature does not own -- which means the byte could only be
+# read-modify-WRITTEN, and a stale X9 renders a sprite 256 px away (the failure
+# this project has a lessons-learned entry about). Owning all four lets the
+# byte be REBUILT WHOLE from the three X values and the size class every frame.
+# shmup paid one extra bullet for the same property; this rail pays one parked
+# slot, which is cheaper.
+#
+# EVERY ACTOR IS 16x16, so OBSEL's size mode only needs its large half and
+# every slot's size bit is set. The X9 bits are still DERIVED from the sixteen-
+# bit X each frame rather than assumed clear -- and here they are load-bearing
+# rather than defensive, because a ghost's SCREEN x is world x minus the
+# camera, which goes negative the moment the patrol walks off the left of the
+# view. A negative screen x is exactly a set bit 8.
+name = "platformer_obj"
+role = "consumer"
+depends = ["oam_sprites", "platformer_rom"]
+
+[[claims.dma_init]]
+name = "obj_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "obj_chr"
+kind = "chr"
+obj = true
+words = 1024             # 64 tiles = FOUR rows of the 16-wide OBJ name table:
+                         # two per actor, because a 16x16 sprite reads
+                         # {N, N+1, N+16, N+17} and every frame's bottom half
+                         # lands in the next row. Hence the hero at tile 0 and
+                         # the ghost at tile 32 -- 16-aligned, 32 apart.
+
+[[claims.cgram]]
+name = "hero_pal"
+words = 16
+at = 128                 # hardware contract: OBJ palette 0 = CGRAM 128..143
+
+[[claims.cgram]]
+name = "ghost_pal"
+words = 16
+at = 144                 # OBJ palette 1
+
+# THE SLOT MAP IS PINNED, NOT PACKED. OAM index order IS sprite-vs-sprite
+# priority (lowest index in front) and the packer sorts by (-sprites, name), so
+# a packed layout's priority would be an accident of claim names. The hero
+# renders in FRONT of the ghosts, because a stomp is a contact the player has
+# to read at the moment it happens.
+[[claims.oam]]
+name = "hero"
+sprites = 1
+at = 0
+
+[[claims.oam]]
+name = "ghosts"
+sprites = 2
+at = 1
+
+# The fourth slot of the hi-table byte, claimed so the byte has ONE owner and
+# can be rebuilt whole (see the header). It is parked at y = $F0 for the ROM's
+# life and draws nothing; the claim exists to make that ownership checkable
+# rather than assumed.
+[[claims.oam]]
+name = "hi_pad"
+sprites = 1
+at = 3
+
+[[claims.reg]]
+name = "obj_obsel"
+registers = ["OBSEL"]

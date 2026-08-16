@@ -1,0 +1,48 @@
+# shm_rom — the matrix-band PAIR's art, in ROM. Global (not scene-scoped).
+#
+# ROM claims cannot be scene-scoped: the allocator packs a ROM window once for
+# the whole composition, and a scene-scoped rom claim would reserve bytes only
+# one scene's map names. Same reasoning as sh2_rom's and m7dg_rom's headers.
+#
+# ONE BLOB FEATURE, TWO RAILS. `split_h_matrix_demo` and `split_h_persp3_demo`
+# ship byte-identical checker maps, so "the only difference is the band count"
+# is literally true of the art as well as of the code. Both game.toml files
+# name this feature; both main.asm files carry the
+# .incbin sites `make rom-unbacked` requires, one per ROM (a claim is BACKED
+# per composition, not per repo).
+#
+# Every claim here is READ by both ROMs — the map by shm_floor's single DMA,
+# the palette by its CGRAM loop. Declaring a claim ahead of its reader reserves
+# ROM nothing fills, which is the `grad_tabs` shape that gate exists to refuse.
+#
+# The blobs come from tools/gen_split_h_matrix_assets.py, which authors them
+# from the checker algebra — nothing is read from a pack. That generator is
+# also a GATE: it refuses to write anything that disagrees with the vendored
+# oracle blobs under vendor/art/split_h_matrix/, so a converter change that
+# moves a byte fails the build instead of quietly redrawing the floor.
+name = "shm_rom"
+role = "blob"
+
+# The interleaved Mode 7 VRAM image: 16,384 tilemap bytes in the EVEN positions
+# and 16,384 bytes of 8bpp CHR in the ODD ones. 32 KB is one whole LoROM
+# window, so the single DMA that uploads it cannot cross a bank boundary.
+#
+# `dma_source` ARMS THE GUARD rather than changing anything today: place_rom
+# refuses a dma_source claim larger than the LoROM window unless it is
+# bank_tiled, because a transfer's A-bus address wraps within its bank instead
+# of carrying. At exactly one window this claim passes either way — the flag is
+# here so the day someone grows the plane the allocator says so, instead of
+# floor_arm's single DMA silently wrapping to the bank's start.
+[[claims.rom]]
+name = "shm_map"
+bytes = 32768
+dma_source = true
+
+# Three BGR555 words. Mode 7 is 8bpp with ABSOLUTE CGRAM indices, so this
+# palette can only live at 0; word 0 is also the BACKDROP slot and holds the
+# muted blue-violet deliberately. Words 1-2 are the two checker greens — the
+# ONLY two colours the plane can render, which is what makes an on-screen
+# checker PERIOD measurable without a landmark to alias against.
+[[claims.rom]]
+name = "shm_pal"
+bytes = 6

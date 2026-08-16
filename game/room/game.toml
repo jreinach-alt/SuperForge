@@ -1,0 +1,57 @@
+# room — a playable slice whose subject is WINDOWING: a lantern the player
+# carries, built from WH0/WH1 per scanline.
+#
+# Two scenes on purpose. `title` is nearly free (bg_text + backdrop already
+# ship) and it makes the window feature's DISARM path real: a lantern left
+# armed on scene exit would darken the next scene through registers that
+# scene never wrote, which is exactly the bug class rg_disarm exists for.
+globals = ["scene_mgr", "input", "input2", "fade", "text_dp", "font_rom",
+           "enter_scr", "oam_sprites", "hero_rom", "room_rom", "audio",
+           "tad_rom", "save"]
+
+[[scene]]
+id = "title"
+features = ["bg_text", "backdrop"]
+
+[[scene]]
+id = "room"
+features = ["bg_text", "room_bg", "room_hero", "room_logic", "window_iris"]
+
+# The cavern — the SAME composition as `room` on purpose; the rooms differ
+# audibly (per-room echo via the audio feature's ambience SFX), and the caption
+# is the only visual tell. Two scenes built from one feature list is what makes
+# the enter/exit contract testable: whatever the second scene inherits that it
+# never wrote is a bug in the first scene's disarm.
+[[scene]]
+id = "room_b"
+features = ["bg_text", "room_bg", "room_hero", "room_logic", "window_iris"]
+
+[[edge]]
+from = "title"
+to = "room"
+style = "fade"
+budget_bytes = 12000     # room reload: BG1/BG2 CHR + two 32x32 maps + font
+
+[[edge]]
+from = "room"
+to = "title"
+style = "fade"
+budget_bytes = 4096      # title reload: BG3 font + 32x32 map + 5 CGRAM words
+
+[[edge]]
+from = "room"
+to = "room_b"
+style = "fade"
+budget_bytes = 12000     # same reload shape as title->room: BG CHR + maps + font
+
+[[edge]]
+from = "room_b"
+to = "room"
+style = "fade"
+budget_bytes = 12000
+
+[[edge]]
+from = "room_b"
+to = "title"
+style = "fade"
+budget_bytes = 4096      # START from the cavern — same reload as room->title

@@ -1,0 +1,29 @@
+name: superforge
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: make jumper
+        run: |
+          make jumper
+          size=$(stat -c%s build/jumper.sfc)
+          echo "build/jumper.sfc = $size bytes"
+<<<<<<< HEAD
+          test "$size" -eq 524288 || { echo "::error::expected 524288 bytes, got $size"; exit 1; }
+
+      - name: make patrol
+        run: |
+          make patrol
+          size=$(stat -c%s build/patrol.sfc)
+          echo "build/patrol.sfc = $size bytes"
+=======
+          test "$size" -eq 524288 || { echo "::error::expected 524288 bytes, got $size"; exit 1; }
+
+      - name: make stomper
+        run: |
+          make stomper
+          size=$(stat -c%s build/stomper.sfc)
+          echo "build/stomper.sfc = $size bytes"
+>>>>>>> claude/sweep-stomper
+          test "$size" -eq 524288 || { echo "::error::expected 524288 bytes, got $size"; exit 1; }

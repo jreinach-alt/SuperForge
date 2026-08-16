@@ -1,0 +1,26 @@
+# microzero user game state.
+[global]
+score = "u16"            # survives the whole title->race->results loop
+lives = "u8"
+
+[scene.title]
+t_frames = "u16"         # frames on title (drives the blink)
+
+[scene.results]
+tally = "u16"            # the score digits currently shown, counting up to
+                         # the global score — scene-scoped, and it proves
+                         # scene-byte reuse in BOTH directions against race
+r_done = "u8"            # 1 once the tally has caught up (START then exits)
+
+[scene.race]
+heading = "u8"           # desired pose heading, 0..63 (steer writes it)
+heading_ap = "u8"        # heading APPLIED to the pose LUTs (the NMI hook
+                         # commits desired->applied in VBlank)
+vel = "u16@dp"           # signed 8.8 px/frame, MZ_VEL_MIN..MZ_VEL_MAX (hot:
+                         # read and written every frame by the physics)
+sub_px = "u16[2]@dp"     # sub-pixel accumulators [x, y], 0..255 each — the
+                         # 8.8 step's fraction, carried between frames so
+                         # slow speeds still move (and stay integer-exact)
+lap = "u8"               # completed laps (rendered in the HUD)
+sector = "u8"            # last ring quadrant: 0 NE, 1 NW, 2 SW, 3 SE
+ckpt = "u8"              # sectors visited since the last lap (bit per sector)

@@ -1,0 +1,17 @@
+# allocator toy feature B — NOT a real engine feature. Exercises: a font CHR
+# region + a 2-byte DP cursor.
+name = "feat_b"
+role = "fixture"
+
+[[claims.vram]]
+name = "feat_b_font"
+kind = "chr"
+tiles = 96               # one font slot: 96 tiles
+tile_bytes = 16          # 4-color 2bpp tiles = 96*16 B = 768 words
+
+[[claims.dp]]
+name = "feat_b_cursor"
+bytes = 2
+
+[init]
+zero = ["feat_b_cursor"]

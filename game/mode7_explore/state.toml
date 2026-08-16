@@ -1,0 +1,106 @@
+# mode7_explore user state.
+#
+# The matrix shadow, the pivot and the screen origin are NOT here: they are
+# m7_affine's own `dp` claim, because the routine that reads them is that
+# feature's VBlank commit, and a feature reading the game's `[scene.*]` block
+# would invert the dependency. Neither is the camera-origin shadow the streamer
+# reads (`ES_M7ORG`) — that is m7x_logic's claim, for the reason its
+# feature.toml gives. What lives here is what the GAME owns: where the camera
+# is, the slide it is part-way through, and which way the avatar faces.
+#
+# ALL @dp: every one is read or written on the per-frame path (the input
+# dispatch, the slide integrator, the collision probe, the sprite placement),
+# and the scene has DP to spare — the allocator reuses scene DP across scenes,
+# and the town scene needs three words where the overworld needs seven.
+#
+# NO [init]-style zero fill. `enter` writes every byte of every variable below
+# before anything reads one (rule 5), which is checkable by reading it: power-on
+# WRAM is random, and a zero fill "to be safe" would hide the day that stops
+# being true.
+
+# =============================================================================
+# GLOBAL — the four words that must survive the town visit
+# =============================================================================
+# SCENE DP IS REUSED ACROSS SCENES (read any allocation report: `room` and
+# `room_b` get byte-identical layouts). So every `[scene.overworld]` word below
+# is space the town scene also owns, and "back out to the overworld at the same
+# spot" cannot be built on any of them — the interior's own state lands on top
+# of the camera while she is walking around inside. That is not a hazard to be
+# careful about; it is the allocator doing what it is for, and the answer is to
+# name the three facts that have to outlive the visit and put them where scene
+# scope cannot reach.
+#
+# @dp rather than wram: they are touched twice per visit, so the placement is
+# not about speed — it is that four hot words fit DP with room to spare on this
+# rail (93/256 B before this slice) and a WRAM global costs a long access at
+# every one of those sites for nothing.
+[global]
+
+# The overworld camera and facing, snapshotted at the moment the wipe into the
+# town is ARMED and restored by the return swap. The camera IS the avatar's
+# world position on this rail, so these two words are the whole of "the same
+# spot"; `ovw_facing` is here so she does not silently turn round while indoors,
+# which would be a visible difference in the frame the return settles on.
+ovw_cam_px = "u16@dp"
+ovw_cam_py = "u16@dp"
+ovw_facing = "u16@dp"
+
+# The pending half of a mosaic swap: 0 none / 1 enter the town / 2 leave it.
+#
+# WHY A SWAP IS TWO HALVES AT ALL. mosaic JSRs its swap routine at peak black,
+# mid-tick, and the rebuild that swap has to do is a long CPU-side VRAM upload —
+# which needs FORCED BLANK, not brightness 0 (brightness 0 is a dark picture the
+# PPU is still fetching). Forced blank is INIDISP bit 7, and $2100 has exactly
+# one writer in this engine: scene_mgr's NMI commit, from the ES_SM_NMI+1 shadow
+# (its feature.toml withholds INIDISP from `scene_writes` on purpose — "an
+# enter-time INIDISP write would be reverted by the very next NMI"). So the swap
+# routine sets the shadow's blank bit and this word, and the rebuild runs at the
+# top of the NEXT frame, by which time a real NMI has put forced blank on
+# screen. The picture is black either way, so the split costs one frame of the
+# dissolve's fifteen-frame IN ramp and nothing visible.
+swap_req = "u16@dp"
+
+[scene.overworld]
+
+# --- the camera, which IS the avatar's world position ---------------------
+# WHOLE PIXELS, no fraction: a step is exactly 8 px animated over exactly 8
+# frames at 1 px/frame, so the position is always an integer and a 16.16 pair
+# (m7_dungeon's shape, where speed is a signed 8.8 that must accumulate) would
+# be four bytes of always-zero fraction.
+cam_px = "u16@dp"
+cam_py = "u16@dp"
+
+# --- the slide: one grid step, animated ------------------------------------
+# A step is ARMED by try_step and then plays out over STEP_FRAMES frames with
+# no further input read. That is what makes movement read as walking a grid
+# rather than as free scrolling, and it is also what bounds the camera speed at
+# 1 px/frame — 64x inside mode7_stream's 8-tiles-per-axis-per-frame clamp.
+step_active = "u16@dp"   # 1 while a slide is in flight
+step_remain = "u16@dp"   # frames left in it
+step_dx = "u16@dp"       # per-frame camera delta, SIGNED: -1 / 0 / +1
+step_dy = "u16@dp"
+
+# --- the avatar ------------------------------------------------------------
+# LATCHED, and latched even when the step is REJECTED — she turns to face a wall
+# she cannot walk into. Deliberate: it is the feedback that tells the player the
+# press registered and the terrain refused.
+facing = "u16@dp"        # FACE_DOWN 0 / FACE_UP 1 / FACE_LEFT 2 / FACE_RIGHT 3
+
+# =============================================================================
+# THE TOWN INTERIOR
+# =============================================================================
+# The camera is FIXED here and the sprite is what moves, which is the exact
+# inverse of the overworld — so the position is the avatar's TILE in the room,
+# not a pixel camera, and there is no slide: town input is edge-triggered, one
+# tile per press. Three words, all @dp for the same reason the overworld's are:
+# every one is read on the per-frame path (the input dispatch, the collision
+# test, the OAM placement).
+#
+# THESE OVERLAP THE OVERWORLD'S SCENE DP by construction — see the [global]
+# block's header. That is the reuse the game.toml note anticipated, and it is
+# why the return re-seeds the streamer's tracking rather than assuming it stood.
+[scene.town]
+town_tx = "u16@dp"       # avatar tile x in the 32x32 room
+town_ty = "u16@dp"       # avatar tile y
+town_facing = "u16@dp"   # FACE_DOWN 0 / FACE_UP 1 / FACE_LEFT 2 / FACE_RIGHT 3,
+                         # the same codes m7x_obj names — one sheet, two scenes

@@ -1,0 +1,66 @@
+# irq — the scanline-IRQ owner/dispatcher seat. Scene-scoped.
+#
+# Exactly one feature owns the one H/V timer per scene — that sentence is the
+# whole allocator statement, fixed forever, and this feature is its permanent
+# holder. Rails and consumers NEVER claim HVIRQ themselves: a game that wants
+# scanline work composes `irq` into the scene and calls irq_arm_v — the audio
+# precedent (the occupant owns, game code asks) applied prospectively, so the
+# multi-consumer future needs zero allocator change.
+#
+# WHAT AN IRQ IS: arbitrary CPU code at a scanline — branch on game state,
+# write non-contiguous registers, kick a GP-DMA in a blanking window. The freed
+# HDMA channel a seam-IRQ buys is a consequence, not the definition.
+#
+# WHAT THIS CLAIM GOVERNS. HVIRQ is the four write-only timer ports HTIMEL/H +
+# VTIMEL/H ($4207-$420A) as ONE spanned footprint name (schemas.py — one timer
+# state, one IRQ line, one $FFEE vector, InternalRegisters.cpp:352-377), so an
+# HTIME-only claimant and a VTIME-only claimant REFUSE instead of composing,
+# per scene, through the existing check_reg_ownership pass. With one IRQ user
+# in the tree there is nothing to collide with yet; the claim exists so that
+# the second one refuses correctly instead of quietly sharing a timer.
+#
+# NMITIMEN IS NOT CLAIMED HERE, deliberately. Scene_mgr's `sm_display` owns
+# $4200 game-wide and opens it to scene/boot code (`scene_writes`); arming a
+# scanline IRQ = the game's boot (or post-switch) code composing NMI|V-IRQ into
+# $4200 — never scene enter, whose write the switch-restore strips under that
+# existing permission, after this feature's irq_arm_v has set the timer.
+# DISARM-ACROSS-SCENES IS ALREADY SUPPLIED: scene_mgr masks NMITIMEN at every
+# scene switch (`stz $4200` at the head of `@switch`) and restores NMI +
+# auto-joypad only (`$81`,:178) — IRQ armament structurally cannot outlive a
+# scene, which is why this ownership is per-scene rather than program-wide (the
+# spc precedent's cross-scene persistence is exactly what an armed IRQ lacks).
+#
+# THE VECTOR. $FFEE defaults to NMI_STUB; the composing ROM defines
+# SF_IRQ_VECTOR = <its handler> before header.inc (vendor/rom/header.inc).
+# The handler is GAME/RAIL code — the mechanism that fires at the scanline
+# belongs to the feature that stages it (seam_irq_trial: sit_cam's handler
+# fires the pre-armed seam GP-DMA pair). This feature owns the TIMER and the
+# arming API.
+#
+# COLDSTART SEI MEANS ARM LATE, ARM UNMASKED: IRQ is masked until the arming
+# code's CLI, and an armed-but-masked line makes every `wai` fall through (WAI
+# ends on an asserted IRQ line even with I set — SnesCpu.Shared.h:336-341;
+# measured at ~28k wakes/s in that state). Irq_arm_v's header carries the full
+# sequence contract.
+#
+# ## Deferred (with triggers) — recorded, not implied
+#
+# * WRAM-indirect per-scene dispatch (the $FFEE vector jumps through a WRAM
+#  pointer this feature owns). Trigger: the first game composing two IRQ
+#  users, or per-scene handlers. Until then the link-time vector collision
+#  fails loud (two SF_IRQ_VECTOR definitions in one link).
+# * Dynamic-VTIME re-arm helper (runtime timer moves — a rising water line,
+#  a dragged split). Trigger: the first moving-seam rail. Timer values are
+#  runtime state, never layout, so this is API surface, not claim surface.
+# * Cycle-budget row for handler time. Trigger: a composition nearing the
+#  CPU pin. The seam handler's measured critical section is in
+#  sit_cam.asm's header.
+name = "irq"
+role = "feature"
+
+# The one H/V timer. Written by this feature's own irq_arm_v (irq.asm), so the
+# writer-side gate's feature-strict tier covers this build writes with no
+# scene_writes hatch — the owner writes its own ports.
+[[claims.reg]]
+name = "hvirq"
+registers = ["HVIRQ"]

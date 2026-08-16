@@ -1,0 +1,51 @@
+# brawler — the second OBJ name table.
+#
+# "IRON KNIGHTS" — Arthur Pendragon versus Mordred: two animated multi-frame 32x32
+# knights on a terrain floor with an HP / FOE / WINS text HUD. You move
+# four-way inside a shallow lane band, face your travel direction (OAM
+# H-flip) and swing a sword; Mordred walks toward you and hits back. Three
+# landed swings bank a win and respawn him; losing all HP freezes on
+# GAME OVER.
+#
+# THE ONE ALLOCATOR `partial` IN THE SET: this rail is the only one that
+# touches the second OBJ name table. The resolution is in
+# engine/features/brawler_obj/feature.toml's header.
+#
+# ONE SCENE, no edges -- this rail has no scene machine at all (one RESET, one
+# game loop), so a title screen would be surface it has no content for.
+# scene_mgr is composed anyway because it owns the INIDISP commit and the frame
+# sync (hud_game / scroller / camera_follow / stomper's shape).
+#
+# THE COMPOSITION, feature by feature:
+#
+#   bg_text     COMPOSES as written -- HP / FOE / WINS and GAME OVER are BG3
+#               text. Note the queue's shape drives two port decisions: it
+#               holds ONE run of up to 4 cells per frame, so the three
+#               counters reprint one per frame and "GAME OVER" pumps nine
+#               cells over nine frames.
+#   room_bg     NOT COMPOSABLE: it is welded to `room` (depends =
+#               ["room_rom"]; room_bg.asm resolves six of that blob's symbols
+#               by name), so the display would be the room's dungeon art, not
+#               this rail's terrain floor. What carries over is the keystone
+#               BG PATTERN; brawler_bg is its next instance after stomper_bg.
+#   oam_sprites COMPOSES as written (the transport; brawler_obj stages).
+#   input       COMPOSES as written (btn = ES_INP_CUR, btnp = ES_INP_PRESS).
+#
+# THERE IS NO BOX-VS-BOX COLLISION FEATURE to compose: SuperForge has col_map
+# (tile probes) and nothing box-vs-box, so this rail expresses the overlap test
+# game-side as one scene subroutine with DP argument slots -- stomper's
+# st_solid_box shape, one level up.
+#
+# NOT COMPOSED, each for a reason:
+#   audio       this rail is silent: nothing queues music or SFX.
+#   backdrop    brawler_bg's palette group 0 claim owns CGRAM word 0 (the
+#               backdrop slot) -- the scroller refusal, pre-empted here.
+#   col_map     the rail probes no tiles: the floor is scenery and the lane
+#               band is a pair of constants. Composing it would declare a
+#               world binding nothing reads.
+globals = ["scene_mgr", "input", "fade", "text_dp", "font_rom", "enter_scr",
+           "oam_sprites", "brawler_rom"]
+
+[[scene]]
+id = "fight"
+features = ["brawler_bg", "brawler_obj", "bg_text"]

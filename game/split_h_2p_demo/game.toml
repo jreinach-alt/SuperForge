@@ -1,0 +1,77 @@
+# split_h_2p_demo — two Mode 7 cameras, one world, one frame.
+#
+# A HORIZONTAL split screen over a single wrapping checker plane: the top 112
+# scanlines are camera 1's view of it, the bottom 112 are camera 2's, and the
+# two cameras hold INDEPENDENT world positions that pan at different rates. The
+# rail's subject is that neither band runs a live perspective solve — each
+# streams a ROM-resident per-scanline pose table straight through INDIRECT HDMA,
+# so the whole per-frame CPU is a handful of VBlank stores.
+#
+# ONE SCENE, no edges, mirroring split_v_fight's and m7_dungeon's shape. The
+# picture is the showcase; a title screen would add surface with no value.
+#
+# TWO PADS. Pad 1 drives camera 1 and pad 2 drives camera 2: D-pad Left/Right
+# steps that camera's heading one pose per frame HELD, B drives it forward
+# 2 px/frame. `input` and `input2` are composed for exactly that, and
+# `sh2_cam`'s cam_input is the only reader.
+#
+# THE PADS REPLACE THE AUTONOMOUS STEP rather than adding to it. With nothing
+# held the cameras stand still and only the swarm moves. `-D SH2_AUTOCAM`
+# restores an autonomous rotate+drive for a hands-off capture; cam_input's
+# header records why the two are exclusive (with both applied, "Right rotates
+# camera 1" would be indistinguishable from the auto step on the camera whose
+# auto sense is already +1, which is half the input surface untestable).
+#
+# NOT COMPOSED, and each for a reason the allocator would enforce anyway:
+#   m7_affine   -- REFUSED, and this was RUN rather than reasoned. Adding it
+#                  here makes the allocator say "REGISTER ownership contention
+#                  in scene 'split': m7_matrix (engine:m7_affine) and
+#                  sh2_origin_seed (engine:sh2_cam) both write ['BG1HOFS',
+#                  'BG1VOFS', 'M7X', 'M7Y']" -- and note it is the reg x reg
+#                  check that fires, not the reg x hdma one, because
+#                  m7_affine's one claim covers the ORIGIN registers as well
+#                  as M7A-M7D.
+#                  The matrix conflict is real too and fires next: a static
+#                  affine matrix and a per-scanline streamed one are two
+#                  mechanisms for one register set.
+#   m7_project  -- depends on m7_affine, and its inverse is the transpose of a
+#                  UNIFORM rotation, which a per-scanline matrix does not have.
+#                  It projects against m7_affine's static pose, which this rail
+#                  does not have either.
+#   mode7_persp -- its m7ab/m7cd claims own M7A-M7D by the same mechanism but a
+#                  DIFFERENT shape: one band, a CPU origin shadow, a 180-line
+#                  1024-B stride. Sibling, not parameterisation.
+#   split_band  -- splits BGMODE/TM per scanline. This rail writes BGMODE 7 and
+#                  TM 1 ONCE under forced blank for all 224 lines: the split
+#                  here is of the camera ORIGIN, not of the video mode, so
+#                  there is no second splitter to generalise.
+#   mode7_floor -- depends on world_rom (a 256 KB map this rail never reads) and
+#                  pins CGRAM 0..16 for microzero's palette.
+#   backdrop    -- sh2_floor claims CGRAM word 0, which in Mode 7 is BOTH
+#                  palette index 0 and the backdrop slot, so it has exactly one
+#                  owner by hardware contract.
+#   bg_text     -- BG3 does not exist in Mode 7. The picture is the HUD.
+#
+# COMPOSED, and worth naming because a two-camera rail makes them non-obvious:
+# `m7_persp_project` + `sh2_obj` + `oam_sprites` + `sh2_swarm` give the plane a
+# cast that is not world-fixed — 24 live entities, two tracking the players'
+# own cameras and 22 AI waypoint followers, projected onto BOTH cameras every
+# frame.
+#
+# NO AUDIO, deliberately. This rail's per-frame cadence is one of the things it
+# measures, and an audio tick every frame would perturb it. So `audio` and
+# `tad_rom` are not composed, no `Tad_*` call appears in main.asm, and the two
+# TAD objects are off the link entirely. Adding music back would be the
+# "prettify the demo" move, and a demo that prettifies stops measuring what it
+# was built to measure.
+#
+# It also frees window 1: `tad_rom` PINS it (vendor/rom's cfg maps AUDIO_DATA0
+# to ROM1 by name), so with no audio export in the composition the 32,768 B map
+# takes window 1 and the eight pose slices take 2..9.
+globals = ["scene_mgr", "fade", "input", "input2", "oam_sprites",
+           "sh2_rom", "sh2_sprite_rom"]
+
+[[scene]]
+id = "split"
+features = ["sh2_floor", "sh2_cam", "m7_persp_project", "sh2_swarm",
+            "sh2_obj"]

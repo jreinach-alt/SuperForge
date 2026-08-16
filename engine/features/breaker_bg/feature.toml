@@ -1,0 +1,130 @@
+# breaker_bg — the breaker arena: BG1 walls + brick wall, BG2 night bed.
+# Scene-scoped. This is the BG KEYSTONE: the first per-rail BG feature after
+# room_bg, and the shape the remaining five BG rails follow.
+#
+# LAYER OWNERSHIP, ASSERTED IN PROSE BECAUSE THAT IS ALL THERE IS. This feature
+# owns BG1 and BG2 in the `play` scene: BG1SC ($2107), BG2SC ($2108), BG12NBA
+# ($210B), the four scroll latches, BGMODE ($2105) and TM ($212C) are written
+# by this scene and by nothing else in the game. Layer identity is NOT a
+# resource the allocator models.
+#
+# BOTH LAYERS IN ONE FEATURE IS FORCED, not stylistic -- standing decision
+# BG12NBA is one write-only port carrying both layers' CHR base nibbles,
+# so a "brick wall" feature owning BG1 and a "night sky" feature owning BG2
+# would each have to claim it, and `check_reg_ownership`'s reg x reg loop has
+# no `seed` exemption: the allocator REFUSES that composition. Room_bg already
+# pays this deliberately; this feature is the second instance and the one that
+# makes it a pattern rather than a one-off.
+#
+# WHY THERE IS A BG2 AT ALL. It is the bed the backdrop wash lands on.
+# Rgb_gradient's colour math adds its per-scanline COLDATA ramp to BG1+BG2
+# (rgb_gradient.asm:110-113, a fixed CGADSUB the feature owns), so the ramp
+# needs a surface behind the arena to fall on. BG1's empty cells are tile 0 --
+# fully transparent -- so the ramp shows through the holes in the brick wall
+# and behind the pit, which is what makes the ramp read as "night behind the
+# arena" rather than as a coloured stripe. Composing the built feature costs
+# one solid tile and one tilemap fill; hand-rolling the HDMA would cost a
+# channel this scene has already declared away.
+#
+# PALETTES. BG 4bpp sub-palettes are CGRAM words 16*p .. 16*p+15. BG3's 2bpp
+# palettes live in words 0..31 and bg_text pins 28..31, so this feature takes
+# palettes 2 and 3 (words 32..47 and 48..63) and leaves 0..31 alone -- the same
+# split room_bg made, for the same reason. Both claims include the
+# sub-palette's index-0 slot, which no 4bpp pixel can render: owning it costs
+# nothing, keeps the whole region written at enter (rule 5), and stops a second
+# feature putting a colour there that would read as live to anyone inspecting
+# CGRAM.
+name = "breaker_bg"
+role = "feature"
+depends = ["breaker_rom"]
+
+# The enter-time CHR uploads, word-port (mode 1 drives VMDATAL+VMDATAH). Phase
+# forced_blank -- scene_mgr's enter clears HDMAEN and zeroes NMITIMEN, so this
+# cannot race an active or vblank claim even on a shared channel number.
+[[claims.dma_init]]
+name = "brk_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "brk_chr"
+kind = "chr"
+tiles = 6                # empty, wall, 4 brick colours
+tile_bytes = 32          # 4bpp
+
+[[claims.vram]]
+name = "brk_map"
+kind = "tilemap"
+words = 0x400            # 32x32; BG1SC bases are 0x400-word granular
+
+[[claims.vram]]
+name = "sky_chr"
+kind = "chr"
+tiles = 1                # one solid tile -- the whole BG2 layer is this tile
+tile_bytes = 32          # 4bpp
+
+[[claims.vram]]
+name = "sky_map"
+kind = "tilemap"
+words = 0x400
+
+[[claims.cgram]]
+name = "brk_pal"
+words = 16
+at = 32                  # hardware contract: BG 4bpp palette 2 = words 32..47
+
+[[claims.cgram]]
+name = "sky_pal"
+words = 16
+at = 48                  # ...palette 3 = words 48..63
+
+# THE LEVEL'S SECOND HALF. The BG1 tilemap in VRAM is what the player SEES; a
+# running scene cannot read VRAM back (this build is blank-only), so the thing
+# the ball's probe asks about lives here: one collision byte per BG1 cell,
+# 32x32. 0 = empty, 1 = wall (reflects, never breaks), 2 = brick (reflects AND
+# breaks). Written in full by brk_build_level under the enter-time forced blank
+# -- in the SAME loop that writes the VRAM word, so the two cannot be built out
+# of step -- and mutated one cell at a time as bricks break.
+#
+# WRITE-BEFORE-READ BY CONSTRUCTION, no [init] zero: brk_build_level writes all
+# 1024 bytes at enter before any tick runs, and 0 is a legitimate value here
+# (empty), so pre-zeroing would hide a "build_level stopped running" defect
+# behind a plausible answer -- the same argument col_map/feature.toml makes at
+# length, and CLAUDE.md rule 5's "never zero-init to be safe".
+[[claims.wram]]
+name = "brk_cells"
+bytes = 1024             # 32 cols x 32 rows, one collision byte per cell
+
+# THE BREAK QUEUE. Breaking a brick must rewrite a BG1 tilemap cell while the
+# display is ACTIVE, which no forced-blank writer can do. This is bg_text's
+# live-HUD-cell pattern (AGENTS.md "Established patterns") applied to BG1: the
+# tick stages cells, brk_vblank_commit writes them during VBlank with CPU
+# stores. No DMA channel, no VBlank byte budget -- 4 stores per cell.
+#
+# Depth 4 is not a guess: one tick runs brk_move_x and brk_move_y, each of
+# which probes TWO points, so at most FOUR bricks can break in one frame. The
+# queue cannot overflow by construction, and brk_break asserts that at build
+# time via the emitted _SIZE.
+#
+#  +0 u8 count (0 = nothing staged) +1 u8 pad (keeps the entries u16-aligned)
+#  +2 .. +17 4 x { u16 VRAM word address, u16 tilemap word }
+[[claims.wram]]
+name = "brk_q"
+bytes = 18
+
+# C4 (docs/09 §2.1): the BG1+BG2 layer configuration AND the scene's base
+# display mode.
+#
+# ATTRIBUTION. BGMODE/TM are written by game/breaker/scenes/play.asm -- the
+# scene's enter code -- not by breaker_bg.asm; the other seven are written by
+# breaker_bg.asm itself. That is why the field is a LIST and not a boolean, and
+# why the lies-check compares per REGISTER rather than per claim. Scene enter
+# code has no feature.toml and `[[scene]]` accepts no claims, so the ownership
+# is attributed to the feature the write SERVES, which is this one: breaker_bg
+# is what makes `play` a two-BG-layer Mode 1 scene.
+[[claims.reg]]
+name = "brk_layers"
+registers = ["BG1SC", "BG2SC", "BG12NBA", "BG1HOFS", "BG1VOFS",
+             "BG2HOFS", "BG2VOFS", "BGMODE", "TM"]
+scene_writes = ["BGMODE", "TM"]

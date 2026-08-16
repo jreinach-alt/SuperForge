@@ -1,0 +1,62 @@
+# patrol_rom — every immutable byte the `patrol` rail reads.
+#
+# A `blob`: ROM claims, no behaviour, no asm. All six blobs are emitted by
+# tools/gen_patrol_assets.py, which holds the byte tables and the level-build
+# loops — see that generator's header for what each table is.
+#
+# THE LEVEL IS ONE BLOB WITH TWO CONSUMERS — the same answer `maze` reaches to
+# "runtime-built map vs ROM-reading col_map". Build the 32x28 level at boot
+# with four `mset` loops and let collision read the shadow tilemap those loops
+# wrote, and "what you see is what blocks" holds by shared WRAM — but col_map
+# here reads ROM (its feature.toml records why a WRAM mirror aliases), so the
+# single source moves into ROM instead: `pat_map` is a 32x32 byte tile-id map
+# that patrol_bg's enter loop RENDERS to the BG1 tilemap cell-by-cell AND the
+# play scene binds as CM_WORLD_BLOB. One byte, two consumers, no drift
+# possible. The four build loops (@ground / @border / @lowwalls / @plat) live
+# in the generator and are kept AS loops, so the level stays readable as the
+# handful of rules that describe it rather than as 1 KB of opaque bytes.
+name = "patrol_rom"
+role = "blob"
+depends = []
+
+[[claims.rom]]
+name = "pat_bg_chr"
+bytes = 96               # 3 x 4bpp tiles. Tile 2 is the terrain tile (all
+                         # colour index 1); tiles 0/1 are blank. Three tiles
+                         # rather than one so the tilemap word IS tile id 2 —
+                         # the level map stores tile ids directly, so the ids
+                         # in the map and the ids in VRAM are the same
+                         # numbers and neither has to be renumbered.
+
+[[claims.rom]]
+name = "pat_bg_pal"
+bytes = 32               # 16 CGRAM words — group 0. Word 0 IS the backdrop
+                         # (black), word 1 the wall grey $39CE.
+
+[[claims.rom]]
+name = "pat_obj_chr"
+bytes = 32               # 1 x 4bpp tile, all pixels colour index 1 — one
+                         # tile shared by the player and both enemies. They are
+                         # told apart by palette, not by CHR, which is what
+                         # keeps this claim to a single tile.
+
+[[claims.rom]]
+name = "pat_obj_pal"
+bytes = 64               # 32 CGRAM words: OBJ palette 0 (word 1 = OBJ_RED
+                         # $001F, the player) then OBJ palette 1 (word 1 =
+                         # OBJ_MAGEN $7C1F, both enemies — an OAM attribute
+                         # byte of $02 selects palette 1).
+
+[[claims.rom]]
+name = "pat_map"
+bytes = 1024             # the 32x32 byte tile-id level map (rows 28..31 empty
+                         # padding — the level itself is 32x28, and 32x32 keeps
+                         # the row stride a shift). Rendered to VRAM at enter AND
+                         # bound as col_map's CM_WORLD_BLOB: one source, two
+                         # consumers.
+
+[[claims.rom]]
+name = "pat_flags"
+bytes = 256              # tile id -> collision flag byte, col_map's CM_FLAGS.
+                         # Entry 2 = $01 — tile id 2 is the terrain tile, and
+                         # it is the only solid one. Every other entry 0.

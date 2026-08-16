@@ -1,0 +1,12 @@
+# reg-gate fixture: the SILENT sibling of rgfx_alu_fires — the ALU claim
+# covers every port of the span (race_logic's shape).
+name = "rgfx_alu_silent"
+role = "fixture"
+
+[[claims.dp]]
+name = "rgfx_alus_state"
+bytes = 2
+
+[[claims.reg]]
+name = "rgfx_alus_alu"
+registers = ["ALU"]

@@ -1,0 +1,14 @@
+# reg-gate fixture: the vwf shape — NO vram claim; VMDATAL/VMDATAH claimed AS
+# PORTS on a vblank hdma claim. Its CPU store to $2118 must stay silent
+# (docs/09 §2.1: "a data port you claim as a port").
+name = "rgfx_hdma_port"
+role = "fixture"
+
+[[claims.hdma]]
+name = "rgfx_hp_q"
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+phase = "vblank"
+
+[claims.dma]
+vblank_bytes_per_frame = 32

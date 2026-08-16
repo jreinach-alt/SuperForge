@@ -1,0 +1,97 @@
+# pfs_rom — every immutable byte the `platformer_stream` rail reads.
+#
+# A `blob`: ROM claims, no behaviour, no asm. The sibling of
+# `platformer_rom` / `m7x_rom`, and the role that exists precisely because a
+# claim set cannot distinguish it from a feature (`AGENTS.md`: `car_rom` and
+# `col_map_rom` both claim `rom` with no deps and are blobs, while `backdrop`
+# claims `cgram` with no deps and is a feature).
+#
+# =============================================================================
+# WHY THE SAME TILEMAP IS HERE TWICE, IN TWO ORDERS
+# =============================================================================
+# `pfs_flat` is COLUMN-major and `pfs_flat_row` is ROW-major, and they hold the
+# identical 128x128 tilemap. That is not redundancy; it is what makes a 2-axis
+# streamer's inner loops contiguous reads instead of strided ones.
+#
+# A streamed COLUMN wants 64 consecutive world ROWS of one column; a streamed
+# ROW wants 64 consecutive world COLUMNS of one row. One layout can serve one
+# of those contiguously and must stride 256 bytes for the other — 64 scattered
+# reads per staged line, on the axis that got the wrong order. Two copies at
+# two orders is the trade: ROM for a contiguous read on both axes.
+#
+# AND EACH COPY IS EXACTLY 32,768 B = ONE LoROM WINDOW, deliberately. That is
+# what keeps a producer's source pointer from ever crossing a bank seam, which
+# on LoROM is not a carry but a discontinuity ($01:FFFF -> $02:8000 skips an
+# unmapped half-bank). A 256-wide world would make the column copy two windows
+# and force the bank-stepping pattern into both inner loops; 128x128 still
+# streams four screens of new authored content past the ring on both axes.
+#
+# NONE OF THESE IS `bank_tiled`. Every one is a single chunk — the largest is
+# exactly one window — so no consumer here derives a bank as BASE+i and none of
+# them owes the consecutive-banks assert that `mode7_stream` and `col_map`
+# document. What `col_map` DOES owe on a one-chunk blob is the assert that it
+# really is one chunk, which the scene pastes (m7_dungeon's shape).
+name = "pfs_rom"
+role = "blob"
+depends = []
+
+# --- the level, twice -------------------------------------------------------
+[[claims.rom]]
+name = "pfs_flat"
+bytes = 32768            # 128 cols x 128 rows x 2 B — col N's words at N*256
+
+[[claims.rom]]
+name = "pfs_flat_row"
+bytes = 32768            # the same map, row-major — row M's words at M*256
+
+# --- world-space collision, and it is col_map's blob ------------------------
+# 1 byte per tile, row-major, $01 solid / $00 air. Col_map reads it by WORLD
+# tile coordinate, so what blocks the player is the true world geometry and not
+# whatever the 64x64 ring happens to hold — the property the whole rail turns
+# on, and it comes free from reading ROM rather than VRAM.
+#
+# 16,384 B is HALF a window, and that is fine and worth stating: col_map's
+# general form is `rpc = 32768/W` rows per window, so at W = 128 it computes
+# `rpc = 256` and indexes `(ty & 255)*128 + tx`. The rail's ty never exceeds
+# 127, so the reachable offsets are 0..16383 and the upper half of the window
+# is never addressed. The claim reserves what the blob is, not what the
+# addressing could reach.
+[[claims.rom]]
+name = "pfs_col"
+bytes = 16384
+
+# --- col_map's tile-id -> flag LUT ------------------------------------------
+# col_map returns CM_FLAGS[blob_byte]. The blob above already holds 0/1, so
+# this is the near-identity that lifts it into col_map's flag vocabulary (entry
+# 1 -> PFS_FLAG_SOLID, everything else 0). Writing the table out is what keeps
+# the col_map reuse literally zero-change: the alternative is a special case
+# inside a feature four rails share.
+[[claims.rom]]
+name = "pfs_flags"
+bytes = 256
+
+# --- art that is copied, not generated --------------------------------------
+# Both are vendored under vendor/art/platformer_stream/ with provenance: they
+# are quantized from a Four Seasons tileset image that is in neither art pack,
+# so there is nothing to regenerate them from and a byte-identity check would
+# be comparing them to themselves. See that README.
+[[claims.rom]]
+name = "pfs_chr"
+bytes = 800              # 25 unique 8x8 4bpp BG tiles
+
+[[claims.rom]]
+name = "pfs_pal"
+bytes = 32               # 16 CGRAM words
+
+# --- the hero -----------------------------------------------------------
+# One 16x16 four-frame idle. NOT vendored again: the same drawing already
+# lives at vendor/art/dungeon_sprites/ref_hero.inc and this rail's copy is
+# byte-identical to it, so the same converter path serves both.
+[[claims.rom]]
+name = "pfs_hero_chr"
+bytes = 1024             # 4 frames x 16x16 4bpp, laid out for the PPU's
+                         # +16-tile-numbers second row
+
+[[claims.rom]]
+name = "pfs_hero_pal"
+bytes = 32

@@ -1,0 +1,11 @@
+# reg-gate fixture: the [azf]-prefix regex trap. STORE_RE's old `[azf]?:?`
+# let the class eat the bare leading letter
+# of a symbol operand, so `sta FADE_PORT` resolved as `ADE_PORT` = nothing
+# and evaded while `sta a:FADE_PORT` fired. The atomic `(?:[azf]:)?` group
+# gives both spellings one verdict — this fixture pins it.
+name = "rgfx_azf_evasion"
+role = "fixture"
+
+[[claims.dp]]
+name = "rgfx_azf_state"
+bytes = 2

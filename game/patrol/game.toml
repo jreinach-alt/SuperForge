@@ -1,0 +1,36 @@
+# patrol — the composition reference: every surface at once.
+#
+# Two
+# magenta enemies pace their beats — one on the ground between two low walls,
+# one on a floating platform turning at its ledges — while a red player runs
+# and jumps through. Touching an enemy knocks the player back to the spawn and
+# ticks a "HITS" counter; getting past them is the game. The rail composes
+# every surface at once: sprites, BG terrain, text HUD, tile collision, jump
+# physics, and patrol.
+#
+# ONE SCENE, no edges — this rail has no scene machine (one RESET, one game
+# loop); scene_mgr is composed for the INIDISP commit and the frame sync.
+# NO AUDIO — nothing here queues music or SFX; hud_game's shape.
+#
+# WHY NOT room_bg. The allocator ACCEPTS it ("allocation OK: 1 scene(s), 31
+# placements", room_rom dragged in via depends) and it still cannot express the
+# rail, on maze's exact grounds: room_bg renders room_rom's OWN baked art (six
+# of that blob's symbols by name), so the picture would be the `room` game's
+# room, not patrol's level; and col_map composed against it has nothing to bind
+# — its six `.error`-guarded CM_* symbols need a packed byte tile-id map + a
+# 256-entry flag table, and room_rom carries VRAM-format word tilemaps. The
+# build would stop at ASSEMBLY time. What carries over is the keystone BG
+# *pattern*, which `patrol_bg` re-instantiates; `bg_text`, `col_map`,
+# `oam_sprites` and `input` compose as written.
+globals = ["scene_mgr", "input", "fade", "text_dp", "font_rom", "enter_scr",
+           "oam_sprites", "patrol_rom"]
+
+[[scene]]
+id = "play"
+features = ["bg_text", "patrol_bg", "patrol_obj", "col_map"]
+# col_map is composed here rather than globally because its code belongs to
+# the one scene that has a world (m7_dungeon's reasoning). Its SIX binding
+# symbols are defined at the include site in scenes/play.asm — the level blob
+# pat_map is the world, pat_flags the tile-id -> flag table, both patrol_rom's
+# claims. BGMODE/TM belong to patrol_bg (the feature that defines the scene's
+# display shape); bg_text deliberately does not claim them (its own toml).

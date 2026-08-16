@@ -1,0 +1,114 @@
+# m7dg_obj — the dungeon's cast: the hero, three enemies, the win card.
+# Scene-scoped. Model: platformer_obj / split_v_obj.
+#
+# THE HERO DOES NOT PROJECT, AND THAT IS THE CAMERA MODEL, not a shortcut.
+# M7a_set_center pins the pivot — the hero's world position — at screen centre
+# (128,112) for every heading. So the hero's screen position is a CONSTANT by
+# construction, and computing it would be computing 128 the long way. What
+# rotates is the floor beneath him. Everything else in the world moves relative
+# to that pin, which is what m7_project exists to work out.
+#
+# SEVEN SPRITES, EIGHT SLOTS. A hi-table BYTE covers four sprites (2 bits each:
+# bit 0 = X9, bit 1 = size), so a seven-sprite cast ends mid-byte and the last
+# two bits would belong to a sprite this feature does not own — which means the
+# byte could only be read-modify-WRITTEN, and a stale X9 renders a sprite 256
+# px away (the failure this project has a lessons-learned entry about). Owning
+# the eighth slot lets both bytes be REBUILT WHOLE every frame. Platformer_obj
+# pays one parked slot for the same property; this pays one too.
+#
+# OBSEL IS CLAIMED HERE, following breaker_obj / platformer_obj / split_v_obj.
+# Oam_sprites claims only OAMDATA — it is the OAM *transport*, not the sprite
+# size/base authority — so every rail's OBJ feature declares OBSEL itself.
+#
+# WHERE THE ENEMIES ARE IS BOUND BY THE INCLUDER (`MDO_ENEMY_POS`), not named
+# here. Reading the scene's `enemy_world` ROM table directly is honest only
+# while the cast stands still; these enemies PACE, so their position is state
+# and the ROM table is only the seed. One bound symbol means the sprite and
+# the collision test read the SAME live position — a feature still reading the
+# seed would draw every slime at its spawn while the game moved it.
+name = "m7dg_obj"
+role = "consumer"
+depends = ["oam_sprites", "m7dg_rom", "m7_project"]
+
+# The enter-time uploads: three sprite sheets into OBJ VRAM, one DMA each. The
+# channel is a declared resource; DAS is re-armed per transfer at the one
+# arming site (m7dg_obj.asm, MDO_CHR_UP) because it is consumed by each one.
+[[claims.dma_init]]
+name = "mdo_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# The per-frame placement scratch. A call frame, not state — every byte is
+# written before it is read inside one mdo_draw, so there is no `[init] zero`.
+#  +0 screen x (9-bit OBJ space) +2 screen y +4 the enemy loop index
+[[claims.dp]]
+name = "mdo"
+bytes = 6
+
+# 96 tiles = SIX rows of the 16-wide OBJ name sheet, and the row pairing is the
+# hardware's, not ours: a 16x16 sprite reads {N, N+1, N+16, N+17}, so every
+# actor spans TWO grid rows and the three actors sit at tiles 0, 32 and 64 —
+# one row PAIR each. The 18-tile blobs the generator emits are laid out for
+# exactly that ({0,1,16,17} filled, the fourteen between them zero), so a sheet
+# uploads as one contiguous DMA with no unpacking.
+#
+# The base is not written here and cannot be: the scene's `mode7` claim pins
+# words $0000-$3FFF, and the allocator floors every OBJ CHR claim above it
+# (substrate [vram.mode7] displaces_obj_chr_to_word). The emitted
+# ES_V_OBJ_CHR_OBSEL_BASE is what the ASM writes into OBSEL.
+[[claims.vram]]
+name = "obj_chr"
+kind = "chr"
+obj = true
+words = 1536
+
+[[claims.cgram]]
+name = "hero_pal"
+words = 16
+at = 128                 # hardware contract: OBJ palette 0 = CGRAM 128..143
+
+[[claims.cgram]]
+name = "enemy_pal"
+words = 16
+at = 144                 # OBJ palette 1
+
+[[claims.cgram]]
+name = "win_pal"
+words = 16
+at = 160                 # OBJ palette 2
+
+# THE SLOT MAP IS PINNED, NOT PACKED. OAM index order IS sprite-vs-sprite
+# priority (lowest index in front) and the packer sorts by (-sprites, name), so
+# a packed layout's priority would be an accident of claim names. The hero is
+# slot 0 — in front of everything, because on a plan-view rail the one sprite
+# the player is steering must never be occluded by a patrol walking over it.
+[[claims.oam]]
+name = "hero"
+sprites = 1
+at = 0
+
+[[claims.oam]]
+name = "enemies"
+sprites = 3
+at = 1
+
+# The win card's three stars. Uploaded and claimed here, drawn by the code that
+# owns reaching the goal — the CHR, the palette and the slots are what a later
+# change would otherwise have to renegotiate against a shipped OBSEL and a
+# shipped hi-table ownership split.
+[[claims.oam]]
+name = "win"
+sprites = 3
+at = 4
+
+# The eighth slot, claimed so the second hi-table byte has ONE owner and can be
+# rebuilt whole (see the header). Parked at y = $F0 for the ROM's life.
+[[claims.oam]]
+name = "hi_pad"
+sprites = 1
+at = 7
+
+[[claims.reg]]
+name = "obj_obsel"
+registers = ["OBSEL"]

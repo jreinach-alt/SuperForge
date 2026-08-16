@@ -1,0 +1,200 @@
+# superforge substrate model — the hardware budget + constraints the allocator solves
+# against. Encodes docs/01_substrate_reference.md (fullsnes-grounded; cites there).
+# Exact numbers are authoritative; "MEASURE" placeholders are pinned by the
+# the probes and written back here — never estimated.
+
+[meta]
+schema_version = 1
+source = "docs/01_substrate_reference.md"
+
+[vram]                          # 64 KB installed, word-addressed
+words = 0x8000                  # 32 K words; VMADD bit 15 unconnected
+addr_mask = 0x7FFF              # nominal bases reduce mod $8000 (the VMADD wrap)
+tilemap_align_words = 0x400     # BGxSC: 1 K-word (2 KB) steps
+chr_align_words = 0x1000        # BGxxNBA: 4 K-word steps
+obj_chr_align_words = 0x2000    # OBSEL bits 0-2: OBJ tile base in 8 K-word steps
+                                # (fullsnes 2101h)
+blank_access_only = true        # writes land only in VBlank / forced blank
+
+[vram.mode7]                    # the interleaved special case
+region_words = 0x4000           # 32 KB = half of VRAM, words $0000-$3FFF, base fixed at 0
+base_word = 0x0000              # Mode 7 ignores BGxSC/BGxxNBA
+map_bytes = 0x4000              # 128x128 tiles at EVEN byte addresses (16 KB)
+chr_bytes = 0x4000              # 256 tiles x 64 B at ODD byte addresses (16 KB)
+map_tiles = [128, 128]          # 1024x1024 px torus; Screen Over wraps (M7SEL 0/1)
+displaces_obj_chr_to_word = 0x4000   # every M7 scene forces OBJ CHR base >= word $4000
+
+[dp]                            # direct page — the single scarcest class
+bytes = 256                     # shared engine + user hot vars, global/scene scoped
+
+[wram]
+bytes = 0x20000                 # 128 KB, $7E:0000-$7F:FFFF
+bank_bytes = 0x10000            # a DMA source cannot cross a bank boundary
+low_mirror_bytes = 0x2000       # low 8 KB mirrored at $xx:0000-$1FFF
+reserved_low_bytes = 0x200      # $7E:0000-$01FF: native DP page (D=$0000) + stack —
+                                # system-owned, never allocated to claims
+wram_to_wram_dma = false        # no WRAM<->WRAM DMA
+
+[cgram]
+words = 256                     # 512 B; allocate by sub-palette group, not flat
+
+[oam]
+bytes = 0x220                   # 512 B low table + 32 B high table
+sprites = 128
+oamadd_reload_at_vblank = true  # PPU destroys OAMADD during render
+
+[sram]                          # battery-backed cart RAM — LoROM window
+bytes = 0x8000                  # cap: one bank window ($70:0000-$7FFF), the
+                                # region every mapper variant agrees on
+                                # Mesen maps whole banks
+                                # $70-$7D/$F0-$FF and a small part MIRRORS
+                                # across the window in 4 KiB chunks; sizes
+                                # above one window need a mapping decision,
+                                # so the cap IS the model). Demand today is
+                                # 64 B. The cart header's $FFD8 size byte +
+                                # $FFD6 battery type are DERIVED from packed
+                                # demand at emit time — no per-game knob.
+bank = 0x70                     # canonical access bank (reference convention:
+                                # SRAM_BASE = $700000). Always-slow region —
+                                # 8 mc/access, MEMSEL-independent; never
+                                # quote /6 for a save copy.
+
+[spc]                           # the audio CPU's RAM — one flat 64 KiB space
+bytes = 0x10000                 # occupancy is EXCLUSIVE and PROGRAM-wide: the
+                                # vendored TAD driver owns and packs the whole
+                                # space, and its compiler refuses over-budget
+                                # song compositions at build time.
+                                # The allocator checks only the BOUNDARY (one
+                                # occupant per game), never the interior — a
+                                # parallel model of TAD's packing would be a
+                                # second source of truth that drifts (
+                                # §3c). The own-driver region form is pre-scoped
+                                # in
+
+[channels]                      # DMA/HDMA — shared pool of 8
+count = 8
+# Collision unit is (register, scanline-band, frame-phase, channel):
+#   - channels are reusable across DISJOINT scanline bands (NON-REPEAT tables)
+#   - VBlank GP-DMA and active-display HDMA are time-disjoint on ONE channel
+# (the reference scene's CH0 = OAM GP-DMA in VBlank + COLDATA-R HDMA in active display)
+hdma_over_dma_priority = true
+hdma_runs_in_forced_blank = true
+hdma_units_per_scanline_per_channel = 1   # one unit (<=4 B) per channel per line
+no_gpdma_on_armed_hdma_channel_same_line = true
+
+[dma]
+cost_mc_per_byte = 8            # fixed, cart/WRAM -> PPU
+
+[frame.ntsc]
+lines = 262
+mc_per_line = 1364
+mc_per_frame = 357368           # 1364 * 262
+visible_lines = 224             # 224-line mode (239 in overscan)
+vblank_lines = 38
+# --- ⟨measure⟩ pins (deliverable 6 writes these; see [measured]) ---
+vblank_usable_bytes = 5952        # MEASURED (deliverable 6.1)
+vblank_usable_start_pin = 5500      # fallback until measured: the old engine's shipped
+                                    # constant (engine_state.inc:1574; 03 §6 says start here)
+# MASTER CLOCK, and the name says so (renamed 2026-07-30 from the misnamed
+# `cpu_cycles_per_frame`, which read as CPU cycles and suppressed the sanity
+# check — it let a 118,454 mc measurement be quoted beside a 30-40k CPU-cycle
+# mental model without anyone flinching, 2026-07-29). The reference
+# workload's worst 60 fps frame, NOT a budget; [measured.cpu]
+# below records the identical number as `worst_60fps_frame_mc`, and
+# pin_budgets.py checks it against the measurement JSON's
+# `cpu_cycles_per_frame_worst_mc` (the JSON key is unchanged by the rename).
+# Divide by 6 (FastROM, 3.58 MHz) or 8 (slow, 2.68 MHz) for CPU cycles:
+# 305,348 mc = 50,891 fast / 38,169 slow cycles; the frame is 357,368 mc
+# = 59,561 fast / 44,671 slow. The familiar "~44,671 cycles/frame" figure
+# is mc/8.
+cpu_worst_frame_mc = 305348      # MEASURED — master clock
+
+[rom]
+bank_bytes = 0x10000            # hardware bank: A1B constant, only low 16 bits step
+mapping = "lorom"
+lorom_window_bytes = 0x8000     # LoROM maps 32 KB of ROM per bank ($8000-$FFFF) —
+                                # the effective contiguous DMA-source window
+# A DMA source cannot span a bank (A1B constant; only low 16 bits step) —
+# the 256 KB 4096^2 world map must be bank-tiled for streaming.
+dma_source_bank_span = false
+code_windows = 1                # window 0 is linker-managed (CODE+RODATA);
+                                # ROM claims pack from window `code_windows` up.
+                                # Each claim site .asserts its blob's linker
+                                # bank/addr == the emitted _BANK/_ADDR symbols,
+                                # so allocator<->linker drift refuses the build.
+
+[measured]                      # written by allocator/pin_budgets.py
+# Probes: vendor/probes/probe_vblank.asm (allocator-mapped) +
+# vendor/probes/probe_cpu_ref.asm (the instrumented copy of the
+# reference scene — see make_probe_cpu.py). Cycle-accurate MesenRunner, NTSC.
+
+[measured.vblank]
+usable_bytes_per_frame = 5952   # largest fully-delivered NMI GP-DMA, 64-B steps
+# This is a SINGLE-transfer ceiling (one GP-DMA fired from NMI entry); a real
+# frame queues several transfers (OAM + stream rows + HUD), each paying its
+# own arm overhead — the multi-queue refinement (closes the single-transfer gap):
+# arm_cost_bytes is the per-additional-transfer overhead in byte-equivalents,
+# measured by the probe's K-transfer command; the allocator budgets
+#   sum(bytes) + arm_cost_bytes * (transfers - 1) <= usable_bytes_per_frame.
+arm_cost_bytes = 128 # MEASURED (multi-queue probe)
+completion_v = 261              # last VBlank line — an honest ceiling
+completion_h_dots = 248
+old_engine_start_pin = 5500     # the shipped constant was 92% of measured
+
+[measured.cpu]
+# THE PIN: worst frame that HOLDS 60 fps game-loop cadence on the reference
+# (cruise at vel 0x400): work 288548 + NMI 16800 mc = 85.4% of 357368.
+# Pin = MAX over 3 frame-deterministic passes of the winning rung:
+# passes [305348, 305348, 305348] mc, spread 0.0% (agreement gate: 5%).
+worst_60fps_frame_mc = 305348
+parked_frame_mc = 91076
+# The reference demo's 60fps envelope is NARROW — its naive staging kernel
+# (68578 mc per 128-B row, measured below) breaks pose cadence at
+# speed while the PPU/HDMA display keeps rendering 60 fps:
+# 0x400: iters/120f = 120, work max = 215544 mc
+# 0x800: iters/120f = 107, work max = 354040 mc
+# 0xc00: iters/120f = 76, work max = 356804 mc
+# 0x1000: iters/120f = 60, work max = 355736 mc
+# 0x1800: iters/120f = 60, work max = 352152 mc
+# flat-out (vel $3000): pose cadence 20.0 Hz;
+# turning (full software pv_rebuild every pose frame): 15.8 Hz.
+# REQUIREMENT derived from these numbers: the rebuilt streaming
+# stage kernel + LUT-driven pose path must beat the naive reference costs
+# (engine/mode7_stream.asm + the split_h_2p techniques).
+
+[measured.stream]
+row_stage_mc = 68578            # stage one 128-B row from flat ROM (CPU)
+row_upload_bytes = 128          # VBlank DMA side: 128 B x 8 mc/B + arm
+
+[measured.rebuild]
+# The REBUILT engine's own certificate (D5): microzero's race scene,
+# not the reference scene. Written by allocator/pin_budgets.py from
+# tests/test_measure_rebuild.py.
+#
+# GATE CONDITION 5, cadence half: 60 fps pose cadence HELD at the
+# declared max envelope. The surface is the engine's own arithmetic,
+# not a timer — the race tick integrates once per frame and the
+# harness advances the ROM one frame per oracle step, so a frame the
+# loop failed to finish inside its frame shows up as a PERMANENT
+# integer divergence from tools/gen_move_lut.Sim. Holding lockstep
+# across the window is the statement that every frame's work fit.
+# Verified to fire: advancing the oracle one extra step diverges
+# position, heading and both sub-pixel accumulators immediately.
+cadence_held = true
+cadence_window_frames = 240
+cadence_hw_frames_elapsed = 240
+cadence_loop_iterations = 240
+cadence_velocity = 0x3000        # declared max, 48 px/frame
+cadence_turn_steps_per_frame = 1   # declared max turn
+cadence_distinct_poses_applied = 64
+cadence_revolutions = 3.75        # every heading swept, so every row/col entry mix occurs
+
+# STILL OWED by Stage 4: isolated row_stage_mc / col_stage_mc for the
+# rebuilt kernels versus the 68,578 mc/row reference bar. What exists
+# today is an UPPER bound from whole-frame attribution (see
+# tests/test_microzero_stream.py) — valid as a bound, since a bound
+# below the bar proves the bar is beaten, but not the isolated number
+# asks for. That needs in-ROM SLHV latch rings like the
+# measurement probe: MesenRunner exposes no usable cycle counter (Mesen's
+# CycleCount ticks through WAI and halts during DMA, so busy frames
+# read FEWER cycles than idle ones).

@@ -1,0 +1,163 @@
+# sit_cam — TWO frozen Mode 7 cameras over ONE plane, the band-2 origin
+# delivered by a SEAM-SCANLINE IRQ + pre-armed GP-DMA pair instead of an origin
+# HDMA channel pair. Scene-scoped. This feature IS the trial.
+#
+# THE MECHANISM UNDER TEST, composed into the engine spine rather than
+# isolated — an isolated trial proves the mechanism and nothing about whether
+# it survives contact with scene_mgr, which is the half that matters:
+#
+#  matrix pair DMAP $43 (mode 3 + INDIRECT) -> M7A/M7B and M7C/M7D, ONE
+#  channel per register pair for the WHOLE frame. Each WRAM
+#  index table holds TWO band-local repeat entries
+#  [$80|112, ptr][$80|112, ptr][$00] streaming the SAME
+#  fixed-angle 448 B pose in both bands — band 2's entry
+#  re-starts it at line 112. (sh2_cam needs a pair PER BAND
+#  because its bands hold different headings; here the pose is
+#  fixed and position alone distinguishes, so TWO channels
+#  carry what took FOUR there.)
+#
+#  seam pair the claims below named sitxy/sithv: mode 3, DIRECT, band
+#  [112, 224) — but fired by MDMAEN from the seam IRQ handler,
+#  NOT enabled in HDMAEN. Each channel is pre-armed as GP-DMA
+#  (A1T -> a 4-byte staged block in sit_tbl, DAS = 4) and ONE
+#  MDMAEN write in scanline 112's trailing HBlank delivers all
+#  8 bytes: M7X/M7Y then BG1HOFS/BG1VOFS, per-register lo/hi
+#  order preserved by mode 3 through the shared Mode-7
+#  write-twice ValueLatch (SnesPpu.cpp:1992/2008/2082-2097 —
+#  one latch for ALL Mode-7 pairs; mode 3's B,B,B+1,B+1 is
+#  exactly the HDMA-origin channel's byte order).
+#
+# THE CLAIM IS TRUE RATHER THAN CONVENIENT: the fired values own those four
+# ports for band 2 of every frame — so an HDMA-origin claim on the same ports
+# refuses (the either/or the trial exists to prove), the matrix pair composes
+# (disjoint registers), and the band-1 VBlank re-stamp is the `seed = true` reg
+# claim below, whose declared overrider genuinely exists.
+#
+# OUT-OF-HDMAEN IS A CONVENTION, NOT A SCHEMA FIELD: the seam
+# channels ride scene_mgr's sm_hdma shadow — cam-armed DMAP/BBAD/A1T/A1B/DAS
+# slots that sm_nmi_core's MVN re-stamps into $43xx every armed VBlank, which
+# IS the per-frame A1T/DAS re-arm (a GP-DMA fire consumes both; the
+# DAS-is-single-shot lesson) — but the scene's HDMAEN mask takes ONLY the
+# matrix bits. A `fire = "mdmaen"` schema field was considered and dropped: it
+# would add schema+emit+census surface with one consumer, and no gate could
+# derive the HDMAEN mask from it anyway (the mask is scene code built from
+# ES_H_*_CH symbols). The convention is proven the strong way instead: a
+# falsify plant ORs the seam bits into the mask and the named tests go RED
+# (tools/plants/seam_irq_trial.py).
+#
+# WHY THE SEAM WRITE LANDS CLEANLY:
+#  * content line L draws during INTERNAL scanline L+1 (SnesPpu.cpp:1410
+#  output row = _scanline + 6 against the harness's picture-top 7; :883
+#  scanline 0 is pre-render) and VTIME counts internal scanlines
+#  (InternalRegisters.cpp:362-377) -> a seam at content line S arms
+#  VTIME = S, NOT S-1. One line early corrupts content line S-1.
+#  * the handler spin-gates on the HBlank flag ($4212 bit 6, set above
+#  H-clock 1096 = dot 274, InternalRegisters.cpp:256-267); the per-line
+#  HDMA event fires at dot 276 (SnesMemoryManager.cpp:236-247) and DMA
+#  work stalls the CPU, so a gated MDMAEN always lands strictly after
+#  that line's HDMA — no GP-DMA/HDMA overlap window.
+#  * pixel flush is LAZY (pixels to hPos-22 flushed on each PPU write with
+#  PRE-write state, SnesPpu.cpp:883-884/:1884-1887): the fire completes
+#  early in the next internal scanline, before content line 112's first
+#  flush trigger.
+#
+# H1 (the wai double-wake) is the OTHER half of the trial: with a mid-frame IRQ
+# armed, `wai` returns at the seam as well as at NMI (WAI ends on an asserted
+# IRQ line even with I set, SnesCpu.Shared.h:336-341). The rail's main loop is
+# scene_mgr's gated handshake with a wake counter added (sit_cnt below) — the
+# counter is the measured evidence, the gate is the closure.
+name = "sit_cam"
+role = "feature"
+# sit_rom: the two matrix channels stream its pose pair (index tables + DASB
+# point at the emitted ADDR/BANK symbols) and the floor upload's map is its
+# blob. Irq: the seam fire IS an IRQ consumer — this feature stages the
+# channels and provides the handler; irq owns the timer and the arming API.
+depends = ["sit_rom", "irq"]
+
+# --- the matrix pair: INDIRECT, per scanline, ONE channel per register pair
+# over the WHOLE frame (band "scene": each channel's two-entry table covers
+# lines 0..111 and 112..223 back to back).
+[[claims.hdma]]
+name = "sitab"
+registers = ["M7A", "M7B"]
+mode = 3
+indirect = true
+band = "scene"
+phase = "active"
+channels = 1
+
+[[claims.hdma]]
+name = "sitcd"
+registers = ["M7C", "M7D"]
+mode = 3
+indirect = true
+band = "scene"
+phase = "active"
+channels = 1
+
+# --- the seam pair: the trial's subject ------------------------------------
+# GP-DMA channels wearing hdma claims, and the claims are honest: mode 3
+# derives DMAP $03 and BBAD $1F/$0D from the declaration, the band says where
+# the fired values OWN the ports, and phase "active" is what makes an
+# HDMA-origin claim on these registers refuse. Fired by MDMAEN from the IRQ
+# handler; never in the HDMAEN mask (see the header). Under the
+# -DSIT_HDMA_ORIGIN control build the SAME channels carry the classic
+# two-entry origin tables and ARE enabled — the control's line-0 entry
+# re-delivers the seed's own band-1 values through the same channel
+#
+[[claims.hdma]]
+name = "sitxy"
+registers = ["M7X", "M7Y"]
+mode = 3
+band = [112, 224]
+phase = "active"
+channels = 1
+
+[[claims.hdma]]
+name = "sithv"
+registers = ["BG1HOFS", "BG1VOFS"]
+mode = 3
+band = [112, 224]
+phase = "active"
+channels = 1
+
+# --- band 1's origin: the seed case -----------------------------------------
+# BG1HOFS/BG1VOFS are physically M7HOFS/M7VOFS — one port, one name. The
+# scene's enter code establishes band 1's origin under forced blank, and the
+# feature's own VBlank hook re-establishes it EVERY frame (the seam fire left
+# band 2's values in the registers; band 1 of the next frame needs its own back
+# — that re-stamp rides sm_nmi_hook).
+# Both writers live in sit_cam.asm, so the feature-strict tier covers them and
+# no scene_writes hatch is needed; `seed = true` is what lets this claim
+# compose with the seam pair above, which is its declared overrider for band 2
+# (check_reg_ownership's third check refuses a seed nothing overrides).
+[[claims.reg]]
+name = "sit_origin"
+registers = ["M7X", "M7Y", "BG1HOFS", "BG1VOFS"]
+seed = true
+
+# The two matrix index tables + the two staged GP-DMA source blocks + the
+# control build's two origin tables, 16 B apart so the offsets read as a table:
+# +0 AB index (7 B), +16 CD index (7 B), +32 staged M7X/M7Y bytes (4 B, sitxy's
+# A1T), +36 staged HOFS/VOFS bytes (4 B, sithv's A1T),
+# +40 XY origin table (11 B), +56 HV origin table (11 B). The last two are
+# written only by the -DSIT_HDMA_ORIGIN control — sized in the ONE claim
+# because variants share the rail's map, so the layout must be the union of
+# every build. WRAM because the stage blocks are re-stamped every VBlank
+# (static values here, live-seam shape kept honest); dma_source because the
+# seam channels' A-bus reads them.
+[[claims.wram]]
+name = "sit_tbl"
+bytes = 68
+dma_source = true
+
+# The trial's evidence counters, read by tests/test_seam_irq_trial.py:
+# +0 seam-IRQ fire count (u16) — lockstep with scene_mgr's frame counter
+# +2 raw wai-wake count (u16) — the H1 measurement: ~2/frame armed
+# +4 entry OPHCT (lo, hi bit) — H/V latched at handler entry
+# +6 entry OPVCT (lo, hi bit)
+# +8 fire OPHCT (lo, hi bit) — re-latched immediately after MDMAEN
+# +10 fire OPVCT (lo, hi bit) returns: the fire-completion point (H2)
+[[claims.wram]]
+name = "sit_cnt"
+bytes = 12

@@ -1,0 +1,34 @@
+# scroller_rom — every immutable byte the `scroller` rail reads.
+#
+# A `blob`: ROM claims, no behaviour, no asm — the role that exists precisely
+# because a claim set cannot distinguish it from a feature (AGENTS.md).
+#
+# FOUR CLAIMS AND NO TILEMAP, which is the point of this rail. Every other
+# rail's blob carries a map; scroller's map is BUILT at scene enter by a
+# `(mx ^ my) & 1` loop writing straight to VMDATA, because that loop IS what
+# the rail exists to show. Baking it into a blob would ship the picture and
+# delete the lesson. `breaker_bg` set the precedent for a built
+# map; this rail is the smallest instance of it.
+#
+# All four blobs come from tools/gen_scroller_assets.py, which holds the two
+# 32-byte tile tables and the two colour constants. See that generator's header
+# for what each one is.
+name = "scroller_rom"
+role = "blob"
+depends = []
+
+[[claims.rom]]
+name = "scr_bg_chr"
+bytes = 64               # 2 x 4bpp tiles: 0 empty (backdrop), 1 solid green
+
+[[claims.rom]]
+name = "scr_bg_pal"
+bytes = 32               # 16 CGRAM words — group 0, word 0 IS the backdrop
+
+[[claims.rom]]
+name = "scr_obj_chr"
+bytes = 32               # 1 x 4bpp tile: the solid red sprite
+
+[[claims.rom]]
+name = "scr_obj_pal"
+bytes = 32               # 16 CGRAM words — OBJ palette 0

@@ -1,0 +1,24 @@
+# racer user game state. One scene, so everything is
+# scene-scoped: nothing survives a transition because there is no transition.
+[scene.race]
+heading    = "u8"        # desired pose heading, 0..63 (steering writes it)
+heading_ap = "u8"        # heading APPLIED to the pose LUTs — the NMI hook
+                         # commits desired->applied in VBlank (mode7_persp's
+                         # contract: retargeting is a VBlank act)
+speed      = "u16@dp"    # 8.8 px/frame, 0..RC_SPEED_CAP. Hot: read and
+                         # written every frame by the throttle + the drag
+sub_px     = "u16[2]@dp" # sub-pixel accumulators [x, y], 0..255 each — the
+                         # 8.8 step's fraction, carried between frames so the
+                         # crawl speed still moves and stays integer-exact
+lean       = "u8"        # this frame's kart draw frame: 0 straight, 1 lean
+                         # left, 2 lean right (the OAM tile + H-flip select)
+paused     = "u8"        # 0 racing, 1 frozen. START toggles on the rising
+                         # edge; while frozen the whole per-frame body is
+                         # skipped, so the day-night clock
+                         # and the camera all hold — a true freeze-frame
+tod_ph     = "u8"        # day-night phase: 0 DAY hold, 1 TO_NIGHT, 2 NIGHT
+                         # hold, 3 TO_DAY
+tod_t      = "u16"       # frames left in the current phase
+grad_k     = "u8"        # gradient keyframe currently pointed at, 0..7
+                         # (0 = full day, 7 = full night) — rc_grad retargets
+                         # its three WRAM header tables at this index

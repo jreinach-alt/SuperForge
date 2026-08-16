@@ -1,0 +1,103 @@
+# sh2_swarm — the split_h_2p_demo rail's GAME LOGIC: 24 entities, two of them
+# the players' own cameras and twenty-two AI waypoint followers. Scene-scoped.
+# Model: race_logic, room_logic — the two other `game_logic` dirs.
+#
+# WHY A SEPARATE DIR AND NOT MORE CLAIMS ON `sh2_obj`. That feature's header
+# argues its own split of labour: `m7_persp_project` owns the MATHS and
+# `sh2_obj` owns EVERYTHING THE PPU SEES. Neither sentence covers "where the
+# entities are and why they went there", which is a third job — the world model
+# — and folding it into `sh2_obj` would make that file's own stated boundary
+# false. It is also the boundary that lets `sh2_obj` stay a pure consumer: it
+# reads the entity table and the live count and draws them, and knows nothing
+# about waypoints, pads or steering.
+#
+# THE ALU IS NOT CLAIMED HERE, AND THAT IS THE ALLOCATOR WORKING. The steering
+# cross product needs signed 8x8 products, and `$4202-$4206` + `$4214-$4217` is
+# ONE whole resource under the name `ALU` in this repo's vocabulary — already
+# owned by `m7_persp_project`. A second claim on it is refused outright. So the
+# owner PUBLISHES the primitive (`mpp_mul8`) and this feature calls it; the
+# refusal is a design answer arriving at build time, not an obstacle routed
+# around by borrowing the ports undeclared.
+#
+# THE PLAYERS ARE ENTITIES 0 AND 1, and their positions are the CAMERAS'. Each
+# frame `swm_players` copies the two camera positions into those two records,
+# so each player's marker renders in the OTHER band — in its own band it
+# projects to v = 0, at or behind the pivot row, and self-culls by
+# construction — which is why the cross-band rendering needs no special case
+# anywhere.
+name = "sh2_swarm"
+role = "game_logic"
+
+# sh2_cam for the two camera positions the players mirror; m7_persp_project for
+# mpp_mul8 (see above); sh2_sprite_rom for the seed table and the waypoint
+# loops, whose emitted ES_R_* sizes this file's ASM .asserts its own record
+# layout against; sh2_rom for the move256 forward-vector LUT the AI steps
+# through, the same one the camera drive reads.
+depends = ["sh2_cam", "m7_persp_project", "sh2_sprite_rom", "sh2_rom",
+           "input", "input2"]
+
+# --- the entity table -------------------------------------------------------
+# SWM_MAX x 8 bytes, the ROM seed blob's layout exactly:
+#
+#  +0 x u16, world px (0..1023)
+#  +2 y u16
+#  +4 hwp wp << 8 | heading (heading 0..255 indexes move256 and sincos;
+#  wp 0..3 is the follower's target in its loop)
+#  +6 frc fracy << 8 | fracx (the two 8.8 drive accumulators, one byte each)
+#
+# SIXTY-FOUR RECORDS FOR A CAST OF TWENTY-FOUR. The live count is `swm_ctl`
+# below and ships at 24: the rule is "the largest N that holds the +1/+1
+# loop-vs-NMI cadence lockstep with >=15% headroom". MEASURED here, the loop
+# still takes exactly one frame at 25, 26 and 27, and the cliff is at N=28
+# parked / N=30 turning — so 24 ships with four entities of measured margin.
+# The table is bigger because the cadence sweep POKES that count upward to
+# find the cliff, and every record the sweep reaches must have been written
+# before it is read (rule 5) — which is why scene enter copies all 64 seeds,
+# not the 24 the shipping build ticks.
+#
+# WRAM, NOT DP. The table is 512 bytes and every access inside the AI loop is
+# already long-indexed off a byte cursor the loop holds in DP; there is nothing
+# a direct page could buy it.
+#
+# NO `[init] zero`: `swm_arm` copies the whole blob over the whole claim at
+# scene enter, which IS the write-before-read contract and is stronger than a
+# zero-fill (a zeroed table would put every entity on world (0,0)).
+[[claims.wram]]
+name = "swm_ents"
+bytes = 512
+
+# --- the live count and the cadence beat ------------------------------------
+#  +0 n entities ticked and drawn this frame. Poked by the sweep.
+#  +2 beat the MAIN LOOP's own frame counter, incremented once per scene
+#  tick. scene_mgr's ES_SM_FRAME counts VBLANKS (sm_nmi_core
+#  increments it on every NMI, armed or not), so the two together
+#  ARE the cadence gate: both must advance +1 per stepped frame, and
+#  a tick that overruns its frame makes `beat` fall behind. That is
+#  an in-situ observation of the shipping ROM rather than a model,
+#  which is why the pair is published rather than modelled.
+#
+# WRAM rather than DP precisely so a test can read and WRITE them without a
+# debugger symbol: the sweep pokes `n` between stepped frames.
+[[claims.wram]]
+name = "swm_ctl"
+bytes = 4
+
+# --- the AI's call frame ----------------------------------------------------
+# Every byte is dead between followers — it is a call frame, not state, which
+# is why it is one block rather than ten claims.
+#
+#  +0 ent the entity's byte offset in the table (i * 8)
+#  +2 cnt followers left in this pass
+#  +4 tx +6 ty the waypoint being steered at
+#  +8 dx +10 dy the wrapped residues, then their arithmetic >>3
+#  +12 fx +14 fy the forward vector >>3, then the half-speed velocity
+#  +16 t0 +18 t1 the cross/dot terms and the accumulator staging
+#
+# DP because the loop touches all of it several times per follower and the loop
+# is this feature's whole per-frame cost.
+#
+# NO `[init] zero` (rule 5): every word is written before it is read within one
+# `swm_ai` iteration, which is checkable by reading the routine.
+[[claims.dp]]
+name = "swm"
+bytes = 20

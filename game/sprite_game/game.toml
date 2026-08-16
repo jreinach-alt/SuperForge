@@ -1,0 +1,28 @@
+# sprite_game — the OBJ-only catch game ("DOT CHASER").
+#
+# THE ONE RAIL WITH NO BG AT ALL, which makes it a genuine `oam_sprites`
+# isolation: nothing here sets a graphics mode for a tile layer, uploads a BG
+# tile or writes a tilemap. The whole picture is two 8x8 sprites over the
+# backdrop colour, so the composition is the OBJ pipeline and NOTHING else:
+#
+#   - NO BG feature, NO bg_text/text_dp/font_rom (nothing draws text — the
+#     score is a DP word the done-condition reads, not a HUD);
+#   - `backdrop` owns the base display statement (CGRAM word 0 + BGMODE + TM,
+#     per its attribution note). TM here is $10 — OBJ alone, no BG bit — and
+#     the claim covers the REGISTER, not a value, which is what lets one
+#     feature serve rails whose TM bytes differ;
+#   - `sprg_obj` is the whole game surface: two 8x8 OBJs (player + dot)
+#     sharing ONE tile with two OBJ palettes — the rail's teaching.
+#
+# ONE SCENE, NO EDGES, NO AUDIO — the ROM boots straight into the chase and
+# never leaves it, and queues no music and no SFX. `[[edge]]` is optional in
+# the schema for exactly this shape.
+#
+# `fade` is in globals because scene_mgr commits INIDISP from fade's shadow
+# in the NMI handler every armed frame; without it the screen has no legal
+# way to come out of forced blank.
+globals = ["scene_mgr", "input", "fade", "oam_sprites", "sprg_rom"]
+
+[[scene]]
+id = "play"
+features = ["backdrop", "sprg_obj"]

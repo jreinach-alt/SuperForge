@@ -1,0 +1,165 @@
+# shm_cam — N stacked Mode 7 CAMERAS over one plane, on TWO HDMA channels.
+# Scene-scoped. This feature IS the matrix-band pair.
+#
+# TWO active HDMA channels, whatever N is:
+#
+#  matrix pair DMAP $03 (mode 3, DIRECT) -> M7A/M7B and M7C/M7D. One WRAM
+#  table per channel, N NON-REPEAT entries and a terminator:
+#  [lines0, A0,B0][lines1, A1,B1] ... [$00]
+#  A NON-repeat count transfers its 4-byte unit ONCE at the
+#  band's first scanline and then holds silent for the rest of
+#  the span, so each band's CONSTANT matrix costs exactly one
+#  HBlank write per channel per band. Two bands cost what one
+#  does; three cost the same again.
+#
+# Mode 3 is write-two-registers-twice: 4 bytes per unit, which is exactly [lo,
+# hi] for each of two write-twice 16-bit registers. DMAP_MODE_SPAN[3] = 2 and
+# HdmaClaim.bbad derives $1B from M7A and $1D from M7C — the declaration
+# already expresses the encoding, so nothing is hand-narrated.
+#
+# THE NON-REPEAT TRAP, which is the pair's headline teaching and is a property
+# of the TABLE rather than of the declaration: count bit 7 = 1 would re-read a
+# new 4-byte unit EVERY scanline, walk off the short table within a few lines
+# and collapse the plane. Shm_cam.asm builds bit-7-clear counts and
+# tools/plants/split_h_matrix_demo.py sets the bit to prove the tests see it.
+#
+# ============================================================================
+# WHY THIS IS NOT `sh2_cam`
+# ============================================================================
+# `sh2_cam` is the obvious supply for both of these rails, and that claim was
+# TESTED rather than assumed. RUN, not reasoned, and the result is: **it is
+# wrong in the supply direction and right in the shape direction.** Four
+# properties differ, and each is structural:
+#
+#  1. BAND COUNT IS A DECLARATION in sh2_cam and a TABLE ENTRY here. Its four
+#  matrix claims pin `band = [0,112]` and `[112,224]` with `channel = 0..3`
+#  — two bands, hard-declared, four channels. `split_h_persp3_demo` needs
+#  THREE. A feature cannot conditionally claim (sh2_cam's own header says
+#  so about `mode7_persp`), so a third band there is an EDIT to the
+#  feature, not a parameter of it. Here the band count lives entirely in
+#  the WRAM table's entry list, so the same two claims serve N = 2 and
+#  N = 3 unchanged — one feature plus one band-count
+#  variant, literally.
+#  2. INDIRECT vs DIRECT. sh2_cam's matrix channels are `indirect = true`:
+#  they stream a 448-byte ROM-resident per-scanline POSE and need a DASB
+#  bank per channel, re-stamped every VBlank. A flat per-band matrix is
+#  four WORDS. Making sh2_cam render one would mean pointing it at a pose
+#  whose 112 lines are identical — 28,672 B of ROM per heading slice to
+#  express a constant.
+#  3. FOUR CHANNELS vs TWO. One indirect pair PER BAND is forced by DASB being
+#  per-channel; a direct table needs no DASB, so one pair covers every
+#  band. On a rail with six of eight channels spoken for that is the whole
+#  difference between composing and refusing.
+#  4. A 256 KB ROM DEPENDENCY. `depends = ["sh2_rom", "input", "input2"]`, and
+#  sh2_rom's eight pose slices are 229,376 B of art neither of these rails
+#  reads. `make rom-unbacked` would refuse the composition outright unless
+#  both ROMs .incbin all of it.
+#
+# What DOES transfer, and it is most of this build: the per-band HDMA-on-M7A-D
+# mechanism, the NON-REPEAT count reading, the WRAM-table-plus-channel-shadow
+# staging, the origin-write-once-under-forced-blank discipline, and the
+# scene_mgr arming path. Sibling feature, not a parameterisation — the ruling
+# `sh2_floor` took against `m7dg_floor` and `col_map` took four times.
+name = "shm_cam"
+role = "feature"
+
+# `input` because the LAST band's scale is player-driven (see the dp claim
+# below): D-pad Right/Left steps it. A free-running animation would show the
+# band is live just as well, but a test can only SAMPLE one — a pad-driven
+# scale can be stopped, held and walked BACK, which is what a state-cycle
+# assertion needs.
+depends = ["input"]
+
+# --- the matrix pair: DIRECT, one 4-byte unit per BAND ----------------------
+# `band = "scene"` and NOT a pair of per-band claims, which is the whole
+# structural difference from sh2_cam. One channel's table spans the frame and
+# changes value at each seam; declaring per-band claims here would be claiming
+# N times what the mechanism uses and would cap the rail's band count at the
+# declaration.
+#
+# NO `channel` PIN. Sh2_cam pins all four of its matrix channels because two
+# claims write M7A-M7D in DISJOINT bands, which makes a channel reusable and
+# lets an unpinned pass put both bands on one channel — and because its band-2
+# table opens with a stray line-0 unit that only channel PRIORITY masks. With
+# one claim per register pair over the whole scene neither hazard exists: there
+# is no second writer to be ordered against, at line 0 or anywhere else.
+[[claims.hdma]]
+name = "shmab"
+registers = ["M7A", "M7B"]
+mode = 3
+band = "scene"
+phase = "active"
+channels = 1
+
+[[claims.hdma]]
+name = "shmcd"
+registers = ["M7C", "M7D"]
+mode = 3
+band = "scene"
+phase = "active"
+channels = 1
+
+# The TWO HDMA tables, 32 B apart so the offsets read as a table rather than as
+# arithmetic: +0 the AB table, +32 the CD table. Each entry is 5 B ([count, lo,
+# hi, lo, hi]) and each table ends in a 1-byte terminator, so 32 B holds SIX
+# bands — twice what row 12 asks for, and the reason a fourth band would be a
+# scene edit rather than a feature one.
+#
+# WRAM and not ROM because the live band's scale word is rewritten in the
+# VBlank window every frame it changes. A fully static build could put these in
+# the code bank the way `split_band` does; the pair's fourth teaching is
+# precisely that they need not be.
+[[claims.wram]]
+name = "shm_tbl"
+bytes = 64
+
+# The live band's zoom state:
+#  +0 scale u16 the band's current M7A/M7D in 8.8 (also its M7D)
+#  +2 off u16 that band's BYTE OFFSET within each table (slot * 5)
+#  +4 lo u16 the clamp floor
+#  +6 hi u16 the clamp ceiling
+#
+# `off` IS THE PARAMETER that lets one feature serve both rails: the scene
+# seeds it with its own live slot (1 on the two-band rail, 2 on the three-band
+# one) and every zoom write is indexed off it. Without it the feature would
+# have to know N, which is the property this whole design exists not to need.
+#
+# DP because the step reads and writes `scale` every frame during active
+# display and the VBlank stamp reads it again — the whole of the rail's
+# per-frame CPU is these four words.
+#
+# NO `[init] zero`. All four are seeded by the scene's enter code before
+# anything reads them (the write-before-read contract, rule 5), and a
+# power-on-random `scale` would show as a first-frame band at a garbage zoom
+# rather than as a subtle drift.
+[[claims.dp]]
+name = "shm_zoom"
+bytes = 8
+
+# C4 (docs/09 §2.1): the Mode 7 camera ORIGIN, and NOT a seed.
+#
+# `sh2_cam` declares these same four registers `seed = true` because its own
+# origin HDMA pair overwrites them from line 0 of every frame. Here they are
+# written ONCE under forced blank and never again — the split is entirely in
+# the MATRIX, so every band shares one origin — which makes this a plain
+# ownership claim. Declaring `seed` would be a lie in the direction
+# check_reg_ownership refuses outright: it rejects a `seed` with no overriding
+# hdma claim in the scene, and there is none.
+#
+# That ValueLatch guard is satisfied BY CONSTRUCTION rather than by discipline
+# rather than by discipline: M7X/M7Y/M7HOFS/M7VOFS are write-twice 13-bit
+# ports set under forced blank and never touched during active display, and
+# the only writer during display is HDMA, which delivers complete pairs. No
+# code-side write-twice can interleave.
+#
+# BG1HOFS/BG1VOFS are physically M7HOFS/M7VOFS — one port, one name — which is
+# why the footprint is declared under the BG names. The writes live in the
+# scene's enter code, which has no feature.toml of its own, so they are
+# attributed to the feature they SERVE and opened through `scene_writes`;
+# shm_cam.asm writes none of the four, which is what makes the declaration true
+# rather than convenient (no_literals' declaration-that-lies check refuses it
+# in either direction).
+[[claims.reg]]
+name = "shm_origin"
+registers = ["M7X", "M7Y", "BG1HOFS", "BG1VOFS"]
+scene_writes = ["M7X", "M7Y", "BG1HOFS", "BG1VOFS"]

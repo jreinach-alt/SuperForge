@@ -1,0 +1,77 @@
+SuperForge is licensed per component:
+
+  - ALL first-party code and content            : zlib License (below)
+      allocator/, engine/, game/, tools/, tests/, vendor/rom/,
+      vendor/probes/ (the probe harnesses), vendor/machine.py,
+      vendor/mesen_runner.py, vendor/mesen_patches/ (the first-party
+      files — see the Mesen2 note below), assets/audio/ (the song, the
+      sound effects, and the procedurally generated samples), Makefile.
+      Shipped ROMs carry NO obligations (zlib's conditions apply to
+      source distributions only; an acknowledgment is appreciated but
+      never required). The one exception is a ROM built from the
+      dizworld-derived files below — and no game rail in this repo is.
+
+      EXCEPT the dizworld-derived Mode 7 perspective files, which are
+      Creative Commons Attribution 4.0 International (CC BY 4.0):
+        vendor/probe_ref/inc/mode7_diz_ztable.inc  (verbatim pv_ztable)
+        vendor/probe_ref/inc/mode7_diz_math.asm    (transliteration)
+        vendor/probe_ref/src/probe_scene_ref.asm   (pv_* routines only)
+        vendor/probes/probe_cpu_ref.asm            (derived from the above)
+      https://creativecommons.org/licenses/by/4.0/
+      (c) Brad Smith (rainwarrior) — attribution per NOTICE.
+      These four are MEASUREMENT SCAFFOLDING for the CPU calibration
+      probe. `build/probe_cpu.sfc` and `build/probe_cpu_step.sfc`
+      embed this CC BY code and must credit Brad Smith; no engine feature
+      and no game rail links any of it. See docs/92 §4.
+
+  - docs/                                       : CC0 1.0
+      https://creativecommons.org/publicdomain/zero/1.0/
+      (public-domain dedication — reuse freely, no credit required)
+      The screenshots and clips under docs/img/ are this project's own
+      captures and are covered by that dedication AS CAPTURES — but a
+      capture of a ROM pictures whatever art that ROM embeds, and for the
+      rails built on vendored art packs (platformer, platformer_stream,
+      brawler, shmup, split_v_fight) some of those pixels are
+      third-party. Their grants are in NOTICE; this project cannot
+      re-dedicate them, and does not try to.
+
+  - vendored third-party code, art and fonts    : see NOTICE
+      vendor/tad/ (Terrific Audio Driver ca65 API, zlib)
+      vendor/fonts/ (unscii-8, public domain / CC0)
+      vendor/art/ (four itch.io packs and the blobs derived from them,
+        under FOUR states, not one: camelot and dungeonSprites are CC0;
+        the Four Seasons tileset is a custom permissive grant that is
+        NOT CC0; the Spaceship Pack is a permissive commercial grant
+        whose CC0 deed this project has NOT confirmed. Per pack: NOTICE)
+      assets/audio/export/ (the tad-compiler wrapper is Unlicense; the
+        SPC700 loader + driver binaries inside the .bin are zlib)
+      vendor/mesen_patches/lockstep_core_edits.patch (quotes Mesen2
+        source context; the built core is a GPLv3 derivative)
+
+  - everything else under vendor/probe_ref/ and vendor/art/*/ref_*
+                                                : zlib License (below)
+      First-party reference material — the sources the CPU calibration
+      probe measures, and the reference conversions kept as the asset
+      pipeline's refusal oracles — except where NOTICE traces a file one
+      hop further to a third party.
+
+-------------------------------------------------------------------------------
+zlib License (all first-party code and content)
+
+Copyright (c) 2026 jreinach-alt
+
+This software is provided 'as-is', without any express or implied warranty.
+In no event will the authors be held liable for any damages arising from the
+use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not
+   claim that you wrote the original software. If you use this software in a
+   product, an acknowledgment in the product documentation would be
+   appreciated but is not required.
+2. Altered source versions must be plainly marked as such, and must not be
+   misrepresented as being the original software.
+3. This notice may not be removed or altered from any source distribution.

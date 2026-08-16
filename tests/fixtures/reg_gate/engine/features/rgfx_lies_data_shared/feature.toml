@@ -1,0 +1,14 @@
+# reg-gate fixture (SILENT, item 5 rule 2): the co-write above,
+# DECLARED. This is the false positive the in-class filter produced: rule 2
+# asked "does any `.asm` here write CGDATA?" of a set that structurally could
+# not contain a data port, answered no, and REFUSED a true declaration --
+# advising the author to delete it. Same TOML-only difference as
+# rgfx_lies / rgfx_lies_shared, on the register class that used to be blind.
+name = "rgfx_lies_data_shared"
+role = "fixture"
+
+[[claims.reg]]
+name = "rl_cgd"
+registers = ["CGDATA"]
+scene_writes = ["CGDATA"]
+scene_writes_shared = ["CGDATA"]

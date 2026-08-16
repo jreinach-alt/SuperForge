@@ -1,0 +1,75 @@
+# sprg_obj — the sprite_game actors: TWO 8x8 OBJs (player + dot) drawn from ONE
+# shared tile through TWO OBJ palettes, positioned every frame from the play
+# scene's px/py + dot_x/dot_y into the oam_sprites shadow — never into hardware
+# OAM, which the engine's declared VBlank GP-DMA owns.
+#
+# CPU-WRITTEN REGISTER, DECLARED: OBSEL $2101, which sets sprite size AND OBJ
+# CHR base for EVERY sprite. Following breaker_obj / shmup_obj / split_v_obj /
+# platformer_obj / hud_obj: oam_sprites claims only OAMDATA — it is the OAM
+# *transport*, not the sprite size/base authority — so every rail's OBJ
+# feature declares OBSEL itself, and composing two games' sprite features in
+# one scene must refuse.
+#
+# SIZE MODE 0 (small 8x8 / large 16x16), both sprites SMALL, so the hi table's
+# size bits stay clear exactly as oam_park_all left them. The X9 bits are
+# DERIVED from bit 8 of each X every frame rather than assumed clear — this
+# rail has NO screen clamp (the source bounds nothing), so the player genuinely
+# crosses 256 and the stale-X9 lesson is live here, not hypothetical.
+#
+# FOUR SPRITES CLAIMED FOR TWO ACTORS, and the reason is the hi table. A
+# hi-table byte covers FOUR sprites (2 bits each: X9 + size), so claiming slots
+# 0-1 alone would leave this feature read-modify-writing a byte half of which
+# belongs to nobody. Claiming the whole byte lets the draw REBUILD it from both
+# actors' own X values (hud_obj's argument, one sprite bigger). Slot order is
+# pinned: 0 = player, 1 = dot — and OAM index IS sprite-vs-sprite priority, so
+# the player draws over the dot where they overlap, by declaration rather than
+# by draw order.
+name = "sprg_obj"
+role = "consumer"
+depends = ["oam_sprites", "sprg_rom"]
+
+# The enter-time upload: the shared CHR tile into OBJ VRAM. Mode 1 drives
+# VMDATAL+VMDATAH (word port). Phase forced_blank by construction — scene_mgr's
+# enter clears HDMAEN and zeroes NMITIMEN, so this cannot race the
+# active/vblank claims that share channel 0.
+[[claims.dma_init]]
+name = "obj_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "obj_chr"
+kind = "chr"
+obj = true
+words = 16               # 1 tile x 16 words — both sprites name tile 0
+
+[[claims.cgram]]
+name = "obj_pal"
+words = 32
+at = 128                 # hardware contract: OBJ palettes start at CGRAM 128;
+                         # words 128..143 = palette 0 (player), 144..159 =
+                         # palette 1 (dot)
+
+# Pinned, not packed: OAM index order IS sprite-vs-sprite priority, and both
+# actors must sit at known indices so a test can read entry 0 / entry 1 and say
+# where each is. `hi_pad` is the rest of the hi-table byte, parked at
+# y = $F0.
+[[claims.oam]]
+name = "player"
+sprites = 1
+at = 0
+
+[[claims.oam]]
+name = "dot"
+sprites = 1
+at = 1
+
+[[claims.oam]]
+name = "hi_pad"
+sprites = 2
+at = 2
+
+[[claims.reg]]
+name = "obj_obsel"
+registers = ["OBSEL"]

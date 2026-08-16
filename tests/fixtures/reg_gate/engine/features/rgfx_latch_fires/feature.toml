@@ -1,0 +1,5 @@
+name = "rgfx_latch_fires"
+role = "fixture"
+
+# Deliberately claims NOTHING that reaches vram: no `vram` region, no
+# VMDATAL/VMDATAH on any claim. the latch/data category's firing case.

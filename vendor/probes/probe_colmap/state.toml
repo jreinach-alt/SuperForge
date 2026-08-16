@@ -1,0 +1,22 @@
+# Probe control block — the host reads seq/mark to bracket the timed loop.
+[scene]
+cmd = "u8"           # 0 idle · 1 run `param` queries of the candidate kernel
+                     #   · 2 run `param` iterations of the EMPTY loop (the
+                     #     control arm: loop overhead with no lookup)
+                     #   · 3 ONE query at world pixel (param, param2), answer
+                     #     left in `acc` — the direct-query path the col_map
+                     #     tests drive. Isolated on purpose: microzero's
+                     #     ES_M7ORG is also consumed by rl_lap and
+                     #     stream_tick, so teleporting it to probe a
+                     #     coordinate corrupts lap detection and the
+                     #     streaming ring (measured: it walked the scene
+                     #     machine out of `race` mid-test).
+param = "u16"        # iteration count K, or cmd 3's world pixel x
+param2 = "u16"       # cmd 3's world pixel y
+mark = "u8"          # written once immediately before and once immediately
+                     # after the timed loop — the host breakpoints on this
+                     # WRAM address and subtracts master clocks
+seq = "u16"          # completion counter
+acc = "u16"          # flag accumulator — consumed so the lookup cannot be
+                     # optimised away by inspection, and so the host can see
+                     # the loop really read varying tiles

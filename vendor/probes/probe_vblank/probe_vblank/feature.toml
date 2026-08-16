@@ -1,0 +1,49 @@
+# measurement probe: usable VBlank DMA
+# bytes/frame. The probe DMAs a test-selected byte count to VRAM inside the
+# NMI with the screen ON; bytes that miss the VBlank window are dropped by
+# the PPU, so the largest fully-delivered count IS the usable ceiling.
+# vblank claim is 0: the probe measures the ceiling, it doesn't consume it.
+name = "probe_vblank"
+role = "fixture"
+
+# The measurement transfer itself. Same shape as mode7_stream's mzs and
+# oam_sprites' oamq: a VBlank-phase GP-DMA, so the channel is claimed for
+# that phase while the register is shared by construction (serialised NMI
+# work — see allocate._register_exclusive). mode 1 = 2-reg write-once, which
+# is what drives the $2118/$2119 word port.
+#
+# Channel PINNED to 0 deliberately: this ROM is a measurement instrument
+# whose output is a substrate pin (vblank_usable_bytes = 5952), so its
+# hardware configuration must not drift when unrelated claims change the
+# allocator's packing order. The pin is the reason, not convenience.
+#
+# Distinct from claims.dma below, which stays absent: a CHANNEL claim says
+# "this transfer exists"; a BYTE claim says "this many bytes are spent every
+# frame". The probe measures the ceiling rather than consuming it, so it
+# claims the channel and no budget — the header comment's "vblank claim is 0"
+# refers to the byte budget only.
+[[claims.hdma]]
+name = "probe_dma"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+band = "scene"
+phase = "vblank"
+channels = 1
+
+[[claims.vram]]
+name = "probe_target"
+kind = "raw"
+words = 0x1000           # 8 KB target window — beyond the theoretical ceiling
+
+# vendor/probes/probe_vblank.asm matched no reg-context shape and got no
+# reg pass; the default tier is now the composed
+# union, so it is CHECKED. These are the probe's boot/display writes.
+#
+# NMITIMEN is here because the probe arms NMI itself — it is a measurement
+# instrument with no engine underneath it, so it owns its own interrupt
+# enable rather than inheriting one.
+[[claims.reg]]
+name = "probe_vblank_boot"
+registers = ["INIDISP", "TM", "NMITIMEN"]
+scene_writes = ["INIDISP", "TM", "NMITIMEN"]

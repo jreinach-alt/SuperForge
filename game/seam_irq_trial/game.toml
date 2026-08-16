@@ -1,0 +1,48 @@
+# seam_irq_trial — THE SCANLINE-IRQ DEBUT. Band 2's Mode 7 origin arrives by a
+# seam-scanline V-IRQ firing a pre-armed GP-DMA pair, against the classic
+# HDMA-origin control. Two properties are proved here: that a `wai` frame loop
+# survives a second wake source (H1), and that the seam's HBlank is a wide
+# enough write window for four origin bytes (H2). Both are proved INSIDE the
+# engine spine every game in this kit uses — scene_mgr's NMI, the frame
+# handshake, the sm_hdma shadow MVN — rather than in a bare-metal closure that
+# would prove them only about itself. That composed proof is the point of the
+# rail.
+#
+# ONE SCENE, no edges, autonomous: both cameras frozen (camera 1 over the
+# cool stripe, camera 2 the warm one — one stripe east), the seam IRQ fires
+# once per frame on its own. Frozen BECAUSE cross-ROM pixel equality is the
+# gold assertion — the -DSIT_HDMA_ORIGIN control must render BYTE-IDENTICAL
+# frames, which motion would turn into a phase-alignment question.
+#
+# NOT COMPOSED, each for a reason the allocator enforces — RUN, not
+# reasoned; the refusal text below is the allocator's own:
+#   sh2_cam    -- REFUSED twice over. Composed whole: "HDMA register
+#                 contention in scene 'seam', band 0-112: sh2ab1
+#                 (engine:sh2_cam) and sitab (engine:sit_cam) both drive
+#                 ['M7A', 'M7B'] in the same phase 'active'" — its per-band
+#                 matrix pairs and this rail's whole-frame pair are two
+#                 streamers of one register set. With the matrix half
+#                 removed (probe): "band 112-224: sh2hv and sithv both
+#                 drive ['BG1HOFS', 'BG1VOFS']" — its origin CHANNEL pair
+#                 is exactly the mechanism this trial replaces, and the two
+#                 cannot coexist on one scene's registers. That second
+#                 refusal IS the trial's either/or, spoken by the
+#                 allocator. Hence the narrower sibling sit_cam.
+#   sh2_floor  -- depends = ["sh2_rom"]: composing it would pull the eight
+#                 28,672 B heading slices + move LUT this rail never reads
+#                 (rom-unbacked's grad_tabs shape). Sibling sit_floor over
+#                 the fixed-angle subset blob.
+#   backdrop   -- sit_floor claims CGRAM word 0: in Mode 7 it is BOTH
+#                 palette index 0 and the backdrop slot — one owner.
+#   bg_text    -- BG3 does not exist in Mode 7. The picture is the readout.
+#   audio      -- a rail whose deliverable is a measured cadence stays
+#                 silent: a driver competing for the same frame is one more
+#                 variable in every number this trial publishes.
+#   input/2    -- controls: none. The scene is frozen on purpose, and the -D
+#                 variants ARE the controls — the default build is the
+#                 subject, not a pilot to be steered.
+globals = ["scene_mgr", "fade", "sit_rom"]
+
+[[scene]]
+id = "seam"
+features = ["sit_floor", "sit_cam", "irq"]

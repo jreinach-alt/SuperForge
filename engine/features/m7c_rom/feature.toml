@@ -1,0 +1,42 @@
+# m7c_rom — the mode7_chamber rail's art, in ROM. Global (not scene-scoped).
+#
+# ROM claims cannot be scene-scoped: the allocator packs a ROM window once for
+# the whole composition. Same reasoning as m7dg_rom's, shp_rom's and m7x_rom's
+# headers.
+#
+# The blobs come from tools/gen_chamber_assets.py, which authors the ashlar
+# stone floor procedurally (a two-tone block checker with mortar relief and
+# full-width brass ribs every 8 tiles) and the vignette from a raised-cosine
+# intensity ramp. That generator is also a GATE: it refuses to write a map or a
+# palette that disagrees with the vendored oracles under
+# vendor/art/mode7_chamber/, and refuses outright if either is absent — the
+# shape tools/gen_split_h_persp_assets.py established. Nothing outside this
+# repo is read at build time.
+name = "m7c_rom"
+role = "blob"
+
+# The interleaved Mode 7 VRAM image: 16,384 tilemap bytes in the EVEN positions
+# and 16,384 bytes of 8bpp CHR in the ODD ones, exactly as the PPU reads the
+# Mode 7 region. 32 KB is one whole LoROM window, so the single DMA that
+# uploads it cannot cross a bank boundary.
+#
+# `dma_source` ARMS THE GUARD: place_rom refuses a dma_source claim larger than
+# the LoROM window unless it is bank_tiled. At exactly one window this passes
+# either way — the flag is here so the day someone grows the plane the
+# allocator says so instead of the upload silently wrapping to the bank's
+# start.
+[[claims.rom]]
+name = "m7c_map"
+bytes = 32768
+dma_source = true
+
+# Six BGR555 words. Mode 7 is 8bpp with ABSOLUTE CGRAM indices, and index 0 is
+# also the backdrop slot — word 0 holds the dark stone deliberately, so what
+# shows above the seam (where the Mode-1 band has no layer of its own) is the
+# chamber's own stone rather than black. Word 4 is a duplicate of word 0 by
+# construction: the palette converter moves every pixel that landed on index 0
+# onto a freshly appended copy so index 0 can be reserved for the backdrop, and
+# the vendored oracle carries that duplicate.
+[[claims.rom]]
+name = "m7c_pal"
+bytes = 12

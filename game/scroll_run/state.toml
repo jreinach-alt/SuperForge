@@ -1,0 +1,30 @@
+# scroll_run user state.
+#
+# EVERY WORD HERE IS GAME STATE THE SCENE OWNS, which is why it lives on the
+# game rather than on a feature: the level and its physics are GAME-SIDE, and
+# the routines that read and write these words are all in scenes/run.asm. One
+# deliberate exception — the camera pair is sr_bg's `sr_cam` claim, because the
+# routine that READS it is that feature's NMI commit.
+#
+# NAMED WORDS RATHER THAN STACK SCRATCH, deliberately. `tent` holds the
+# tentative 8.8 position across a probe instead of riding PHA/PLA: a value
+# pushed in one width and popped in another is the silent-corruption class
+# rule 6 exists for, and a named DP word cannot drift that way (jumper's
+# US_TENT makes the same trade). `yb`/`topy` are the one-way-platform probe
+# words, named here for the same reason rather than borrowing a WRAM scratch
+# byte for a moment. `bx`/`by` are sr_solid_box's box-corner operands.
+[scene.run]
+px = "u16@dp"            # player world x, pixels 0..511 — the full two pages
+pyf = "u16@dp"           # player y, 8.8 fixed — the physics owns this
+vy = "u16@dp"            # vertical velocity, signed 8.8 (negative = up)
+tent = "u16@dp"          # tentative 8.8 y, held across the probe
+pyi = "u16@dp"           # draw-pixel mirror of pyf's high byte
+newx = "u16@dp"          # horizontal move-check scratch
+bx = "u16@dp"            # sr_solid_box in: box top-left x
+by = "u16@dp"            # sr_solid_box in: box top-left y
+yb = "u16@dp"            # one-way probe row: the tile row being tested
+topy = "u16@dp"          # one-way crossing compare: the new bottom's tile top
+grounded = "u16@dp"      # 1 = standing (physics owns this; the jump gates on it)
+scrx = "u16@dp"          # player screen x = px - cam_x (the rail's subtraction)
+state = "u16@dp"         # 0 = playing, 1 = won (input frozen, GOAL on BG3)
+frames = "u16@dp"        # frames since enter — the free-running heartbeat

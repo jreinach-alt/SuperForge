@@ -1,0 +1,103 @@
+# m7_track — the frame-indexed Mode 7 matrix-track player. Global feature.
+#
+# THE FRAME-INDEXED MATRIX TRACK. `m7_affine` tabulates 256 headings at scale 1.0
+# ONLY; `boss`, `boss_saucer` and `meteor_event` all ramp a scale it does not
+# have. The ruled shape is a PER-ANIMATION MATRIX TRACK indexed by frame —
+# hundreds of bytes of `rom` per animation, using the uniform-scale identity (D
+# = A, C = -B, two words stored not four) — with the 2-D heading x scale
+# product table explicitly REJECTED for these rails. This feature is the PLAYER
+# for those tracks; the track DATA is each rail's own `rom` claims with
+# provenance in its generator (tools/gen_boss_tracks.py is the first of them,
+# and the `boss` rail's blobs live in bs_rom).
+#
+# =============================================================================
+# THE TRACK FORMAT — what a blob is, byte for byte
+# =============================================================================
+#  +0 u16 LE N = entry count (1..256)
+#  +2+4*i i16 LE M7A of entry i -- (cos(angle_i) * scale_i) >> 8
+#  +4+4*i i16 LE M7B of entry i -- (sin(angle_i) * scale_i) >> 8
+#
+# Each entry is ONE uniform-similarity matrix, fully baked: the generator
+# composes rotation and scale at build time in the SAME arithmetic the runtime
+# would have used — signed 1.7.8 trig word times 1.7.8 scale, floor-shifted
+# >> 8, i.e. bytes 1..2 of the 32-bit product — and the player derives the
+# other two words at apply time: M7C = -M7B (two's-complement negate AFTER the
+# shift, so the rounding matches bit for bit) and M7D = M7A.
+#
+# TWO SHAPES OF TRACK, one format:
+#  * a RAMP — N = the animation's frame count, indexed by an advancing frame
+#  cursor. Out-of-range indices CLAMP to the last entry, so an overshooting
+#  state timer rests on the final pose for free.
+#  * a RING — N = 256, indexed by a heading byte the consumer masks itself.
+#  This is how a rail rotates FREELY at a fixed non-1.0 scale (the `boss`
+#  fight holds scale 1.5, which m7_affine's LUT cannot express); the clamp
+#  never fires because the masked index is always < N.
+#
+# =============================================================================
+# THE CONTRACT — who binds, who indexes, who advances
+# =============================================================================
+# `pool`'s ownership split, taken again: THIS feature supplies the MECHANISM
+# and claims one 4-byte DP pointer; the CONSUMER claims the track data (rom)
+# and owns the cursor.
+#
+#  THE CONSUMER MUST, before every call:
+#  M7T_BIND <expr24> stamp the track blob's 24-bit address (an emitted
+#  ES_R_*_LONG). Two 16-bit stores, A16 required.
+#  then:
+#  lda #<index>; jsr m7t_apply
+#  index in A (entries, not bytes). The entry lands in
+#  m7_affine's DP shadow (ES_M7AFF+0..+7); the NMI
+#  commit m7_affine already owns latches it with the
+#  pivot and origin, tear-free. X is PRESERVED.
+#
+#  WHO ADVANCES THE FRAME CURSOR: the consumer, from its own state — `boss`
+#  derives it from the state machine's countdown timer
+#  (idx = FRAMES - timer), and the ring index is its heading byte. The player
+#  holds NO cursor state: bind + apply are a call frame, dead between calls,
+#  which is what lets one scene hold four tracks for four stamps and no
+#  fifth claim.
+#
+# =============================================================================
+# THE CONSUMER CONTRACT — boss_saucer and meteor_event compose this unchanged
+# =============================================================================
+#
+#  * Each rail ships its OWN track blobs in its OWN blob feature, generated
+#  with its angle/scale schedule written out line by line in the
+#  generator's header.
+#  Multiple animations = multiple blobs = multiple binds; nothing here
+#  limits the count.
+#  * A scripted ramp whose entry state is DETERMINISTIC (the boss reveal:
+#  angle starts at 0 by init) bakes its angle sequence absolutely. The
+#  SAUCER's ramps are ALL this case: its fight holds
+#  `stz b_angle` throughout ("rotation OFF in the fight",
+# ), so its
+#  lunge — and its death — enter from the known angle 0 and need no
+#  capture.
+#  * A ramp entered from a FREE heading (the boss's death-recede — its
+#  fight rotates freely, so the exit heading is player-dependent) CANNOT
+#  bake an absolute angle without a visible snap, and composing "live
+#  heading x baked scale" at runtime is the multiply this rail refuses. The
+#  contract is the RING-CAPTURE idiom `boss` proves: spin on the ring
+#  toward the track's baked start angle at S
+#  headings/frame and hand over when the remaining distance is < S — the
+#  correction is strictly smaller than one frame's own motion, i.e.
+#  invisible by construction. The generator asserts the seam
+#  (track[0] == ring[start]) so the handover cannot drift.
+#  * m7_affine itself is UNTOUCHED: its LUT, shadow layout and NMI commit are
+#  exactly as every other Mode 7 rail leaves them. This feature writes only
+#  the shadow's matrix half, exactly as m7a_set_heading does.
+name = "m7_track"
+role = "feature"
+depends = ["m7_affine"]
+
+# The track-base pointer the apply dereferences. 3 bytes of pointer + 1 pad so
+# the stamp is two 16-bit stores (pool_ptr's shape, for pool_ptr's reason).
+#
+# NO `[init] zero`, deliberately (rule 5, pool_ptr's argument verbatim): every
+# byte is written by M7T_BIND before any read within one call, so a zero fill
+# would resolve a "the caller forgot to bind" defect to bank 0 offset 0 — a
+# plausible address — instead of leaving it for the uninitialised-read
+# detector.
+[[claims.dp]]
+name = "m7t_ptr"
+bytes = 4

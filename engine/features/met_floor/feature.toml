@@ -1,0 +1,59 @@
+# met_floor — the meteor cutscene's Mode 7 plane. Scene-scoped ("impact").
+#
+# bs_floor's shape with this rail's blob. Everything runs ONCE, at scene enter,
+# under forced blank with NMI masked (the scene_mgr enter contract). No
+# per-frame cost, no channel — the whole grow ramp is m7_track lookups into
+# m7_affine's shadow, never a plane re-upload.
+#
+# WHY NOT `mode7_floor` (mo_floor's ruling, taken again): it `depends` on
+# world_rom (a 256 KB map this rail never reads), pins CGRAM 0..16 for
+# MICROZERO's palette, and streams a position-wrapped window out of a 512x512
+# world. This rail's map is a single flat 32,768 B interleaved blob uploaded
+# ONCE. Sibling feature, not a parameterisation — bs_floor, m7dg_floor,
+# rs_floor, sh2_floor, shm_floor, m7x_floor, m7c_floor and mo_floor each took
+# the same ruling.
+#
+# WHY NO `hdma` CLAIM: the meteor's zoom, slide and tumble are one uniform
+# matrix per frame committed from m7_affine's shadow, plus two origin words.
+# Nothing streams per scanline. (The red glow DOES take a channel, and it is
+# met_glow's — a separate mechanism over a separate register set.)
+name = "met_floor"
+role = "feature"
+depends = ["met_rom"]
+
+# The enter-time upload: ONE DMA for the whole interleaved blob, mode 1
+# (VMDATAL/VMDATAH alternate = the interleave). Phase forced_blank: scene_mgr's
+# switch clears HDMAEN and zeroes NMITIMEN before `enter`, so this cannot race
+# any other phase even on a shared channel number.
+[[claims.dma_init]]
+name = "met_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# The Mode 7 region is the fixed pinned 32 KB at words $0000-$3FFF — a hardware
+# address, so `kind = "mode7"` takes neither words nor tiles.
+[[claims.vram]]
+name = "m7"
+kind = "mode7"
+
+# HARDWARE CONTRACT: a Mode 7 8bpp pixel value IS an absolute CGRAM index, so
+# the floor palette can only live at 0. Word 0 is both palette index 0 and the
+# backdrop slot; the generator puts the night sky there so the two agree, which
+# is also what makes the OFF-FIELD park during the sprite phase read as black
+#
+# A scene composing `backdrop` alongside this must refuse the build.
+[[claims.cgram]]
+name = "m7_pal"
+words = 16
+at = 0
+
+# C4 (docs/09 §2.1): the scene's base display shape. M7SEL is written by this
+# feature's own floor_arm (Mode 7 is this feature's mechanism, and the $80
+# selects the screen-over fill rather than the wrapping playfield); BGMODE and
+# TM are written by the scene's enter code and attributed here via
+# scene_writes — bs_floor's shape.
+[[claims.reg]]
+name = "met_m7_display"
+registers = ["BGMODE", "TM", "M7SEL"]
+scene_writes = ["BGMODE", "TM"]

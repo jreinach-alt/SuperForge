@@ -1,0 +1,123 @@
+# brawler_obj — the two knights, staged into the oam_sprites shadow every
+# frame: Arthur out of OBJ name table 0, Mordred out of name table 1.
+#
+# =============================================================================
+# THE SECOND OBJ NAME TABLE, and what the allocator can and cannot say about it
+# =============================================================================
+# The obvious reading is that two obj CHR vram claims in one scene would each
+# align to their own 8 K-word boundary WHILE OBSEL POINTS ALL SPRITES AT ONE
+# BASE. That parenthetical is wrong: the hardware gives a SECOND base. OBSEL's
+# bits 3-4 are a 4 K-word "name select" gap inserted
+# between tiles $0FF and $100, so tiles 256..511 are fetched from
+#
+#  obj_base + (gap + 1) * 0x1000 words
+#
+# and every sprite routes itself to one half or the other through the OAM
+# attribute's bit 0 (the 9th tile bit). Two OBJ CHR regions in one scene are
+# not inherently garbage -- they are garbage unless that bit is right.
+#
+# WHAT THE ALLOCATOR CANNOT EXPRESS, STATED PLAINLY: `VramClaim.obj` is a bare
+# bool (allocator). It aligns an obj chr claim to 8 K words and emits
+# `_OBSEL_BASE` for it, and that is all -- nothing in the claim vocabulary says
+# "this claim is name table 0 and that one is name table 1", and nothing checks
+# that the pair lands a legal gap apart. That is the `partial` verdict in the
+# hardware map, and this rail is the one that forces it.
+#
+# HOW THIS BUILD RESOLVES IT, without inventing claim vocabulary:
+#  * BOTH halves are declared, one claim each, both `obj = true`. Neither is
+#  narrated as an offset from the other -- both bases come from the
+#  allocator, as every address in this repo does.
+#  * The RELATIONSHIP is then derived from the two emitted symbols and
+#  ASSERTED at assemble time (brawler_obj.asm: BR_OBJ_GAP is computed from
+#  ES_V_BR_MOR_CHR - ES_V_BR_ART_CHR, and the build refuses unless the
+#  difference is exactly (gap+1) * 0x1000 with gap <= 3). If a future packing
+#  ever separates them by an illegal distance the ROM does not build -- it
+#  does not draw garbage.
+#  * The OBSEL value is assembled from those parts: size pair (a game choice),
+#  the emitted `_OBSEL_BASE` of the FIRST half, and the derived gap.
+# The identity ("which claim is base 0") therefore lives where the hardware
+# puts it -- in OBSEL and in the OAM attribute bit -- and the allocator's job
+# stays what it is: hand out non-overlapping space. The conclusion — OBSEL
+# identity is not a resource — survives intact; only the parenthetical was
+# wrong. docs/09 §3.1 records the shipped shape.
+# =============================================================================
+#
+# FIXED SLOTS, PARK-ON-RESPAWN. A clear-then-emit-in-call-order draw lets the
+# slot numbers float with whoever happens to be alive; OAM claims here are
+# positional, so Arthur pins slot +0 and Mordred +1 permanently and an absent
+# knight is PARKED in place rather than skipped. That settles draw order too:
+# slot 0 wins overlap, so Arthur is always in front. True Y-sorted depth is
+# out of this rail's scope at two actors.
+#
+# FOUR SPRITES CLAIMED FOR TWO ACTORS, and the reason is the hi table: a
+# hi-table byte covers four sprites (2 bits each: X9 + size), so claiming the
+# whole byte lets the draw REBUILD it from the actors' own Xs and sizes every
+# frame rather than read-modify-write a byte half of which belongs to nobody
+# (stomper_obj / hud_obj's argument). Slots +2 and +3 stay parked.
+#
+# CPU-WRITTEN REGISTER, DECLARED: OBSEL $2101 -- every rail's OBJ feature
+# declares it itself (breaker_obj / hud_obj / scroller_obj / stomper_obj's
+# shared reasoning: oam_sprites is the transport, not the size/base authority),
+# so composing two games' sprite features in one scene must refuse.
+#
+# SIZE MODE 3 (small 16x16 / large 32x32) and both knights are LARGE, so unlike
+# every prior rail the hi table's SIZE bits are written non-zero -- derived per
+# actor rather than assumed, alongside the X9 bits.
+name = "brawler_obj"
+role = "consumer"
+depends = ["oam_sprites", "brawler_rom"]
+
+[[claims.dma_init]]
+name = "br_obj_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# --- OBJ name table 0: Arthur ------------------------------------------------
+[[claims.vram]]
+name = "br_art_chr"
+kind = "chr"
+obj = true
+words = 0x1000           # 256 tiles x 16 words -- EXACTLY one OBJ name table.
+                         # The claim is the whole table because the blob is:
+                         # Arthur's 16 frames fill tiles 0..255 with nothing
+                         # spare, which is why Mordred has to go somewhere else
+
+# --- OBJ name table 1: Mordred ----------------------------------------------
+[[claims.vram]]
+name = "br_mor_chr"
+kind = "chr"
+obj = true
+words = 0xC00            # 192 tiles x 16 words. Tiles 448..511 of the second
+                         # name table are unclaimed and never referenced -- the
+                         # hardware only fetches tile numbers the OAM names
+
+[[claims.cgram]]
+name = "br_art_pal"
+words = 16
+at = 128                 # hardware contract: OBJ palettes start at CGRAM 128.
+                         # Arthur = OBJ palette 0
+
+[[claims.cgram]]
+name = "br_mor_pal"
+words = 16
+at = 144                 # Mordred = OBJ palette 1. TWO claims, not one 32-word
+                         # block: the two halves come from two different source
+                         # PNGs through two different blobs, and neither half
+                         # has any business being written by the other's upload
+
+[[claims.oam]]
+name = "knights"
+sprites = 4              # +0 Arthur, +1 Mordred, +2/+3 parked pads
+
+# The hi-byte assembly scratch: both X9 bits and both size bits are OR'd
+# together here before the single whole-byte store (the draw REBUILDS the byte
+# -- see the header). Write-before-read per call; no [init] zero, so the
+# uninit-read detector holds the contract (cm_hot's argument).
+[[claims.dp]]
+name = "br_hi"
+bytes = 2
+
+[[claims.reg]]
+name = "br_obsel"
+registers = ["OBSEL"]

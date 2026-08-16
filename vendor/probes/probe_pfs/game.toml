@@ -1,0 +1,13 @@
+# One-scene "game" wrapping the pfs_stream MECHANISM probe so its map is
+# allocator-emitted. Scaffolding only — it proves the
+# 2-axis normal-BG ring streamer WITHOUT the platformer_stream rail, which is
+# what let the streamer and the rail be built in parallel.
+#
+# It is NOT the feature: `engine/features/pfs_stream/` ships the kernel and
+# this ROM `.include`s it, exactly as probe_colmap includes the shipped
+# col_map.asm. Nothing in engine/ or game/ includes this file.
+globals = []
+
+[[scene]]
+id = "probe"
+features = ["probe_pfs"]

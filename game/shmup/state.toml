@@ -1,0 +1,50 @@
+# shmup user game state.
+#
+# All of `play` is `@dp` and scene-scoped: the play scene is the only thing
+# that has a game, and scene DP is the cheaper kind because the allocator
+# reuses the space in the title scene. The ACTORS are not here -- they live in
+# shmup_obj's `shm_pools` WRAM claim, because there are sixteen of them and
+# because a pool slot's identity is its OAM slot (see that feature.toml).
+
+[global]
+runs = "u16"             # games started this power-on — survives the
+                         # play -> title -> play restart loop, which is the
+                         # only game-lifetime fact this rail has
+
+[scene.title]
+t_frames = "u16"         # frames on title (the free-running heartbeat)
+
+[scene.play]
+px = "u16@dp"               # ship x, screen pixels, top-left of the 16x16 box
+py = "u16@dp"               # ship y
+score = "u16@dp"            # PACKED BCD, +$0001 per kill
+lives = "u16@dp"            # ships remaining, starts at 3
+gover = "u16@dp"            # 1 = terminal: the world freezes, START restarts
+spawn_t = "u16@dp"          # frames until the next fighter
+spawn_ix = "u16@dp"         # spawn-column table cursor (0..7)
+hurt = "u16@dp"             # i-frames after a hit: invulnerability AND blink
+atick = "u16@dp"            # shared animation clock: the frame-rate divider
+aframe = "u16@dp"           # ...and the current step (0..1, the plume flicker)
+dirty = "u16@dp"            # HUD reprint request: bit 0 score, bit 1 lives
+blink = "u16@dp"            # frames since the round began. Drives nothing —
+                         # it is the free-running heartbeat a test reads to
+                         # tell "the tick is running" from "the tick is stuck"
+tmp = "u16@dp"              # scratch, two roles in two phases: the collision
+                         # sweep's box-A size, then the sprite size bit
+                         # obj_put is given. Never live across the boundary —
+                         # the whole update runs before any drawing does
+tmp2 = "u16@dp"             # ...box-B's size, then a burst's frame index
+off = "u16@dp"              # outer pool-loop byte offset (bullets, then the
+                         # damage sweep) — held across a call, so it cannot
+                         # be a register
+off2 = "u16@dp"             # inner pool-loop byte offset (fighters)
+ax = "u16@dp"               # collision box A: the bullet, or the ship
+ay = "u16@dp"
+bx = "u16@dp"               # collision box B: the fighter under test
+by = "u16@dp"
+msg = "u16@dp"              # pending verdict-block address, 0 = idle. A block
+                         # is SHM_MSG_LEN chars (a verdict row + a prompt row)
+                         # written ONE CELL PER FRAME through bg_text's VBlank
+                         # queue, because a running scene cannot write VRAM
+                         # any other way
+msgpos = "u16@dp"           # the next cell of that block

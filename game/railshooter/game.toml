@@ -1,0 +1,43 @@
+# railshooter — THE POOL DEBUT.
+#
+# An on-rails forward shooter: the Mode 7 grid rushes toward the viewer at a
+# constant speed, hazards approach out of the horizon and grow through four
+# pre-drawn size tiers; the rail flies an S-curve and you aim a dragged
+# reticle and fire.
+#
+# ONE SCENE. One screen, no edges, no title: the controls are LEFT-RIGHT / A
+# and nothing else, so there is nothing for a front end to explain.
+#
+# NOT COMPOSED, each for a reason RUN rather than assumed. The method is to
+# compose the candidate and read what it would RENDER, rather than arguing
+# from its description:
+#   mode7_floor  -- the obvious supply for a Mode 7 plane, and the allocator
+#                   ACCEPTS it (4/8 channels, green). It still cannot serve:
+#                   `depends = ["world_rom"]` is microzero's 256 KB circuit
+#                   keyed to that rail's generator, and its cgram claim pins
+#                   CGRAM 0..16 to that rail's asphalt/grass palette. Composing
+#                   it renders microzero's track under a rail shooter and costs
+#                   224 KB more ROM than this rail's own 32 KB plane. rs_floor
+#                   is the same SHAPE with this rail's blob -- the same call
+#                   m7dg_floor, sh2_floor, shm_floor and m7x_floor each make.
+#   mode7_stream -- there is nothing to stream. The plane is 128x128 and the
+#                   Mode 7 addressing wraps it at 1024 px, which is exactly what
+#                   an endless rail wants: the camera wraps with `and #$03FF`
+#                   and the horizon never runs out.
+#   backdrop     -- rs_floor pins CGRAM word 0 (a Mode 7 8bpp pixel value IS the
+#                   CGRAM index), so colour 0 has exactly one owner.
+#   bg_text/vwf  -- BG3 does not exist in Mode 7. That is WHY THE HUD IS
+#                   SPRITES here, and it is why the reticle is OBJ.
+#   col_map      -- the rail has no tile collision. Hazards are hit by a bullet
+#                   x obstacle window test in z and lateral x; the grid is pure
+#                   backdrop, which is the rail's headline (the projection is
+#                   decoupled from the matrix).
+#   audio        -- this rail is silent. A soundtrack would be content, not
+#                   mechanism, and the pool is the mechanism on show.
+globals = ["scene_mgr", "input", "fade", "oam_sprites", "enter_scr",
+           "pose_rom", "pool", "rs_rom"]
+
+[[scene]]
+id = "rail"
+features = ["rs_floor", "mode7_persp", "split_band", "sky_band",
+            "rs_obj", "rs_logic"]

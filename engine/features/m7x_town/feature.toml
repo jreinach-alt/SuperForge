@@ -1,0 +1,141 @@
+# m7x_town — the mode7_explore rail's Mode 1 town interior. Scene-scoped.
+#
+# WHAT THIS IS. The room the gallery row's mosaic wipe carries Elnora into: a
+# single-screen plank-floored interior framed by stone walls, with a table and
+# an exit door in the bottom wall. Step onto the door and the wipe carries her
+# back out to the overworld, at the same spot she left.
+#
+# ONE FEATURE OWNS THE WHOLE INTERIOR — the BG1 layer, the room geometry, the
+# collision, the walk and the avatar's OAM entry — the town's BG
+# feature owns all its co-resident layers") taken literally: BG1 and OBJ are
+# the only two layers this scene composites, the room's geometry is what
+# decides both what is DRAWN and what BLOCKS, and splitting the walk off into a
+# sibling would mean two features reading one room definition. `town_classify`
+# is that single source of truth, and the class value IS the BG1 tile id (FLOOR
+# 0 / WALL 1 / DOOR 2 / TABLE 3), so the rendered tilemap and the collision
+# test cannot disagree — there is no second table to drift.
+#
+# =============================================================================
+# WHAT THIS SCENE INHERITS RATHER THAN CLAIMS, and why that is sound
+# =============================================================================
+# The town is NOT reached through scene_mgr's fade/blank/enter phase machine.
+# It is reached through a mosaic wipe whose swap deliberately leaves most of
+# the machine's state standing — that is the whole reason the interior lives in
+# UPPER VRAM. Three things are therefore inherited across the visit, and each
+# is inherited because the wipe is not a scene reload:
+#
+#  the Mode 7 image (VRAM words $0000-$3FFF) — untouched by this scene, so the
+#  return needs NO re-stream and the window is byte-identical to how it was
+#  left. This is why the claims below pin UPPER VRAM instead of packing.
+#  the avatar's OBJ CHR (words $4000+) and its OBJ palette (CGRAM 128..143),
+#  uploaded by m7x_obj at the overworld's enter — the same three authored
+#  facings walk the room, so re-uploading them would be re-uploading bytes
+#  that are already correct.
+#  OBSEL, written once by m7x_obj — the size pair and the OBJ name base do not
+#  change between the two scenes.
+#
+# They are NOT claimed here, deliberately. A claim this scene never writes
+# would be a false declaration (rule 5's establishment discipline is "write
+# what you use", and the writer here is the other scene), and claiming a region
+# to reserve it would be reserving it against nobody: this scene's own claims
+# are PINNED, so the packer has no freedom to put anything on top of the Mode 7
+# image in the first place.
+#
+# =============================================================================
+# WHY BG1HOFS / BG1VOFS ARE NOT IN THE REG CLAIM BELOW
+# =============================================================================
+# `m7_affine` is a GLOBAL feature on this rail and its NMI commit writes
+# BG1HOFS/BG1VOFS ($210D/$210E) from its DP shadow on every armed frame, in
+# every scene — those ports are M7HOFS/M7VOFS under Mode 7 and the plain BG1
+# scroll under Mode 1, but they are one register file either way. Claiming them
+# here would be a second owner and check_reg_ownership's reg x reg pass would
+# refuse the composition, correctly.
+#
+# So the town does not fight it: it PINS THE SCROLL THROUGH THE OWNED API. The
+# interior is one screen and does not scroll, so the scene's resume calls
+# `m7a_set_center` with the pivot at (128,112) — half the active area on each
+# axis — which is exactly the input for which that routine's two subtractions
+# give HOFS = VOFS = 0. M7_affine then re-commits the zero every frame, which
+# is what a fixed camera wants. The matrix words it also commits (M7A-M7D, M7X,
+# M7Y) are inert in Mode 1.
+name = "m7x_town"
+role = "feature"
+depends = ["m7x_rom"]
+
+# --- the interior's BG1 layer, PINNED into upper VRAM -----------------------
+# `at` is a hardware-shaped contract here, not a packing preference, and it is
+# the load-bearing declaration of this whole scene: the Mode 7 image the return
+# re-uses without a re-stream lives at words $0000-$3FFF, and the avatar's OBJ
+# CHR at $4000. A PACKED claim would first-fit from word 0 and quietly
+# overwrite the plane — the ROM would build, the town would render, and the
+# picture the player walked back out into would be whatever the town's CHR
+# looked like as 8bpp Mode 7 tiles. Pinning is what makes "the interior writes
+# UPPER VRAM" a checked statement rather than an intention.
+#
+# BG1SC bases are 0x400-word granular and BG12NBA bases 0x1000-word granular;
+# $5800 and $5000 satisfy both, and the emitted _SC_BASE / _NBA symbols are
+# what the ASM writes (never a hand-narrated register byte).
+[[claims.vram]]
+name = "town_chr"
+kind = "chr"
+tiles = 4
+tile_bytes = 32          # 4bpp
+at = 0x5000
+
+[[claims.vram]]
+name = "town_map"
+kind = "tilemap"
+words = 0x400            # 32x32
+at = 0x5800
+
+# --- the interior palette ---------------------------------------------------
+# Sixteen words at 0: BG1 4bpp sub-palette 0. Word 0 is the floor base AND the
+# backdrop slot, so a gap reads as floor rather than as a hole — the same
+# reasoning m7x_floor's palette gives for putting opaque grass in word 0.
+#
+# THIS OVERWRITES THE OVERWORLD'S CGRAM 0..11 and that is the one piece of
+# state the visit really does destroy. The return re-stages it (m7x_floor's
+# floor_restage); a return that forgot would show the Mode 7 world in the
+# town's browns.
+[[claims.cgram]]
+name = "town_pal"
+words = 16
+at = 0
+
+# --- the avatar's slot ------------------------------------------------------
+# Slot 0, pinned for m7x_obj's reason: OAM index order IS sprite-vs-sprite
+# priority and the one sprite the player steers must not be occluded. The
+# three-slot pad claims the rest of the hi-table quad so that byte has ONE
+# owner and can be rebuilt whole rather than read-modify-written.
+[[claims.oam]]
+name = "town_avatar"
+sprites = 1
+at = 0
+
+[[claims.oam]]
+name = "town_hi_pad"
+sprites = 3
+at = 1
+
+# --- the classifier's call frame -------------------------------------------
+# The cell (tx,ty) town_classify is being asked about. A call frame, not state:
+# written before it is read inside one classify, which is why there is no
+# `[init] zero` — pre-filling it would hide the day that stops being true.
+[[claims.dp]]
+name = "town_cell"
+bytes = 4                # ctx(2) cty(2)
+
+# C4 (docs/09 §2.1): the interior's layer configuration and the scene's base
+# display shape.
+#
+# ATTRIBUTION, room_bg's and m7x_floor's shape. BG1SC and BG12NBA are written
+# by this feature's own town_arm — they are the layer's configuration and the
+# layer is this feature's mechanism. BGMODE and TM are written by the scene's
+# resume code (game/mode7_explore/scenes/town.asm), which has no feature.toml
+# of its own, so they are attributed to the feature they SERVE and opened
+# through `scene_writes`. The lies-check compares per REGISTER, and the two
+# sets are disjoint.
+[[claims.reg]]
+name = "town_layers"
+registers = ["BG1SC", "BG12NBA", "BGMODE", "TM"]
+scene_writes = ["BGMODE", "TM"]

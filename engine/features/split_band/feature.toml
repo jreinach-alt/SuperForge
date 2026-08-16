@@ -1,0 +1,44 @@
+# split_band — the Mode-1 HUD band over the Mode-7 floor (scene-scoped). Two
+# active-display HDMA channels: BGMODE (direct) + TM (indirect), driven by
+# STATIC ROM tables (fixed camera height -> fixed horizon). The
+# tables live in the code bank (tiny; HDMA A1B/DASB are label-derived).
+name = "split_band"
+role = "feature"
+
+[[claims.hdma]]
+name = "bgm"
+registers = ["BGMODE"]
+mode = 0
+band = "scene"
+phase = "active"
+channels = 1
+
+[[claims.hdma]]
+name = "tmi"
+registers = ["TM"]
+mode = 0
+indirect = true
+band = "scene"
+phase = "active"
+channels = 1
+
+# C4 (docs/09 §2.1): the SEED case, and the only one in the tree.
+#
+# game/microzero/scenes/race.asm:88 writes BGMODE = 7 commented "HDMA overrides
+# per line", and :90 writes TM = 1 commented "BG1 base (HDMA overrides per
+# line)". Those writes establish a base value that THIS feature's two
+# active-display HDMA claims above then drive per scanline -- so they are not a
+# second owner, they are a seed, and `seed = true` is what says so.
+#
+# This is the field earning its place: without it these two writes would refuse
+# against split_band's own HDMA claims and take the race scene with them, and a
+# class that refuses a shipping composition is worse than no class. With it,
+# the declaration finally says what the comment already said. The seed is also
+# self-checking -- if the overriding hdma claim ever left the scene, the seed
+# would be a lie and the build says so rather than silently becoming an unowned
+# write.
+[[claims.reg]]
+name = "sb_mode_seed"
+registers = ["BGMODE", "TM"]
+seed = true
+scene_writes = ["BGMODE", "TM"]       # race.asm:88/:90 seed both

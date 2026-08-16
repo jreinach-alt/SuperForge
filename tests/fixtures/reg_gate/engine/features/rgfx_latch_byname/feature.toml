@@ -1,0 +1,14 @@
+name = "rgfx_latch_byname"
+role = "fixture"
+
+# No `vram` REGION claim at all — VMDATAL/H named on a vblank hdma claim, the
+# live `vwf` shape. Naming a resource's data port covers that resource's
+# LATCHES too: the latch is the *where* of the port you claimed.
+[[claims.hdma]]
+name = "rgfx_lbn_q"
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+phase = "vblank"
+
+[claims.dma]
+vblank_bytes_per_frame = 32

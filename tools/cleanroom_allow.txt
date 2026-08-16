@@ -1,0 +1,16 @@
+# cleanroom_check.sh allowlist — `relpath<TAB>fixed-substring`, one per line.
+#
+# A line is exempted ONLY when the FILE matches and the LINE contains the
+# substring. Adding an entry means "I read this line and it is mechanism
+# language or a third-party technical term, not branding and not copied
+# content." Rubber-stamping an entry defeats the gate, and the gate prints how
+# many entries it consumed so a tree talked out of every hit reads as disarmed.
+#
+# --- an English phrase that collides with a retail title -------------------
+# `run_to_break` is a harness method; "a timed-out run_to_break" is the ordinary
+# way to say it returned on its deadline. The denylist reads any `out` followed
+# by a separator and `run` as the racing title, and the separator class treats
+# `_` as a separator so the method name closes the match. Mechanism language,
+# not a title.
+tests/test_runner_guard.py	timed-out run_to_break
+vendor/mesen_runner.py	timed-out run_to_break

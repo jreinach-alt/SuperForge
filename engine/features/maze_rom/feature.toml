@@ -1,0 +1,66 @@
+# maze_rom — every immutable byte the `maze` rail reads.
+#
+# A `blob`: ROM claims, no behaviour, no asm — the role that exists precisely
+# because a claim set cannot distinguish it from a feature (AGENTS.md).
+#
+# THE ROOM IS ONE BLOB AND IT IS BOTH SURFACES AT ONCE — `mz_room` is a 32x32
+# byte map of tile ids (the border wall + the two interior walls), and it is
+# read twice:
+#
+#  * maze_bg's enter loop renders it to the BG1 tilemap, cell by cell, under
+#  the scene's forced blank — the walls you SEE;
+#  * col_map binds it as its world (CM_WORLD_BLOB) and probes it per corner —
+#  the walls that BLOCK.
+#
+# One blob, so "what renders is what collides" holds by construction rather
+# than by a test keeping two copies honest. The same property is reachable
+# from the other direction — build the room into a SHADOW tilemap and let
+# col_map read that shadow — but col_map here reads ROM, not a shadow (its
+# feature.toml records why a WRAM mirror aliases), so the single source moves
+# into ROM and the render loop derives from it.
+#
+# The geometry is AUTHORED in tools/gen_maze_assets.py by four loops (border
+# rows, border cols, interior wall A, interior wall B), so the map stays
+# readable as the four rules that describe the room rather than as 1 KB of
+# opaque bytes.
+name = "maze_rom"
+role = "blob"
+depends = []
+
+[[claims.rom]]
+name = "mz_bg_chr"
+bytes = 96               # 3 x 4bpp tiles: 0 floor (empty), 1 explicit zero
+                         # (unused padding), 2 WALL (solid colour index 1).
+                         # The wall sits at id 2 so mz_flags[2] is the single
+                         # solid entry — the flag table, the map bytes and the
+                         # CHR all agree on one number.
+
+[[claims.rom]]
+name = "mz_bg_pal"
+bytes = 32               # 16 BGR555 words — group 0; word 0 IS the backdrop
+                         # (black), word 1 the wall grey $39CE.
+
+[[claims.rom]]
+name = "mz_room"
+bytes = 1024             # the 32x32 byte tile-id map — col_map's world AND the
+                         # BG render source (header note above). 1024 B against
+                         # a 32 KB LoROM window = one chunk; the scene derives
+                         # CM_WORLD_BLOB_CHUNKS from this claim's emitted size,
+                         # so growing it past a window stops the build upstream
+                         # (the m7_dungeon binding's reasoning, unchanged).
+
+[[claims.rom]]
+name = "mz_flags"
+bytes = 256              # one flag byte per tile id the map can hold: entry 2
+                         # = bit 0 (SOLID), all else 0. 256 entries is TOTAL —
+                         # the map is one byte per tile, so every id has an
+                         # entry and the lookup needs no bounds check
+                         # (col_map_rom's claim carries the argument).
+
+[[claims.rom]]
+name = "mz_obj_chr"
+bytes = 32               # 1 x 4bpp tile: the solid red player
+
+[[claims.rom]]
+name = "mz_obj_pal"
+bytes = 32               # 16 BGR555 words — OBJ palette 0, word 1 = red $001F

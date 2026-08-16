@@ -1,0 +1,49 @@
+# svd_obj — the two player markers. Scene-scoped consumer of oam_sprites.
+#
+# The markers exist to be CUT. P1's marker straddles the seam and P2's stands
+# in the right half precisely so the `-DOBJ_CLIP` build has something to
+# clip: with WOBJSEL = window-1-inside and OBJ in TMW,
+# the seam slices P1's marker and P2's vanishes entirely. That is the rail's
+# fourth teaching, and it is a PICTURE claim — an OAM entry is identical either
+# way, so only the rendered frame can tell the two apart.
+name = "svd_obj"
+role = "consumer"
+depends = ["oam_sprites", "svd_rom"]
+
+[[claims.dma_init]]
+name = "svd_obj_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "obj_chr"
+kind = "chr"
+obj = true
+words = 16               # 1 tile x 16 words — the whole marker
+
+[[claims.cgram]]
+name = "marker_pal"
+words = 16
+at = 128                 # hardware contract: OBJ palette 0 = CGRAM 128..143
+
+[[claims.oam]]
+name = "marker_p1"
+sprites = 1
+at = 0                   # straddles the seam — the OBJ-clip subject
+
+[[claims.oam]]
+name = "marker_p2"
+sprites = 1
+at = 1                   # stands in the right half
+
+[[claims.oam]]
+name = "marker_pad"
+sprites = 2
+at = 2                   # the OAM hi-table byte covers FOUR sprites, so
+                         # claiming all four makes that byte single-owner
+                         # (split_v_obj's / cf_obj's shape)
+
+[[claims.reg]]
+name = "svd_obsel"
+registers = ["OBSEL"]

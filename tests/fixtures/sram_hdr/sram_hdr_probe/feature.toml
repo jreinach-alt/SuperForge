@@ -1,0 +1,11 @@
+# sram_hdr_probe — test fixture: the smallest game whose cart header must
+# DECLARE save memory. One 64-B sram claim -> the allocator derives
+# $FFD8 = $01 (2 KiB, the minimum) + $FFD6 = $02 (ROM+RAM+battery), and
+# tests/test_c2_sram_class.py reads those two bytes out of the BUILT .sfc —
+# the artifact a flashcart or bsnes sees, not the allocator's bookkeeping.
+name = "sram_hdr_probe"
+role = "fixture"
+
+[[claims.sram]]
+name = "probe_slots"
+bytes = 64

@@ -1,0 +1,3 @@
+# rpg user game state.
+[global]
+visits = "u16"           # town visits — the save payload's counter

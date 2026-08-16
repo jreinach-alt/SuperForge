@@ -1,0 +1,51 @@
+# split_h_demo — the cockpit horizontal raster-band split.
+#
+# A receding Mode-7 perspective floor in the LOWER band under a genuine BG3
+# tile instrument panel in the TOP band, with HDMA rewriting BGMODE **and** TM
+# at one scanline seam — and the whole thing held under a LIVE MATRIX REBUILD
+# (the camera spins, so both INDIRECT matrix channels are re-pointed every
+# VBlank while the two band channels keep splitting the frame).
+#
+# THE RAIL'S SUBJECT IS `split_band`'s OWNERSHIP, not a new mechanism. docs/09's
+# SPLIT row calls that feature the sole ACTIVE-PHASE owner of BGMODE, frame-wide
+# (`band = "scene"`), and records the ruling that the right answer to a second
+# split shape is to GENERALISE the hardcoded table rather than build a second
+# splitter. This rail is the first composition to take that answer: it binds
+# split_band's four band bytes to values microzero cannot use (TM $04/$01 — BG3
+# alone over BG1 alone, because this rail has neither a sky BG2 nor an OBJ) and
+# a different seam (40 rather than 44). One feature, two bindings, no second
+# splitter — the col_map/rgb_gradient includer-binding shape.
+#
+# ZERO NEW ENGINE FEATURES. Everything here is already shipped: `split_band`
+# (generalised, same claims), `mode7_persp`, `mode7_floor`, `bg_text`,
+# `scene_mgr`, `fade`, `input`.
+#
+# NOT COMPOSED, and each for a reason:
+#   sh2_cam     -- six active channels for TWO cameras. This rail has ONE
+#                  camera that spins in place; sh2_cam is split_h_2p_demo's
+#                  mechanism and composing it here would be 8/8 channels bought
+#                  for a picture this rail does not have. `mode7_persp` is the
+#                  matching shape: one band, ROM-resident poses, a VBlank
+#                  re-point per heading -- which is what a camera that turns
+#                  actually costs here.
+#   sh2_floor   -- its `sh2_base` reg claim OWNS BGMODE and TM as plain
+#                  constants for all 224 lines. Composing it with split_band is
+#                  a register-ownership contention the allocator refuses, and
+#                  correctly: two mechanisms for one register pair.
+#   rgb_gradient -- a per-scanline COLDATA tint band. Three more active
+#                  channels for a wash, on a rail whose subject is the MODE
+#                  split; microzero's race already ships that composition
+#                  (split_band + mode7_persp + rgb_gradient, 7/8) so nothing
+#                  here would be new. A scope decision, not an omission.
+#   oam_sprites / sky_band / mode7_stream -- the camera does not travel and the
+#                  rail draws no actors; each would add TM bits the two band
+#                  bytes would then have to carry for no rendered content.
+#
+# ONE SCENE, no edges — scroller / hud_game / camera_follow / jumper / scroll_run
+# shape: one RESET and one loop.
+globals = ["scene_mgr", "fade", "input", "text_dp", "font_rom", "enter_scr",
+           "world_rom", "pose_rom"]
+
+[[scene]]
+id = "cockpit"
+features = ["mode7_floor", "mode7_persp", "split_band", "bg_text"]

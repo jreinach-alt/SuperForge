@@ -1,0 +1,4 @@
+# sram_hdr — header-derivation fixture game (see sram_hdr_probe/feature.toml).
+[[scene]]
+id = "probe"
+features = ["sram_hdr_probe"]

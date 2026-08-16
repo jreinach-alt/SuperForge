@@ -1,0 +1,82 @@
+# brawler_rom — every immutable byte the `brawler` rail reads.
+#
+# A `blob`: ROM claims, no behaviour, no asm. All nine blobs come from
+# tools/gen_brawler_assets.py, which converts the ORIGINAL PACK PNGs vendored
+# at vendor/art/camelot and vendor/art/four_seasons_tileset (see that
+# generator's header for the source-not-derivative argument, and the two
+# READMEs for provenance + licence).
+#
+# THE ART IS THE RAIL. brawler is the animated character-art showcase — two
+# multi-frame 32x32 knights and a terrain floor, all three straight from
+# CC0/permissive packs. The converted blobs are PINNED: tests/test_brawler.py
+# cross-checks the generator's output against the three vendored `ref_*.inc`
+# fixtures byte for byte, so a converter change that moves a pixel fails the
+# suite instead of quietly redrawing the rail.
+name = "brawler_rom"
+role = "blob"
+
+# --- Arthur: OBJ name table 0, tiles 0..255 ---------------------------------
+[[claims.rom]]
+name = "br_art_chr"
+bytes = 8192             # 16 frames x 32x32 on the 16-wide OBJ VRAM grid =
+                         # 256 tiles x 32 B 4bpp. EXACTLY one OBJ name table,
+                         # which is what makes the second-name-table lesson
+                         # forced rather than decorative
+
+[[claims.rom]]
+name = "br_art_pal"
+bytes = 32               # 16 BGR555 words -- OBJ palette 0 (CGRAM 128..143);
+                         # 8 opaque colours + the transparent slot
+
+# --- Mordred: OBJ name table 1, tiles 256..447 ------------------------------
+[[claims.rom]]
+name = "br_mor_chr"
+bytes = 6144             # 12 frames = 192 tiles x 32 B. Loaded at the SECOND
+                         # name table, so every Mordred tile id is >= 256 and
+                         # his OAM attribute carries a constant name bit
+
+[[claims.rom]]
+name = "br_mor_pal"
+bytes = 32               # 16 words -- OBJ palette 1 (CGRAM 144..159)
+
+# --- the floor: the Four Seasons terrain patch ------------------------------
+[[claims.rom]]
+name = "br_bg_chr"
+bytes = 1568             # 49 unique 4bpp tiles (incl. the reserved blank #0)
+                         # deduped out of the 8x6 cell region the converter is
+                         # pointed at (--region 0,0,64,48)
+
+[[claims.rom]]
+name = "br_bg_pal"
+bytes = 32               # 16 words -- BG palette group 0. Word 0 IS the
+                         # backdrop slot, so this scene cannot also compose
+                         # `backdrop` (stomper/scroller say the same)
+
+[[claims.rom]]
+name = "br_bg_map"
+bytes = 96               # 8x6 = 48 tilemap words: the terrain PATCH. The
+                         # floor build loop tiles rows 1 and 2 of it across
+                         # the screen, col mod 8 -> patch column
+
+# --- the animation tables ---------------------------------------------------
+# png2snes emits per-animation tables of BASE-RELATIVE tile offsets. Naming
+# each table at ASSEMBLE time is the obvious shape, and it forces a three-way
+# branch dispatch in the draw. Here they are one blob on a FIXED STRIDE,
+# indexed by the anim-state word — same bytes, same visible cycle, no
+# dispatch.
+[[claims.rom]]
+name = "br_anim"
+bytes = 40               # 5 tables x 8-byte stride:
+                         #  0 arthur idle | 1 arthur run | 2 arthur hit
+                         #  3 mordred idle | 4 mordred run
+                         # short tables are padded with their own frame 0 --
+                         # explicit, never left uninitialised (rule 5)
+
+[[claims.rom]]
+name = "br_anim_meta"
+bytes = 10               # the same 5 tables x (len, rate). LENGTH IS DATA, not
+                         # an assemble-time constant, because the rail's stated
+                         # lesson is that a 4-step table indexed by a stale
+                         # 8-step counter reads past its end -- the length that
+                         # bounds the wrap has to come from the same place the
+                         # frames do

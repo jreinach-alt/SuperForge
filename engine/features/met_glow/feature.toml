@@ -1,0 +1,89 @@
+# met_glow — the red impact glow: one HDMA channel, a stepped COLDATA band
+# ramp, and the colour-math mode that lets it reach BG1 but not the sprites.
+# Scene-scoped ("impact").
+#
+# WHAT THE EFFECT IS: a top-black -> bottom-red ADD gradient armed at boot
+# (zeroed), then `scene_glow` drives the BOTTOM red intensity through rise /
+# hold / recede against the Mode-7 elapsed frame, quantising the target to
+# steps of 8 and REBUILDING THE TABLE ONLY WHEN THE QUANTISED TARGET CHANGES —
+# its own header says an unconditional per-frame rebuild "overran the frame
+# budget and ran the whole scene at ~1/3 speed". Colour math is enabled once
+# on the first rise with layers `#$21` = backdrop + BG1, OBJ deliberately
+# EXCLUDED so the captured green ground and the white player are not stained
+# red, and disabled again once the glow has fully receded.
+#
+# WHY NOT `rgb_gradient`, WHICH IS THE SHARED FEATURE FOR THIS REGISTER SET.
+# Read its feature.toml: "Three active-display HDMA channels stream one STATIC
+# ROM intensity table each into COLDATA (fixed camera height -> fixed
+# band geometry, no fog dynamics)". A static ROM table is exactly the one thing
+# this rail's glow is not — its whole content is an intensity that RISES with
+# the descent, HOLDS, and RECEDES. Composing it would give a constant wash and
+# the -DNO_GRADIENT control's assertion ("lower-band red rises then recedes")
+# would have nothing to distinguish. It also spends three channels where a
+# single-plane ramp needs one. So this is a sibling mechanism over the same
+# ports, not a parameterisation — mo_floor's ruling one register class over.
+#
+# THE TABLE IS EIGHT BAND ENTRIES, NOT 224 PER-LINE BYTES. AGENTS.md's
+# cycle-budget note: a 225-iteration per-scanline fill is ~3,700 cycles per
+# active channel per frame, and the HDMA NON-REPEAT PAUSE shape gets the same
+# picture for a fraction of it — a mode-0 entry with a count byte in $01..$80
+# and bit 7 CLEAR transfers ONE byte at the entry's first line and then idles
+# for the remaining N-1, and COLDATA holds its value across the idle lines. So
+# eight entries of 28 lines each give an eight-step top-to-bottom ramp in 17
+# bytes and ~40 cycles to rebuild. A per-LINE gradient costs 224 entries and
+# a fill loop to match; the visible difference is eight bands instead of 224,
+# on a wash whose whole job is "the lower part of the screen reddens".
+name = "met_glow"
+role = "feature"
+
+# One active-display channel streaming the R plane of COLDATA ($2132 with the
+# plane-select bit 5 set in every data byte). Direct, mode 0 — the table below
+# IS the source. Declaring COLDATA_R rather than COLDATA states that the green
+# and blue planes are still free for another owner: the plane-select bits are
+# the footprint mask, so a second claimant on a different plane composes and
+# one on the same plane refuses.
+[[claims.hdma]]
+name = "glow"
+registers = ["COLDATA_R"]
+mode = 0
+band = "scene"
+phase = "active"
+channels = 1
+
+# The table the channel reads, rebuilt in place whenever the quantised
+# intensity changes:
+#  8 x ([count = 28] [$20 | level_i]) the eight bands, top to bottom
+#  [$00] terminator
+# `dma_source`: an HDMA table may not cross a bank mid-transfer.
+#
+# NO `[init] zero`: `glow_arm` writes every one of the seventeen bytes at scene
+# enter, before HDMAEN is ever set for this channel, so the write-before-read
+# contract is met by the code path (rule 5 — a zero fill would resolve a "the
+# arm never ran" defect to a well-formed all-black table instead of leaving it
+# for the uninitialised-read detector).
+[[claims.wram]]
+name = "glow_tab"
+bytes = 17
+dma_source = true
+
+# C4 (docs/09 §2.1): the colour-math MODE, CPU-written at arm/disarm and at the
+# two one-shot transitions the glow makes (rgb_gradient's grad_math, same two
+# ports for the same reason). The COLDATA writes are covered by this feature's
+# own COLDATA_R transfer claim above — §2.1's boundary covers a write to a port
+# you already claim.
+#
+# THE OBJ EXCLUSION IS ENFORCED TWICE HERE, and the second time is hardware.
+# The layer mask is written as `#$21`, with bit 4 (OBJ) clear — the exclusion
+# that keeps the captured ground untinted. But on THIS composition the bit
+# cannot matter either way:
+# Mesen2's Core/SNES/SnesPpu.cpp:962 gates an OBJ pixel's colour math on
+# `(_state.ColorMathEnabled & 0x10) && _spritePalette[x] > 3`, i.e. Colour math
+# reaches OBJ only from palettes 4..7, and met_obj claims exactly one OBJ
+# palette, at 0. Measured through the falsification harness: setting bit 4
+# moves the artifact's md5 and changes no rendered pixel (tools/plants/
+# meteor_event.py records the run). The bit stays CLEAR because that is the
+# statement that survives a future palette change — but nothing on this rail
+# rests on it today, and a reader should not think it does.
+[[claims.reg]]
+name = "met_glow_math"
+registers = ["CGWSEL", "CGADSUB"]

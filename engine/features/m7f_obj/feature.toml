@@ -1,0 +1,129 @@
+# m7f_obj — the airship and its ground shadow. Scene-scoped.
+#
+# TWO SPRITES. That is the ENTIRE cast of this rail: OAM slot 0 = the airship
+# at (112, 96), slot 1 = the shadow at (112, 183), hi-table byte 0 = $02 at
+# the spawn altitude. No pool, no projectiles, no enemies. So `pool` is not
+# composed and there is no actor array: two slots, drawn from two DP words.
+#
+# THE SHADOW IS THE ALTIMETER, and that is why it is a feature rather than
+# decoration. Its SIZE, its TILE and its screen Y all track the altitude: low
+# and the shadow is a BIG 32x32 close under the ship; high and it is a SMALL
+# 16x16 further down the screen, toward the horizon. It is the one cue that
+# tells a player how high they are without a HUD — and this rail has no HUD to
+# put one in, because BGMODE 7 has exactly one layer and the plane is using it
+# (rs_obj's header reaches the same conclusion for the same reason).
+name = "m7f_obj"
+role = "feature"
+depends = ["m7f_rom", "oam_sprites", "m7f_cam"]
+
+# The enter-time OBJ CHR upload. One DMA for the one sheet.
+[[claims.dma_init]]
+name = "m7f_obj_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# ONE 4-row x 16-col grid — 64 tiles, 1,024 words. The SNES reads a 32x32
+# sprite as a 4x4 tile block whose ROW STRIDE IS 16 TILE SLOTS (fixed in
+# hardware, and the reason a 32x32 object cannot be stored as sixteen
+# consecutive tiles), so all four objects share one 16-wide grid: the airship's
+# two propeller frames at columns 0 and 4, the big shadow at 8, the small one
+# at 12.
+#
+# The base is not written here and cannot be: the scene's `mode7` claim pins
+# words $0000-$3FFF and the allocator floors every OBJ CHR claim above it
+# (substrate [vram.mode7] displaces_obj_chr_to_word). The emitted
+# ES_V_OBJ_CHR_OBSEL_BASE is what the ASM writes into OBSEL, so the byte is
+# derived from the claim rather than hand-spelled as a literal.
+[[claims.vram]]
+name = "obj_chr"
+kind = "chr"
+obj = true
+words = 1024
+
+[[claims.cgram]]
+name = "ship_pal"
+words = 16
+at = 128                 # hardware contract: OBJ palette 0 = CGRAM 128..143
+
+[[claims.cgram]]
+name = "shadow_pal"
+words = 16
+at = 144                 # OBJ palette 1
+
+# THE SLOT MAP IS PINNED, NOT PACKED. OAM index order IS sprite-vs-sprite
+# priority (lowest index in front) and the packer sorts by (-sprites, name), so
+# a packed layout's priority would be an accident of claim names. The airship
+# is slot 0 — in front — because a shadow drawn over the ship it belongs to
+# reads as a rendering bug, and at low altitude the two boxes overlap.
+[[claims.oam]]
+name = "ship"
+sprites = 1
+at = 0
+
+[[claims.oam]]
+name = "shadow"
+sprites = 1
+at = 1
+
+# Slots 2 and 3, claimed so the FIRST hi-table byte has ONE owner and can be
+# rebuilt whole. That byte carries two bits per sprite for four sprites — X9
+# and size — so a feature that owned only slots 0 and 1 would be read-modify-
+# writing a byte half of which belongs to nobody. Parked at y = $F0 for the
+# ROM's life. (mo_obj's `hi_pad` claim exists for exactly this reason.)
+[[claims.oam]]
+name = "hi_pad"
+sprites = 2
+at = 2
+
+# --- the clouds (piece B') --------------------------------------------------
+# FOUR slots, and they are slots 4..7 for the same hi-table reason `hi_pad`
+# exists: that is exactly the second hi byte, so this feature owns it whole and
+# `cloud_draw` can rebuild it rather than read-modify-write bits half of which
+# belong to nobody. Behind the airship in priority, which is what index order
+# means, and correct — a cloud drawn over the ship it is 2 km behind would read
+# as a rendering bug.
+#
+# THE COLOURS ARE `m7f_floor`'S `cloud_pal`, not this feature's: what colour a
+# cloud is at 3 a.m. Is a fact about the time of day. The CHR is here, in the
+# 16-wide grid the 32x32 objects leave gaps in.
+#
+# B (A TILED CLOUD LAYER) IS DOCUMENTED-NOT-TAKEN. The upgrade is a second BG
+# behind the sky band, reached by a per-scanline BGMODE/TM split: run the sky
+# rows in mode 1 with BG2 showing a scrolling cloud tilemap and switch to mode
+# 7 at the horizon. COST SKETCH, against what this rail holds today:
+#  * TWO more HDMA channels (BGMODE and a second TM entry set) on top of the
+#  six already claimed, taking the rail to 8 of 8 with nothing spare — and
+#  B' below needs none, because OAM costs no channel;
+#  * a BG2 tilemap + CHR in VRAM, which on this rail means finding room ABOVE
+#  word $3FFF, where the OBJ sheet already sits;
+#  * a mid-frame mode change is the one thing on the SNES that has to be right
+#  to the scanline, and this rail's horizon MOVES, so the switch line is
+#  f(altitude) like everything else here;
+#  * in exchange: clouds that occlude each other and tile the whole sky,
+#  instead of four sprites.
+# Not taken because four drifting sprites answer the observation the package
+# exists for (a flat sky) at zero channels, and because 8 of 8 would leave the
+# rail unable to compose anything else ever again.
+[[claims.oam]]
+name = "clouds"
+sprites = 4
+at = 4
+
+# --- the clouds' own state --------------------------------------------------
+# +0 the 8.8 drift accumulator, +2 the heading the parallax delta is measured
+# from, +4 the frame's parallax step (then the cloud's x), +6 the hi byte being
+# built. The last two are dead between calls — a call frame, not state — which
+# is why there is no `[init] zero`; `cloud_arm` writes the first two before
+# `cloud_draw` reads either.
+[[claims.dp]]
+name = "m7f_cloud"
+bytes = 8
+
+# C4 (docs/09 §2.1): OBSEL. Every rail's OBJ feature declares it, and on a Mode
+# 7 rail it is load-bearing rather than routine — the plane occupies VRAM words
+# $0000-$3FFF, so the OBJ name base MUST be moved above it or the sprites would
+# fetch their CHR out of the map.
+[[claims.reg]]
+name = "m7f_obsel"
+registers = ["OBSEL"]

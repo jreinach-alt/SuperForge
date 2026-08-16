@@ -1,0 +1,12 @@
+# world_rom — the 4096x4096 px world tilemap blob (global feature).
+# 512x512 tile ids, 512 B/row, bank-tiled: 64 rows per 32 KB window so a
+# DMA source never spans a bank (A1B is constant). Both the seed upload
+# (mode7_floor) and the streamer (mode7_stream) read it via the emitted
+# chunk symbols; the .incbin sites .assert bank/addr agreement per chunk.
+name = "world_rom"
+role = "blob"
+
+[[claims.rom]]
+name = "world_map"
+bytes = 0x40000          # 256 KB
+bank_tiled = true

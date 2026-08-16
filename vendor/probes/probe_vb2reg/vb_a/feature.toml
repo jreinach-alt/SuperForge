@@ -1,0 +1,44 @@
+# vb_a — first VBlank VMDATAL consumer: 512 B of pattern A to its own VRAM
+# window every frame, fired from the NMI on the allocator-emitted channel.
+name = "vb_a"
+role = "fixture"
+
+[[claims.vram]]
+name = "targ_a"
+kind = "raw"
+words = 256
+
+# mode 1 = 2-reg write-once, so the transfer drives $2118 AND $2119 and BOTH
+# ports must be named — the same shape probe_vblank's probe_dma declares. This
+# claim under-declared its footprint (registers = ["VMDATAL"], mode omitted ->
+# mode 0, span 1) while probe_vb2reg.asm programmed DMAP $01/$09, i.e. mode 1:
+# a live instance of the declaration-vs-implementation class closed
+# for engine/, game/ and probe_vblank but not for this probe
+
+[[claims.hdma]]
+name = "vba"
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+band = "scene"
+phase = "vblank"
+
+[claims.dma]
+vblank_bytes_per_frame = 512
+vblank_transfers_per_frame = 1
+
+# vendor/probes/probe_vb2reg.asm is gated by tests/test_vb2reg_probe.py
+# rather than by the Makefile, and it matched no reg-context shape, so it used
+# to get no reg pass at all: a gate's population is every file ANY gate hands
+# the tool, not just the files the Makefile names. The default tier is now the
+# composed union, so it is CHECKED.
+#
+# CGDATA covers $2121 (CGADD) too: a latch rides the claim on the RESOURCE
+# its data port serves. COLDATA is deliberately NOT here — vb_b's
+# `vbc` hdma claim already drives it, and a second [[claims.reg]] naming it
+# is exactly the collision the allocator refuses.
+[[claims.reg]]
+name = "vb2reg_display"
+registers = ["INIDISP", "TM", "NMITIMEN", "CGDATA", "CGWSEL", "CGADSUB"]
+scene_writes = ["INIDISP", "TM", "NMITIMEN", "CGWSEL", "CGADSUB"]
+# CGDATA is NOT opened: it is the cgram data port, written under the
+# region claim, not by scene-enter code answering to this claim.

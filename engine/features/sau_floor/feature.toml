@@ -1,0 +1,60 @@
+# sau_floor — the saucer, as the Mode 7 plane. Scene-scoped.
+#
+# WHY NOT `mode7_floor` (mo_floor's ruling, taken an eighth time and measured
+# once more here): that feature `depends = ["world_rom"]` (a 256 KB map this
+# rail never reads), pins CGRAM 0..16 for MICROZERO's palette, and streams a
+# position-wrapped window out of a 512x512 world. This rail's map is a single
+# flat 32,768 B interleaved blob uploaded ONCE. `mode7_floor` is the obvious
+# supply for a Mode 7 plane (docs/09 §1.1) and it is wrong here for the same
+# reason it was wrong for `boss`.
+#
+# WHY NOT `bs_floor` ITSELF: it `depends = ["bs_rom"]` and its upload names
+# bs_rom's emitted symbols — composing it would upload the BOSS's arena and
+# reserve that rail's blobs this one never reads. The SHAPE transfers (this
+# file and sau_floor.asm are its shape with this rail's blob); the binding does
+# not. M7dg_floor, rs_floor, sh2_floor, shm_floor, m7x_floor, m7c_floor,
+# mo_floor and bs_floor each took the same ruling.
+#
+# WHY NO `hdma` CLAIM: the whole rail is one uniform matrix per frame,
+# committed from m7_affine's shadow. Nothing streams per scanline, which is
+# what makes this the cheapest Mode 7 shape there is: a scale RAMP — and this
+# rail runs FOUR of them — costs a track lookup per frame, not a channel.
+name = "sau_floor"
+role = "feature"
+depends = ["sau_rom"]
+
+# The enter-time upload: ONE DMA for the whole interleaved blob, mode 1
+# (VMDATAL/VMDATAH alternate = the interleave). Scene_mgr's enter clears HDMAEN
+# and zeroes NMITIMEN, so this cannot race any other phase even on a shared
+# channel number.
+[[claims.dma_init]]
+name = "sau_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# The Mode 7 region is the fixed pinned 32 KB at words $0000-$3FFF — a hardware
+# address, so `kind = "mode7"` takes neither words nor tiles.
+[[claims.vram]]
+name = "m7"
+kind = "mode7"
+
+# HARDWARE CONTRACT: a Mode 7 8bpp pixel value IS an absolute CGRAM index, so
+# the floor palette can only live at 0. Word 0 is deliberate and not spare: it
+# is both palette index 0 and the backdrop slot, and the generator puts the
+# night sky there so the two agree. A scene composing `backdrop` alongside this
+# must refuse the build — colour 0 has one owner.
+[[claims.cgram]]
+name = "sau_pal"
+words = 16
+at = 0
+
+# C4 (docs/09 §2.1): the scene's base display shape. M7SEL is written by this
+# feature's own floor_arm (Mode 7 is this feature's mechanism); BGMODE and TM
+# are written by the scene's enter code and attributed to the feature they
+# serve via scene_writes — bs_floor's shape, and the same statement about
+# colour 0.
+[[claims.reg]]
+name = "sau_display"
+registers = ["BGMODE", "TM", "M7SEL"]
+scene_writes = ["BGMODE", "TM"]

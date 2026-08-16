@@ -1,0 +1,12 @@
+# reg-gate fixture (SILENT, item 5): the same feature with the co-write
+# DECLARED. This is sm_display's real shape, and it is the fixture that proves
+# the escape works rather than that the rule was disabled -- a rule whose only
+# silent case is "the rule did not run" teaches nothing.
+name = "rgfx_lies_shared"
+role = "fixture"
+
+[[claims.reg]]
+name = "rl_mode"
+registers = ["MOSAIC", "M7SEL"]
+scene_writes = ["MOSAIC"]
+scene_writes_shared = ["MOSAIC"]

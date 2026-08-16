@@ -1,0 +1,66 @@
+# hud_obj — the hud_game player: ONE 8x8 OBJ, positioned every frame from the
+# play scene's px/py into the oam_sprites shadow — never into hardware OAM,
+# which the engine's declared VBlank GP-DMA owns.
+#
+# CPU-WRITTEN REGISTER, DECLARED: OBSEL $2101, which sets sprite size AND OBJ
+# CHR base for EVERY sprite. Following breaker_obj / shmup_obj / split_v_obj /
+# platformer_obj / player_car: oam_sprites claims only OAMDATA — it is the OAM
+# *transport*, not the sprite size/base authority — so every rail's OBJ feature
+# declares OBSEL itself, and composing two games' sprite features in one scene
+# must refuse. The VALUE comes from ES_V_OBJ_CHR_OBSEL_BASE, so the address
+# discipline holds independently of the ownership.
+#
+# SIZE MODE 0 (small 8x8 / large 16x16) and the one sprite here is SMALL, so
+# the hi table's size bits stay clear exactly as oam_park_all left them. Only
+# the X9 bit is touched, and it is DERIVED from bit 8 every frame rather than
+# assumed clear — the clamp keeps bit 8 clear today, and a stale X9 renders a
+# sprite 256 px away, which is the failure this project has a lessons-learned
+# entry about.
+#
+# FOUR SPRITES CLAIMED FOR ONE PLAYER, and the reason is the hi table. A
+# hi-table byte covers FOUR sprites (2 bits each: X9 + size), so claiming slot
+# 0 alone would leave this feature read-modify-writing a byte three quarters of
+# which belongs to nobody. Claiming the whole byte lets the draw REBUILD it
+# from the player's own X rather than patch it — breaker_obj's and
+# split_v_obj's argument, at the smallest size it comes in.
+name = "hud_obj"
+role = "consumer"
+depends = ["oam_sprites", "hud_rom"]
+
+# The enter-time upload: the player CHR into OBJ VRAM. mode 1 drives
+# VMDATAL+VMDATAH (word port). phase forced_blank by construction —
+# scene_mgr's enter clears HDMAEN and zeroes NMITIMEN, so this cannot race
+# the active/vblank claims that share channel 0.
+[[claims.dma_init]]
+name = "obj_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "obj_chr"
+kind = "chr"
+obj = true
+words = 16               # 1 tile x 16 words
+
+[[claims.cgram]]
+name = "obj_pal"
+words = 16
+at = 128                 # hardware contract: OBJ palette 0 = CGRAM 128..143
+
+# Pinned, not packed: OAM index order IS sprite-vs-sprite priority, and the
+# player must sit at a known index so a test can read entry 0 and say where the
+# player is. `hi_pad` is the rest of the hi-table byte, parked at y = $F0.
+[[claims.oam]]
+name = "player"
+sprites = 1
+at = 0
+
+[[claims.oam]]
+name = "hi_pad"
+sprites = 3
+at = 1
+
+[[claims.reg]]
+name = "obj_obsel"
+registers = ["OBSEL"]

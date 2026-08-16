@@ -1,0 +1,55 @@
+# sit_rom — the seam_irq_trial rail's art, in ROM. Global (not scene-scoped:
+# ROM claims cannot be scene-scoped — the allocator packs windows once per
+# composition; sh2_rom's header carries the ruling).
+#
+# The trial streams ONE fixed-angle pose to both bands, deliberately: a frozen
+# camera is what isolates the seam mechanism from everything that could move.
+# So this blob is the FIXED-ANGLE subset of the sh2 art, not sh2_rom:
+# composing that feature would reserve eight 28,672 B heading slices and a
+# move LUT no reader in this rail fills — the grad_tabs shape `make
+# rom-unbacked` exists to refuse. Sibling blob, the rpg_floor/input2 shape.
+#
+# PROVENANCE: all four blobs come from tools/gen_split_h_2p_assets.py, which
+# authors them from the checker algebra and the perspective ramp and REFUSES to
+# write anything that disagrees with the vendored oracles under
+# vendor/art/split_h_2p (sh2_map.bin / sh2_pal.bin against ref_checker_map.bin
+# and the palette equates; sh2_pose1_ab.bin / sh2_pose1_cd.bin against
+# ref_poses1_ab.bin / ref_poses1_cd.bin). Nothing outside this repo is read;
+# the oracle pair is vendored.
+#
+# Every claim is BACKED by an .incbin site in game/seam_irq_trial/main.asm
+# (`make rom-unbacked` proves it) and READ by the ROM: the map by the floor's
+# single enter DMA, the palette by its CGRAM loop, the pose pair by the two
+# INDIRECT matrix channels every scanline.
+name = "sit_rom"
+role = "blob"
+
+# The interleaved Mode 7 VRAM image: 16,384 tilemap bytes in the EVEN
+# positions, 16,384 8bpp CHR bytes in the ODD ones. One whole LoROM window, so
+# the single upload DMA cannot cross a bank boundary; dma_source arms
+# place_rom's larger-than-a-window guard exactly as sh2_map's does.
+[[claims.rom]]
+name = "sit_map"
+bytes = 32768
+dma_source = true
+
+# Five BGR555 words, CGRAM 0..4: dusk backdrop + the COOL pair (red 0) + the
+# WARM pair (red 31). The red separation is the rail's own per-band position
+# oracle — band 2 sits over the warm stripe, so "band 2 carries red" is the
+# independent-origin signal every framebuffer test reads.
+[[claims.rom]]
+name = "sit_pal"
+bytes = 10
+
+# The fixed-angle per-scanline pose tables: 112 lines x 4 bytes,
+# [A_lo,A_hi,B_lo,B_hi] and [C_lo,C_hi,D_lo,D_hi], signed 8.8, BAND-LOCAL
+# (index 0 = the band's first scanline). Both bands stream the SAME pose —
+# position, not pose, is what distinguishes them — so one 448 B table per
+# register pair serves the whole frame through a two-entry index table.
+[[claims.rom]]
+name = "sit_pose_ab"
+bytes = 448
+
+[[claims.rom]]
+name = "sit_pose_cd"
+bytes = 448

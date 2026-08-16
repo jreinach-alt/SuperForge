@@ -1,0 +1,27 @@
+# probe_colmap — per-query cost of the candidate world-collision lookup.
+#
+# DESIGN REVIEW SCAFFOLDING, not the feature. requires the
+# per-query cycle cost to be MEASURED rather than estimated; this ROM is the
+# instrument. It declares the same world blob shape world_rom does (256 KB,
+# bank_tiled) so the kernel's addressing is the real one — bank =
+# T0_BANK + (ty >> 6), offset = (ty & 63) * 512 + tx — and the same 256-byte
+# tile-id -> flag LUT the feature would carry.
+name = "probe_colmap"
+role = "fixture"
+
+[[claims.rom]]
+name = "world_map"
+bytes = 0x40000          # 256 KB, identical declaration to world_rom's
+bank_tiled = true
+
+[[claims.rom]]
+name = "col_flags"
+bytes = 256              # tile id -> flag byte LUT (the candidate shape)
+
+[[claims.dp]]
+name = "cm_hot"
+bytes = 10               # matches col_map's claim exactly — the probe includes
+                         # the real col_map.asm, so the layout must agree
+
+[init]
+zero = ["cm_hot"]

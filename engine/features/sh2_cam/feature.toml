@@ -1,0 +1,226 @@
+# sh2_cam — TWO independently-positioned, independently-ROTATING Mode 7 cameras
+# over ONE plane. Scene-scoped. This feature IS the rail.
+#
+# SIX active HDMA channels over 224 lines, seam at 112:
+#
+#  matrix pairs DMAP $43 (mode 3 + INDIRECT) -> M7A/M7B and M7C/M7D, ONE PAIR
+#  PER BAND. A WRAM index table per channel streams a
+#  ROM-resident per-scanline pose (one 448-byte window of
+#  sh2_rom's 256-heading set) through the matrix registers.
+#  `$80|112` is REPEAT mode: a NEW 4-byte unit every scanline for
+#  112 lines. The tables are BAND-LOCAL (index 0 == the band's
+#  first scanline), so band 2's repeat entry re-starts ITS pose at
+#  line 112. Each band's pointer AND data bank are re-stamped
+#  every VBlank from that band's own heading, which is what makes
+#  the two cameras rotate independently.
+#
+#  origin pair DMAP $03 (mode 3, DIRECT) -> M7X/M7Y and M7HOFS/M7VOFS.
+#  An 11-byte WRAM table per channel,
+#  [112, X,Y][1, X,Y][$00],
+#  whose counts are NON-repeat: transfer the 4-byte unit once,
+#  then hold for the rest of the span. THIS is the split — two
+#  world positions, one per band, and nothing else differs.
+#
+# Mode 3 is write-two-registers-twice: 4 bytes per unit, which is exactly [lo,
+# hi] for each of two write-twice 13-bit registers. DMAP_MODE_SPAN[3] = 2, and
+# HdmaClaim.bbad derives $1F from M7X and $0D from BG1HOFS — the declaration
+# already expresses the encoding, so nothing is hand-narrated.
+#
+# WHY NOT `mode7_persp`, which is the same TECHNIQUE. Four properties still
+# differ: one band vs two; a CPU NMI-hook origin shadow vs an
+# HDMA channel PAIR per band; a head-skip index shape keyed on HUD_LINES vs
+# per-band repeat entries; 180 lines at 1024-B stride vs 112 at 448. The second
+# of those is not a symbol parameter — it is a different CLAIM SET (`reg`
+# CPU-writes vs `hdma` drives), and a feature cannot conditionally claim.
+# Sibling feature, not a parameterisation. (Pose-set size looks like a fifth
+# difference and is not one — the 256-heading set below covers it. The four
+# above are the structural ones.)
+#
+# WHY NOT `m7_affine` / `m7_project`. RUN, not reasoned: composing m7_affine
+# into this scene makes the allocator say
+#
+#  REGISTER ownership contention in scene 'split': m7_matrix
+#  (engine:m7_affine) and sh2_origin_seed (engine:sh2_cam) both write
+#  ['BG1HOFS', 'BG1VOFS', 'M7X', 'M7Y']
+#
+# — the reg x reg check, not the reg x hdma one you would expect, because
+# m7_affine's single `m7_matrix` claim covers the ORIGIN registers as
+# well as M7A-M7D and that pair is found first. The matrix conflict is real too
+# and would fire next: m7_affine CPU-writes M7A-M7D from a DP shadow while the
+# claims above stream them per scanline, which is two mechanisms for one
+# register set. Either way the composition is refused, which is the point.
+# M7_project `depends = ["m7_affine"]` and its inverse is the transpose of a
+# UNIFORM rotation, which a per-scanline matrix does not have.
+name = "sh2_cam"
+role = "feature"
+# The four INDIRECT matrix channels fetch sh2_rom's pose slices and the drive
+# step reads its move LUT; cam_arm and cam_tick name their emitted ADDR/BANK
+# symbols to point the index tables and the DASB bytes at them, and the
+# per-slice bank arithmetic is .asserted against those symbols. The world's
+# 1024-px wrap is asserted against the map claim's own size. All of it is reads
+# of that blob's declaration, so the dependency is real rather than incidental.
+#
+# `input` / `input2` because the SHIPPING advance is the two pads: cam_input
+# reads their latched JOY words and steps this feature's own headings and
+# positions from them. Pad control REPLACES the autonomous step rather than
+# adding to it — `-D SH2_AUTOCAM` restores the autonomous one, and cam_input's
+# header records why the two are mutually exclusive rather than additive (it
+# is a test-surface decision: with both applied, "Right rotates camera 1"
+# would be indistinguishable from the auto step on the camera whose auto sense
+# is already +1).
+depends = ["sh2_rom", "input", "input2"]
+
+# --- the matrix pairs: INDIRECT, per scanline, ONE PAIR PER BAND ------------
+# THE HEART OF THE RAIL. Each band streams its OWN heading's pose,
+# so each band needs its own index table AND its own DASB (the indirect data
+# bank) — and DASB is per CHANNEL. One shared pair cannot carry two headings.
+#
+# THE BANDS ARE DECLARED, not "scene". Two claims that both drive M7A/M7B in
+# overlapping bands of the same active phase are a register contention the
+# allocator refuses outright (assign_channels' first pass) — correctly, because
+# no channel shuffle fixes two writers on one scanline. Declaring band 1 as
+# lines 0..112 and band 2 as 112..224 is the honest statement of what each pair
+# owns, and it is what makes the composition feasible at all.
+#
+# THE `channel` PINS ARE LOAD-BEARING, TWICE OVER:
+#
+#  1. DISTINCTNESS. Disjoint bands make a channel REUSABLE — `channel_free`
+#  asks only about overlap — so an unpinned pass would hand band 1's AB and
+#  band 2's AB the SAME channel, which is one table and one DASB for two
+#  headings. RUN, not reasoned: delete the four `channel =` lines and the
+#  report reads "CHANNELS (4/8 used) … ch2 sh2ab1 … ch2 sh2ab2 … ch3 sh2cd1
+#  … ch3 sh2cd2" — both bands' AB claims on ch2, both CD claims on ch3, and
+#  a ROM that links and shows one heading in both bands.
+#  2. PRIORITY, and this is the structural risk here. Band 2's index
+#  table opens with a NON-REPEAT count-112 SKIP entry (see sh2_cam.asm),
+#  which transfers ONE stray 4-byte unit at line 0 before holding silent for
+#  111 lines. HDMA processes CH0->CH7 within each HBlank and a DMAP-$43 unit
+#  delivers complete pairs, so the LAST channel to write M7A-M7D in that
+#  HBlank wins coherently. Band 2's pair therefore sits on LOWER channel
+#  numbers than band 1's, so band 1's proper line-0 values land last and
+#  mask the stray write. Getting that from ALLOCATION ORDER — binding band
+#  2's pair before band 1's — works and is invisible; here it is DECLARED
+#  instead, and tests/test_split_h_2p_demo.py asserts the emitted
+#  ES_H_*_CH ordering plus what PPU line 0 actually renders — with a
+#  -D SH2_BADORDER control that inverts the binding so the stray unit wins.
+[[claims.hdma]]
+name = "sh2ab2"
+registers = ["M7A", "M7B"]
+mode = 3
+indirect = true
+band = [112, 224]
+phase = "active"
+channels = 1
+channel = 0
+
+[[claims.hdma]]
+name = "sh2cd2"
+registers = ["M7C", "M7D"]
+mode = 3
+indirect = true
+band = [112, 224]
+phase = "active"
+channels = 1
+channel = 1
+
+[[claims.hdma]]
+name = "sh2ab1"
+registers = ["M7A", "M7B"]
+mode = 3
+indirect = true
+band = [0, 112]
+phase = "active"
+channels = 1
+channel = 2
+
+[[claims.hdma]]
+name = "sh2cd1"
+registers = ["M7C", "M7D"]
+mode = 3
+indirect = true
+band = [0, 112]
+phase = "active"
+channels = 1
+channel = 3
+
+# --- the origin pair: DIRECT, one 4-byte unit per band ----------------------
+# BG1HOFS/BG1VOFS are physically M7HOFS/M7VOFS — one port, one name — which is
+# why the footprint is declared under the BG names. In Mode 7 they are the
+# screen-space origin; the band's value is posN minus the band's own bottom
+# line, which is pure subtraction and needs no solve.
+[[claims.hdma]]
+name = "sh2xy"
+registers = ["M7X", "M7Y"]
+mode = 3
+band = "scene"
+phase = "active"
+channels = 1
+
+[[claims.hdma]]
+name = "sh2hv"
+registers = ["BG1HOFS", "BG1VOFS"]
+mode = 3
+band = "scene"
+phase = "active"
+channels = 1
+
+# The SIX HDMA tables, 16 B apart so the offsets read as a table rather than as
+# arithmetic: +0 band-1 AB index (4 B), +16 band-1 CD index (4 B), +32 band-2
+# AB index (7 B), +48 band-2 CD index (7 B), +64 XY origin (11 B), +80 HV
+# origin (11 B).
+#
+# The two band shapes differ, and that asymmetry IS the mechanism: band 1's
+# table carries only its repeat entry and a terminator, so its channel ENDS at
+# line 112 and is silent through band 2's lines; band 2's opens with the
+# non-repeat skip entry described above and starts streaming at line 112.
+#
+# WRAM and not ROM because the origin values AND the four pose pointers are
+# re-stamped every frame in the VBlank window — the pointers are what give each
+# camera its own heading.
+[[claims.wram]]
+name = "sh2_tbl"
+bytes = 96
+
+# The two cameras' world positions: +0 pos1x, +2 pos1y, +4 pos2x, +6 pos2y. DP
+# because the per-frame tick reads and writes all four, and because the stamp
+# that turns them into table bytes is the whole of the rail's CPU cost.
+[[claims.dp]]
+name = "sh2_pos"
+bytes = 8
+
+# The rotation + drive state: +0 h1, +2 h2 (heading indices 0..255), then the
+# four per-axis 8.8 FRACTION accumulators +4 f1x, +6 f1y, +8 f2x, +10 f2y, and
+# +12 a two-byte scratch the pose-pointer multiply uses.
+#
+# THE FRACTIONS ARE THE POINT, not bookkeeping. Forward motion is move256[h] in
+# 8.8; each axis does `frac += vel`, takes the high byte after the add as the
+# frame's SIGNED integer delta, moves the position by it and KEEPS the
+# fraction. Rounding the velocity to an integer instead gives a speed that
+# pulses with heading and a direction that walks a staircase — the translation
+# jerk this format exists to remove.
+#
+# DP, like sh2_pos, because every one of these is read and written in the same
+# VBlank window every frame and the whole of the rail's per-frame CPU is here.
+[[claims.dp]]
+name = "sh2_rot"
+bytes = 14
+
+# C4 (docs/09 §2.1): the Mode 7 camera origin — and the SEED case.
+#
+# The scene's enter code writes M7X/M7Y/M7HOFS/M7VOFS once under forced blank,
+# establishing a base the two origin HDMA claims above then drive per band from
+# line 0 onward. That is not a second owner, it is a seed, and `seed = true` is
+# what says so — without it these writes refuse against this feature's OWN hdma
+# claims (split_band's header records the same ruling from the same check).
+#
+# The seed is self-checking in both directions: check_reg_ownership refuses a
+# `seed` with no overriding hdma claim in the scene, and no_literals'
+# declaration-that-lies check refuses a `scene_writes` register this feature's
+# own ASM also writes. Sh2_cam.asm writes none of these four — the seed lives
+# in scenes/split.asm, which is why `scene_writes` is true rather than
+# convenient.
+[[claims.reg]]
+name = "sh2_origin_seed"
+registers = ["M7X", "M7Y", "BG1HOFS", "BG1VOFS"]
+seed = true
+scene_writes = ["M7X", "M7Y", "BG1HOFS", "BG1VOFS"]

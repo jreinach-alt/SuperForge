@@ -1,0 +1,58 @@
+# sit_floor — the seam_irq_trial rail's Mode 7 plane. Scene-scoped.
+#
+# The world under BOTH bands: one 128x128 wrapping warm/cool checker plane,
+# uploaded once at scene enter and never touched again. Everything that makes
+# the two bands look different is the seam mechanism's doing (sit_cam), not
+# this feature's.
+#
+# WHY NOT `sh2_floor`, which this is otherwise shaped exactly like: that
+# feature's `depends = ["sh2_rom"]` binds it to the 256-heading blob set and
+# its floor_arm names sh2_rom's emitted symbols. Sibling feature, the ruling
+# sh2_floor itself took against m7dg_floor — what transfers is the SHAPE, not
+# the code.
+#
+# WHY NO `hdma` CLAIM: the plane is static. Every per-scanline channel on
+# this rail belongs to sit_cam.
+name = "sit_floor"
+role = "feature"
+depends = ["sit_rom"]
+
+# The enter-time upload: ONE DMA for the whole interleaved blob. Mode 1
+# drives VMDATAL then VMDATAH alternately, which IS the interleave. Phase
+# forced_blank: scene_mgr's enter contract has HDMAEN cleared and NMITIMEN
+# zeroed, so this composes with every active/vblank claim by construction,
+# including on a shared channel number.
+[[claims.dma_init]]
+name = "sit_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# The Mode 7 region: the fixed pinned 32 KB at words $0000-$3FFF — a hardware
+# address, not a packing decision (kind = "mode7" takes neither words nor
+# tiles).
+[[claims.vram]]
+name = "sit_m7"
+kind = "mode7"
+
+# HARDWARE CONTRACT: a Mode 7 8bpp pixel value IS an absolute CGRAM index, so
+# this palette can only live at 0. Word 0 is both palette index 0 and the
+# backdrop slot (dusk) — a scene composing `backdrop` alongside this refuses,
+# colour 0 has one owner.
+[[claims.cgram]]
+name = "sit_cg"
+words = 5
+at = 0
+
+# The scene's base display shape, written ONCE under forced blank for all 224
+# lines. This rail does not split the video mode — the split is entirely in
+# the camera origin (sit_cam's claims), so BGMODE and TM are plain constants
+# with one owner. M7SEL is written by this feature's own floor_arm; BGMODE
+# and TM by the scene's enter code, attributed to the feature they serve and
+# opened through scene_writes (the sh2_floor/m7dg_floor/room_bg shape — the
+# lies-check compares per register, and the opened set and the owner-written
+# set are disjoint).
+[[claims.reg]]
+name = "sit_display"
+registers = ["BGMODE", "TM", "M7SEL"]
+scene_writes = ["BGMODE", "TM"]

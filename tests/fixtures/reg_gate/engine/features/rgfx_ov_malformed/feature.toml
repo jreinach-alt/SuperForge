@@ -1,0 +1,8 @@
+# reg-gate fixture (FIRES): the malformed-override diagnostic.
+#
+# The feature claims nothing, so both writes below are undeclared and fire.
+# The point is what the refusal SAYS about the `; REG-LINT:` comments beside
+# them: it used to say nothing at all, and the author who typed an escape
+# hatch got a refusal that never mentioned it.
+name = "rgfx_ov_malformed"
+role = "fixture"

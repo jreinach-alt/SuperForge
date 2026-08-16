@@ -1,0 +1,50 @@
+# jumper_obj — the player sprite: one 8x8 OBJ whose position is the whole
+# output of the physics.
+#
+# Unlike scroller's rider (a constant screen position proving the BG moves),
+# this sprite MOVES on both axes every frame the physics says so — OAM entry 0
+# is the surface the state-cycle tests trace per frame (ascent, apex, descent,
+# the landing frame, rest). Staged into the oam_sprites SHADOW every frame from
+# the scene tick — never into hardware OAM, which the engine's declared VBlank
+# GP-DMA owns. It is re-staged every frame rather than written once at enter,
+# so the staging path is exercised on every frame rather than only on frame 0.
+#
+# CPU-WRITTEN REGISTER, DECLARED: OBSEL $2101 — sprite size + OBJ CHR base for
+# EVERY sprite, one owner per scene (breaker_obj / room_hero / player_car /
+# scroller_obj's argument, unchanged). The VALUE comes from
+# ES_V_JR_OBJ_CHR_OBSEL_BASE.
+#
+# SIZE MODE 0, the one sprite SMALL (8x8). Only the X9 bit of the hi-table byte
+# is live, DERIVED from bit 8 of the X value every frame rather than assumed
+# clear (px never exceeds 240 in this world, and deriving it anyway is what
+# keeps the assumption out of the code — the stale-X9 lesson).
+name = "jumper_obj"
+role = "consumer"
+depends = ["oam_sprites", "jumper_rom"]
+
+[[claims.dma_init]]
+name = "jr_obj_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "jr_obj_chr"
+kind = "chr"
+obj = true
+words = 32               # 2 tiles x 16 words: 0 empty, 1 the solid red player.
+                         # Tile 0 stays empty so a zeroed OAM entry draws
+                         # nothing rather than the player.
+
+[[claims.cgram]]
+name = "jr_obj_pal"
+words = 16
+at = 128                 # hardware contract: OBJ palette 0 = CGRAM 128..143
+
+[[claims.oam]]
+name = "hopper"
+sprites = 1
+
+[[claims.reg]]
+name = "jr_obsel"
+registers = ["OBSEL"]

@@ -1,0 +1,19 @@
+# mode7_flight user state.
+#
+# ALMOST EMPTY, and deliberately: the camera's position, heading, altitude index
+# and speed are `m7f_cam`'s own `m7f_pose` DP claim, because the routine that
+# reads them is that feature's per-frame join and a feature reading the game's
+# `[scene.*]` block would invert the dependency. What lives here is what the
+# GAME owns and no feature reaches for — the propeller's animation clock.
+#
+# NO [init]-style zero fill. `enter` writes both words before anything reads
+# one (rule 5), which is checkable by reading it: power-on WRAM is random, and a
+# zero fill "to be safe" would hide the day that stops being true.
+[scene.sky]
+
+prop_t = "u16@dp"        # frames until the next propeller flip. Counts DOWN and
+                         #   reloads at M7F_PROP_RATE = 8.
+prop_f = "u16@dp"        # 0 or 1: which of the two 32x32 airship frames is up.
+                         #   Two frames, not a phase counter, because the sheet
+                         #   holds exactly two and the OAM tile number is picked
+                         #   from this word directly.

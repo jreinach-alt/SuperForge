@@ -1,0 +1,30 @@
+# split_v_demo — the vertical window dual-view.
+#
+# ONE SCENE, and no scene machine beyond it: this is a primitive demonstration
+# rather than a game, and the four things it teaches are all properties of one
+# screen. scroller / camera_follow / scroll_run's shape.
+#
+# NOT COMPOSED, each for a reason the allocator would enforce anyway:
+#   backdrop     — a scene with a BG feature cannot also compose it
+#                  (both declare BGMODE + TM). svd_bg claims CGRAM word 0,
+#                  which here is the SEAM BAR's colour rather than a wash.
+#   window_iris  — claims W12SEL/WOBJSEL/TMW, the registers the split IS,
+#                  plus an hdma claim on WH0/WH1 against svd_bg's on
+#                  WH0..WH3. The mechanism's neighbour, not its shape.
+#   split_v_bg   — the sibling rail's feature. It is the SEAMLESS split
+#                  (fixed centre seam, mid +/- spread cameras, a BG3 bevel);
+#                  this rail's seam MOVES, SLANTS and CLIPS OBJ, and its
+#                  cameras are two independent players. Same primitive, a
+#                  different subject — and the two cannot compose, because
+#                  they would be two owners of every window register.
+#   split_band   — the other splitter, and the sole active-phase owner of
+#                  BGMODE. A second BGMODE writer is refused.
+#
+# input2 is here for the same reason as split_v_fight's: player 2 drives the
+# right camera, so the second pad is read every frame.
+globals = ["scene_mgr", "fade", "input", "input2", "oam_sprites",
+           "enter_scr", "svd_rom"]
+
+[[scene]]
+id = "demo"
+features = ["svd_bg", "svd_obj"]

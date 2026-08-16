@@ -1,0 +1,53 @@
+# stomper_rom — every immutable byte the `stomper` rail reads.
+#
+# A `blob`: ROM claims, no behaviour, no asm. All six blobs come from
+# tools/gen_stomper_assets.py, which holds the level loops, the tile tables and
+# the colour constants (see that generator's header for what each one is).
+#
+# THE WORLD IS A BLOB; THE DISPLAY BUILDS FROM IT. Building the arena with four
+# loops at boot (ground row 26, border columns, low walls, the platform) and
+# letting col_map read the shadow those loops wrote gets the single-source
+# property by discipline. It is reached here the way a
+# SuperForge rail owns it: ONE ROM blob (`st_world`, 32x32 tile-id bytes) that
+# `st_build_map` renders to VRAM at scene enter AND `col_map` probes for
+# collision. Display and collision cannot disagree, by construction. Unlike
+# scroller's checkerboard (a taught EXPRESSION, kept as a loop), this arena is
+# level DESIGN — data, baked by the generator from the four loops that
+# describe it.
+name = "stomper_rom"
+role = "blob"
+
+[[claims.rom]]
+name = "st_world"
+bytes = 1024             # 32x32 tile-id bytes: 0 = empty, 2 = solid grey
+                         # terrain. One chunk, so col_map's binding takes the
+                         # constant-bank branch.
+
+[[claims.rom]]
+name = "st_flags"
+bytes = 256              # tile-id -> collision flag table (col_map's CM_FLAGS).
+                         # [2] = 1 (bit 0 SOLID, the terrain tile); all else
+                         # 0. 256 entries is TOTAL
+                         # over a one-byte tile id — no bounds check anywhere
+                         # (col_map_rom's argument, same shape).
+
+[[claims.rom]]
+name = "st_bg_chr"
+bytes = 96               # 3 x 4bpp BG tiles: 0 and 1 empty (explicit — rule
+                         # 5), 2 = solid colour index 1
+
+[[claims.rom]]
+name = "st_bg_pal"
+bytes = 32               # 16 CGRAM words, BG group 0: word 0 IS the backdrop
+                         # (black), word 1 the terrain grey $39CE
+
+[[claims.rom]]
+name = "st_obj_chr"
+bytes = 64               # 2 x 4bpp OBJ tiles: 0 empty (explicit), 1 = solid
+                         # colour index 1
+
+[[claims.rom]]
+name = "st_obj_pal"
+bytes = 64               # 32 CGRAM words = OBJ palettes 0 and 1: pal 0 word 1
+                         # = player red $001F, pal 1 word 1 = enemy magenta
+                         # $7C1F

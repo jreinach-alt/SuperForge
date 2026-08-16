@@ -1,0 +1,130 @@
+# m7dg_rom — the m7_dungeon rail's art, in ROM. Global (not scene-scoped).
+#
+# ROM claims cannot be scene-scoped: the allocator packs a ROM window once for
+# the whole composition, and a scene-scoped rom claim would reserve bytes only
+# one scene's map names. Same reasoning as room_rom's and split_v_rom's
+# headers.
+#
+# Every claim here is BACKED by an .incbin claim site in
+# game/m7_dungeon/main.asm, which is what `make rom-unbacked` proves (docs/37).
+#
+# The blobs come from tools/gen_m7_dungeon_assets.py, which authors them from a
+# maze string and a palette — nothing is read from a pack. That generator is
+# also a GATE: it refuses to write anything that disagrees with the vendored
+# oracle blobs under vendor/art/m7_dungeon, so a converter change that moves a
+# byte fails the build instead of quietly redrawing the dungeon. See its
+# header.
+#
+# EVERY CLAIM HERE IS READ BY THE ROM. Each blob is declared alongside the code
+# that actually reads it — the floor's two, the OBJ sheets with the cast, the
+# collision pair with the game logic. Declaring a claim ahead of its reader
+# reserves ROM that nothing fills, which is precisely the grad_tabs shape
+# `make rom-unbacked` exists to refuse.
+name = "m7dg_rom"
+role = "blob"
+
+# The interleaved Mode 7 VRAM image: 16,384 tilemap bytes in the EVEN positions
+# and 16,384 bytes of 8bpp CHR in the ODD ones, exactly as the PPU reads the
+# Mode 7 region. 32 KB is one whole LoROM window, so the single DMA that
+# uploads it cannot cross a bank boundary.
+#
+# `dma_source` HERE IS A NO-OP, and the line that used to sit here said
+# otherwise. It read "`dma_source` ARMS THE GUARD rather than changing anything
+# today", which invites you to believe that WRITING the flag opts into
+# something. It does not: `RomClaim.dma_source` defaults to **True**
+# (`schemas.py`, `dma_source=t.get("dma_source", True)`), so the guard is armed
+# for every rom claim whether or not you name it, and naming it changes nothing
+# ever — not merely "today". The asymmetry that makes this a trap: the SAME key
+# on a `wram` claim defaults to **False** (`BytesClaim.dma_source: bool =
+# False`, `t.get("dma_source", False)`), so the identical line means opposite
+# things in two neighbouring claim blocks.
+#
+# The guard itself is real and worth documenting, which is presumably why the
+# line existed: place_rom refuses a dma_source claim larger than the LoROM
+# window unless it is bank_tiled, because a transfer's A-bus address wraps
+# within its bank instead of carrying. At exactly one window this claim passes
+# either way. Keeping the explicit `true` below is fine as documentation of
+# intent — just do not read it as load-bearing.
+#
+# (This paragraph used to claim the opposite, and the wrong version was copied
+# into a new blob feature before anyone opened `schemas.py`. It surfaced only
+# when `load_feature` printed `dma_source=True` on claims that had never
+# declared it — the "state what a tool does from a comment next to it" trap.
+# Open the tool.)
+[[claims.rom]]
+name = "m7dg_map"
+bytes = 32768
+dma_source = true
+
+# --- the collision source -----------------------------------------
+# THE SAME 16,384 TILE IDS THE BLOB ABOVE CARRIES, PACKED. Col_map computes
+# `offset = ty * W + tx` and reads ONE byte there, so it needs the ids
+# contiguous; the Mode 7 blob interleaves them with CHR and the probe reading
+# it would fetch a CHR byte for every second tile. Hence a second copy.
+#
+# THE FLAG TABLE DOES NOT AVOID THIS 16 KB: 16,384 + 256 = 16,640 B against
+# the 16,384 B a flat per-cell terrain array would cost, which is 256 bytes
+# MORE. The 64x figure describes the flag table against a per-CELL array, and
+# it would only be realised by a col_map that reads the interleaved blob at
+# stride 2 — an engine change this rail deliberately does not make. What the
+# indirection still buys is the generator's equivalence assert: the array that
+# PAINTS the wall is the array that BLOCKS you, so the two cannot drift.
+#
+# 16 KB is half a LoROM window, so it needs no bank tiling: the allocator packs
+# it whole into one window and col_map's single 16-bit `abs,X` index reaches
+# every byte of it from that window's bank.
+[[claims.rom]]
+name = "m7dg_tilemap"
+bytes = 16384
+
+# One flag byte per tile id the packed map can hold. 256 entries is TOTAL, not
+# generous — the map is one byte per tile, so every id has an entry and the
+# lookup needs no bounds check (col_map_rom's own claim carries the argument).
+[[claims.rom]]
+name = "m7dg_flags"
+bytes = 256
+
+# Nine BGR555 words. Mode 7 is 8bpp with ABSOLUTE CGRAM indices, and index 0 is
+# also the backdrop slot — the generator's reserve_backdrop deliberately puts
+# FLOOR_A there so the backdrop matches the floor rather than showing through
+# it.
+[[claims.rom]]
+name = "m7dg_pal"
+bytes = 18
+
+# --- the OBJ sprite sheets ----------------------------------------
+# Three 16x16 actors, each emitted onto the 18-tile OBJ grid the PPU actually
+# reads: content at {0, 1, 16, 17} and fourteen zero tiles between the two
+# rows, because a 16x16 sprite's lower half is +16 tile numbers away rather
+# than +2. The padding is the hardware's alignment, not slack — a 4-tile blob
+# would have to be uploaded as two transfers to land in the same places.
+#
+# Each is BACKED by an .incbin claim site in game/m7_dungeon/main.asm; the win
+# card's sheet and palette are uploaded and claimed by the sprite feature even
+# though the code that draws it (reaching the goal) sits elsewhere, because
+# OBSEL, the OBJ CHR page layout and the hi-table ownership split are decided
+# here and a later change would otherwise have to renegotiate all three.
+[[claims.rom]]
+name = "m7dg_hero_chr"
+bytes = 576
+
+[[claims.rom]]
+name = "m7dg_hero_pal"
+bytes = 32               # 16 BGR555 words: a 4bpp OBJ palette is 16 entries
+                         # whether or not the art uses them all
+
+[[claims.rom]]
+name = "m7dg_enemy_chr"
+bytes = 576
+
+[[claims.rom]]
+name = "m7dg_enemy_pal"
+bytes = 32
+
+[[claims.rom]]
+name = "m7dg_win_chr"
+bytes = 576
+
+[[claims.rom]]
+name = "m7dg_win_pal"
+bytes = 32

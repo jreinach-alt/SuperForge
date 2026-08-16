@@ -1,0 +1,15 @@
+# Probe control block — host-written switches + a completion counter.
+[scene]
+seq = "u16"          # NMI increments once per frame (host waits on it)
+skip_b = "u8"        # host sets 1: stop firing claim B's GP-DMA (the
+                     # falsification switch — the rendered assertion for
+                     # target B must then FAIL against the pattern)
+rewipe = "u8"        # host sets 1: next NMI wipes both targets to $EEEE
+                     # before the pattern uploads run (self-clearing)
+tab_sel = "u8"       # COLDATA table structure for the alignment matrix:
+                     # 0 = direct non-repeat 2-band (the attack-1 default)
+                     # 1 = INDIRECT REPEAT byte ramp (gen_gradient's shape)
+                     # 2 = DIRECT REPEAT byte ramp
+                     # 3 = split_band close-experiment repro (final 1-line
+                     #     entry after counts summing to 223)
+                     # 4 = the same close with counts summing to 224

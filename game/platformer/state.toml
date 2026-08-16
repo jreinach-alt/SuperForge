@@ -1,0 +1,77 @@
+# platformer user game state.
+#
+# The round lives in `@dp` scene state, because the play scene is the only one
+# that has a game and scene DP is the cheaper kind -- the allocator reuses the
+# space in the three menu scenes. Only the four facts that must SURVIVE a scene
+# transition are global.
+
+[global]
+runs = "u16"             # games started this power-on. Survives the
+                         # play -> ending -> title -> play loop, which is the
+                         # only game-lifetime fact this rail keeps for itself.
+
+# THE SAVE'S STAGING WORD, and it is deliberately NOT the live coin counter.
+# `sv_load` takes a 24-bit WRAM dest pointer, so the payload needs a global
+# home; giving it its own word means a rejected or oversize load cannot touch
+# the round's state, and the fresh-run baseline simply stands.
+bank = "u16"
+
+# The title's two continue facts. `contok` is what cont_gate decided about slot
+# 0 on THIS title entry (and therefore whether the SELECT line is on screen);
+# `contpend` is the answer SELECT gave, consumed by play::enter. They are
+# separate because the offer and the choice are separate events in separate
+# frames, and folding them would make "the line is showing" and "the player
+# took it" the same bit.
+contok = "u16"
+contpend = "u16"
+
+[scene.title]
+t_frames = "u16"         # frames on title -- the free-running heartbeat a test
+                         # reads to tell "the tick runs" from "the tick is stuck"
+
+[scene.play]
+# --- the hero ---
+px = "u16@dp"            # world x of the 8x8 physics box, in pixels
+pyf = "u16@dp"           # world y of the box, 8.8 fixed point
+vy = "u16@dp"            # vertical velocity, 8.8 signed
+pixy = "u16@dp"          # pyf's integer part, recomputed after physics
+newy = "u16@dp"          # the tentative y one physics step wants
+grounded = "u16@dp"      # 1 = standing on something this frame
+facing = "u16@dp"        # 0 right / 1 left -- the sprite's H-flip
+hurt = "u16@dp"          # i-frames: invulnerability AND the blink phase
+
+# --- the round ---
+lives = "u16@dp"
+coins = "u16@dp"
+gover = "u16@dp"         # 1 = the round is over; the world freezes for a beat
+paused = "u16@dp"        # 1 = frozen by START. Everything below the pause gate
+                         # stops, which is also what makes the parallax FREEZE
+                         # invariant testable: the camera stops advancing, the
+                         # rebuilt table is identical frame to frame, and the
+                         # sky pixels do not move. (Never by zeroing a ratio --
+                         # see platformer_bg/feature.toml.)
+dirty = "u16@dp"         # HUD reprint request
+
+# --- the two ghosts ---
+e1x = "u16@dp"           # ghost 1 patrols the ground
+e1d = "u16@dp"           # 0 = walking west, 1 = east
+e2x = "u16@dp"           # ghost 2 patrols the seam ledge (row 16, cols 26-38),
+e2d = "u16@dp"           #   which crosses the world's page boundary at col 32
+e1alive = "u16@dp"
+e2alive = "u16@dp"
+
+# --- the shared animation clock (hero and ghosts run on one) ---
+atick = "u16@dp"
+aframe = "u16@dp"
+
+# --- the pause banner, written one cell per frame ---
+msg = "u16@dp"           # pending block address, 0 = idle
+msgpos = "u16@dp"        # the next cell of that block
+
+# --- scratch, never live across a phase boundary ---
+ax = "u16@dp"            # obj_put's x / y arguments...
+ay = "u16@dp"
+tmp = "u16@dp"           # ...its size class, then the collision probe's cell
+tmp2 = "u16@dp"          # the probe's second corner, then a draw scratch
+probex = "u16@dp"        # a box probe's world coordinates
+probey = "u16@dp"

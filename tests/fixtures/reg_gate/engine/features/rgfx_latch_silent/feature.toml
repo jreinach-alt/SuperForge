@@ -1,0 +1,7 @@
+name = "rgfx_latch_silent"
+role = "fixture"
+
+[[claims.vram]]
+name = "rgfx_ls_tiles"
+kind = "chr"
+words = 256

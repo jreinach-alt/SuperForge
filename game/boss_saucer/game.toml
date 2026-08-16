@@ -1,0 +1,49 @@
+# boss_saucer — the static-affine boss shape again, with SCALING as the
+# headline and TAD audio composed: the saucer
+# IS the Mode 7 BG layer, and it LUNGES at the camera — the affine matrix
+# zooming it from a far speck to a screen-filling disc — then fires a vertical
+# BEAM down a column locked to the player's position at the apex.
+#
+# THE FIRST REUSE OF `m7_track`. The player, the blob format, the seam-assert
+# discipline and the pool lifecycle test shape are the boss rail's, unchanged;
+# what is this rail's own is its FIVE track blobs (the
+# reveal, the two halves of the lunge, the ring, the recede), its cast, and
+# the audio. Nothing in m7_track, pool, m7_affine, fade, input, oam_sprites,
+# scene_mgr or audio is touched — a composing rail that needed to change one
+# would be an escalation, not an edit.
+#
+# THE RING-CAPTURE IDIOM IS NOT NEEDED HERE, and that is measured rather than
+# assumed: this rail's fight holds its heading at 0 throughout — rotation is
+# OFF in the fight, because scaling IS the motion — so the lunge ramps AND the
+# death recede all enter from the known angle 0 and bake absolutely, the same
+# deterministic-entry shape as the boss rail's own reveal.
+#
+# NOT COMPOSED, each measured against the implementing file:
+#   mode7_floor -- depends on world_rom (256 KB this rail never reads) and pins
+#                  CGRAM 0..16 for microzero. sau_floor's header carries the
+#                  ruling (mo_floor's, taken again).
+#   col_map     -- this rail reads NO tile flag anywhere: both its hit tests
+#                  are actor-vs-actor AABB (shot-vs-saucer, beam-vs-player),
+#                  which SuperForge rules game-side inline (sprite_game's
+#                  catch_dot is the worked example). Composing col_map would
+#                  claim dp + rom for a probe with zero call sites.
+#   m7_project  -- nothing projects: every actor is SCREEN-space (p_x strafes
+#                  in screen pixels, the beam stacks at screen pixels, and
+#                  beam_x locks to a screen x). The transpose stays unused;
+#                  the pivot never moves.
+#   mode7_persp -- its HDMA claims own M7A-D; the reg x hdma check refuses it
+#                  beside m7_affine, correctly (two mechanisms, one register
+#                  set).
+#   backdrop    -- sau_floor pins CGRAM word 0 (Mode 7 8bpp: pixel value IS the
+#                  CGRAM index).
+#   bg_text/vwf -- BG3 does not exist in Mode 7; the HP HUD and BOTH text cards
+#                  are OBJ glyph sprites.
+#   save        -- this rail persists nothing across power cycles: the battle
+#                  loop re-inits from constants, so there is nothing an SRAM
+#                  claim would hold.
+globals = ["scene_mgr", "input", "fade", "oam_sprites",
+           "m7_affine", "m7_track", "pool", "audio", "tad_rom", "sau_rom"]
+
+[[scene]]
+id = "arena"
+features = ["sau_floor", "sau_obj"]

@@ -1,0 +1,132 @@
+# pfs_logic — the player: walk, jump, 16-bit world-Y physics, follow camera.
+#
+# `role = "game_logic"`: this is NOT engine code. It lives under
+# engine/features/ only because that is where the allocator looks for claims
+# (AGENTS.md's role vocabulary — the one column no claim set can distinguish).
+# The sibling of `m7x_logic` / `race_logic` / `room_logic`.
+#
+# =============================================================================
+# THE PART THAT IS ACTUALLY INTERESTING: Y IS 16-BIT AND THAT IS THE FEATURE
+# =============================================================================
+# Every prior platformer in the set integrates an 8-bit screen Y, because its
+# level is one screen tall. This world is 1024 px tall — a little over four
+# screens — and the player falls about five of them from spawn to bedrock in
+# one continuous arc. So position is a 16.8 split: `py` is the integer world
+# pixel and `pysub` the 8-bit fraction, and velocity is signed 8.8.
+#
+# The whole vertical arc — standing, take-off, ascent, head bump, apex,
+# descent, landing snap, rest — runs against that split with CALLER-SUPPLIED
+# world-space probes. The probes are what make it work over a streamed world:
+# they ask `col_map` about a WORLD tile coordinate, never about the 64x64 ring,
+# so what blocks the player is the true level geometry and not whatever window
+# happens to be resident. Collision and streaming are decoupled by construction
+# rather than by discipline.
+#
+# =============================================================================
+# TWO TRAPS, BOTH NAMED BEFORE THEY FIRE
+# =============================================================================
+# 1. THE WALK BOX PROBE TESTS THE 8 PX STRICTLY ABOVE THE FEET, rows
+#  [py-8 .. py-1], NOT [py-7 .. py]. The integrator rests the feet ON the
+#  floor's top pixel, so the contact line IS the solid floor row: counting it
+#  as body makes walking along ANY floor read as "blocked into a wall".
+#  That is an easy bug to write and a hard one to read: walking simply stops
+#  working wherever the player is actually standing. It is stated here, not
+#  only in a comment at the call site.
+#
+# 2. `pfs_owprobe` ALWAYS RETURNS "not a one-way top", and it is still a real
+#  entry point. The authored level marks nothing as jump-through — every
+#  solid tile is fully solid — so the one-way arm has no work to do. Deleting
+#  it would change the integrator's branch structure for no gain and would
+#  make a future level that adds a second collision value a rewrite instead
+#  of an extension.
+name = "pfs_logic"
+role = "game_logic"
+depends = []
+
+# The player. One DP block rather than a scatter, because the physics reads and
+# writes most of it every frame and DP is the only place that is free.
+#
+# NO [init] zero: `pfs_spawn` writes every byte at scene enter before any tick
+# can read one. A pre-zero would hide a "the spawn never ran" defect behind a
+# plausible answer — the argument col_map makes at length, and CLAUDE.md rule
+# 5's "never zero-init to be safe".
+[[claims.dp]]
+name = "pfs_player"
+bytes = 20               # +0  px      world X, box left (u16)
+                         # +2 py world Y, feet contact line (u16)
+                         # +4 pysub Y subpixel (8.8 fraction, low byte)
+                         # +6 vy signed velocity, 8.8 px/frame
+                         # +8 newy probe row handed to the probes
+                         # +10 grounded 1 standing / 0 airborne
+                         # +12 facing 0 right / 1 left
+                         # +14 atick anim clock
+                         # +16 aframe anim frame
+                         # +18 tentx tentative world X for the walk probe
+
+[[claims.dp]]
+name = "pfs_probe"
+bytes = 6                # +0 x, +2 y — the WORLD PIXEL pair a probe is asked
+                         # about, forwarded to col_map's own CM_PX/CM_PY; +4
+                         # transient. (col_map_at takes PIXELS and does the
+                         # >>3 itself, so these hold pixels rather than
+                         # pre-shifted tile coords — same query, one fold
+                         # fewer.) Separate from pfs_player because the probes
+                         # are called FROM the integrator, which holds live
+                         # state in the block above across the jsr. Re-used as
+                         # the draw's screen x/y scratch after the physics has
+                         # run.
+
+# ONE 16x16 sprite, and the rail never draws a second. Pinned rather than
+# pooled: `oam_sprites` hands out the slot, and slot 0 is what the published
+# render's OAM assertions read: slot 0's X sits at the follow-camera centre,
+# 124.
+[[claims.oam]]
+name = "pfs_hero"
+sprites = 1
+
+# =============================================================================
+# THE HERO'S ART — the OBJ half of the scene's display
+# =============================================================================
+# The BG half is `pfs_bg`'s (its CHR page, its 16-word palette including the
+# backdrop word). The OBJ half is the player's, so it is declared HERE, beside
+# the OAM slot and the code that writes it, rather than smuggled into the BG
+# feature: the hero is what this feature draws.
+#
+# The bytes are shared. `vendor/art/dungeon_sprites/` already holds the source
+# PNGs and `gen_platformer_assets.py` already converts them; the Makefile takes
+# the HERO HALF of that 64-tile sheet (tiles 0..31 = 1,024 B) rather than
+# vendoring a second copy of the same art. The hero is a different drawing from
+# the one the vendored at-rest frame shows, which is why the render oracle
+# splits: the BACKGROUND is compared pixel-exact and the HERO through OAM.
+[[claims.vram]]
+name = "pfs_hero_v"
+kind = "chr"
+obj = true
+words = 512              # 32 tiles = TWO rows of the 16-wide OBJ name table.
+                         # A 16x16 sprite reads {N, N+1, N+16, N+17}, so the
+                         # four idle frames at tiles 0/2/4/6 spill their bottom
+                         # halves into the second row — 32 tiles, not 16.
+
+[[claims.cgram]]
+name = "pfs_hero_pal_c"
+words = 16
+at = 128                 # hardware contract: OBJ palette 0 = CGRAM 128..143
+
+# The enter-time OBJ CHR upload. A THIRD forced-blank channel rather than a
+# call into `pfs_bg`'s `pb_up`: MDMAEN ($420B) is an in-class port and the
+# reg-ownership pass attributes a write to the claim set of the FILE it sits
+# in, so a pfs_logic.asm that fired pfs_bg's channel would be writing a port no
+# claim of its own covers.
+[[claims.dma_init]]
+name = "pfs_hero_up"
+channel = 2
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# C4 (docs/09 §2.1): OBSEL is the OBJ layer's configuration — the name base the
+# sprite tile ids are relative to, and the size pair. Written by pfs_logic.asm
+# itself at scene enter, so it is NOT `scene_writes`; the declaration-that-lies
+# check refuses the mistake in either direction.
+[[claims.reg]]
+name = "pfs_obj"
+registers = ["OBSEL"]

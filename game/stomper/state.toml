@@ -1,0 +1,60 @@
+# stomper user game state.
+#
+# All `@dp`, all scene-scoped: `play` is the only scene and every word is on
+# the frame path. Three groups — the player block (`jumper`'s shape), two enemy
+# triples, and shared patrol scratch. Placement is the ALLOCATOR's and nothing
+# here depends on adjacency: the per-enemy code is a macro expanded once per
+# enemy, so no field needs to sit next to any other.
+#
+# NO [global] SECTION: game-lifetime state is what survives a scene
+# transition, and this rail has none.
+
+[scene.play]
+# --- player -------------------------------------------------------------------
+px = "u16@dp"            # player world x, pixels (world = screen: no camera)
+pyf = "u16@dp"           # player y, 8.8 fixed (high byte = the drawn pixel)
+vy = "u16@dp"            # signed 8.8 vertical velocity (negative = up)
+newy = "u16@dp"          # physics scratch: tentative pixel y for the probes
+grounded = "u16@dp"      # 1 = standing on solid ground (stable at rest)
+pyi = "u16@dp"           # player y as the integer draw pixel (pyf high byte)
+newx = "u16@dp"          # tentative x before the solid-box move check
+tent = "u16@dp"          # the tentative 8.8 y position. A DP word rather than
+                         # a PHA/PLA stack slot across the width-toggling arms:
+                         # same value, no push/pop byte balance to audit, which
+                         # is the WIDTH-RISK a stack-carried tentative invites
+# --- enemies ------------------------------------------------------------------
+# Live position is state; the beat is emergent from the level geometry (the
+# probes turn the walk at walls and ledges). Each enemy's y is an assemble-time
+# constant at the call site rather than a stored word.
+e1x = "u16@dp"           # enemy 1 x (ground beat, drawn at ST_E1_Y = 200)
+e1dir = "u16@dp"         # enemy 1 heading: 0 = left, 1 = right
+e1alive = "u16@dp"       # 1 = alive, 0 = stomped (culls patrol + draw + hit)
+e2x = "u16@dp"           # enemy 2 x (platform beat, drawn at ST_E2_Y = 152)
+e2dir = "u16@dp"
+e2alive = "u16@dp"
+# --- patrol scratch (shared between enemies, consumed within the call) -------
+pnewx = "u16@dp"         # tentative enemy x
+pleadx = "u16@dp"        # leading bottom-corner x for the ledge probe
+pfooty = "u16@dp"        # ey + 8: the tile row under the enemy's feet
+# --- solid-box probe arguments (write-before-read per call) ------------------
+# `st_solid_box` is a subroutine rather than a macro over verbatim operands, so
+# its two arguments are argument SLOTS. Every caller writes both before the
+# jsr — the same contract as cm_hot's CM_PX/CM_PY, one level up.
+boxx = "u16@dp"          # box top-left x, pixels
+boxy = "u16@dp"          # box top-left y, pixels
+# --- the round ---------------------------------------------------------------
+foes = "u16@dp"          # enemies still alive; the HUD counter (2 -> 1 -> 0)
+hurts = "u16@dp"         # times knocked back. Not mirrored anywhere for a test
+                         # to read: the observable IS the knockback (OAM +
+                         # picture), and a debug-region copy would be a second
+                         # surface that can agree with the counter while
+                         # disagreeing with the screen
+clearp = "u16@dp"        # CLEAR pending-print countdown (5..1, then 0 done).
+                         # bg_text's VBlank queue holds ONE run of up to 4
+                         # cells per frame and "CLEAR" is five, so the win
+                         # print is spread one cell per frame over the five
+                         # frames after the closing stomp
+blink = "u16@dp"         # frames since enter. Drives nothing — the
+                         # free-running heartbeat a test reads to tell "the
+                         # tick is running" from "the tick is stuck" (the
+                         # breaker/shmup/hud_game convention)

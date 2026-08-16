@@ -1,0 +1,9 @@
+# The deliberately-colliding toy manifest. Two features pin the same VRAM
+# tilemap base; the ALLOCATOR must exit non-zero with a legible diagnostic —
+# proving the build STOPS on a collision. `make toy-bad` is the gate that
+# checks it did, and exits 0 when it did.
+globals = []
+
+[[scene]]
+id = "bad"
+features = ["pin_a", "pin_b"]

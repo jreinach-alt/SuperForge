@@ -1,0 +1,58 @@
+# mode7_flight — free flight over a Mode 7 perspective floor.
+#
+# Free flight over a Mode 7 perspective floor, with the piece no other rail has:
+# INPUT-CONTROLLED ALTITUDE DRIVING THE PERSPECTIVE SCALE. Climb and the ground
+# recedes; descend and it comes up to meet you. The D-pad turns, B throttles
+# forward, Y reverses, release hovers, and L/R fly the ship down and up.
+#
+# THE SETTLED QUESTION, and it is the reason this rail needed a design pass of
+# its own: the pose domain is 256 headings x 81 altitudes = 20,736, both axes
+# free and player-driven, and the faithful product table is 12.7 MB against a
+# 512 KB ceiling. The answer is the SEPARABLE HYBRID: bake the two factors the
+# pose already decomposes into (S_a(k) per altitude, R(h) per heading; ~28 KB,
+# exact on both axes) and join them per frame with the hardware multiplier. The
+# mechanism is engine/features/m7f_cam.
+#
+# ONE SCENE, no edges — m7_dungeon's shape and m7_oshoot's after it. This rail
+# is one continuous loop with no scene change, so the edge `style` enum has no
+# subject here. A title card, if one is ever added, takes `style = "cut"` per
+# meteor_event's precedent.
+#
+# NOT COMPOSED, and each for a reason the allocator would enforce anyway:
+#   mode7_persp  -- hard-bound to `pose_rom`'s emitted symbols, 180 lines at a
+#                   1024 B stride, INDIRECT from ROM, and no altitude axis.
+#                   m7f_cam/feature.toml carries the full five-clause ruling.
+#   pose_rom     -- 64 headings, no altitude axis, and composed by five other
+#                   games. Growing it would grow it for all of them.
+#   m7_track     -- one matrix per entry; a flight pose is 160 (one per
+#                   scanline), streamed with no CPU in the path.
+#   m7_affine /
+#   m7_project   -- m7_affine's single `m7_matrix` claim covers the ORIGIN
+#                   registers as well as M7A-M7D, so composing it beside
+#                   the matrix conflict is even reached.
+#   mode7_floor  -- `depends = ["world_rom"]` (a 256 KB map this rail never
+#                   reads) and pins CGRAM 0..16 for microzero — the same ruling
+#                   sau_floor's header records.
+#   sky_band     -- a BG2 texture behind a Mode-1 HUD band, and it costs no HDMA
+#                   channel. Mode 7 has ONE background: this rail's sky is the
+#                   BACKDROP revealed by a TM split, which is a different
+#                   mechanism (m7f_floor).
+#   backdrop     -- a Mode 7 8bpp pixel value IS a CGRAM index, so m7f_floor
+#                   pins word 0 and colour 0 has exactly one owner. Here that
+#                   word is doing double duty as the sky.
+#   bg_text/vwf  -- BG3 does not exist in Mode 7. This rail has no HUD; the
+#                   picture is the HUD.
+#   audio        -- this rail composes no audio at all. Adding a soundtrack
+#                   would be content it does not have.
+globals = ["scene_mgr", "input", "fade", "oam_sprites", "m7f_rom"]
+
+#   rgb_gradient IS COMPOSED (below), and the reason this list now names it is
+#   that the sky was a FLAT BACKDROP WORD — the whole top third of the screen
+#   above the horizon reading as one flat blue block. The grep test settles the
+#   tier rather than inspection:
+#   `grep -rln '"rgb_gradient"' game/*/game.toml` returns FIVE games (breaker,
+#   microzero, mode7_chamber, platformer, platformer_stream) plus this one, so
+#   it is engine tier — COMPOSED, never modified.
+[[scene]]
+id = "sky"
+features = ["m7f_cam", "m7f_floor", "m7f_obj", "m7f_logic", "rgb_gradient"]

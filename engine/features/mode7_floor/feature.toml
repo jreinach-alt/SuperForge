@@ -1,0 +1,34 @@
+# mode7_floor — the Mode 7 interleaved region + floor palette + CHR blob
+# (scene-scoped: the title/results scenes reuse this VRAM for other things).
+# Claims CGRAM words 0..16 pinned at 0 — Mode 7 8bpp pixel values are
+# absolute CGRAM indices (hardware contract). A scene declaring backdrop
+# (word 0) alongside this MUST refuse the build: color 0 has one owner.
+name = "mode7_floor"
+role = "feature"
+depends = ["world_rom"]
+
+[[claims.vram]]
+name = "m7"
+kind = "mode7"           # the whole interleaved 32 KB, words $0000-$3FFF
+
+[[claims.cgram]]
+name = "floor_pal"
+words = 17
+at = 0                   # hardware contract: 8bpp pixel value = CGRAM index
+
+[[claims.rom]]
+name = "floor_tiles"
+bytes = 768              # 12 tiles x 64 B, 8bpp
+
+[[claims.rom]]
+name = "floor_pal_rom"
+bytes = 34               # 17 BGR555 words
+
+# C4 (docs/09 §2.1): M7SEL, written by game/microzero/scenes/race.asm:86 at
+# enter and attributed here because Mode 7 is this feature's mechanism. Race is
+# the only scene that writes it -- the census note claimed title/race/results
+# all did, which a grep of the tree refutes ($211A appears in race.asm alone).
+[[claims.reg]]
+name = "m7_sel"
+registers = ["M7SEL"]
+scene_writes = ["M7SEL"]              # mode7_floor scene enter code

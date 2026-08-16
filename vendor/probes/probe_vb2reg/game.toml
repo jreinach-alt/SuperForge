@@ -1,0 +1,11 @@
+# REVIEW attack ROM (HANDOFF §8.7 item 1) — one-scene game wrapping TWO
+# same-register (VMDATAL) VBlank-phase claims that are actually WIRED to
+# GP-DMAs in the NMI, plus an active-phase COLDATA HDMA pinned to channel 0
+# so it time-shares the channel registers with the first VBlank claim.
+# This is the ROM `allocate._register_exclusive`'s relaxation (fc2286c) says
+# must compose; until this probe, the claim was allocator-level only.
+globals = []
+
+[[scene]]
+id = "probe"
+features = ["vb_a", "vb_b"]

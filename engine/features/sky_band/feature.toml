@@ -1,0 +1,71 @@
+# sky_band — the BG2 sky behind the Mode-1 HUD band (scene-scoped).
+#
+# The race frame's top HUD_LINES scanlines run Mode 1. Before this feature
+# they showed BG3 (the HUD text) over a black backdrop; now BG2 carries a
+# dithered luminance ramp underneath, and rgb_gradient's per-scanline
+# COLDATA add colours it. Split of responsibility: THIS layer is texture,
+# the gradient is colour (tools/gen_sky.py explains why the base colours
+# are dark).
+#
+# Costs NO HDMA channel. The band split already exists — split_band's TM
+# table just names BG2 in the top band ($16 = BG2+BG3+OBJ) instead of $14 —
+# and BG2SC/BG12NBA/BG2 scroll are static registers written once at scene
+# enter. The race scene stays at 7 of 8 active channels.
+#
+# Register ownership: $2108 (BG2SC), $210B (BG12NBA) and $210F/$2110 (BG2
+# scroll) are written by nothing else in the game — ppu_reset zeroes them
+# at boot and no other feature touches them.
+name = "sky_band"
+role = "feature"
+
+# The enter-time uploads: CHR then tilemap, both word-port (mode 1 drives
+# VMDATAL+VMDATAH), fired on the channel this claim names. Declared so the
+# channel and the target ports are visible to the allocator instead of being
+# a hard-coded $4300 with a hand-written BBAD byte. phase is forced_blank:
+# scene_mgr's enter has HDMAEN cleared and NMITIMEN zeroed, so this cannot
+# race an `active` or `vblank` claim even on a shared channel number.
+[[claims.dma_init]]
+name = "sky_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "sky_chr"
+kind = "chr"
+tiles = 8
+tile_bytes = 32          # 4bpp
+
+[[claims.vram]]
+name = "sky_map"
+kind = "tilemap"
+words = 0x400            # 32x32; BG2SC bases are 0x400-word granular
+
+[[claims.cgram]]
+name = "sky_pal"
+words = 4                # the ramp's 4 base colours
+at = 65                  # hardware contract: BG2 4bpp palette 4 is CGRAM
+                         # words 64..79, and index 0 (word 64) is the
+                         # transparent slot no sky pixel may use
+
+[[claims.rom]]
+name = "sky_chr_rom"
+bytes = 256              # 8 tiles x 32 B
+
+[[claims.rom]]
+name = "sky_map_rom"
+bytes = 2048             # 32x32 words
+
+[[claims.rom]]
+name = "sky_pal_rom"
+bytes = 8                # 4 BGR555 words
+
+# C4 (docs/09 §2.1): the BG2 layer configuration this feature CPU-writes at
+# enter (sky_band.asm:94-101). The feature.toml used to assert the exclusivity
+# in a comment -- "written by nothing else in the game... no other feature
+# touches them" -- which was true, unchecked, and the exact unwritten "these
+# won't be used together" assumption this repo exists to abolish. It is now a
+# claim the build proves. BG2SC/BG12NBA needed new footprint names.
+[[claims.reg]]
+name = "sky_bg2"
+registers = ["BG2SC", "BG12NBA", "BG2HOFS", "BG2VOFS"]

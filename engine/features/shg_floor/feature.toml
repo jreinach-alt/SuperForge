@@ -1,0 +1,72 @@
+# shg_floor — the split_h_irq_grad_demo rail's Mode 7 plane. Scene-scoped.
+#
+# The world under BOTH bands: one 128x128 wrapping warm/cool checker plane,
+# uploaded once at scene enter and never touched again. Everything that makes
+# the two bands look different is the seam mechanism's doing (shg_cam); the
+# per-line wash over it is shg_grad's.
+#
+# THE PALETTE IS THE RAIL'S TEST METRIC, not a decoration. The five CGRAM words
+# are written by CPU from named constants here, and they are deliberately NOT
+# the split_h_2p palette the map and poses are shared with, because every
+# colour used here keeps BLUE = 0:
+#
+#  backdrop B=0 G=0 R=0
+#  cool dark B=0 G=15 R=0
+#  cool light B=0 G=31 R=0
+#  warm dark B=0 G=15 R=31
+#  warm light B=0 G=31 R=31
+#
+# With the world's blue identically zero, the rendered BLUE channel is EXACTLY
+# shg_grad's fixed-colour ADD term — a checker-immune gradient signal that no
+# amount of stripe geometry can pollute. Sit_rom's palette (which this rail's
+# map and poses otherwise share) carries blue in three of its five colours, so
+# it could not be reused: hence the CPU writes and no `pal` ROM claim.
+#
+# WHY NO `hdma` CLAIM: the plane is static. Every per-scanline channel on this
+# rail belongs to shg_cam (the matrix pair + the seam pair) or shg_grad (the
+# one freed channel spent on COLDATA).
+name = "shg_floor"
+role = "feature"
+depends = ["shg_rom"]
+
+# The enter-time upload: ONE DMA for the whole interleaved blob. Mode 1 drives
+# VMDATAL then VMDATAH alternately, which IS the interleave. Phase
+# forced_blank: scene_mgr's enter contract has HDMAEN cleared and NMITIMEN
+# zeroed, so this composes with every active/vblank claim by construction,
+# including on a shared channel number.
+[[claims.dma_init]]
+name = "shg_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# The Mode 7 region: the fixed pinned 32 KB at words $0000-$3FFF — a hardware
+# address, not a packing decision (kind = "mode7" takes neither words nor
+# tiles).
+[[claims.vram]]
+name = "shg_m7"
+kind = "mode7"
+
+# HARDWARE CONTRACT: a Mode 7 8bpp pixel value IS an absolute CGRAM index, so
+# this palette can only live at 0. Word 0 is both palette index 0 and the
+# backdrop slot — a scene composing `backdrop` alongside this refuses, colour 0
+# has one owner. Here word 0 is BLACK rather than a dusk: the backdrop
+# is part of the blue-zero contract above, so wherever the plane does not reach
+# the gradient reads out on its own.
+[[claims.cgram]]
+name = "shg_cg"
+words = 5
+at = 0
+
+# The scene's base display shape, written ONCE under forced blank for all 224
+# lines. This rail does not split the video mode — the split is entirely in the
+# camera origin (shg_cam's claims), so BGMODE and TM are plain constants with
+# one owner. M7SEL is written by this feature's own floor_arm; BGMODE and TM by
+# the scene's enter code, attributed to the feature they serve and opened
+# through scene_writes (the sit_floor/sh2_floor/room_bg shape — the lies-check
+# compares per register, and the opened set and the owner-written set are
+# disjoint).
+[[claims.reg]]
+name = "shg_display"
+registers = ["BGMODE", "TM", "M7SEL"]
+scene_writes = ["BGMODE", "TM"]

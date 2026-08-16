@@ -1,0 +1,46 @@
+# The as-landed form — the assert MOVED, nothing was lost.
+#
+# `an earlier commit inserted `split_v_seamtrial`'s step between `svd-nowin`'s `echo`
+# and its `test "$size" -eq 524288` line, so the assert now terminates the
+# SEAMTRIAL step and `svd-nowin` has none. No line was deleted, the YAML is
+# valid, and a removed-line scan sees nothing — which is why this was the
+# fifth instance of the drop class and the first not caught
+#.
+#
+# There are NO CONFLICT MARKERS here on purpose. The real damage was a
+# landing-side shape repair applied AFTER the union, so the file a reviewer
+# sees is already resolved. `tools/batch_union.py --check <file>` runs the
+# battery on an unconflicted file too, which is the surface that has to catch
+# this one.
+name: CI
+on:
+  workflow_dispatch:
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - name: make split_v_demo
+        run: |
+          make split_v_demo
+          size=$(stat -c%s build/split_v_demo.sfc)
+          echo "build/split_v_demo.sfc = $size bytes"
+          test "$size" -eq 524288 || { echo "::error::expected 524288 bytes, got $size"; exit 1; }
+
+      - name: make svd-nowin
+        run: |
+          make svd-nowin
+          size=$(stat -c%s build/svd_nowin.sfc)
+          echo "build/svd_nowin.sfc = $size bytes"
+      - name: make split_v_seamtrial
+        run: |
+          make split_v_seamtrial
+          size=$(stat -c%s build/split_v_seamtrial.sfc)
+          echo "build/split_v_seamtrial.sfc = $size bytes"
+          test "$size" -eq 524288 || { echo "::error::expected 524288 bytes, got $size"; exit 1; }
+
+      - name: make split_h_persp_demo
+        run: |
+          make split_h_persp_demo
+          size=$(stat -c%s build/split_h_persp_demo.sfc)
+          echo "build/split_h_persp_demo.sfc = $size bytes"
+          test "$size" -eq 524288 || { echo "::error::expected 524288 bytes, got $size"; exit 1; }

@@ -1,0 +1,70 @@
+# bs_rom — the boss rail's art and its matrix tracks, in ROM. Global.
+#
+# ROM claims cannot be scene-scoped (mo_rom's ruling): the allocator packs one
+# ROM window set for the whole composition. Every claim here is BACKED by an
+# `.incbin` claim site in game/boss/main.asm (`make rom-unbacked`, docs/37).
+#
+# THE BLOBS ARE AUTHORED, NOT IMPORTED (mo_rom's route). Tools/gen_boss_assets.py
+# draws the arena golem from a shape predicate over the 128x128 tile grid:
+# there is no source asset, so there is no converter between an asset and this
+# output and nothing to ground-truth a converter against.
+# Tools/gen_boss_tracks.py bakes the four matrix blobs from the schedule
+# constants the state machine uses (REVEAL/INIT/DEATH scale, the per-state
+# angle steps), listed line by line in its header.
+name = "bs_rom"
+role = "blob"
+
+# The interleaved Mode 7 VRAM image: even bytes = 128x128 tilemap, odd bytes =
+# 8bpp CHR, exactly as the PPU reads the region. 32 KB = one whole LoROM
+# window, so the single enter DMA cannot cross a bank boundary.
+[[claims.rom]]
+name = "bs_map"
+bytes = 32768
+dma_source = true
+
+# --- the matrix tracks (format = m7_track's header) ------------------------
+# THE RING: 256 headings at the REST scale (1.5, i.e. $0180). The fight, the
+# hold and the dying spin index it by heading byte. M7_affine's own LUT is
+# scale-1.0 and cannot serve these states; the ring is the same idea at this
+# rail's fixed fight scale. 2 + 256*4 bytes.
+[[claims.rom]]
+name = "bs_ring"
+bytes = 1026
+
+# THE REVEAL ramp: entry 0 = the pre-reveal pose (angle 0, scale 5.0 — the
+# matrix battle_init shows before the fade lifts), entries 1..60 = the grow-in,
+# angle f, scale lerped 5.0 -> 1.5 endpoint-exact. Entry 60 == ring[60], the
+# reveal->hold seam, asserted by the generator. 2 + 61*4 bytes.
+[[claims.rom]]
+name = "bs_reveal"
+bytes = 246
+
+# THE DEATH ramp: entry 0 = ring[0] (the dying->death seam, asserted), entries
+# 1..60 = the recede, angle 3f, scale 1.5 + f*(14/256). The recede adds a
+# TRUNCATED step each frame and never quite reaches the nominal end scale, so
+# the bake reproduces the sequence that actually renders rather than the one
+# the constant names. 2 + 61*4 bytes.
+[[claims.rom]]
+name = "bs_death"
+bytes = 246
+
+# The floor palette: 16 BGR555 words. Mode 7 is 8bpp with ABSOLUTE CGRAM
+# indices and index 0 is the backdrop slot — the generator's reserve-backdrop
+# pass puts the arena dark there (mo_rom's discipline). Authored colours are
+# fewer than 16; the generator pads the tail with the backdrop tone so the
+# claim, the file and the CGRAM upload are all exactly 16 words.
+[[claims.rom]]
+name = "bs_pal"
+bytes = 32
+
+# The OBJ sheet: 32 tiles x 32 B (two 16-tile VRAM rows). Player 16x16 x2
+# frames at {0,1,16,17}/{2,3,18,19}; the 8x8 cast in row 0 — attack orb (4),
+# player shot (5), HP pip lit (6), HP pip dim (7).
+[[claims.rom]]
+name = "bs_sprite_chr"
+bytes = 1024
+
+# One OBJ palette, 16 BGR555 words — one ramp for the whole cast.
+[[claims.rom]]
+name = "bs_sprite_pal"
+bytes = 32

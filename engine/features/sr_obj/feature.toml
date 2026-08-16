@@ -1,0 +1,44 @@
+# sr_obj — the runner sprite: the player's whole visible output.
+#
+# CHR + palette from the sr_rom blobs; one OAM slot from the `runner` claim.
+# The entry is re-staged into the oam_sprites SHADOW every frame from the scene
+# tick — never into hardware OAM, which the engine's declared VBlank GP-DMA
+# owns. It is re-staged every frame rather than written once at enter, so the
+# staging path is exercised on every frame rather than only on frame 0.
+#
+# WHAT IS DIFFERENT FROM jumper_obj, and it is one thing: the X this feature
+# consumes is a SCREEN coordinate the scene derived (US_SCRX = px - cam_x — the
+# world/screen subtraction that is half the rail's lesson), not the world
+# coordinate itself. The draw still derives X9 from bit 8 every frame even
+# though the follow clamp keeps scrx in 8..240 — deriving it anyway is what
+# keeps the assumption out of the code (the stale-X9 lesson).
+name = "sr_obj"
+role = "consumer"
+depends = ["oam_sprites", "sr_rom"]
+
+[[claims.dma_init]]
+name = "sr_obj_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "sr_obj_chr"
+kind = "chr"
+obj = true
+words = 32               # 2 tiles x 16 words: 0 empty, 1 the solid red player.
+                         # Tile 0 stays empty so a zeroed OAM entry draws
+                         # nothing rather than the player.
+
+[[claims.cgram]]
+name = "sr_obj_pal"
+words = 16
+at = 128                 # hardware contract: OBJ palette 0 = CGRAM 128..143
+
+[[claims.oam]]
+name = "runner"
+sprites = 1
+
+[[claims.reg]]
+name = "sr_obsel"
+registers = ["OBSEL"]

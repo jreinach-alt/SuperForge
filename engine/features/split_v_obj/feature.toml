@@ -1,0 +1,79 @@
+# split_v_obj — the two fighters. Scene-scoped.
+#
+# One 32x32 knight, drawn TWICE as a P1/P2 OBJ-palette swap: red team on the
+# left, blue on the right, each H-flipped to face the centre. The team colour
+# is the whole reason a side-swap reads at a glance, and doing it with palettes
+# rather than a second CHR copy is why the CHR claim is one sprite's worth.
+#
+# OBSEL IS CLAIMED HERE, following breaker_obj / platformer_obj / player_car.
+# oam_sprites claims only OAMDATA -- it is the OAM *transport*, not the sprite
+# size/base authority -- so every rail's OBJ feature declares OBSEL itself.
+# OBSEL sets sprite size AND the OBJ CHR name base in one write, and it is a
+# forced-blank-only register.
+name = "split_v_obj"
+role = "feature"
+depends = ["split_v_rom"]
+
+# The enter-time upload: the fighter CHR into OBJ VRAM. Its own claim rather
+# than a call into split_v_bg's sv_up -- a feature reaching into another
+# feature's routine would make the two inseparable, and the allocator would
+# still have to be told about this transfer either way.
+[[claims.dma_init]]
+name = "sv_obj_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# The camera the CURRENT placement is against. The two halves have different
+# cameras (mid-spread and mid+spread), so the draw stores whichever applies
+# before each call rather than the placement routine guessing. Declared rather
+# than borrowed from enter_scr: that scratch is the scene-ENTER upload's, and
+# this is per-frame.
+[[claims.dp]]
+name = "sv_ocam"
+bytes = 2
+
+[[claims.vram]]
+name = "obj_chr"
+kind = "chr"
+obj = true
+words = 1024            # 64 tiles = FOUR rows of the 16-wide OBJ name table.
+                        # A 32x32 sprite reads {N..N+3, N+16..N+19, N+32..,
+                        # N+48..} -- the row stride is hardware-fixed, so one
+                        # frame spans four grid rows and the gaps are the
+                        # alignment, not waste.
+
+[[claims.cgram]]
+name = "knight_pal_r"
+words = 16
+at = 128                # hardware contract: OBJ palette 0 = CGRAM 128..143
+
+[[claims.cgram]]
+name = "knight_pal_b"
+words = 16
+at = 144                # OBJ palette 1
+
+# Pinned, not packed: OAM index order IS sprite-vs-sprite priority, and both
+# fighters must sit at a known index so a test can read entry 0 and entry 1
+# and say which half each is in. Two sprites, adjacent, from slot 0.
+[[claims.oam]]
+name = "fighter1"
+sprites = 1
+at = 0
+
+[[claims.oam]]
+name = "fighter2"
+sprites = 1
+at = 1
+
+# The rest of the hi-table byte. Each hi-table byte covers FOUR sprites (2 bits
+# each: X9 + size), so slots 2 and 3 share a byte with the fighters and the
+# byte can only be rebuilt whole by one owner. Parked at y = $F0 offscreen.
+[[claims.oam]]
+name = "hi_pad"
+sprites = 2
+at = 2
+
+[[claims.reg]]
+name = "obj_obsel"
+registers = ["OBSEL"]

@@ -1,0 +1,94 @@
+# room_bg — the room itself: BG1 floor/walls and BG2 decor. Scene-scoped.
+#
+# LAYER OWNERSHIP, ASSERTED IN PROSE BECAUSE THAT IS ALL THERE IS. This feature
+# owns BG1 and BG2 in the `room` scene: BG1SC ($2107), BG2SC ($2108), BG12NBA
+# ($210B), BGMODE ($2105) and TM ($212C) are written by this scene's enter and
+# by nothing else in the game. Layer identity is NOT a resource the allocator
+# models — two features can both want BG2 and their vram claims will happily
+# land on different pages and pass. So this paragraph is the same shape as
+# sky_band's exclusivity comment, one game over, and it is exactly what H2 + C4
+# would replace with a refusal. The scroll registers are never written: the
+# room is one screen and does not scroll, which is a deliberate scope choice.
+#
+# BG2 is the layer window_iris CLIPS (W12SEL/TMW) rather than merely dims, so
+# the decor is present inside the lantern and absent outside it. That gives
+# this change a real cross-layer invariant: a single-layer VRAM read cannot
+# distinguish "BG2 uploaded correctly" from "BG2 visible where it must not be",
+# and the second is the bug windowing actually ships.
+#
+# PALETTES. BG 4bpp sub-palettes are CGRAM words 16*p .. 16*p+15. BG3's 2bpp
+# palettes live in words 0..31 and bg_text pins 28..31, so this feature takes
+# palettes 2 and 3 (words 32..47 and 48..63) and leaves 0..31 alone. Both
+# claims include the sub-palette's index-0 slot, which no 4bpp pixel can render
+# (it reads as transparent): owning it costs nothing, keeps the whole region
+# written at enter (rule 5), and stops a second feature putting a colour there
+# that would read as live to anyone inspecting CGRAM.
+name = "room_bg"
+role = "feature"
+depends = ["room_rom"]
+
+# The enter-time uploads: CHR then tilemap for both layers, word-port (mode 1
+# drives VMDATAL+VMDATAH). Phase forced_blank — scene_mgr's enter clears HDMAEN
+# and zeroes NMITIMEN, so this cannot race an active or vblank claim even on a
+# shared channel number.
+[[claims.dma_init]]
+name = "room_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "bg1_chr"
+kind = "chr"
+tiles = 16
+tile_bytes = 32          # 4bpp
+
+[[claims.vram]]
+name = "bg1_map"
+kind = "tilemap"
+words = 0x400            # 32x32; BG1SC bases are 0x400-word granular
+
+[[claims.vram]]
+name = "bg2_chr"
+kind = "chr"
+tiles = 16
+tile_bytes = 32          # 4bpp
+
+[[claims.vram]]
+name = "bg2_map"
+kind = "tilemap"
+words = 0x400
+
+[[claims.cgram]]
+name = "bg1_pal"
+words = 16
+at = 32                  # hardware contract: BG 4bpp palette 2 = words 32..47
+
+[[claims.cgram]]
+name = "bg2_pal"
+words = 16
+at = 48                  # ...palette 3 = words 48..63
+
+# The blobs these uploads read live in the GLOBAL room_rom feature — see its
+# feature.toml for why ROM claims cannot be scene-scoped here.
+
+# C4 (docs/09 §2.1): the BG1+BG2 layer configuration (room_bg.asm:149-163) AND
+# the scene's base display mode.
+#
+# ATTRIBUTION. BGMODE/TM are written by room.asm:95,97 -- the scene's enter
+# code -- not by room_bg.asm. (The census row used to list both files as if the
+# writes were shared; they are not.) Scene enter code has no feature.toml and
+# `[[scene]]` accepts no claims, so the ownership is attributed to the feature
+# the write SERVES, which is this one: room_bg is what makes the room a
+# two-BG-layer Mode 1 scene. The residue that serves no single feature is a
+# documented hole in §2.1 rather than forced into a synthetic dir.
+[[claims.reg]]
+name = "room_layers"
+registers = ["BG1SC", "BG2SC", "BG12NBA", "BG1HOFS", "BG1VOFS",
+             "BG2HOFS", "BG2VOFS", "BGMODE", "TM"]
+# ONLY these two. The other seven are written by room_bg.asm itself, in its
+# arm routine, not by scene-enter code -- which is why the field is a LIST and
+# not a boolean, and why the lies-check compares per REGISTER rather than per
+# claim (a whole-claim comparison false-positives here: the opened set and the
+# owner-written set are disjoint).
+scene_writes = ["BGMODE", "TM"]

@@ -1,0 +1,213 @@
+# pfs_stream — 2-axis leading-edge streaming for a NORMAL-BG 64x64 ring.
+#
+# The one genuinely new mechanism on this rail: normal-BG streaming on two
+# axes, which no other rail here needs.
+#
+# =============================================================================
+# WHY THIS IS NOT `mode7_stream` WITH A DIFFERENT BINDING
+# =============================================================================
+# It is the same IDEA — the world is bigger than the hardware window, so refill
+# the leading edge per VBlank — over completely different addressing.
+# `mode7_stream` writes a FLAT 128x128 BYTE array with one linear address
+# space. A normal-BG 64x64 tilemap is FOUR 32x32 WORD pages:
+#
+#  VRAM(col,row) = base + (col>=32 ? $400: 0) + (row>=32 ? $800: 0)
+#  + (row & 31)*32 + (col & 31)
+#
+# Every staged line therefore crosses a page boundary, on both axes, always. No
+# binding contract reaches across that: `mode7_stream` streams a flat byte
+# array into a Mode 7 image, which is a different mechanism, not a different
+# parameter. So this is a SIBLING — the same answer sibling-over-
+# parameterisation gets everywhere else in this tree, and the exception only
+# applies when every mechanism property is identical.
+#
+# =============================================================================
+# ONE STAGING SHAPE FOR BOTH AXES — the design decision of this change
+# =============================================================================
+# The obvious build gives the two axes UNLIKE producers. A COLUMN producer can
+# DMA straight out of column-major ROM with VMAIN stride-32, splitting per
+# column into page sub-transfers. A ROW producer cannot, because a row's 64
+# tiles land at col slots (world_col & $3F) that ROTATE as the camera pans
+# horizontally, so it stages the row into a 64-word WRAM buffer indexed by
+# slot and fires two page-aligned stride-1 DMAs.
+#
+# BOTH AXES TAKE THE ROW PRODUCER'S SHAPE HERE. Once a line is staged into a
+# 64-word buffer indexed by ring slot, the two axes differ in exactly one
+# register — the VMAIN increment:
+#
+#  axis | staged as | dest A | dest B | VMAIN
+#  --------|-----------------------|-------------------|---------|--------
+#  column | buf[world_row & $3F] | base+hpage | +$800 | stride 32
+#  row | buf[world_col & $3F] | base+vpage+r*32 | +$400 | stride 1
+#
+# Two 32-word sub-transfers per staged line, both axes, DAS re-armed per
+# transfer. That is `mode7_stream`'s own declared shape one register over
+# ("VMAIN $00 rows / $02 cols, DAS re-armed per slot"), so the NMI drain, the
+# slot table and the clamp discipline are this repo's existing idiom rather
+# than anything new — which is most of why this build is not 1,545 lines.
+#
+# WHAT THE UNIFORMITY COSTS, stated rather than buried: the column axis now
+# stages through WRAM instead of DMAing from ROM, one extra 128-byte copy per
+# streamed column. Against the worst frame below that is not close to binding,
+# and it removes an entire second producer.
+#
+# WHY THE WRAP IS ONLY EVER TWO SPANS, on both axes. A staged line reads 64
+# consecutive world lines (mod 128) out of its flat blob while the ring dest
+# wraps at slot 64. Both boundaries are multiples of 64 in a 128-line world, so
+# they CUT TOGETHER — the same property mode7_stream relies on for its rows,
+# and the reason no staging loop here needs a four-way split.
+#
+# =============================================================================
+# THE BINDING CONTRACT — five symbols, includer-supplied, no defaults
+# =============================================================================
+# `schemas.py` has no vocabulary for "same feature, different blob", so the
+# binding is `col_map.asm`'s / `mode7_stream.asm`'s shape: symbols the includer
+# defines immediately above its `.include`, each missing one a hard `.error`
+# naming it, and NO DEFAULT. Rgb_gradient records why a default is refused — "a
+# silent default is exactly how the platformer inherited a wash on its terrain
+# and shipped a teal sky" — and it holds here too: a defaulted blob streams the
+# wrong ROM bytes into a plausible-looking level.
+#
+#  PFS_COL_WIN / PFS_COL_BANK the column-major blob's ES_R_*_T0_ADDR / _BANK
+#  PFS_ROW_WIN / PFS_ROW_BANK the row-major blob's
+#  PFS_MAP_BASE the ring's VRAM word base (pfs_bg's _SC_BASE)
+#
+# Each blob is ONE chunk by construction (exactly 32,768 B = one window), so
+# neither owes the consecutive-banks assert that a `bank_tiled` consumer does.
+# The scene asserts they really are one chunk instead — m7_dungeon's shape.
+#
+# `depends` is therefore []: this feature depends on whatever the GAME binds.
+# Losing the allocator's `depends` check is not losing the check; it is
+# replaced by an assembly-time one, which this repo treats as the stronger
+# signal ("the undefined-symbol error is the design review"). Each blob's own
+# `rom` claim is still gated independently by `make rom-unbacked`.
+name = "pfs_stream"
+role = "feature"
+depends = []
+
+[[claims.dp]]
+name = "pfs_hot"
+bytes = 24               # +0 cam_tx +2 cam_ty +4 last_tx +6 last_ty (u16),
+                         # +8 col_cnt +9 row_cnt (u8), +10.. staging locals
+                         # (the copy kernels consume A/X/Y, so the span math
+                         #  lives in DP the way mode7_stream's K0..K5 do)
+
+# TWO BYTES, TWO DIFFERENT THREADS — and only the second one is drain scratch.
+# The +0 byte is PFS_BUSY, a guard the MAIN thread raises across its whole
+# staging window and the NMI drain READS: a slot is well-defined only once its
+# meta, its buffer AND its count have all landed, so an NMI arriving mid-stage
+# defers instead of draining a half-published slot table. The +1 byte is
+# PFS_LEFT, the drain's own remaining-slot counter.
+#
+# The deferral is free because the TICK never resets the counters — only the
+# drain does. A deferred frame leaves col_cnt/row_cnt standing, the next tick's
+# clamp refuses to stage past them, last_tx/last_ty therefore do not advance,
+# and nothing is skipped: it costs one frame of ring lag and self-heals. That
+# is what the clamp's margin (2 against a real worst case of 1) is FOR. The
+# protocol is written out at engine/features/pfs_stream/pfs_stream.asm's
+# `ES_PFS_NMI` block, and tests/test_pfs_stream.py's T7 forces the edge.
+[[claims.dp]]
+name = "pfs_nmi"
+bytes = 2                # +0 pfs_busy (main raises, drain reads)
+                         # +1 pfs_left (the drain's remaining-slot count)
+
+# FOUR SLOTS, and the number is derived rather than chosen. Worst real
+# displacement per frame: walk is 2 px/f (0.25 tile/f), terminal fall
+# SF_MAX_FALL is 4 px/f (0.5 tile/f), jump take-off SF_JUMP_VEL is 4.5 px/f
+# (0.56 tile/f). So at most ONE tile per frame per axis. The staging clamp is
+# TWO per axis — margin, not necessity — which makes four slots the worst frame
+# and guarantees no tile is ever skipped.
+#
+# NO SNAP-TO-CAM. Snapping when the delta exceeds the clamp is the
+# anti-pattern here: the skipped columns keep stale VRAM from 64 world columns
+# ago, so the corruption is systematic rather than transient — a block of
+# level replaced by a block of somewhere else. The clamp is set high enough
+# that the case cannot arise, which is the only honest way to have one.
+[[claims.wram]]
+name = "pfs_slots"
+bytes = 512              # 4 slots x 128 B (64 tilemap words), slot-indexed
+dma_source = true        # the drain DMAs read it; it must not straddle a bank
+
+[[claims.wram]]
+name = "pfs_meta"
+bytes = 32               # per slot: VMADD for sub-transfer A, VMADD for B,
+                         # and the VMAIN mode byte that distinguishes the axes
+
+# The GP-DMA channel the NMI drain fires on. `phase = "vblank"` and one
+# channel, time-shared with any active HDMA — the NMI core re-arms $43xx from
+# the scene_mgr shadow afterwards.
+#
+# MODE 1, NOT MODE 0 — corrected during implementation, and the correction is
+# the one place this file's "mode7_stream's claim exactly" instinct was wrong.
+# Mode7_stream writes a Mode 7 tilemap, which is a flat BYTE array, so its
+# transfer drives VMDATAL alone (mode 0). A NORMAL-BG tilemap entry is a WORD:
+# tile id in the low byte, palette/priority/flip in the high one. So the
+# transfer drives $2118 AND $2119 alternately (mode 1) and both ports must be
+# named — the shape probe_vblank's `probe_dma` and vb_a's `vba` already carry,
+# the latter after shipping this exact under-declaration
+#
+#
+# The alternative was tempting and is REFUSED: this level authors palette group
+# 0, so every tilemap word's high byte is zero, and a mode-0 stream of low
+# bytes only would work — at half the VBlank cost — for as long as nothing in
+# the ring ever needed a palette, a priority bit or a flip. It would rest on
+# high bytes staying at a value written ONCE at boot and never refreshed, which
+# is CLAUDE.md rule 5's "never assume zero-init" wearing a plausible face; and
+# it would put the boot fill (mode 1, below) and the per-frame path on
+# different shapes, which is exactly the "one kernel, one chance to be wrong"
+# property the dma_init claim's own comment argues for.
+[[claims.hdma]]
+name = "pfss"
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+band = "scene"
+phase = "vblank"
+channels = 1
+
+# The ring's boot fill: 64 columns through the SAME staging path, under the
+# enter-time forced blank. Reusing the per-frame kernel rather than writing a
+# second bulk-upload path is deliberate — it means the boot picture and every
+# streamed picture are produced by the same code, so a bug in the addressing
+# cannot hide behind a correct boot frame. (It also costs nothing: forced
+# blank, once, at enter.)
+[[claims.dma_init]]
+name = "pfs_fill"
+channel = 1
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# MEASURED against the implementation, not arithmetic'd from the slot size. A
+# slot is 128 B = 64 tilemap words, and the TWO sub-transfers are its two
+# halves — 32 words = 64 B each — because the ring's two hardware pages are
+# $400 (rows) or $800 (columns) apart and a single DMA cannot step across that.
+# So the worst frame is 4 slots x 128 B = 512 B in 8 transfers, and the 1024
+# this claim first carried double-counted: it multiplied the whole slot by the
+# number of sub-transfers it is DIVIDED INTO. Over-declaring is safe against
+# the 5,952 B pin, which is why nothing caught it; it is still a false
+# statement about the machine and the reason to fix it is that the next person
+# sizing a VBlank budget will read it.
+[claims.dma]
+vblank_bytes_per_frame = 512         # 4 slots x 128 B, in 2 halves each
+vblank_transfers_per_frame = 8       # ...worst frame. 8.6% of the 5,952 B pin.
+
+# `pfs_hot` carries the camera-tile tracking the first tick differences
+# against, and `pfs_nmi`'s PFS_BUSY is read by the DRAIN (in the NMI) while it
+# is written by the TICK (on the main thread) — so the very first VBlank after
+# boot reads it before either thread has written it. Both claims are genuinely
+# read-before-write, and BOTH ARE ZEROED BY REAL CODE — `pfs_stream_init`,
+# called from the scene's enter.
+#
+# THAT IS NOT A FORMALITY. `[init] zero` has NO GATE: the allocator emits it as
+# a comment, and `mosaic` shipped declaring it with no code behind it — a
+# non-zero `state` byte at boot is a wipe nobody armed, JSR-ing a swap pointer
+# made of DRAM noise. Only Mesen's random power-on RAM caught it. So this
+# feature's init is tested by reading the declared bytes after boot, not
+# asserted by declaring them here.
+#
+# The slot buffers and the meta table are deliberately NOT listed: they are
+# write-before-read by construction (a slot is staged in full before its VMADDs
+# are published and its count incremented), and pre-zeroing them would hide a
+# "staging stopped running" defect behind a plausible answer — CLAUDE.md rule
+# 5's "never zero-init to be safe".
+[init]
+zero = ["pfs_hot", "pfs_nmi"]

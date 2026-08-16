@@ -1,0 +1,50 @@
+# svd_rom — split_v_demo's ROM blobs. Global, no behaviour.
+#
+# All six come from tools/gen_svd_assets.py, which holds the numbers this rail
+# is made of: the height map, the four-branch cell rule, the five BGR15
+# colours, the marker tile and the diagonal's base/slope.
+name = "svd_rom"
+role = "blob"
+depends = []
+
+[[claims.rom]]
+name = "svd_stage_chr"
+bytes = 160              # 5 x 4bpp tiles: 0 EMPTY (pad), 1 sky, 2 grass,
+                         # 3 mountain, 4 dirt. The four solid tiles start at
+                         # TILE 1, so the tilemap carries ids 1..4; the pad
+                         # keeps those ids meaning what they mean there.
+
+[[claims.rom]]
+name = "svd_stage_map"
+bytes = 2048             # the 32x32 landscape, one word per cell. Building it
+                         # at boot from a height map with an inline
+                         # four-branch rule is the obvious shape; here it is a
+                         # blob DMA'd in one transfer, and the rule lives in
+                         # the generator where the test's oracle can disagree
+                         # with it.
+
+[[claims.rom]]
+name = "svd_stage_pal"
+bytes = 32               # BG palette 0, 16 CGRAM words. WORD 0 IS WHITE and
+                         # that is the whole seam bar: window 2 masks BG1+BG2
+                         # in the band, so what shows there is the BACKDROP.
+
+[[claims.rom]]
+name = "svd_obj_chr"
+bytes = 32               # 1 x 4bpp tile, every pixel colour index 1 (8 rows of
+                         # $FF,$00 then 8 of $00,$00 IS a 4bpp tile of solid
+                         # index 1).
+
+[[claims.rom]]
+name = "svd_obj_pal"
+bytes = 32               # OBJ palette 0, 16 CGRAM words; word 1 red $001F.
+
+# The DIAGONAL seam's HDMA table. A ROM blob because the slant is STATIC — the
+# table is built once and never varies — so there is nothing per-frame to
+# rebuild and a WRAM copy would only be a place for power-on garbage to live.
+# 899 B never straddles a bank, which HDMA's A-bus pointer requires (A1B does
+# not auto-increment).
+[[claims.rom]]
+name = "svd_diag_tab"
+bytes = 899              # [$FF] + 127*4  |  [$E1] + 97*4  |  [$00]
+                         # = 224 lines of (WH0, WH1, WH2, WH3), DMAP mode 4.

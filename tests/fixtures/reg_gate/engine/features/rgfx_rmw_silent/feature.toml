@@ -1,0 +1,14 @@
+name = "rgfx_rmw_silent"
+role = "fixture"
+
+[[claims.reg]]
+name = "rgfx_rmws_mos"
+registers = ["MOSAIC"]
+
+# MOSAIC, not BGMODE, deliberately: the sibling owner-survey
+# (`_feature_port_owners`) globs EVERY fixture dir under this root, so a claim
+# here is visible to every other fixture's refusal text. rgfx_fires' test
+# asserts "declared by nobody" about BGMODE, and declaring BGMODE here would
+# silently turn that into "declared elsewhere by rgfx_rmw_silent".
+# Fixture claims in this tree are a shared namespace — check
+# `grep -o 'registers = ...' */feature.toml` before adding one.

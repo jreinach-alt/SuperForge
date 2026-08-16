@@ -1,0 +1,41 @@
+# split_h_demo user state.
+#
+# The scene's whole DP block. Three groups a hand-rolled version of this rail
+# would carry are absent, and the reason is the same each time -- the allocator
+# or a shipped feature already owns what they would hold:
+#   the camera position -> mode7_persp's `m7org` DP claim (the camera origin
+#                    shadows the NMI hook commits). The camera does not travel
+#                    on this rail, so the scene writes them once at enter.
+#   the band channel MASKS -> the emitted `ES_H_BGM_CH` / `ES_H_TMI_CH`
+#                    symbols. A runtime channel allocator has to capture each
+#                    band's mask into a DP word at arm time; here the channel is
+#                    a build-time constant, so the toggle shifts the emitted
+#                    number and there is no mask to carry.
+#   a previous-A word -> `input`'s ES_INP_PRESS. That feature already publishes
+#                    `cur AND NOT prev` every frame, so a hand-rolled
+#                    previous-A word is a second copy of a shipped edge
+#                    detector. It was written first and cost a debugging
+#                    round: `ldx a:US_PREV_A` under I16 reads TWO bytes and
+#                    picked up the neighbouring split_on in the high half, so
+#                    the edge never fired.
+#
+# All three are the same class -- a defensive artefact is not automatically
+# work when the declaration already discharges it.
+[scene.cockpit]
+heading = "u8"           # desired pose heading, 0..63 (Left/Right step it) --
+                         # the resolution pose_rom is indexed by
+heading_ap = "u8"        # heading APPLIED to the pose LUTs. The NMI hook
+                         # commits desired->applied in VBlank, which is the
+                         # LIVE MATRIX REBUILD this rail stresses the split
+                         # under (race.asm's shape)
+split_on = "u8"          # 1 = the BGMODE+TM band channels are enabled in the
+                         # HDMAEN shadow, 0 = disarmed. Two states, not three:
+                         # no terminal "already toggled" latch, so the test can
+                         # drive the transition BOTH directions any number of
+                         # times
+hud_val = "u16"          # the heading currently SHOWN in the BG3 readout.
+                         # reprint-on-change (hud_game's discipline): the
+                         # VBlank cell queue is staged only when this differs
+                         # from `heading`, so the queue's write counter is a
+                         # real test surface rather than a per-frame constant
+frames = "u16"           # frames since enter -- the free-running heartbeat

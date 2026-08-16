@@ -1,0 +1,40 @@
+# stomper — enemy resolution on top of jumper physics ("STOMP SQUAD").
+#
+# Two magenta patrollers pace fixed beats over a grey arena; landing on one
+# from above defeats it (sprite culled, the player bounces); any other contact
+# knocks the player back to spawn. A "FOES 00002" HUD counter ticks down per
+# stomp; both down prints CLEAR mid-screen and the game keeps running.
+#
+# ONE SCENE, no edges: one RESET, one loop, and a title screen would be surface
+# with nothing behind it. scene_mgr is composed anyway because it owns the
+# INIDISP commit and the frame sync (hud_game / scroller / camera_follow's
+# shape).
+#
+# THE SUPPLY, RUN RATHER THAN REASONED — this file was written and allocated
+# BEFORE any ASM existed, so each of the five candidate features had to answer
+# for itself:
+#
+#   bg_text     COMPOSES as written — the FOES counter and CLEAR are BG3 text.
+#   col_map     COMPOSES as written — scene-scoped probe, world bound at the
+#               composition site per its six-symbol contract (the m7_dungeon
+#               shape: one chunk, constant bank branch).
+#   room_bg     NOT COMPOSABLE: it is welded to `room`
+#               (depends = ["room_rom"]; room_bg.asm resolves six of that
+#               blob's symbols by name), so the display would be the room's
+#               dungeon art, not this rail's arena — and col_map would have no
+#               world blob that AGREES with the screen. What carries across is
+#               the BG PATTERN, not the feature; stomper_bg is its next
+#               instance after scroller_bg.
+#   oam_sprites COMPOSES as written (the transport; stomper_obj stages).
+#   input       COMPOSES as written (btn = ES_INP_CUR, btnp = ES_INP_PRESS).
+#
+# NOT COMPOSED:
+#   audio       this rail is silent; nothing here is timed to sound.
+#   backdrop    stomper_bg's palette group 0 claim owns CGRAM word 0 (the
+#               backdrop slot), and that slot has exactly one owner.
+globals = ["scene_mgr", "input", "fade", "text_dp", "font_rom", "enter_scr",
+           "oam_sprites", "stomper_rom"]
+
+[[scene]]
+id = "play"
+features = ["stomper_bg", "stomper_obj", "bg_text", "col_map"]

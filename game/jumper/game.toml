@@ -1,0 +1,43 @@
+# jumper — jump physics ("SKY HOPPER").
+#
+# A red player with gravity: run left/right with the d-pad, jump
+# with A. Solid ground along the bottom, three floating platforms at rising
+# heights, a low overhang to bonk your head on. The vertical axis is owned by
+# the physics step (take-off, ascent, head bump, apex, descent, landing snap,
+# rest); the horizontal axis is the per-axis tentative-move check.
+#
+# ONE SCENE, no edges — this rail has no scene machine (one RESET, one game
+# loop), mirroring scroller / hud_game / camera_follow. scene_mgr is composed
+# for the INIDISP commit + frame sync; `sky` is its only destination.
+#
+# WHY NOT room_bg. The allocator ACCEPTS it (23 placements, `room_rom` dragged
+# in via depends) — and it still cannot express the rail, because the
+# disqualification is one level down, in the feature's own code, where no
+# allocator can see it. Its uploads resolve six room_rom symbols BY NAME
+# (room_bg.asm — bg1/bg2 chr, map, pal: the ROOM's art pack), so the display
+# would be the room's dungeon, not this rail's terrain; and col_map would have
+# no world blob that AGREES with what is on screen. (Its pinned-at-zero scroll
+# — the axis that disqualified it for camera_follow — is actually FINE here:
+# this rail does not scroll. The weld is the art, not the axis.)
+#
+# What carries over is the keystone BG PATTERN, which `jumper_bg`
+# re-instantiates as the seventh instance after
+# room/breaker/shmup/platformer/pfs/scroller/cf — with the axis THIS rail adds:
+# the display tilemap and the collision world derive from ONE ROM blob, so what
+# you stand on and what you see agree by construction.
+#
+#   col_map  -- composes as written, and is sufficient: scene-scoped dp claim,
+#               world bound at the composition site in scenes/sky.asm per its
+#               six-symbol contract. Reading its ASM matters as much as the
+#               allocator's yes: col_map_at EXITS A8 (callers widen after),
+#               clobbers X/Y, flips DB and restores it — all absorbed inside
+#               this game's jr_solid_box.
+#
+# NOT COMPOSED, each for a reason:
+#   bg_text  -- no text in this rail; the picture is the whole of it.
+#   audio    -- this rail is silent: nothing queues music or SFX.
+globals = ["scene_mgr", "fade", "input", "oam_sprites", "jumper_rom"]
+
+[[scene]]
+id = "sky"
+features = ["jumper_bg", "jumper_obj", "col_map"]

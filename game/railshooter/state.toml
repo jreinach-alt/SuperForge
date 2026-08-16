@@ -1,0 +1,71 @@
+# railshooter user game state. One scene, so everything is
+# scene-scoped: nothing survives a transition because there is no transition.
+#
+# THE SHAPE OF THIS STATE IS THE DESIGN. The ship is fixed and flies itself
+# around a repeating S-curve; the player owns only a world-anchored aiming
+# reticle. So there is no strafing-player state here at all. What there is
+# instead describes a rail that drives itself (`dist`, `adv_frac`), an aim
+# point that lives in the WORLD (`ret_x`, `ret_z`), and the two things a pilot
+# is told about themselves (`score`, `lives`).
+[scene.rail]
+cam_x      = "u16@dp"    # camera world X, 0..1023 (wraps). Hot: the S-curve
+                         # writes it every frame and every projection reads it
+cam_y      = "u16"       # camera world Y, 0..1023 (wraps). The rail's forward
+                         # advance; drives the Mode 7 floor scroll only
+adv_frac   = "u16"       # 8.8 fraction of the forward advance. The rail moves
+                         # 1.5 world px/frame -- slow enough that the ground
+                         # reads as approaching rather than strobing -- so the
+                         # whole-pixel part comes from an accumulator rather
+                         # than from a steppy integer rate
+dist       = "u16"       # THE ODOMETER: +1 every frame. The S-path index is
+                         # `dist & 255` -- one baked entry PER FRAME --
+                         # and every spawn is scheduled off the same counter, so
+                         # the path and the field it bends around are
+                         # phase-locked by construction
+
+# NO HEADING STATE, AND ITS ABSENCE IS THE POINT. The S-curve is expressed as a
+# TRANSLATION of the camera origin, not as a rotation of the pose: a rotating
+# floor under a fixed ship reads as the WORLD banking, which is the wrong story.
+# So `persp_set_pose` is called once at enter with heading 0, and there is no
+# heading state left for anything to steer with.
+lean       = "u16"       # the ship's draw frame: 0 straight, 1 banked left,
+                         # 2 banked right. Driven by the PATH's slope, not by
+                         # input -- the ship does not respond to the pad at all
+lane       = "u16"       # the hazard lane cursor, a byte offset into the
+                         # four-entry lateral offset table
+
+# --- the aim point, and it lives in the WORLD --------------------------------
+# The reticle is a point on the ground plane, projected through the same pinhole
+# as every hazard. That is what makes the ship's lateral swing DRAG it across
+# the screen as an emergent consequence of the projection rather than a faked
+# screen-space nudge, and it is what the d-pad corrects.
+ret_x      = "u16"       # the aim point's world X (LEFT/RIGHT)
+ret_z      = "u16"       # the aim point's forward depth (UP/DOWN)
+
+# --- the spawn schedule ------------------------------------------------------
+spawn_t    = "u16"       # frames since the last hazard spawn
+pyl_t      = "u16"       # frames since the last pylon spawn
+
+# --- the kill flash (a kill must not resemble a miss) ------------------------
+burst_t    = "u16"       # frames left on the flash, 0 = idle
+burst_sx   = "u16"       # ...its screen X (the killed hazard's last left edge)
+burst_sy   = "u16"       # ...and its screen Y
+burst_f    = "u16"       # which of the two burst frames is showing
+
+# --- what the pilot is told about themselves ---------------------------------
+score      = "u16"       # kills, 0..9999, rendered as four OBJ digits
+lives      = "u16"       # 5..0, rendered as five OBJ segments
+fail_t     = "u16"       # fail-state countdown, 0 = playing. At zero lives the
+                         # rail freezes for RS_FAIL_FRAMES with the bar empty,
+                         # then re-arms itself so the demo loops for a pilot
+
+# --- the pool census, published every frame ---------------------------------
+# Both live counts are republished once per frame from the pool's own count.
+# There is no debug region in a SuperForge ROM, so the rail's declared state is
+# where an observable like this lands — which also means a test reads it the
+# same way it reads anything else. They are READ-ONLY: nothing in the rail
+# branches on them, which is why publishing them cannot move a pixel.
+shots_live   = "u16"     # live tracers, 0..RS_BUL_N — cycles as you fire
+hazards_live = "u16"     # live hazards — genuinely CYCLES, because the rail
+                         # spawns and despawns rather than recycling a field
+                         # that never empties

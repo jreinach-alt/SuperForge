@@ -1,0 +1,9 @@
+# reg-gate fixture: claims NOTHING, so both writes in the .asm are undeclared
+# and the standalone override has two distinct subjects to choose between.
+#
+# No [[claims.reg]] here on purpose — see rgfx_ov_radius_leak's note: fixture
+# claims are a SHARED NAMESPACE and the sibling owner-survey globs every dir
+# under this root, so a claim added here would appear in every other fixture's
+# refusal text.
+name = "rgfx_ov_unfoldable"
+role = "fixture"

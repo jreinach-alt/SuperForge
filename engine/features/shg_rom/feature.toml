@@ -1,0 +1,50 @@
+# shg_rom — the split_h_irq_grad_demo rail's art, in ROM. Global (not
+# scene-scoped: ROM claims cannot be scene-scoped — the allocator packs windows
+# once per composition; sh2_rom's header carries the ruling).
+#
+# THREE BLOBS, AND NO MORE: the two pose halves and the checker map. There is
+# no palette blob, because shg_floor writes the same five colours from named
+# constants, and the reason is the rail's test metric rather than economy (see
+# that feature's header — every colour keeps BLUE = 0, which sit_rom's palette
+# does not).
+#
+# WHY NOT `sit_rom`, whose map + pose pair are byte-identical to these: it also
+# carries `sit_pal` (10 B), which this rail must not use and would still have
+# to BACK with an .incbin it never reads — the `grad_tabs` shape `make
+# rom-unbacked` exists to refuse — and composing it would make a rail-private
+# blob shared by two game.tomls (the pilot-check escalation line).
+# Sibling blob, the sit_rom/rpg_floor precedent.
+#
+# PROVENANCE: all three come from tools/gen_split_h_2p_assets.py, which authors
+# them from the checker algebra and the perspective ramp and REFUSES to write
+# anything that disagrees with the oracle blobs vendored under
+# vendor/art/split_h_2p. Nothing outside this repo is read.
+#
+# Every claim is BACKED by an .incbin site in
+# game/split_h_irq_grad_demo/main.asm (`make rom-unbacked` proves it) and READ
+# by the ROM: the map by shg_floor's single enter DMA, the pose pair by the two
+# INDIRECT matrix channels every scanline.
+name = "shg_rom"
+role = "blob"
+
+# The interleaved Mode 7 VRAM image: 16,384 tilemap bytes in the EVEN
+# positions, 16,384 8bpp CHR bytes in the ODD ones. One whole LoROM window, so
+# the single upload DMA cannot cross a bank boundary; dma_source arms
+# place_rom's larger-than-a-window guard.
+[[claims.rom]]
+name = "shg_map"
+bytes = 32768
+dma_source = true
+
+# The fixed-angle per-scanline pose tables: 112 lines x 4 bytes,
+# [A_lo,A_hi,B_lo,B_hi] and [C_lo,C_hi,D_lo,D_hi], signed 8.8, BAND-LOCAL
+# (index 0 = the band's first scanline). Both bands stream the SAME pose —
+# position, not pose, is what distinguishes them — so one 448 B table per
+# register pair serves the whole frame through a two-entry index table.
+[[claims.rom]]
+name = "shg_pose_ab"
+bytes = 448
+
+[[claims.rom]]
+name = "shg_pose_cd"
+bytes = 448

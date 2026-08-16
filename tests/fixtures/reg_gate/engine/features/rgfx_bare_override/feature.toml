@@ -1,0 +1,8 @@
+# reg-gate fixture: a BARE override is itself a finding (FIRES) — the escape
+# hatch cannot be used silently.
+name = "rgfx_bare_override"
+role = "fixture"
+
+[[claims.dp]]
+name = "rgfx_bov_state"
+bytes = 2

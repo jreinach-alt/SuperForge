@@ -1,0 +1,5 @@
+# reg-gate fixture: claims nothing — the pair of unfoldable writes is the
+# whole subject, and neither can be checked against a claim anyway (that is
+# what "will not fold" means).
+name = "rgfx_ov_unfold_pair"
+role = "fixture"

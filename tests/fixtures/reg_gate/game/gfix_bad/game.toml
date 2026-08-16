@@ -1,0 +1,7 @@
+# reg-gate fixture game: no globals at all — its main.asm write has no
+# declaration to answer to (FIRES).
+globals = []
+
+[[scene]]
+id = "sb"
+features = ["rgfx_scenef"]

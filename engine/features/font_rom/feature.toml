@@ -1,0 +1,10 @@
+# font_rom — the shared 96-glyph 2bpp font blob (global feature).
+# ROM data is physically game-lifetime (one .incbin serves every scene), so
+# the claim lives here, not in the scene-scoped bg_text. The claim site
+# .asserts the blob's linker bank/addr against ES_R_FONT_BIN_BANK/_ADDR.
+name = "font_rom"
+role = "blob"
+
+[[claims.rom]]
+name = "font_bin"
+bytes = 1536             # 96 tiles x 16 B, DMA source (fits one bank window)

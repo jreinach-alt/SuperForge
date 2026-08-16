@@ -1,0 +1,121 @@
+# mode7_explore — the streaming Mode 7 overworld.
+#
+# You walk an avatar around a 512x512-tile world that streams into the 128x128
+# Mode 7 VRAM window as you go. The picture dawns in from black, the D-pad moves
+# on the tile grid one 8 px step at a time, water and mountains block, and the
+# camera is clamped so the window never crosses the world's toroidal seam.
+#
+# TWO SCENES. The overworld is the rail's subject; the TOWN INTERIOR — a mosaic
+# wipe into a Mode 1 room and back out at the same spot — is a second
+# `[[scene]]` plus the `mosaic` feature rather than a reshape of the first:
+# `m7x_rom` already carried the interior's CHR and palette as backed claims, and
+# the interior writes UPPER VRAM so the Mode 7 image survives the visit and the
+# return needs no re-stream.
+#
+# THE TRANSITION IS NOT scene_mgr's PHASE MACHINE, and the second scene is here
+# for the ALLOCATOR rather than for that machine. `sm_request` fades to black,
+# blanks, calls exit + enter, and fades in — three things this rail must not do:
+# the wipe is a mosaic dissolve rather than a fade, `overworld::enter` would
+# re-upload the 32 KB seed centred on SPAWN (losing the spot the return exists
+# to preserve), and phase 3's fade would fight mosaic for the one INIDISP
+# shadow. What the second `[[scene]]` buys is the allocator's answer instead:
+# m7x_town gets its own BGMODE/TM/BG1SC/BG12NBA claim set, which in ONE scene
+# with m7x_floor would be refused by check_reg_ownership's reg x reg pass —
+# correctly, because a CPU-written register has one owner per scene and Mode 7
+# and Mode 1 are two owners of the same four. main.asm drives `ES_SM_CTL`'s
+# scene id itself so `sm_tick` dispatches the right tick; the phase byte stays 0
+# for the ROM's life.
+#
+# NOT COMPOSED, and each for a reason the allocator would enforce anyway:
+#   mode7_persp  -- its m7ab/m7cd HDMA claims OWN M7A-M7D. This rail CPU-writes
+#                   those registers through m7_affine, and a scene doing both is
+#                   refused by check_reg_ownership's reg x hdma check. Correct,
+#                   and by design: static-affine and per-scanline perspective
+#                   are two mechanisms for one register set. Its `m7org` dp
+#                   claim -- which mode7_stream reads by name -- is therefore
+#                   declared by m7x_logic instead (that feature.toml says why).
+#   mode7_floor  -- depends on world_rom (microzero's 256 KB map, which this
+#                   rail does not read) and pins CGRAM 0..16 for microzero's
+#                   palette. m7x_floor is the sibling.
+#   backdrop     -- in BOTH scenes. Overworld: in Mode 7 an 8bpp pixel value is
+#                   an ABSOLUTE CGRAM index, so word 0 is both palette index 0
+#                   and the backdrop slot -- one owner by hardware contract, and
+#                   m7x_floor is it. Town: m7x_town owns BGMODE/TM there, so a
+#                   second claimant is refused, and that scene's palette word 0
+#                   is the interior's floor base.
+#   bg_text      -- BG3 does not exist in Mode 7. There is no HUD here; the
+#                   picture is the HUD.
+#   m7_project   -- nothing to project. The avatar is pinned at the affine pivot
+#                   by construction (m7x_obj's header), and this rail has no
+#                   second actor standing on the floor.
+#   tad_rom      -- NO AUDIO in this slice, deliberately: the rail's subject is
+#                   the streamed picture. Adding it is a claim here plus
+#                   Tad_Init/Tad_Process in main.asm, not a rework.
+#
+# `mosaic` IS GLOBAL, not scene-scoped, and it has to be: the wipe spans the
+# swap, so it is in flight in BOTH scenes within one dissolve. Its seven DP
+# bytes and its MOSAIC ($2106) claim are therefore carried into every scene,
+# which is also what lets the NMI hook commit the shadow unconditionally.
+globals = ["scene_mgr", "input", "fade", "oam_sprites", "m7_affine", "m7x_rom",
+           "mosaic"]
+
+[[scene]]
+id = "overworld"
+features = ["m7x_floor", "m7x_obj", "m7x_logic", "mode7_stream", "col_map"]
+# mode7_stream and col_map are composed HERE rather than globally because their
+# code belongs to the one scene that has a world, and their `dp`/`wram` claims
+# are then space the allocator can reuse in any scene that does not — which the
+# town slice will want, since a Mode 1 interior streams nothing.
+#
+# Both carry NO DEFAULT for any of their binding symbols: mode7_stream needs
+# three (M7S_WORLD_WIN / M7S_BLOB_BANK / M7S_CHUNKS) and col_map needs six, all
+# defined at the include site in scenes/overworld.asm, and a missing one is an
+# assembly-time `.error` naming it.
+
+[[scene]]
+id = "town"
+features = ["m7x_town"]
+# ONE FEATURE, and the reuse question was asked rather than assumed.
+#
+#   m7x_obj is NOT composed here even though the same avatar walks the room.
+#     That feature pins her at the affine pivot — MXO_X/MXO_Y are constants,
+#     because on the overworld she IS the camera and the floor is what moves.
+#     In the interior the camera is fixed and the SPRITE moves, so the placement
+#     is a different routine over different state; what actually transfers is
+#     the CHR and the palette, and those are inherited across the wipe rather
+#     than re-uploaded (m7x_town's feature.toml says why that is sound).
+#   col_map / mode7_stream are NOT composed here: there is no world to stream
+#     and no flat tilemap to LUT — the room's geometry is computed by
+#     `town_classify`, which is also what renders it. Leaving them out is what
+#     lets the allocator reuse their DP and their 2 KB of staging WRAM here,
+#     which is the reuse the overworld scene's own note anticipated. The
+#     consequence is stated where it bites: the streamer's tracking state does
+#     NOT survive the visit, so the return re-seeds it from the restored camera
+#     (scenes/overworld.asm, stream_resync).
+
+# The two edges, declared for the record. `style = "mosaic"` is this rail's
+# transition and it is a real string rather than "fade": calling it a fade would
+# be a false statement about the transition the rail actually performs. `style`
+# is a validated enum (schemas.py EDGE_STYLES) and allocate.py emits per-edge
+# symbols from it — the enum constrains what an edge may SAY; it binds what the
+# ROM DOES only where scene code routes through SM_SWITCH, and this rail routes
+# through neither `sm_request` nor `SM_SWITCH` (zero call sites), so the
+# declaration here describes the transition the GAME performs.
+#
+# NO `budget_bytes` ON EITHER, deliberately, and the omission is the honest
+# answer rather than a skipped field. The edge model bills a transition for the
+# destination scene's WHOLE VRAM+CGRAM footprint, on the assumption that a
+# switch reloads it under forced blank. This rail's switch does not: the town
+# writes 2,208 B into upper VRAM and leaves the 32 KB Mode 7 image standing, and
+# the return re-stages 24 B of palette and re-uploads NOTHING. Giving the field
+# a number would either quote the model's figure (which is not what happens) or
+# quote the real one (which the model would then check against the wrong thing).
+[[edge]]
+from = "overworld"
+to = "town"
+style = "mosaic"
+
+[[edge]]
+from = "town"
+to = "overworld"
+style = "mosaic"

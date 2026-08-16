@@ -1,0 +1,62 @@
+# stomper_bg — BG1: the arena, rendered from the world blob. This rail's whole
+# Mode-1 display shape (BGMODE/TM owner; bg_text rides BG3 beside it).
+#
+# The keystone BG pattern's next instance after scroller_bg. What THIS instance
+# adds over scroller_bg: the tilemap is built from a ROM WORLD BLOB rather than
+# from an expression, so the same bytes that drive the display drive col_map's
+# collision probes — and the scroll axes are STATIC, pinned by this
+# feature's own arm (HOFS 0, VOFS -1, written once under the enter forced
+# blank), because the arena is one screen and the whole vertical axis belongs
+# to the player's physics.
+name = "stomper_bg"
+role = "feature"
+depends = ["stomper_rom"]
+
+# The enter-time CHR upload, word-port. Phase forced_blank by class:
+# scene_mgr's enter clears HDMAEN and zeroes NMITIMEN, so it cannot race an
+# active- or vblank-phase claim on a shared channel number.
+[[claims.dma_init]]
+name = "st_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "st_chr"
+kind = "chr"
+tiles = 3                # 0/1 empty, 2 terrain — the ids the world blob
+                         # stores, so a tilemap word IS a tile id
+tile_bytes = 32          # 4bpp
+
+[[claims.vram]]
+name = "st_map"
+kind = "tilemap"
+words = 0x400            # 32x32; BG1SC bases are 0x400-word granular
+
+# THE PALETTE AND THE BACKDROP ARE ONE CLAIM, by hardware contract: the map
+# authors palette group 0, so a tilemap word IS its tile id and word 0 of the
+# group is the backdrop slot — one word, two meanings, one owner. That is also
+# And this scene cannot ALSO compose `backdrop` (scroller_bg's
+# argument, verbatim).
+[[claims.cgram]]
+name = "st_pal"
+words = 16
+at = 0
+
+# C4 (docs/09 §2.1): the BG1 layer configuration and the scene's base display.
+#
+# ATTRIBUTION. BGMODE/TM/BG1SC/BG12NBA are written by the scene's enter code in
+# game/stomper/scenes/play.asm (scene files have no claim vocabulary of their
+# own), so they are `scene_writes` here — the permission granted to scene-enter
+# code. BG1HOFS/BG1VOFS are written by stomper_bg.asm ITSELF (st_arm, once,
+# under the enter forced blank — the static pin), so they are declared but NOT
+# in scene_writes; no_literals' declaration-that-lies check refuses the mistake
+# in either direction.
+#
+# BGMODE is $09 here (mode 1 + BG3 priority high) and TM is $15 (OBJ + BG3 +
+# BG1): the values differ from scroller's, the ownership does not — the claim
+# covers the register, not a value.
+[[claims.reg]]
+name = "st_layers"
+registers = ["BGMODE", "TM", "BG1SC", "BG12NBA", "BG1HOFS", "BG1VOFS"]
+scene_writes = ["BGMODE", "TM", "BG1SC", "BG12NBA"]

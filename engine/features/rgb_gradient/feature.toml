@@ -1,0 +1,57 @@
+# rgb_gradient — the sky/depth wash over the Mode-7 floor band (scene-scoped).
+# Three active-display HDMA channels stream one STATIC ROM intensity table each
+# into COLDATA (fixed camera height -> fixed band geometry, no fog
+# dynamics). Color math ADDs the per-line fixed color to BG1 (the floor); the
+# HUD band's main screen is BG3-only, so the line-0 stray write from each head
+# entry is invisible by construction (same class as the mode7_persp head-skip
+# unit — do not "fix" it).
+#
+# COLDATA ($2132) is one port with three plane-select bits (bit5=R, bit6=G,
+# bit7=B): each write sets ONE plane, so the planes are independently owned
+# sub-registers — declared per-plane the way CGRAM declares sub-palettes, not
+# flat bytes. A second feature claiming the same PLANE in this band must refuse
+# the build; one claiming a different plane composes.
+name = "rgb_gradient"
+role = "feature"
+
+[[claims.hdma]]
+name = "colr"
+registers = ["COLDATA_R"]
+mode = 0
+indirect = true
+band = "scene"
+phase = "active"
+channels = 1
+
+[[claims.hdma]]
+name = "colg"
+registers = ["COLDATA_G"]
+mode = 0
+indirect = true
+band = "scene"
+phase = "active"
+channels = 1
+
+[[claims.hdma]]
+name = "colb"
+registers = ["COLDATA_B"]
+mode = 0
+indirect = true
+band = "scene"
+phase = "active"
+channels = 1
+
+[[claims.rom]]
+name = "grad_tabs"
+bytes = 672              # 3 planes x 224 per-line COLDATA bytes (whole frame)
+
+# C4 (docs/09 §2.1): the colour-math MODE, CPU-written at arm/disarm
+# (rgb_gradient.asm:111-113,:128-129). Note what is NOT here: the COLDATA
+# writes on those same lines are COVERED by this feature's own COLDATA_*
+# transfer claims above -- §2.1's boundary covers a write to a port you already
+# claim. Window_iris, which writes COLDATA while claiming only WH0/WH1, does
+# owe a claim for it. That discrimination falls straight out of the rule rather
+# than being a judgement call.
+[[claims.reg]]
+name = "grad_math"
+registers = ["CGWSEL", "CGADSUB"]

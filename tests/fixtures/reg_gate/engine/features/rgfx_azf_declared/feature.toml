@@ -1,0 +1,10 @@
+# reg-gate fixture: the SILENT sibling of rgfx_azf_evasion — an a-initial
+# symbol for a port this feature DECLARES. The atomic prefix group must
+# resolve the full name (no leading-letter mis-parse) and each store gets
+# exactly one verdict (no double fire).
+name = "rgfx_azf_declared"
+role = "fixture"
+
+[[claims.reg]]
+name = "rgfx_azfd_inidisp"
+registers = ["INIDISP"]

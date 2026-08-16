@@ -1,0 +1,68 @@
+# cf_obj — the camera_follow player: ONE 8x8 OBJ whose screen position is world
+# - camera, staged every frame into the oam_sprites shadow — never into
+# hardware OAM, which the engine's declared VBlank GP-DMA owns.
+#
+# THE SPRITE MOVING (OR HOLDING) IS THE RAIL. Mid-world the camera tracks the
+# player, so the sprite HOLDS screen-centre while the BG slides beneath it; at
+# a world edge the camera clamps, so the BG holds still and the sprite WALKS
+# toward the screen edge. Which regime you are in is decided entirely by the
+# subtraction the scene performs (scrx = pwx - cam_x), and this feature just
+# draws whatever that subtraction said — the world-space/screen-space split
+# stays game-side, where the scene that owns the camera keeps it.
+#
+# CPU-WRITTEN REGISTER, DECLARED: OBSEL $2101, which sets sprite size AND OBJ
+# CHR base for EVERY sprite — the same global-to-all-sprites register
+# breaker_obj, hud_obj, scroller_obj and player_car each declare in their own
+# games, for the same reason: composing two games' sprite features in one scene
+# must refuse. The VALUE comes from ES_V_CF_OBJ_CHR_OBSEL_BASE, so the address
+# discipline holds independently of the ownership.
+#
+# PINNED AT 0, NOT PACKED: OAM index order IS sprite-vs-sprite priority, and
+# the player must sit at a known index so a test can read entry 0 and say where
+# the player is (hud_obj's shape). `cf_pad` is the rest of the hi-table byte,
+# parked at y >= 240.
+#
+# SIZE MODE 0 (small 8x8 / large 16x16) and the player is SMALL, so the hi
+# table's size bit stays clear exactly as oam_park_all left it. Only the X9 bit
+# is touched, and it is DERIVED from bit 8 of the screen X every frame rather
+# than assumed clear — the screen clamp keeps bit 8 clear today, and a stale X9
+# renders a sprite 256 px away, which is a failure this project has a
+# lessons-learned entry about.
+name = "cf_obj"
+role = "consumer"
+depends = ["oam_sprites", "cf_rom"]
+
+[[claims.dma_init]]
+name = "cf_obj_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "cf_obj_chr"
+kind = "chr"
+obj = true
+words = 16               # 1 tile x 16 words
+
+[[claims.cgram]]
+name = "cf_obj_pal"
+words = 16
+at = 128                 # hardware contract: OBJ palette 0 = CGRAM 128..143
+
+# Pinned, not packed — the player at a known index, the pad parking the rest of
+# the hi-table byte (hud_obj's claim shape and its reasoning: a hi byte covers
+# FOUR sprites, so claiming slot 0 alone would leave this feature
+# read-modify-writing a byte three quarters of which belongs to nobody).
+[[claims.oam]]
+name = "cf_player"
+sprites = 1
+at = 0
+
+[[claims.oam]]
+name = "cf_pad"
+sprites = 3
+at = 1
+
+[[claims.reg]]
+name = "cf_obj_obsel"
+registers = ["OBSEL"]

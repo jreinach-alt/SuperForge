@@ -1,0 +1,16 @@
+# reg-gate fixture (FIRES, item 5 rule 1): the rgfx_lies shape
+# on a DATA register instead of an in-class one.
+#
+# CGDATA is $2122, the cgram data port. `_owner_write_ports` used to record
+# in-class ports ONLY, so `written` could never hold $2122 and rule 1 could
+# never see this co-write: the gate was silent on a lie it is built to refuse,
+# for a whole register class, while the summary line counted the claim as
+# `validated`. The pair to this is rgfx_lies_data_shared, which is the same
+# blindness firing the other way round.
+name = "rgfx_lies_data"
+role = "fixture"
+
+[[claims.reg]]
+name = "rl_cgd"
+registers = ["CGDATA"]
+scene_writes = ["CGDATA"]

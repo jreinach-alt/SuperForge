@@ -1,0 +1,76 @@
+# jumper_bg — BG1: the terrain, built from the world blob. The whole of this
+# rail's display surface, and the seventh instance of the keystone BG pattern
+#
+#
+# WHY NOT room_bg: it is the obvious BG supply, the allocator ACCEPTS it (the
+# probe in game.toml's history), and it still cannot express the rail — its
+# uploads resolve six room_rom symbols by name, so the picture would be the
+# room's art, and col_map would have no world blob agreeing with it. The
+# lesson repeating: the allocator proves collision-freedom, not sufficiency.
+# Game.toml carries the full account.
+#
+# THE MAP IS BUILT FROM THE WORLD BLOB, NOT UPLOADED AS A SECOND BLOB. The
+# enter loop reads jr_world's 1,024 tile-id bytes out of ROM and writes each as
+# a tilemap word straight to VMDATA. One blob, two consumers — this feature's
+# display loop and col_map's probe — so the drawn terrain and the solid terrain
+# agree by construction (jumper_rom/feature.toml carries the argument for
+# baking the layout once, rather than building it twice from two loops that
+# can drift).
+#
+# NO CAMERA — AND THAT IS THE RAIL, NOT A GAP. The world is one screen (32x32
+# tiles = 256x256 px) and nothing ever scrolls it: the whole vertical axis
+# belongs to the PLAYER's physics. BG1HOFS/BG1VOFS are pinned by this feature's
+# own arm under the enter forced blank — HOFS 0 exact, VOFS -1 (pfs_bg's
+# scanline derivation: scanline N shows tilemap line VOFS + N and the first
+# active scanline is 1, so -1 puts world row 0 on it; re-verified here by the
+# boot-frame test, which pins terrain rows to exact PNG rows). Written ONCE
+# rather than per-NMI because nothing ever changes them — a static latch does
+# not need a per-frame republish, and the idle test would catch a drifting one.
+#
+# ONE FEATURE, ONE LAYER, and it costs nothing here: the scene runs `gfxmode #1`
+# and touches only BG1; the empty cell is the BACKDROP, not a second layer.
+name = "jumper_bg"
+role = "feature"
+depends = ["jumper_rom"]
+
+# The enter-time CHR upload, word-port. Phase is forced_blank by class:
+# scene_mgr's enter clears HDMAEN and zeroes NMITIMEN.
+[[claims.dma_init]]
+name = "jr_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "jr_chr"
+kind = "chr"
+tiles = 3                # 0 empty, 1 empty (pad), 2 solid — reference
+                         # numbering
+tile_bytes = 32          # 4bpp
+
+[[claims.vram]]
+name = "jr_map"
+kind = "tilemap"
+words = 0x400            # 32x32; BG1SC bases are 0x400-word granular
+
+# THE PALETTE AND THE BACKDROP ARE ONE CLAIM, by hardware contract: the map
+# authors palette group 0, so a tilemap word IS its tile id and word 0 of the
+# group is the backdrop slot — one word, two meanings, one owner (scroller_bg /
+# pfs_bg / m7x_floor record the identical fold).
+[[claims.cgram]]
+name = "jr_pal"
+words = 16
+at = 0
+
+# C4 (docs/09 §2.1): the BG1 layer configuration and the scene's base display.
+#
+# ATTRIBUTION. BGMODE/TM/BG1SC/BG12NBA are written by the scene's enter code in
+# game/jumper/scenes/sky.asm (no feature.toml of its own, no [[scene]] claim
+# vocabulary), so ownership is attributed to the feature the write SERVES —
+# this one. BG1HOFS/BG1VOFS are written by jumper_bg.asm itself, in the enter
+# arm; they are therefore NOT in scene_writes, and no_literals'
+# declaration-that-lies check refuses the mistake in either direction.
+[[claims.reg]]
+name = "jr_layers"
+registers = ["BGMODE", "TM", "BG1SC", "BG12NBA", "BG1HOFS", "BG1VOFS"]
+scene_writes = ["BGMODE", "TM", "BG1SC", "BG12NBA"]

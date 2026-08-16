@@ -1,0 +1,27 @@
+# hud_game — the text-surface rail.
+#
+# ONE SCENE, AND THAT IS THE RAIL. Every other game here has a title and a play
+# screen because it has a round that ends; this one has neither — it boots
+# straight into a movable sprite over a live "SCORE" line and never leaves it.
+# `[[edge]]` is optional in the manifest schema (allocator/schemas.py
+# load_manifest reads `d.get("edge", [])`), so a single-scene game is declared
+# by simply not declaring a transition. That is the honest shape: inventing a
+# title screen to look like the other rails would be adding game logic this one
+# has no use for.
+#
+# WHY `backdrop` AND NOT A BG FEATURE. This rail never touches BG1 — no tile
+# upload, no tilemap write, no scroll. Its BG1 is blank for the whole run and
+# the only drawn layer is BG3's text (plus the OBJ).
+# `backdrop` is exactly the feature for a BG3-only scene: it owns CGRAM word 0
+# and, per its own attribution note, BGMODE + TM. Declaring a BG feature here
+# would claim a CHR page and a tilemap nothing ever writes.
+#
+# `fade` is in globals because scene_mgr commits INIDISP from fade's shadow in
+# the NMI handler every armed frame (scene_mgr owns INIDISP; fade owns the
+# ramp). Without it the screen has no legal way to come out of forced blank.
+globals = ["scene_mgr", "input", "fade", "text_dp", "font_rom", "enter_scr",
+           "oam_sprites", "hud_rom"]
+
+[[scene]]
+id = "play"
+features = ["bg_text", "backdrop", "hud_obj"]

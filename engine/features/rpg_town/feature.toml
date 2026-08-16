@@ -1,0 +1,52 @@
+# rpg_town — the rpg rail's Mode 1 town interior. Scene-scoped BG feature.
+#
+# ONE BG feature owns all of a scene's co-resident BG layers. This one
+# owns BG1 (the town tilemap) and, through BG12NBA, BG2's base nibble as well —
+# this build is written once and has one owner. BG3 belongs to `bg_text`, which
+# is the split that already exists in the tree (room composes room_bg +
+# bg_text) and the split `dialog` is designed around.
+#
+# NO `backdrop` beside it — this feature claims CGRAM word 0 itself as
+# part of the same statement it makes about the scene's display.
+name = "rpg_town"
+role = "feature"
+depends = ["rpg_rom"]
+
+[[claims.dma_init]]
+name = "rpgt_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# 64 4bpp tiles = 1024 words. It is DELIBERATELY the largest `kind="chr"` claim
+# in this scene, and that is a composition PRECONDITION of `dialog`, not a
+# coincidence — see dialog/feature.toml "Composition Answer 2" and the reach
+# assert in dialog.asm. Packing sorts chr claims by (-align, -words, name), so
+# a town tileset larger than text_chr's 880 words keeps text_chr and dlg_chr in
+# ADJACENT pages, which is what puts the panel inside BG3's 1024-tile reach.
+[[claims.vram]]
+name = "town_chr"
+kind = "chr"
+tiles = 64
+tile_bytes = 32          # 4bpp
+
+[[claims.vram]]
+name = "town_map"
+kind = "tilemap"
+words = 0x400            # 32x32
+
+[[claims.cgram]]
+name = "town_pal"
+words = 16
+at = 0                   # BG1 4bpp palette 0 = CGRAM words 0..15, and word 0 is
+                         # the backdrop this scene shows outside the room.
+                         # Clear of bg_text's 28..31 and dialog's 24..27.
+
+[[claims.reg]]
+name = "rpgt_display"
+registers = ["BGMODE", "TM", "BG1SC", "BG12NBA", "BG1HOFS", "BG1VOFS"]
+# Only the two the SCENE writes. Rpgt_arm writes the four layer-base and scroll
+# registers itself, and declaring those as `scene_writes` too would be a
+# permission that lies — no_literals' declaration-that-lies check refuses it by
+# name.
+scene_writes = ["BGMODE", "TM"]

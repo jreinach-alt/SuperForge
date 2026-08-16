@@ -1,0 +1,81 @@
+# audio — the TAD occupant.
+#
+# GLOBAL scope on purpose: the spc claim is PROGRAM-wide (Tad_Init runs once
+# per power-on; re-calling hardlocks), the ARAM upload persists across every
+# scene transition, and Tad_Process runs in the main loop every frame — a
+# scene-scoped audio feature would be a declaration that lies.
+#
+# Boot contract (verified by the emulator boot test, not by a claim): Tad_Init
+# is called from MAIN's boot-init block — interrupts are disabled there by
+# construction (init.inc leaves NMI off; $4200 is written only after scene
+# enter), the S-SMP is still in the IPL, and >40 scanlines of init work precede
+# it. Tad_Process is called once per frame from the MAIN LOOP, never the NMI
+# hook — the TAD ABI forbids ISR calls (tad-audio.inc).
+#
+# ## Measured (G6, 2026-07-30 — emulator, tools/measure_tad_process.py)
+# Tad_Process steady-state per-frame cost in the room game's main loop (music
+# PLAYING, SFX queue empty $FF/$FF, no load in flight), exec- breakpoint
+# bracket [jsl Tad_Process .. After rtl] on the shipped build/room.sfc (bracket
+# addresses derived from an md5-verified relink):
+#  438 mc = ~55 CPU cycles = 0.123% of the 357,368 mc frame — bit-stable
+#  over 32 consecutive frames at the title. Pure jsl+body+rtl cost: the
+#  title bracket's phase-locked hClock window happens to MISS the
+#  per-scanline DRAM refresh slot.
+#  /8 because every fetch runs in bank $00, where ROM pages are 8 mc
+#  regardless of the header's FastROM byte + MEMSEL (those accelerate only
+#  banks $80+); true cycles sit in [mc/8, mc/6] since I/O + internal
+#  cycles run at 6 mc.
+#  In-situ in room A the same bracket reads 478 mc, bit-stable over 64
+#  frames: the +40 mc is the DRAM REFRESH slot (hClock ~538, exactly
+#  40 mc, Mesen2 SnesMemoryManager IncMasterClock40) landing inside the
+#  room bracket's window [244..724] and outside the title's [732..1168] —
+#  a bracket-phase artifact, not Tad_Process work and NOT the iris HDMA
+#  steal (falsified by review's PPU-phase probe: both brackets are in
+#  VBlank scanlines 235/237 where HdmaStart is never scheduled, and the
+#  iris's mode-1 visit would be 32 mc, not 40). 478 - 40 = 438: the same
+#  pure cost at both sites, as identical TAD state predicts.
+#  Full evidence: the audit record.
+# Room<->room_b enter cost with the ambience SFX queued (the G6 edge question):
+# the edge budget model is a BUILD-TIME sum of the destination scene's
+# VRAM+CGRAM claim bytes — what enter re-uploads under forced blank
+# (allocator/allocate.py, "per edge" pass) — 10,056 B of the 12,000 B budget in
+# both directions (identical compositions). The audio addition contributes ZERO
+# enter-time bytes: this feature is GLOBAL and holds no vram/cgram claims, and
+# the ambience queue call at enter is two DP stores to the tad_zp SFX queue
+# (tad-audio.s Tad_QueueSoundEffect), processed by Tad_Process from the main
+# loop on the fade-in frames AFTER the transition — a queue write, not an
+# enter-time transfer.
+name = "audio"
+role = "feature"
+depends = ["tad_rom"]
+
+# Exclusive occupancy of the audio CPU's 64 KiB (docs/09 §2.4). TAD's own
+# compiler packs and budget-checks the interior per song; this claim is the
+# boundary TAD states only as a comment (tad-audio.inc:49).
+[[claims.spc]]
+name = "aram"
+
+# The CPU<->APU mailbox, $2140-$2143 — one resource under one name (the ALU
+# precedent). Tad-audio.s must be the only code touching these ports.
+[[claims.reg]]
+name = "apuio_mailbox"
+registers = ["APUIO"]
+
+# TAD's CPU-side variables are laid out by the LINKER (ca65 .bss inside the
+# vendored tad-audio.s — 16 bytes, counted at the pin), not by a store to an
+# emitted symbol. The pin puts the range inside the allocator's arbitration;
+# vendor/rom/lorom_512k.cfg's TADBSS window carries the same address, and
+# tad_wrapper.asm's lderror asserts refuse the build if the two disagree. $1F00
+# sits at the top of lowram: above every packed claim, below TAD's own `.bss <
+# $2000` link assert, inside the DB=0 low-WRAM mirror the TAD ABI requires.
+[[claims.wram]]
+name = "tad_bss"
+bytes = 16
+at = 0x1F00
+
+# Tad_sfxQueue_sfx / Tad_sfxQueue_pan (.zeropage, 2 bytes) — same mechanism, DP
+# page. TAD ABI requires DP = 0, which is this repo's convention.
+[[claims.dp]]
+name = "tad_zp"
+bytes = 2
+at = 0xF0

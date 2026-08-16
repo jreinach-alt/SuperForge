@@ -1,0 +1,88 @@
+# vwf — variable-width font renderer for BG3, ALONGSIDE bg_text's fixed-width
+# path. Bg_text writes one tile per character; vwf composites glyphs of
+# differing pixel widths into a tile canvas by bit-shifting each to the current
+# sub-tile pen position, then uploads the dirtied tiles. One tile per 8 pixels
+# of RENDERED text, which is a different thing entirely.
+#
+# Destination: text_chr's page, tiles 96..109 (14 tiles = 112 px). NOT a claim
+# here — BG3 has one base nibble, so the page has one owner and both renderers
+# take sub-ranges of it. Vwf.asm .asserts the boundary against the emitted
+# symbols so the sub-range is a build-time gate. See text_chr/feature.toml.
+#
+# NO layer/mode PPU register is written by this feature: BG3SC and BG34NBA are
+# set at scene enter and vwf renders over the surface they already establish.
+# Its only PPU writes are $2115/$2116 (VMAIN/VMADD) addressing the vram region
+# the vwfq claim's VMDATAL/VMDATAH already declare — covered by that claim per
+# docs/09_feature_register.md §2.1's boundary, so no census row is owed.
+name = "vwf"
+role = "feature"
+depends = ["text_dp", "text_chr", "vwf_rom"]
+
+# --- the composited tile canvas -------------------------------------------
+# 14 tiles x 16 B, in 2bpp form, i.e. Exactly what the upload DMAs. Compositing
+# OR-accumulates into it, so it must be cleared before a line is composited —
+# and that clear is not defensive zeroing, it IS the line-clear the reveal
+# model needs (opening a second message must blank the window or it renders
+# over the first message's tail). So no [init] zero: vwf_begin_line writes the
+# whole window before anything reads it, which is write-before-read by
+# construction, the form enter_scr's toml records. The uninit-read detector
+# holds us to it.
+[[claims.wram]]
+name = "vwf_canvas"
+bytes = 240              # 14 uploaded strip tiles + ONE spill-guard tile.
+                         # A glyph at pen x writes tiles x/8 and x/8+1, so the
+                         # last window tile spills one tile further. The guard
+                         # absorbs it, which turns a per-row bounds branch in
+                         # the compositor's hot loop into 16 B of WRAM. It is
+                         # never uploaded: the vwfq DAS covers 14 tiles.
+dma_source = true        # the vblank commit DMAs from here — must not cross a
+                         # WRAM bank
+
+# --- pen / reveal state ----------------------------------------------------
+[[claims.dp]]
+name = "vwf_pen"
+bytes = 22               # pen_x(2) dirty(1) dirty_lo(1) dirty_hi(1) str(3)
+                         # idx(1) state(1) acc(2) shift(2) toff(2) rows(2)
+                         # adv(2) goff(2). The last six are 16-bit because the
+                         # compositor's row loop runs in A16/I16 and an 8-bit
+                         # field would make `dec`/`ldx` touch its neighbour —
+                         # the silent-corruption class rule 6 is about. Its own
+                         # block rather than borrowing text_dp's ES_TXT_PTR:
+                         # bg_text uses that at scene ENTER under forced blank,
+                         # vwf reveals while the scene RUNS, and sharing it
+                         # would be an implicit ordering contract of exactly
+                         # the kind this repo exists to abolish.
+
+# --- the VBlank commit -----------------------------------------------------
+# MEASURED decision, not a default: tools/measure_cpu_store_vblank.py +
+# probe_vblank cmd 4 put the CPU-store ceiling at 324 VRAM words per VBlank =
+# 18.37 byte-equivalents per word, so a GP-DMA (128 B measured arm + 2 B/word)
+# is cheaper than CPU stores from W ~ 8 words = ONE 2bpp tile upward. A glyph
+# straddling a tile boundary dirties two, so vwf is on the far side of txt_q's
+# threshold in its very cheapest case: 2 tiles cost 294 B-equiv as CPU stores
+# vs 160 as a DMA. And txt_q's own 4-word capacity cannot hold this anyway — a
+# tile is 8 VRAM words.
+#
+# One declaration covers both reveal models because the dirty span is always
+# contiguous: a typewriter tick and a whole-window clear differ only in DAS.
+# Sized to the worst case (the full 14-tile window), the way mode7_stream
+# declares its worst case rather than its average.
+#
+# phase vblank, so this contends only with other VBLANK claims on a channel
+# number (allocate.channel_free is per-phase) and shares its register with
+# mode7_stream's VMDATAL by construction (allocate._register_exclusive returns
+# True only for `active`). In microzero's race that lands it on ch2 alongside
+# rgb_gradient's active COLDATA_G claim and leaves the ACTIVE pool untouched at
+# 7 of 8 — the reason a channel here is not the Mode 7 + VWF blocker it looks
+# like.
+[[claims.hdma]]
+name = "vwfq"
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1                 # 2-reg write-once: the $2118/$2119 word port
+band = "scene"
+phase = "vblank"
+channels = 1
+
+[claims.dma]
+vblank_bytes_per_frame = 224      # worst case: the whole 14-tile window
+vblank_transfers_per_frame = 1    # always one contiguous span

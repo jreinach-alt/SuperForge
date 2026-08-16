@@ -1,0 +1,72 @@
+--- a/Core/Debugger/Debugger.cpp	2026-08-06 14:49:51.647012277 +0000
++++ b/Core/Debugger/Debugger.cpp	2026-08-06 16:59:32.873518271 +0000
+@@ -45,6 +45,7 @@
+ #include "WS/Debugger/WsDebugger.h"
+ #include "WS/WsTypes.h"
+ #include "Shared/BaseControlManager.h"
++#include "Debugger/LockstepSync.h"
+ #include "Shared/EmuSettings.h"
+ #include "Shared/Audio/SoundMixer.h"
+ #include "Shared/NotificationManager.h"
+@@ -60,6 +61,14 @@
+ 
+ uint64_t ITraceLogger::NextRowId = 0;
+ 
++// SuperForge lockstep observability (see Debugger/LockstepSync.h). Process-
++// global so parkGeneration stays monotonic across ROM reloads.
++namespace MesenLockstep
++{
++	std::atomic<uint32_t> breakSleepDepth{0};
++	std::atomic<uint64_t> parkGeneration{0};
++}
++
+ Debugger::Debugger(Emulator* emu, IConsole* console)
+ {
+ 	_executionStopped = true;
+@@ -512,9 +521,18 @@
+ 		PlatformUtilities::EnableScreensaver();
+ 	}
+ 
++	// SuperForge lockstep: publish that this thread is now inside the break
++	// sleep (depth first, then the generation tick — a waiter that sees
++	// the new generation may rely on depth already being raised). By
++	// program order this happens AFTER _waitForBreakResume was set above,
++	// which is what makes "observed depth > 0, then arm + release" free
++	// of the lost-wakeup race (LockstepSync.h).
++	MesenLockstep::breakSleepDepth.fetch_add(1, std::memory_order_acq_rel);
++	MesenLockstep::parkGeneration.fetch_add(1, std::memory_order_acq_rel);
+ 	while((_waitForBreakResume && !_suspendRequestCount) || _breakRequestCount) {
+ 		std::this_thread::sleep_for(std::chrono::duration<int, std::milli>(_breakRequestCount ? 1 : 10));
+ 	}
++	MesenLockstep::breakSleepDepth.fetch_sub(1, std::memory_order_acq_rel);
+ 
+ 	if(notificationSent) {
+ 		PlatformUtilities::DisableScreensaver();
+--- a/Core/Shared/EmuSettings.h	2026-08-06 14:49:51.703775927 +0000
++++ b/Core/Shared/EmuSettings.h	2026-08-06 16:59:32.873845544 +0000
+@@ -129,6 +129,12 @@
+ 	bool GetRandomBool();
+ 	void InitializeRam(RamState state, void* data, uint32_t length);
+ 
++	// SuperForge lockstep patch 2: reseed the settings RNG (the stream every
++	// power-on randomization draws from). Called only from LoadRomParked,
++	// at a quiescent point; RamState::Random stays the regime — this makes
++	// randomized RAM replayable, it does not zero-init anything.
++	void ReseedRng(uint32_t seed) { _mt.seed(seed); }
++
+ 	bool IsInputEnabled();
+ 	double GetControllerDeadzoneRatio();
+ 
+--- a/Core/Shared/Video/VideoDecoder.h	2026-08-06 14:49:51.708965923 +0000
++++ b/Core/Shared/Video/VideoDecoder.h	2026-08-06 16:59:32.874084875 +0000
+@@ -50,6 +50,10 @@
+ 	void Init();
+ 
+ 	void DecodeFrame(bool synchronous = false);
++	// SuperForge lockstep: is a submitted frame still awaiting the decode
++	// thread? (FlushVideoFrame in the lockstep wrapper polls this to
++	// make captures frame-deterministic on a parked core.)
++	bool IsFrameDecodePending() { return _frameChanged; }
+ 	void TakeScreenshot();
+ 	void TakeScreenshot(std::stringstream &stream);
+ 	

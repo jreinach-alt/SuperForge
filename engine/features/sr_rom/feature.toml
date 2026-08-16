@@ -1,0 +1,60 @@
+# sr_rom — every immutable byte the `scroll_run` rail reads.
+#
+# A `blob`: ROM claims, no behaviour, no asm. All six blobs come from
+# tools/gen_sr_assets.py.
+#
+# THE WORLD IS A BLOB AND THE DISPLAY DERIVES FROM IT — jumper_rom's property,
+# carried to the rail it matters most for. Building both hardware pages at
+# boot from one level table and letting collision read the shadows those
+# writes left gets you the single source by discipline; here the layout is
+# baked once in the generator, col_map probes it in WORLD coordinates, and
+# sr_bg BUILDS the 64x32 VRAM tilemap from it at scene enter — splitting each
+# row across the two hardware pages. What you stand on and what you see cannot
+# disagree, by construction — and on THIS rail "what you see" includes the
+# page seam at world column 32, which is the whole reason the rail is in the
+# sweep.
+#
+# THE PAD ROWS ARE PART OF THE CONTRACT. The level is 28 rows; col_map's
+# binding needs a power-of-two height (CM_WORLD_H_LOG2 = 5 -> 32 rows), so the
+# blob carries 4 pad rows of tile 0 — declared empty rather than left to
+# whatever a probe finds past the end. The display writes them too (rule 5:
+# every VRAM word the scene shows or could scroll to is a written word),
+# though cam_y is pinned at 0 so they never show.
+name = "sr_rom"
+role = "blob"
+depends = []
+
+[[claims.rom]]
+name = "sr_bg_chr"
+bytes = 128              # 4 x 4bpp tiles: 0 empty, 1 empty (pad), 2 solid grey
+                         # terrain, 3 solid gold goal. The ids are the level
+                         # map's own bytes, so sr_flags[2]/[3] are the two
+                         # flagged entries
+
+[[claims.rom]]
+name = "sr_bg_pal"
+bytes = 32               # 16 CGRAM words — group 0; word 0 IS the backdrop
+                         # (black), word 1 grey $39CE, word 2 gold $035F
+
+[[claims.rom]]
+name = "sr_obj_chr"
+bytes = 64               # 2 x 4bpp tiles: 0 empty, 1 solid red. Tile 0 stays
+                         # empty so a zeroed OAM entry draws nothing
+
+[[claims.rom]]
+name = "sr_obj_pal"
+bytes = 32               # 16 CGRAM words — OBJ palette 0, word 1 red $001F
+
+[[claims.rom]]
+name = "sr_world"
+bytes = 2048             # the 64x32 world: one tile id per cell (0 empty,
+                         # 2 terrain, 3 goal; rows 28..31 pad) — col_map's
+                         # CM_WORLD_BLOB, and the source sr_bg's enter loops
+                         # read to build both display pages
+
+[[claims.rom]]
+name = "sr_flags"
+bytes = 256              # tile id -> collision flag byte — col_map's
+                         # CM_FLAGS. Entry 2 = $01 (bit 0, solid); entry 3 =
+                         # $02 (bit 1, the goal's non-solid flag — the same bit
+                         # a one-way platform would use); all else 0.

@@ -1,0 +1,10 @@
+# Collision-toy feature: deliberately pinned to the SAME VRAM tilemap base as
+# pin_b — the allocator must FAIL this build.
+name = "pin_a"
+role = "fixture"
+
+[[claims.vram]]
+name = "pin_a_map"
+kind = "tilemap"
+words = 0x400
+at = 0x1000

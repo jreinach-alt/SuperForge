@@ -1,0 +1,114 @@
+# mo_rom — the m7_oshoot rail's art, in ROM. Global (not scene-scoped).
+#
+# ROM claims cannot be scene-scoped: the allocator packs a ROM window once for
+# the whole composition, and a scene-scoped rom claim would reserve bytes only
+# one scene's map names. Same reasoning as m7dg_rom's, room_rom's and
+# split_v_rom's headers.
+#
+# Every claim here is BACKED by an `.incbin` claim site in
+# game/m7_oshoot/main.asm, which is what `make rom-unbacked` proves (docs/37).
+#
+# THE BLOBS ARE AUTHORED, NOT IMPORTED. Tools/gen_m7_oshoot_assets.py draws
+# the arena from a shape predicate and a palette; nothing is read from a pack
+# and no external `.bin` is converted. That is deliberate, and it is what
+# takes the rail OUT of the asset-import rule ground-truth obligation:
+# there is no converter between a source asset and this output, so there is no
+# converter to ground-truth. `mode7_explore` took the same route for the same
+# reason.
+name = "mo_rom"
+role = "blob"
+
+# The interleaved Mode 7 VRAM image: 16,384 tilemap bytes in the EVEN positions
+# and 16,384 bytes of 8bpp CHR in the ODD ones, exactly as the PPU reads the
+# Mode 7 region. 32 KB is one whole LoROM window, so the single DMA that
+# uploads it cannot cross a bank boundary.
+[[claims.rom]]
+name = "mo_map"
+bytes = 32768
+dma_source = true
+
+# --- the collision source --------------------------------------------------
+# THE SAME 16,384 TILE IDS THE BLOB ABOVE CARRIES, PACKED. Col_map computes
+# `offset = ty * W + tx` and reads ONE byte there, so it needs the ids
+# contiguous; the Mode 7 blob interleaves them with CHR and the probe reading
+# it would fetch a CHR byte for every second tile. Hence a second copy —
+# m7dg_rom's ruling, taken again with its correction intact: this costs 256
+# bytes MORE than a flat per-tile terrain array rather than saving anything,
+# and what it buys is the generator's equivalence assert (the array that PAINTS
+# the wall is the array that BLOCKS you, so the two cannot drift).
+#
+# THIS IS WHERE "WHAT YOU SEE IS WHAT BLOCKS YOU" IS PAID FOR. Emitting a
+# separate terrain array from the same is_wall predicate that paints the wall
+# art gets you there by discipline. Here the predicate is shared by
+# construction instead: the flag table is derived FROM the packed tilemap, and
+# the generator asserts the derivation.
+[[claims.rom]]
+name = "mo_tilemap"
+bytes = 16384
+
+# One flag byte per tile id the packed map can hold. 256 entries is TOTAL, not
+# generous — the map is one byte per tile, so every id has an entry and the
+# lookup needs no bounds check (col_map_rom's own claim carries the argument).
+[[claims.rom]]
+name = "mo_flags"
+bytes = 256
+
+# The floor palette. Mode 7 is 8bpp with ABSOLUTE CGRAM indices, and index 0 is
+# also the backdrop slot — the generator's reserve_backdrop deliberately puts
+# the dark floor tone there so the backdrop matches the floor rather than
+# showing through it.
+#
+# TEN WORDS FOR NINE AUTHORED COLOURS, and the tenth is not slack. World tile
+# (0,0) is outside the arena, so the first colour the dedup scans is a WALL
+# tone and it lands at index 0. Reserve_backdrop evicts it — otherwise the
+# screen edges paint brick wherever the rotated plane falls short of them — and
+# re-appends it at the end so no pixel that referenced it changes appearance.
+# One duplicate is the price of the backdrop being a floor colour. M7dg_pal is
+# 18 B for eight authored colours by the identical mechanism.
+[[claims.rom]]
+name = "mo_pal"
+bytes = 20
+
+# --- the OBJ sprite sheets -------------------------------------------------
+# TWO 16x16 actors, each emitted onto the 18-tile OBJ grid the PPU actually
+# reads: content at {0, 1, 16, 17} and fourteen zero tiles between the two
+# rows, because a 16x16 sprite's lower half is +16 tile numbers away rather
+# than +2. The padding is the hardware's alignment, not slack.
+#
+# THERE IS NO BULLET SHEET. Bullets draw with the ENEMY CHR (tile 32) under
+# their OWN OBJ palette, so a rendered bullet reads distinct from the red
+# enemy without a third sheet. That makes the bullet's COLOUR the thing that
+# identifies it, which is what the rail's oracle asserts: the "yellow"
+# predicate accepts bullets and REJECTS both the red enemy and the cyan
+# hero.
+[[claims.rom]]
+name = "mo_hero_chr"
+bytes = 576
+
+[[claims.rom]]
+name = "mo_hero_pal"
+bytes = 32               # 16 BGR555 words: a 4bpp OBJ palette is 16 entries
+                         # whether or not the art uses them all
+
+[[claims.rom]]
+name = "mo_enemy_chr"
+bytes = 576
+
+[[claims.rom]]
+name = "mo_enemy_pal"
+bytes = 32
+
+[[claims.rom]]
+name = "mo_bullet_pal"
+bytes = 32
+
+# The score readout's own OBJ palette. A fourth band rather than a reuse, so
+# this module's exact colour predicates keep meaning what they say —
+# mo_obj/feature.toml's `score_pal` claim carries the reasoning. The DIGIT
+# GLYPHS need no claim of their own: they are drawn into the hero sheet's
+# existing pad tiles (the blob is 18 tiles with content at {0,1,16,17}; tiles
+# 2..11 were zero), so the CHR arrives on the upload that is already happening
+# and the blob's size is unchanged.
+[[claims.rom]]
+name = "mo_score_pal"
+bytes = 32

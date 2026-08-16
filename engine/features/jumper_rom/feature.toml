@@ -1,0 +1,54 @@
+# jumper_rom — every immutable byte the `jumper` rail reads.
+#
+# A `blob`: ROM claims, no behaviour, no asm. All six blobs come from
+# tools/gen_jumper_assets.py.
+#
+# THE WORLD IS A BLOB AND THE DISPLAY DERIVES FROM IT — the one design decision
+# this rail adds to the keystone pattern. Build the terrain at boot with mset
+# loops and let collision read the SAME shadow tilemap those loops wrote, and
+# you get one source of truth for "what is solid" and "what is drawn" — but
+# col_map reads a ROM world blob by design, decoupled from any display path,
+# so the single-source property is reached the other way round: the LAYOUT is
+# baked here once, in five generator loops, and the BG feature BUILDS the VRAM
+# tilemap from that same blob at scene enter. What you stand on and what you
+# see cannot disagree, by construction rather than by discipline.
+#
+# Unlike scroller's checkerboard (whose build EXPRESSION was the lesson, so
+# baking it would delete the teaching), jumper's mset loops are level DESIGN —
+# ground row 26, platforms at rows 22/18/14 stepping up, the overhang, the
+# borders. The lesson of this rail is the physics; the level is data.
+name = "jumper_rom"
+role = "blob"
+depends = []
+
+[[claims.rom]]
+name = "jr_bg_chr"
+bytes = 96               # 3 x 4bpp tiles: 0 empty, 1 empty (pad), 2 solid grey.
+                         # The solid tile sits at id 2 so jr_flags[2] is the
+                         # one solid entry — flag table and CHR share the id
+
+[[claims.rom]]
+name = "jr_bg_pal"
+bytes = 32               # 16 CGRAM words — group 0; word 0 IS the backdrop
+                         # (black), word 1 the terrain grey $39CE
+
+[[claims.rom]]
+name = "jr_obj_chr"
+bytes = 64               # 2 x 4bpp tiles: 0 empty, 1 solid red. Tile 0 stays
+                         # empty so a zeroed OAM entry draws nothing
+
+[[claims.rom]]
+name = "jr_obj_pal"
+bytes = 32               # 16 CGRAM words — OBJ palette 0, word 1 red $001F
+
+[[claims.rom]]
+name = "jr_world"
+bytes = 1024             # the 32x32 world: one tile id per cell (0 empty,
+                         # 2 terrain) — col_map's CM_WORLD_BLOB, and the source
+                         # jr_bg's enter loop reads to build the display
+                         # tilemap
+
+[[claims.rom]]
+name = "jr_flags"
+bytes = 256              # tile id -> collision flag byte — col_map's
+                         # CM_FLAGS. Entry 2 = 1 (bit 0, solid); all else 0.

@@ -1,0 +1,49 @@
+# text_dp — the text engine's hot pointer block (global feature).
+# The bg_text CODE is shared across scenes; its DP state must therefore live
+# at ONE address in every scene -> global lifetime. The spatial claims (font
+# CHR, tilemap, palette) stay scene-scoped in bg_text.
+name = "text_dp"
+role = "companion"
+
+# The font-CHR upload channel. text_upload_font is SHARED top-level code (the
+# routine serves every scene), so its channel claim has to be global-lifetime
+# too — a scene-scoped dma_init claim emits inside `.scope <scene>` and the
+# shared routine cannot see the symbol. Same reasoning as the DP block above:
+# shared code, global claim. mode 1 drives VMDATAL+VMDATAH (word port).
+# phase forced_blank — scene_mgr's enter clears HDMAEN and zeroes NMITIMEN,
+# so this cannot race the active/vblank claims that share channel 0.
+[[claims.dma_init]]
+name = "font_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.dp]]
+name = "txt_ptr"
+bytes = 3                # 24-bit string pointer (indirect-long reads)
+
+[[claims.dp]]
+name = "txt_tmp"
+bytes = 2                # scratch (current VRAM word / attr bits)
+
+[[claims.dp]]
+name = "txt_q"
+bytes = 12               # the VBlank text queue: dirty(1) count(1)
+                         # VMADD word(2) + up to 4 consecutive tile words(8).
+                         # Every other bg_text entry point writes VRAM under
+                         # forced blank; this is how a RUNNING scene changes
+                         # HUD cells — the NMI hook commits the run with CPU
+                         # stores, so it claims no DMA channel and no VBlank
+                         # byte budget.
+                         # Deliberate, not a workaround: a GP-DMA costs a
+                         # channel plus the 128-B measured arm charge, which
+                         # a handful of words never repays (persp_set_pose
+                         # and persp_commit_origin are already undeclared
+                         # VBlank CPU stores). A LARGE region — a whole text
+                         # row, a tilemap block — should declare a vblank
+                         # claims.hdma + claims.dma instead; that composes
+                         # with mode7_stream's VMDATAL claim (see
+                         # allocate._register_exclusive).
+
+[init]
+zero = ["txt_ptr", "txt_tmp", "txt_q"]

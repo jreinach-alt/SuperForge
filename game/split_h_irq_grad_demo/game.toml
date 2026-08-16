@@ -1,0 +1,60 @@
+# split_h_irq_grad_demo — the APPLIED scanline-IRQ case.
+#
+# `seam_irq_trial` proved a seam-scanline V-IRQ can deliver band 2's
+# Mode 7 origin byte-identically to the classic origin HDMA pair; this rail
+# SPENDS what that frees. Two cameras pan at different speeds over one wrapping
+# checker plane, the seam IRQ carries band 2's live origin, and one of the two
+# channels it freed drives a per-scanline COLDATA gradient over the whole
+# frame — fixed-colour ADD on BG1, one byte per line via the plane-select
+# trick.
+#
+# ONE SCENE, no edges, autonomous: this rail reads no buttons at all. The -D
+# builds are the CONTROLS — the shipping ROM is the subject, and each variant
+# compiles out one part of it to isolate what that part contributes.
+#
+# NOT COMPOSED, each for a reason the allocator enforces — RUN, not reasoned
+# (commands and verbatim refusals below):
+#   sh2_cam    -- REFUSED, the same either/or the allocator spoke for
+#                 seam_irq_trial and re-run for THIS composition:
+#                 "HDMA register contention in scene 'split', band 0-112:
+#                 sh2ab1 (engine:sh2_cam) and shgab (engine:shg_cam) both drive
+#                 ['M7A', 'M7B'] in the same phase 'active'".
+#                 Its per-band matrix pairs and this rail's whole-frame pair
+#                 are two streamers of one register set.
+#                 `python3 allocator/allocate.py --game /tmp/shg_cand1 \
+#                     --features-dir engine/features --out /tmp/shg_cand1_out`
+#   rgb_gradient -- REFUSED: "HDMA register contention in scene 'split', band
+#                 0-224: colb (engine:rgb_gradient) and shggr
+#                 (engine:shg_grad) both drive
+#                 ['COLDATA_B~COLDATA ($2132)'] in the same phase 'active'".
+#                 The `~` names the intersection the footprint masks found:
+#                 the whole-port claim and the plane claims are SEEN
+#                 to intersect by design (schemas.py:200-208) — and even had
+#                 they composed, that feature spends THREE channels and a
+#                 672 B ROM table where this rail has one channel and a
+#                 boot-built WRAM one (shg_grad's header carries all three
+#                 disqualifiers).
+#                 `python3 allocator/allocate.py --game /tmp/shg_cand2 ...`
+#   sit_rom / sit_floor / sit_cam -- not refused; DELIBERATELY not composed.
+#                 They are `seam_irq_trial`'s rail-private trio (one game.toml
+#                 each today) and composing them here would make three private
+#                 features shared, so any future change to them would have to
+#                 answer to two rails instead of one. sit_rom
+#                 also carries `sit_pal`, whose five colours are NOT blue-zero
+#                 (tools/gen_split_h_2p_assets.py:154 PAL_FALLBACK — $5400 has
+#                 blue 21, $0DA0 blue 3, $1340 blue 4), and blue-zero is this
+#                 rail's entire gradient metric.
+#   backdrop   -- shg_floor claims CGRAM word 0: in Mode 7 it is BOTH palette
+#                 index 0 and the backdrop slot — one owner.
+#   bg_text    -- BG3 does not exist in Mode 7. The picture is the readout.
+#   audio      -- silent by design. A rail whose subject is a MEASURED per-frame
+#                 cadence keeps an audio pump out of the VBlank window it
+#                 measures; seam_irq_trial set that precedent and this rail
+#                 inherits it.
+#   input/2    -- no buttons are read at all. Both cameras drive themselves,
+#                 and the comparison builds are the -D ROMs.
+globals = ["scene_mgr", "fade", "shg_rom"]
+
+[[scene]]
+id = "split"
+features = ["shg_floor", "shg_cam", "shg_grad", "irq"]

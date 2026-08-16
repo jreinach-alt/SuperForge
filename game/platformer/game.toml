@@ -1,0 +1,81 @@
+# platformer — the flagship rail.
+#
+# FOUR SCENES, and the arc is the rail's identity rather than decoration:
+# title -> game -> game-over / win -> back to the title, with a battery-SRAM
+# continue banking the coins a losing run collected. That is the whole loop
+# the public README headlines, and it is why this rail is the flagship.
+#
+# The restart is a scene transition here, as in breaker and shmup: scene_mgr
+# refuses a self-transition, so an ending screen's START goes to the title and
+# the title's START comes back, re-entering play::enter under forced blank where
+# the level, the sky and every counter are legal to write. Restarting in place
+# would need a WRAM shadow map re-DMA'd every frame; BG1 is built here under the
+# enter-time forced blank, and a running scene cannot rewrite 2,048 cells.
+#
+# WHY over AND win ARE SEPARATE SCENES rather than one parameterised ending.
+# They differ in more than their banner: only the loss BANKS the coin count to
+# SRAM, and only the title after a loss offers SELECT = CONTINUE. Folding them
+# would put that difference in a runtime flag the scene manager already models
+# as an id, and the arc's whole point is that the four states are real.
+globals = ["scene_mgr", "input", "fade", "text_dp", "font_rom", "enter_scr",
+           "oam_sprites", "platformer_rom", "save", "audio", "tad_rom"]
+
+# The three menu scenes are text over a flat colour: bg_text + backdrop, the
+# two cheapest features in the tree, and the correct composition for a scene
+# with NO BG feature. They are also where platformer_bg's and platformer_obj's
+# teardown is proved -- a sprite left in the OAM shadow, or a BG1 scroll still
+# being committed by the NMI hook, shows up here through registers these scenes
+# never wrote.
+[[scene]]
+id = "title"
+features = ["bg_text", "backdrop"]
+
+[[scene]]
+id = "play"
+features = ["bg_text", "platformer_bg", "platformer_obj", "rgb_gradient"]
+
+[[scene]]
+id = "over"
+features = ["bg_text", "backdrop"]
+
+[[scene]]
+id = "win"
+features = ["bg_text", "backdrop"]
+
+[[edge]]
+from = "title"
+to = "play"
+style = "fade"
+budget_bytes = 14000     # play reload: the BG page + the OBJ page + the font,
+                         # plus the 64x32 level map and the 32x32 sky the
+                         # enter builds cell by cell
+
+[[edge]]
+from = "play"
+to = "over"
+style = "fade"
+budget_bytes = 4096      # ending reload: BG3 font + 32x32 map + CGRAM
+
+[[edge]]
+from = "play"
+to = "win"
+style = "fade"
+budget_bytes = 4096
+
+[[edge]]
+from = "over"
+to = "title"
+style = "fade"
+budget_bytes = 4096
+
+[[edge]]
+from = "win"
+to = "title"
+style = "fade"
+budget_bytes = 4096
+
+[[edge]]
+from = "play"
+to = "title"
+style = "fade"
+budget_bytes = 4096      # the pause menu's abandon path

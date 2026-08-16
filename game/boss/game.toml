@@ -1,0 +1,39 @@
+# boss — the static-affine boss rail. "The boss IS the screen": the boss face is the Mode 7 BG layer,
+# scaled and rotated as one rigid image by a single uniform affine matrix, and
+# the player, the attack rain and the HP HUD are sprites composited over it.
+#
+# THE SCALE-RAMPING STATIC-AFFINE RAIL. This rail ramps a matrix scale that
+# `m7_affine`'s scale-1.0 LUT does not have — reveal 5.0 -> 1.5, death-recede
+# 1.5 -> 4.8, and a fight that rotates FREELY at 1.5. Rotation composes with
+# the scale ramp in every animated state, so the track entries bake the
+# composed matrix rather than a bare scale. The shared
+# mechanism is `m7_track` (the frame-indexed matrix-track player); the track
+# DATA is bs_rom's four blobs; `boss_saucer` and `meteor_event` inherit the
+# player unchanged (m7_track/feature.toml carries the contract).
+#
+# NOT COMPOSED, each measured against the implementing file:
+#   mode7_floor -- depends on world_rom (256 KB this rail never reads) and pins
+#                  CGRAM 0..16 for microzero. bs_floor's header carries the
+#                  ruling (mo_floor's, taken again).
+#   col_map     -- this rail reads NO tile flag anywhere: its collision is
+#                  actor-vs-actor AABB, which SuperForge rules game-side inline
+#                  (sprite_game's catch_dot is the worked example).
+#                  Composing col_map would
+#                  claim dp + rom for a probe with zero call sites.
+#   m7_project  -- nothing projects: every actor is SCREEN-space (p_x strafes
+#                  in screen pixels and the rain falls in screen pixels). The
+#                  transpose stays unused; the pivot never moves.
+#   mode7_persp -- its HDMA claims own M7A-D; the reg x hdma check refuses it
+#                  beside m7_affine, correctly (two mechanisms, one register
+#                  set).
+#   backdrop    -- bs_floor pins CGRAM word 0 (Mode 7 8bpp: pixel value IS the
+#                  CGRAM index).
+#   bg_text/vwf -- BG3 does not exist in Mode 7; the HP HUD is sprites.
+#   audio       -- this rail composes no audio at all; the TAD variant is
+#                  boss_saucer's.
+globals = ["scene_mgr", "input", "fade", "oam_sprites",
+           "m7_affine", "m7_track", "pool", "bs_rom"]
+
+[[scene]]
+id = "arena"
+features = ["bs_floor", "bs_obj"]

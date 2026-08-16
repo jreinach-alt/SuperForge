@@ -1,0 +1,11 @@
+# scroller user state.
+#
+# NEARLY EMPTY, and that is the rail. The camera is NOT here: cam_x/cam_y are
+# scroller_bg's own `scr_cam` dp claim, because the routine that READS them is
+# that feature's VBlank commit (pfs_bg's division, unchanged). What the GAME
+# owns is one word, and it owns nothing else.
+[scene.world]
+frames = "u16@dp"        # frames since enter. Drives nothing — it is the
+                         # free-running heartbeat a test reads to tell "the
+                         # tick is running" from "the tick is stuck", the same
+                         # role breaker's `blink` plays.

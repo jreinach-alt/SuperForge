@@ -1,0 +1,29 @@
+# mode7_chamber user game state. One scene, so everything is
+# scene-scoped: nothing survives a transition because there is no transition.
+#
+# THE WHOLE OF IT IS THE ROLL. This rail has no player, no score, no collision
+# and no camera heading — the only thing that changes frame to frame is where
+# the chamber's vertical scroll has got to, and the state machine that decides
+# where it goes next. The bow step is m7_barrel's (an engine claim, because the
+# feature is what indexes its own tables); everything here is the game's.
+#
+# ALL @dp: every one of these is read and written by the same kernel every
+# frame, and the kernel is the rail's entire per-frame CPU cost.
+[scene.chamber]
+posy   = "u24@dp"        # the 16.8 vertical position accumulator: +0 fraction,
+                         # +1..+2 the integer world Y. The integer half is read
+                         # as one word at +1: a 24-bit add with a
+                         # sign-extension byte is exactly what a signed 8.8
+                         # sign-extension byte is exactly what a signed 8.8
+                         # velocity into a 16-bit position needs
+vmag   = "u16@dp"        # unsigned 8.8 speed magnitude, this frame
+vel    = "u16@dp"        # SIGNED 8.8 velocity applied this frame (= +/-vmag)
+hcur   = "u16@dp"        # the current surge's randomised target peak (8.8)
+hump   = "u16@dp"        # surge index within the leg, 0..NUM_HUMPS-1
+subph  = "u16@dp"        # 0 = rising toward the peak, 1 = falling away
+dir    = "u16@dp"        # 0 = roll forward (+), 1 = reverse (-)
+rstate = "u16@dp"        # 0 = ROLLING, 1 = HOLDING (the dead stop between legs)
+hold   = "u16@dp"        # hold-timer countdown, in frames
+rng_f  = "u16@dp"        # forward-leg LFSR — its own variance pattern
+rng_r  = "u16@dp"        # reverse-leg LFSR — a DIFFERENT pattern, so the two
+                         # directions do not replay each other's surges

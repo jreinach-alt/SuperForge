@@ -1,0 +1,13 @@
+# The rom-backing gate's fixture game (docs/37 §4). Not a shipping game and
+# never assembled: `make rom-unbacked` runs the ALLOCATOR over it once, then
+# runs `no_literals` twice against two hand-authored mains that differ in
+# exactly one thing — whether the claim sites exist.
+#
+# The point of the shared allocation is that the two arms are otherwise
+# identical: same claims, same packing, same emitted symbols. The only variable
+# is the .asm, which is the only variable the gate is supposed to read.
+globals = ["blob"]
+
+[[scene]]
+id = "only"
+features = ["blob"]

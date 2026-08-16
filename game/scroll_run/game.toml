@@ -1,0 +1,48 @@
+# scroll_run — THE PAGE-SEAM WORLD: the first non-trivial level shape.
+#
+# A 512px-wide level — two 256px BG pages on the hardware 64x32 tilemap — run
+# and jump from the left edge to the gold goal pillar at the far right, over
+# raised platforms and past solid pillars, with the camera following and
+# clamping at both world edges. One platform straddles the page seam at world
+# column 32. Reaching the goal prints GOAL on BG3 and freezes input.
+#
+# ONE SCENE, no edges — this rail's subject is one continuous run, mirroring
+# scroller / hud_game / camera_follow / jumper. scene_mgr is composed for the
+# INIDISP commit + frame sync; `run` is its only destination.
+#
+# THE COMPOSITION WAS PROBED BEFORE ANY ASM EXISTED — this file was the first
+# commit, so an infeasible feature list would have stopped the build before it
+# could cost a day of code:
+#
+#   room_bg  -- REFUSED, three ways over. On register contention beside sr_bg
+#               (both would own BGMODE/TM/BG1SC/...); on welding, because
+#               `depends = ["room_rom"]` and room_bg.asm resolves six of that
+#               blob's symbols by name; and on behaviour, because its scroll
+#               registers are PINNED AT ZERO (room_bg.asm:154-163) — the axis
+#               that IS this rail. ACCEPTED and SUFFICIENT are different
+#               questions, and only the first is the allocator's.
+#   col_map  -- composes as written, and is sufficient: scene-scoped dp claim,
+#               world bound at the composition site in scenes/run.asm per its
+#               six-symbol contract. Reading its ASM rather than its summary,
+#               col_map_at takes WORLD pixel coordinates and is total by mask
+#               — so a level that spans two BG pages needs no page-split
+#               collision probe at all: collision is seam-correct by
+#               construction, and the seam lives only in sr_bg's display path.
+#               col_map_at EXITS A8 (callers widen after), clobbers X/Y,
+#               flips DB and restores it — absorbed inside sr_solid_box.
+#   bg_text  -- composes as written: the GOAL print. Enter-time surfaces are
+#               forced-blank text_puts; the RUNNING win print goes through
+#               the one-run VBlank cell queue, and "GOAL" is 4 glyphs = the
+#               queue's exact TXT_Q_MAX capacity, staged once on the
+#               transition frame.
+#
+# NOT COMPOSED, each for a reason:
+#   audio    -- this rail is silent; the level shape is the whole subject.
+#   backdrop -- sr_bg owns CGRAM word 0 + BGMODE/TM (scroller's verbatim CGRAM
+#               refusal covers the class).
+globals = ["scene_mgr", "fade", "input", "oam_sprites", "text_dp", "font_rom",
+           "sr_rom"]
+
+[[scene]]
+id = "run"
+features = ["sr_bg", "sr_obj", "bg_text", "col_map"]

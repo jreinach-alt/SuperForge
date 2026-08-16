@@ -1,0 +1,237 @@
+# window_iris — the lantern: a per-scanline window that follows the player,
+# with colour math confined to its OUTSIDE so the unlit area darkens.
+# Scene-scoped.
+#
+# THE REGISTER CONTRACT, derived from Mesen2 Core/SNES/SnesPpu.cpp before a
+# line of this was written (AGENTS.md standing practice; fullsnes's own
+# window-area line is defective on this point). Every value here is a
+# hardware fact with a source, and NOTHING IN THE BUILD CHECKS ANY OF THEM:
+# no_literals allows $2100-$21FF as I/O ports and allows immediates < $100 as
+# data, so a wrong value renders as "the effect silently does nothing".
+#
+#  ProcessWindowMaskSettings (SnesPpu.cpp:1487-1498) decodes each 2-bit
+#  field as bit1 = active, bit0 = inverted:
+#  0/1 = disabled 2 = inside 3 = outside
+#  WOBJSEL bits 5-4 are the MATH window (layer index 5), not a layer.
+#
+#  WindowConfig::PixelNeedsMasking (SnesPpuTypes.h:109-124):
+#  normal: Left > Right -> area EMPTY; else Left <= x <= Right
+#  inverted: Left > Right -> whole line; else x < Left || x > Right
+#  LOAD-BEARING: WH0=$FF, WH1=$00 on a scanline yields an EMPTY area, so
+#  every row above and below the lantern reads as "outside" and darkens
+#  without a second mechanism — one 16-bit store per off-lantern row, and
+#  no head/tail entry arithmetic at all (see the table note below).
+#
+#  CGWSEL bits 5-4 are the math PREVENT mode (SnesPpu.cpp:1334-1352):
+#  0 never-prevent 1 prevent-outside 2 prevent-inside 3 always
+#  so 2 = "math applies OUTSIDE the window". Corroborated independently by
+#  this repo's own rgb_gradient.asm, which disarms with $30 (= prevent
+#  Always) commented "color math never".
+#
+#  ALSO LOAD-BEARING: the MATH window is NOT gated by TMW/TSW. SnesPpu.cpp
+# :1278 reads ActiveLayers[ColorWindowIndex] directly, unlike every BG/OBJ
+#  layer (:980-981). Windowed colour math needs no TMW bit; the BG2 clip
+#  below does.
+#
+# CPU-WRITTEN REGISTERS, UNDECLARED (docs/09 §2.1). This feature writes WOBJSEL
+# $2125, W12SEL $2123, TMW $212E, CGWSEL $2130, CGADSUB $2131 and COLDATA $2132
+# at scene enter, and no claim class describes them. Census rows are filed in
+# docs/09 §2.1; C4 is dispatched next with this feature as its worked example.
+# Note CGWSEL/CGADSUB make this the SECOND writer of registers rgb_gradient
+# already writes for the opposite purpose (it adds a wash always; this
+# subtracts outside a window) — the first genuine two-claimants-one-register
+# case in the repo, and the reason C4 follows.
+name = "window_iris"
+role = "feature"
+depends = ["room_rom"]
+
+# WH0 ($2126) + WH1 ($2127): window 1's left and right bound, rebuilt every
+# frame from the hero's position. A mode-1 pair drives two consecutive ports
+# from one BBAD byte, which is exactly what these are.
+[[claims.hdma]]
+name = "iris"
+registers = ["WH0", "WH1"]
+mode = 1
+band = "scene"
+phase = "active"
+channels = 1
+
+# The table the channel reads. Direct (not indirect), so this IS the source:
+#  [$FF] repeat, 127 lines -> rows 0..126, 2 B each
+#  [$E1] repeat, 97 lines -> rows 127..223
+#  [$00] terminator
+# = 1 + 254 + 1 + 194 + 1 = 451 B. The three structural bytes are written
+# ONCE at enter; the per-frame rebuild only touches the 448 data bytes.
+#
+# WHY A FULL 224-ROW TABLE and not the ~200 B form (one non-repeat head entry
+# for the rows above the circle, a repeat run for the circle, one for the rows
+# below). The compact form is the obvious build and it is wrong here: the
+# head/tail counts become variable, and a lantern near the top or bottom edge
+# drives them to 0 or past the 127-line entry ceiling, so it needs a skip case
+# and a split case — at exactly the screen edges, which is where a windowing
+# bug lives — and the player can walk right up to them. The fixed table has no
+# edge cases at all: a row outside the circle gets
+# WH0=$FF/WH1=$00, which PixelNeedsMasking reads as an EMPTY area, i.e. The
+# whole row is "outside" and darkens. Same pixels, no branches.
+#
+# WHAT IT COSTS, MEASURED: 74,458 master cycles per frame — 20.84% of the
+# 357,368 mc NTSC frame, and 12,410 CPU cycles FastROM (mc/6; 9,307 at mc/8 —
+# substrate.toml's cpu_worst_frame_mc pin, renamed 2026-07-30 from the misnamed
+# cpu_cycles_per_frame, is master clock; its annotation documents the
+# conversion). Against the MEASURED worst 60 fps frame (305,348 mc = 50,891
+# fast cycles) that is 24.4% of the CPU actually available, which is the
+# sharper framing of the two.
+# (tests/test_room_window.py::test_table_rebuild_cost_is_measured_not_estimated,
+# two write breakpoints on the table's first and last data bytes, min over 8
+# frames, taken from the shipped binary, driven UNDER MOVEMENT — see below.)
+#
+# ============================================================================
+# DO NOT COPY THIS PATTERN INTO A BUDGET-CONSTRAINED SCENE.
+# ============================================================================
+#
+# 12,410 CPU cycles is a lot for one visual effect with no game under it, and
+# that is a deliberate, recorded choice rather than an oversight. The three
+# optimisations below tightened the LOOP; nobody questioned the STRUCTURE, and
+# the structure is where the cost lives. It is deliberately NOT fixed, on
+# these grounds:
+#
+#  - The room holds 60 fps and nothing here is near a deadline.
+#  - `window_iris` is used by exactly ONE game (game/room) and nothing outside
+#  its own feature cluster depends on it. Its purpose — forcing windowing
+#  into existence so C4 had a real two-claimants-one-register case instead of
+#  six hypotheticals — is COMPLETE. docs/09 §2.1's census is the evidence.
+#  - Optimising verified visual code with a byte-exact oracle test, for no
+#  measured need, is the churn pattern this project spent a week escaping.
+#
+# So the risk is not slowness. The risk is that this is the tree's ONLY
+# windowing implementation, and docs/09 §2.1 cites it, so the next author reads
+# it as how-to. It is not: the instinct to build a per-scanline table just
+# because the register is per-scanline is the slow path.
+#
+# WHAT THE FAST VERSION LOOKS LIKE — estimated, NOT measured, so measure before
+# believing it:
+#
+#  The circle's SHAPE is fixed (IRIS_R = 48, asserted against the generator).
+#  So the 97-pair circle block is a PURE FUNCTION OF cx alone, and cy only
+#  decides where in the table it lands. Those separate:
+#  * 256 cx-indexed blocks x 97 rows x 2 B = 48 KB of ROM in a 512 KB cart,
+#  with the screen-edge clamping BAKED IN so the min/max branches and
+#  their whole failure surface disappear.
+#  * per frame: one GP-DMA of 194 B from the cx-indexed block into the table
+#  at a cy offset, plus the structural count bytes. ~194 B x 8 mc + the
+#  measured 128 B-equivalent arm ~= 2,600 mc, versus 74,458. Order 25-30x.
+#  * the 127 constant rows vanish entirely if the two entries become
+#  NON-REPEAT ($00|count) — one data pair covers up to 127 lines with the
+#  BGnHOFS-style latch holding. That is the non-repeat-pause pattern
+#  `platformer_bg` and `met_glow` already use, and it is a PREREQUISITE
+#  for the above, not an alternative.
+#  Caveats a change must settle, not assume: a DMA source cannot cross a bank
+#  boundary (substrate bank_bytes = 0x10000), so 194-byte blocks need alignment
+#  care; and the compact-table argument below — that variable entry counts
+#  degenerate at the screen edges, which is where a windowing bug lives — is
+#  the reason the shape is baked per-cx rather than computed.
+#
+# AND THE QUESTION ABOVE THAT ONE: does this effect need PER-SCANLINE
+# resolution at all? Nobody chose 224 rows; it fell out of "the window is a
+# per-scanline register, so build a per-scanline table". Shipping soft-light
+# irises commonly use 8-16 bands, which with non-repeat entries lands near the
+# ~150 cycles a banded rebuild costs elsewhere in this tree and makes the
+# whole kernel a rounding error. An open design question worth answering by
+# looking at shipping games, deliberately NOT researched here because the
+# research would have followed a decision already made rather than informed
+# one.
+#
+# WHEN THIS BECOMES LOAD-BEARING: the moment a scene composes windowing with
+# Mode 7 + streaming, where the VBlank budget is already contended. Until then
+# the technique is registered, not built.
+#
+# ============================================================================
+
+# WAS 118,454 mc = 33.1%. The three items below took 43,996 mc off it, a 37%
+# reduction, and they were taken while this file was already open for the
+# register declaration:
+#
+#  1. THREE-RANGE FILL. 127 of the 224 rows are outside the circle and all
+#  take the same constant word, so they no longer run the general body's
+#  dy tracking, range compare and branch (~42 cycles) to store a value
+#  known before the loop began (~15). This splits the FILL, not the table:
+#  the argument below against a compact TABLE still stands, and the
+#  224-row byte-exact oracle test still gates every row.
+#  2. THE LUT IS 16-BIT WORDS (194 B, was 97). A byte LUT cost the circle
+#  rows a sep/rep/and sandwich on every row purely to read one number;
+#  widening it lifts all three out of the loop and removes two width
+#  transitions from the hottest code in the room.
+#  3. IDLE SKIP. The table is a pure function of the centre, so a stationary
+#  lantern is not rebuilt at all — standing still used to pay full price.
+#  Note this needed PERSISTENT state (the last-built centre), which is why
+#  iris_hot grew and why wi_arm seeds it to $FFFF: power-on garbage that
+#  happened to match would skip the first build and put random WRAM on
+#  screen. test_idle_frame_skips_the_rebuild asserts the skip on the
+#  WRITES rather than on the table contents, because a redundant rebuild
+#  produces identical bytes and would pass a read-back either way.
+#
+# AN EARLIER DRAFT OF THIS COMMENT JUSTIFIED THE FIXED TABLE WITH "the budget
+# is empty here". The measurement refuted it and the argument is withdrawn: a
+# fifth of the frame is not free, it is simply affordable in THIS room, which
+# runs one HDMA channel and no other per-frame work — and the room does hold 60
+# fps under diagonal movement (test_the_room_holds_60fps). The design still
+# stands on its own merit, which is the absence of screen-edge special cases,
+# not on being cheap. The estimate that preceded the measurement was 3x
+# optimistic, which is the whole reason AGENTS.md forbids estimating one.
+#
+# STILL ON THE TABLE, and deliberately not taken here: collapsing the
+# off-circle runs into HDMA non-repeat entries would make those rows cost
+# nothing per frame instead of ~15 cycles each — roughly a 24x saving on those
+# rows. It is NOT done because it is exactly the variable-entry-count form the
+# next paragraph argues against: the counts hit the 127-line repeat ceiling
+# and need skip and split cases at the screen edges. Taking it would also
+# invalidate the 224-row oracle. Registered as its own change, not smuggled
+# into a claim-class one.
+[[claims.wram]]
+name = "iris_tab"
+bytes = 512              # 451 used; 512 is the next clean size
+dma_source = true
+
+[[claims.dp]]
+name = "iris_hot"
+bytes = 18               # +0 cx +2 cy +4 half-width +6 packed WH word
+                         # +8 dy +10 rows remaining in this entry
+                         # +12/+14 the LAST BUILT centre, +16 run length.
+                         #
+                         # The first eleven words are rebuilt from scratch each
+                         # frame, write-before-read, so they need no [init]
+                         # zero — the power-on contract is satisfied by
+                         # construction (docs/09 §4.5's second form).
+                         #
+                         # +12/+14 are DIFFERENT: they PERSIST across frames
+                         # (they are what the idle-skip compares against), so
+                         # power-on garbage could match a real centre and skip
+                         # the very first build, leaving the table as random
+                         # WRAM on screen — a rule-5 bug. Wi_arm seeds them to
+                         # $FFFF, which no real centre equals, so the first
+                         # tick after every scene enter always builds.
+
+# The circle LUT is a ROM blob in the GLOBAL room_rom feature (ca65 scopes
+# resolve backward, so a .incbin site cannot name a scene-scoped symbol).
+# Tools/gen_iris_lut.py is its generator AND the tests' oracle.
+
+# C4 (docs/09 §2.1) -- the claim this whole class was dispatched for. Written
+# at enter by wi_arm and reset by wi_disarm (window_iris.asm:69-102,:127-134).
+#
+# CGWSEL/CGADSUB make this the SECOND writer of registers rgb_gradient already
+# writes for the opposite purpose: it writes CGWSEL = $00 ("math always, add
+# the fixed colour"), this writes $20 ("math outside the window, subtract").
+# The first genuine two-claimants-one-register case in the repo -- verified
+# before this claim existed that composing the two features in one scene
+# allocated CLEANLY (their declared claims are WH0/WH1 vs COLDATA_R/G/B,
+# different ports, so nothing intersected). It now refuses.
+#
+# COLDATA is here, unlike rgb_gradient's, because this feature does NOT claim
+# that port on any transfer claim -- it holds only WH0/WH1. So the boundary
+# rule puts it in the class. It also makes the refusal fire on a THIRD ground:
+# this persistent subtract constant against rgb_gradient's per-line COLDATA
+# planes is a real conflict no phase model can see, since a per-scanline
+# transfer destroys a value the CPU write is relying on to hold.
+[[claims.reg]]
+name = "iris_window"
+registers = ["W12SEL", "WOBJSEL", "TMW", "CGWSEL", "CGADSUB", "COLDATA"]

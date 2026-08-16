@@ -1,0 +1,61 @@
+# m7c_floor — the mode7_chamber rail's Mode 7 plane. Scene-scoped.
+#
+# One 128x128 wrapping ashlar-stone plane, uploaded once at scene enter and
+# never touched again. Everything that makes it bow, recede and roll is
+# m7_barrel's doing, not this feature's — which is why the plane is declared
+# separately from the matrix, the same split sh2_floor/sh2_cam and
+# shp_floor/shp_cam keep.
+#
+# WHY NOT `mode7_floor`: `depends = ["world_rom"]` drags in microzero's 256 KB
+# streamed map this rail never reads, and it pins CGRAM 0..16 for microzero's
+# floor palette against this rail's six words. WHY NOT `sh2_floor` /
+# `shp_floor` / `shm_floor` / `m7dg_floor`, which are all this SHAPE: each
+# `depends` by name on its own rail's blob and its arm names that rail's
+# labels. Shp_floor's header records why "the same code against a different
+# blob" is a new feature here by construction rather than by judgement — a
+# feature cannot take a blob as a parameter.
+#
+# WHY NO `hdma` CLAIM. The plane is static: it does not scroll, rotate or
+# stream. Every per-scanline channel on this rail belongs to m7_barrel,
+# split_band and rgb_gradient.
+name = "m7c_floor"
+role = "feature"
+depends = ["m7c_rom"]
+
+# The enter-time upload: ONE DMA for the whole interleaved blob. Mode 1 drives
+# VMDATAL then VMDATAH alternately, which IS the interleave — even source byte
+# to $2118 (tilemap), odd to $2119 (8bpp CHR) — so the blob streams straight in
+# with no unpacking and no second pass. Phase forced_blank: scene_mgr's enter
+# clears HDMAEN and zeroes NMITIMEN, so this cannot race an active or vblank
+# claim even on a shared channel number.
+[[claims.dma_init]]
+name = "m7c_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# The Mode 7 region is the fixed pinned 32 KB at words $0000-$3FFF — a hardware
+# address, not a packing decision, which is why `kind = "mode7"` takes neither
+# `words` nor `tiles` (giving them is a schema error).
+[[claims.vram]]
+name = "m7"
+kind = "mode7"
+
+# Mode 7 is 8bpp with ABSOLUTE CGRAM indices (the pixel value IS the index), so
+# these six words are pinned at 0 by hardware contract rather than packed. Word
+# 0 is therefore both the plane's darkest stone and the BACKDROP slot: a scene
+# composing `backdrop` alongside this MUST refuse the build, because
+# colour 0 has exactly one owner.
+[[claims.cgram]]
+name = "chamber_pal"
+words = 6
+at = 0
+
+# C4 (docs/09 §2.1): M7SEL, written at enter by this feature's own arm routine
+# and attributed here because Mode 7 is this feature's mechanism. The value
+# selects the 128x128 wrapping playfield, which is what makes the vertical
+# roll seamless: the texture leaves the bottom of the plane and re-enters at
+# the top with no seam to hide.
+[[claims.reg]]
+name = "m7c_sel"
+registers = ["M7SEL"]

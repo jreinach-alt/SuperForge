@@ -1,0 +1,32 @@
+# rc_logic — the racer's throttle / steer / integrate / off-road kernel.
+#
+# The GAME state (heading, speed, sub-pixel accumulators, lean, pause, the
+# day-night clock) is declared as user state in
+# game/racer/state.toml — this feature claims only the kernel's DP scratch,
+# which is engine-owned and never user-visible. race_logic's shape, a
+# different physics model: accelerate toward RC_SPEED_CAP while B is held,
+# coast to a full stop when it is not, and bleed hard toward RC_GRASS_CAP
+# while col_map says the tile under the kart is grass. No brake, no reverse,
+# no laps — cutting the circuit costs time instead.
+name = "rc_logic"
+role = "game_logic"
+depends = ["mode7_persp", "mode7_stream", "col_map"]
+
+[[claims.dp]]
+name = "rc_hot"
+bytes = 16               # +0 mag +2 sign +4 acc +6 |u| +8 step +10 t
+                         # +12 probe (+14 spare) — the 16x16 magnitude product
+                         # needs scratch: the hardware multiplier is 8x8, so
+                         # the kernel decomposes and accumulates here
+
+[init]
+zero = ["rc_hot"]        # scratch is write-before-read within each kernel,
+                         # but the power-on contract costs 8 stores once
+
+# C4 (docs/09 §2.1): the hardware ALU on the MAIN THREAD. ONE name covering
+# $4202-$4206 + $4214-$4217 because Mesen2's AluMulDiv holds a single _state
+# that multiply and divide mutually destroy — race_logic's feature.toml
+# carries the full argument, and this rail inherits it unchanged.
+[[claims.reg]]
+name = "rc_alu"
+registers = ["ALU"]

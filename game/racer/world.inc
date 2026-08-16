@@ -1,0 +1,42 @@
+; racer world geometry — assemble-time constants matching the generated assets
+; (tools/gen_m7_assets.py for the world, tools/gen_racer_assets.py for this
+; rail's own). Values are sizes/coordinates, not addresses; addresses come
+; from the allocator map.
+;
+; THE WORLD IS microzero's, deliberately. It is a closed circuit on a 4096 px
+; torus with kerbs, a start line and a DERIVED collision flag table — which is
+; exactly what this rail needs, since the map is its collision ground truth.
+; Authoring a second 128x128 track blob would add 32 KB of ROM to render a
+; circuit this repo already has, and would need a second flag table kept in
+; sync with it. The rail is the composition, not the bitmap.
+WORLD_T_TILES       = 512   ; world is 512x512 tiles = 4096x4096 px
+WORLD_PX_MASK       = 4095  ; the torus wrap (rc_logic's RCL_WORLD_MASK)
+WORLD_ROWS_PER_BANK = 64    ; 64 rows x 512 B = one 32 KB ROM window
+WORLD_COLS_BYTES    = 512
+
+; Start: mid-road on the start/finish spoke (due east), on the octagon's east
+; straight at the centre-line apothem — tools/gen_m7_assets.start_tile().
+CAM0_TX = 456               ; tile coords (256 + OCT_MID 200)
+CAM0_TY = 256
+CAM0_PX = 3652              ; pixel coords (tile*8 + 4)
+CAM0_PY = 2052
+
+HUD_LINES = 44              ; the seam: sky band lines 0..43, Mode 7 from 44.
+                            ; NOT a free parameter — mode7_persp's index
+                            ; tables skip exactly this many lines and the
+                            ; pose blobs carry 224-HUD_LINES rows, so the
+                            ; horizon is pinned by pose_rom's geometry.
+PIVOT_LINE = 168            ; camera focus scanline — the world row the origin
+                            ; projects to. VOFS derives from it.
+KART_LINE  = 176            ; the kart's top scanline: low in the frame while
+                            ; the camera looks further ahead (player_car's
+                            ; CAR_LINE argument, same numbers)
+BAR_LINE   = 16             ; the speed bar, ABOVE the horizon in the sky band
+
+; joypad bit masks ($4218 auto-read layout; shifts, not addresses)
+JOY_B     = 1 << 15
+JOY_START = 1 << 12
+JOY_UP    = 1 << 11
+JOY_DOWN  = 1 << 10
+JOY_LEFT  = 1 << 9
+JOY_RIGHT = 1 << 8

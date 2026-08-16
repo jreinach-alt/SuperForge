@@ -1,0 +1,63 @@
+# breaker_obj — the paddle and the ball. Four 8x8 OBJs, positioned every frame
+# from the play scene's px / bx / by, into the oam_sprites shadow -- never into
+# hardware OAM, which the engine's declared VBlank GP-DMA owns.
+#
+# THE PADDLE IS THREE SPRITES OF ONE TILE. 24 px of paddle out of an 8x8 tile,
+# drawn three times side by side. The alternative (a 32x8 sprite) does not
+# exist on this machine: OBSEL's size pairs are 8/16, 8/32, 8/64, 16/32, 16/64,
+# 32/64, so a 24-wide object is three smalls or one 32 with a quarter of it
+# blank. Three smalls is the right answer: no wasted OBJ tile, no wasted
+# hi-table size bit, and the paddle's width is a count rather than a shape.
+#
+# ONE OBJ PALETTE FOR BOTH. The paddle tile draws in colour index 1 (cyan), the
+# ball in index 2 (white), so one 16-word claim carries both. Two palettes
+# would be one CGRAM claim spent on a distinction the colours do not need.
+#
+# CPU-WRITTEN REGISTER, DECLARED: OBSEL $2101, which sets sprite size AND OBJ
+# CHR base for EVERY sprite -- the same global-to-all-sprites register
+# room_hero and player_car declare in their own games, and declared here for
+# the same reason: composing two games' sprite features in one scene must
+# refuse. The VALUE comes from ES_V_OBJ_CHR_OBSEL_BASE, so the address
+# discipline holds independently of the ownership.
+#
+# SIZE MODE 0 (small 8x8 / large 16x16) and every sprite here is SMALL, so the
+# hi table's size bits stay clear exactly as oam_park_all left them. Only the
+# X9 bits are touched, and they are DERIVED from bit 8 every frame rather than
+# assumed clear -- the paddle clamp keeps bit 8 clear today, and a stale X9
+# renders a sprite 256 px away, which is the failure this project has a
+# lessons-learned entry about.
+name = "breaker_obj"
+role = "consumer"
+depends = ["oam_sprites", "breaker_rom"]
+
+[[claims.dma_init]]
+name = "obj_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "obj_chr"
+kind = "chr"
+obj = true
+words = 32               # 2 tiles x 16 words: paddle segment, ball
+
+[[claims.cgram]]
+name = "obj_pal"
+words = 16
+at = 128                 # hardware contract: OBJ palette 0 = CGRAM 128..143
+
+# Slot order IS render priority (OAM index order), so the ball is claimed AFTER
+# the paddle and draws behind it -- the ball never occludes the bat it bounces
+# off. Declared order, not a packing accident.
+[[claims.oam]]
+name = "paddle"
+sprites = 3
+
+[[claims.oam]]
+name = "ball"
+sprites = 1
+
+[[claims.reg]]
+name = "obj_obsel"
+registers = ["OBSEL"]

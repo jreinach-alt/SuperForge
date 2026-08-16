@@ -1,0 +1,37 @@
+# breaker — the paddle-and-ball rail.
+#
+# TWO SCENES, AND THE SECOND ONE IS WHY. Restarting IN PLACE — GAME OVER ->
+# Start -> the wall reappears without leaving the screen — would need the
+# tilemap kept in a WRAM shadow re-DMA'd every frame. SuperForge writes BG1
+# under the enter-time forced blank, and a running scene cannot rewrite 180
+# cells. So a restart is expressed as what it physically is here --
+# a scene transition -- and the round trip play -> title -> play rebuilds the
+# wall in `play::enter` where the hardware allows it.
+#
+# That is not a workaround, it is the shape the machine already had: scene_mgr
+# refuses a self-transition (`sm_request` compares next against cur), and the
+# trip through the title exercises breaker_bg's enter path twice per session,
+# which is a strictly better test surface than a restart that never re-enters.
+globals = ["scene_mgr", "input", "fade", "text_dp", "font_rom", "enter_scr",
+           "oam_sprites", "breaker_rom", "audio", "tad_rom"]
+
+[[scene]]
+id = "title"
+features = ["bg_text", "backdrop"]
+
+[[scene]]
+id = "play"
+features = ["bg_text", "breaker_bg", "breaker_obj", "rgb_gradient"]
+
+[[edge]]
+from = "title"
+to = "play"
+style = "fade"
+budget_bytes = 12000     # play reload: BG1/BG2 CHR + OBJ CHR + font + the two
+                         # 32x32 maps the enter builds
+
+[[edge]]
+from = "play"
+to = "title"
+style = "fade"
+budget_bytes = 4096      # title reload: BG3 font + 32x32 map + 5 CGRAM words

@@ -1,0 +1,8 @@
+# reg-gate fixture: a feature that writes BGMODE and declares nothing.
+# The FIRING sibling of rgfx_covered — tests/test_reg_gate.py.
+name = "rgfx_fires"
+role = "fixture"
+
+[[claims.dp]]
+name = "rgfx_fires_state"
+bytes = 2

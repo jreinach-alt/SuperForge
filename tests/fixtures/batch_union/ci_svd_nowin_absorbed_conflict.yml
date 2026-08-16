@@ -1,0 +1,66 @@
+# The same SHAPE, reached through a keep-both union of a real conflict
+# alignment — the case that shows the arithmetic contract is necessary and
+# NOT sufficient.
+#
+# The three fixtures beside this one are LOST-LINE conflicts: a resolver that
+# dedupes the repeated boundary line deletes a real assert, and the "every
+# non-marker line reaches the output" contract stops it. This one loses
+# nothing. Union it ours-then-theirs, exactly as the tool must, and count the
+# lines: every one survives. Then read the result:
+#
+#   - name: make svd-nowin        <- stats build/svd_nowin.sfc, NO assert
+#     ...
+#   - name: make split_v_seamtrial
+#     ...
+#     <the 524288 assert>         <- seamtrial's own
+#     <the 524288 assert>         <- svd-nowin's, ABSORBED into this block
+#
+# svd-nowin's assert is still in the file. It is in the wrong step, which for
+# a CI step — its own shell, its own `$size` — means it asserts the seamtrial
+# ROM twice and the svd_nowin ROM never. That is the outcome, and
+# the arithmetic cannot see it, because arithmetic counts lines and this is a
+# question about which BLOCK a line is in.
+#
+# The alignment is the one git produces when the appended step's blank-line
+# separator matches on one side and the assert matches on the other. The
+# duplicate assert the union leaves in the seamtrial block is the tool's
+# declared bias working as designed — "a union that duplicates a line is a
+# visible, harmless nuisance you fix by hand" — and it is the reviewable
+# residue that points at the real defect one block above it.
+name: CI
+on:
+  workflow_dispatch:
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - name: make split_v_demo
+        run: |
+          make split_v_demo
+          size=$(stat -c%s build/split_v_demo.sfc)
+          echo "build/split_v_demo.sfc = $size bytes"
+          test "$size" -eq 524288 || { echo "::error::expected 524288 bytes, got $size"; exit 1; }
+
+      - name: make svd-nowin
+        run: |
+          make svd-nowin
+          size=$(stat -c%s build/svd_nowin.sfc)
+          echo "build/svd_nowin.sfc = $size bytes"
+<<<<<<< HEAD
+
+      - name: make split_v_seamtrial
+        run: |
+          make split_v_seamtrial
+          size=$(stat -c%s build/split_v_seamtrial.sfc)
+          echo "build/split_v_seamtrial.sfc = $size bytes"
+          test "$size" -eq 524288 || { echo "::error::expected 524288 bytes, got $size"; exit 1; }
+=======
+          test "$size" -eq 524288 || { echo "::error::expected 524288 bytes, got $size"; exit 1; }
+>>>>>>> split_v_seamtrial
+
+      - name: make split_h_persp_demo
+        run: |
+          make split_h_persp_demo
+          size=$(stat -c%s build/split_h_persp_demo.sfc)
+          echo "build/split_h_persp_demo.sfc = $size bytes"
+          test "$size" -eq 524288 || { echo "::error::expected 524288 bytes, got $size"; exit 1; }

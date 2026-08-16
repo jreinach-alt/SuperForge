@@ -1,0 +1,235 @@
+# dialog — the opaque BG3 message window: an OPAQUE nine-patch panel drawn over
+# a RUNNING scene, with paged text flowing inside it, closing back to the scene
+# it covered. Scene-scoped.
+#
+# =============================================================================
+# WHAT IT IS, AND WHAT IT IS NOT
+# =============================================================================
+# It is NOT a text routine. `bg_text` already renders glyphs, and this feature
+# uses the very same 96-glyph page for its own text. What `dialog` supplies is
+# the thing bg_text structurally cannot: a rectangle of OPAQUE cells that hides
+# the scene behind it, written while the screen is ON.
+#
+#  * OPAQUE needs opaque CHR. Do NOT hand-roll a box out of text glyphs: BG
+#  palette index 0 is transparent by hardware, and every glyph in a font is
+#  index 0 everywhere but its strokes, so a box drawn out of `-` and `|` is a
+#  frame with the scene still showing through the middle. The panel needs its
+#  own nine tiles.
+#  * WHILE THE SCREEN IS ON is the other half. Every bg_text entry point but
+#  one writes VRAM under FORCED BLANK at scene enter; the one exception,
+#  `txt_q`, holds FOUR words. A panel is hundreds. text_dp's own toml names
+#  the answer — "a LARGE region — a whole text row, a tilemap block — should
+#  declare a vblank claims.hdma + claims.dma instead" — and that is exactly
+#  what this feature declares.
+#
+# =============================================================================
+# COMPOSITION ANSWER 1 — dialog owns NO layer register. Bg_text still owns BG3.
+# =============================================================================
+# ONE BG feature owns all of a scene's co-resident BG layers,
+# because BG12NBA/BG34NBA are write-once ports with one owner and
+# check_reg_ownership's reg x reg pass has no seed exemption. BG3 already has
+# an owner in every scene that has text: bg_text claims BG3SC/BG34NBA/BG3HOFS/
+# BG3VOFS, and the scene's own BG feature (room_bg, rpg_town, ...) owns
+# BGMODE/TM and the BG1/BG2 set. A `[[claims.reg]]` here naming any of those
+# would be refused against one of the two, correctly.
+#
+# So dialog claims NO PPU register at all. Its only PPU writes are $2115/$2116
+# (VMAIN/VMADD) addressing the VRAM its own `dlgq` claim's VMDATAL/VMDATAH
+# already declare — covered by that claim per docs/09 §2.1's boundary rule, the
+# same standing `vwf` has (vwf/feature.toml:12-16), so no census row is owed.
+#
+# =============================================================================
+# COMPOSITION ANSWER 2 — the box CHR is its OWN page, and the reach is ASSERTED
+# =============================================================================
+# The nine tiles must be addressable from BG3's CHR base. The obvious shape —
+# grow `text_chr` from 110 tiles to 119 and give dialog a documented sub-range
+# beside bg_text's 0..95 and vwf's 96..109 — was MEASURED before it was
+# rejected, and the allocator refused it:
+#
+#  $ (text_chr tiles = 119) allocator/allocate.py --game game/microzero
+#  ALLOCATION FAILED: transition title->race (fade): scene reload is 40130 B
+#  (VRAM+CGRAM to load under forced blank) but the edge budget is 40000 B —
+#  over by 130 B
+#
+# microzero is a PINNED rail (md5 e45ddeabac4218cd71709da7b9fcc849) and 119
+# tiles does not build it at all. That is the allocator doing its job: the
+# design answer arrived at build time. (room survives it — no address moves,
+# only ES_V_TEXT_CHR_WORDS 880 -> 952 — but microzero is a hard refusal, so the
+# shared claim cannot grow.)
+#
+# The route taken instead is the one the hardware already offers and docs/09
+# §5.1 registers as undeclarable: **a BG layer has one base nibble but a 10-bit
+# tile index**, so a 2bpp layer reaches 1024 x 8 = 8192 words = TWO consecutive
+# chr_align pages from its base (Mesen2 Core/SNES/SnesPpu.cpp:239-248, quoted
+# in §5.1). `dlg_chr` is therefore its own `kind = "chr"` claim, and the
+# panel's tiles are addressed at index (ES_V_DLG_CHR - DLG_BG3_CHR) / 8.
+#
+# §5.1's complaint is that "packing order decides it, and nothing checks the
+# result". Here something does: dialog.asm .asserts, from the emitted symbols,
+# that its page is ABOVE the BG3 base, within reach, and 8-word aligned — so a
+# packing that breaks the reach REFUSES THE BUILD naming this claim, instead of
+# rendering the wrong tiles. That is the same treatment vwf's CHR sub-range got
+# (§5.1: "a hand-written .assert derived from emitted symbols precisely because
+# the declaration was not available"), and it is a gate rather than prose.
+#
+# =============================================================================
+# COMPOSITION ANSWER 3 — the panel writes bg_text's tilemap, and says so
+# =============================================================================
+# BG3 has one tilemap base (BG3SC), so there is exactly one BG3 tilemap per
+# scene and it is bg_text's `text_map`. Dialog writes into it. That is docs/09
+# §5.1's TILEMAP half — "one feature's routine writes another feature's claimed
+# region" — with `vwf_map_row` as the standing precedent, and it gets the same
+# interim treatment: `depends = ["bg_text"]` states the coupling, and the
+# includer's DLG_MAP binding is .asserted to lie inside the claim.
+#
+# THE CONSEQUENCE, STATED WHERE IT BITES: the rows a panel spans belong to the
+# panel while it is open, and are restored to the scene's BLANK cell when it
+# closes — not to whatever text was there. A scene must not place static text
+# in the panel's row span. Declaring a BG3 row SUB-RANGE — which the claim
+# vocabulary cannot express today — is what would turn that from a contract
+# into a check.
+#
+# =============================================================================
+# THE OPACITY CONTRACT, STATED EXACTLY — and where it stops
+# =============================================================================
+# **No scene pixel shows through a cell the NINE-PATCH owns.** Every pixel of
+# all nine tiles is index >= 1 (tools/gen_dialog_assets.py asserts it), and
+# tests/test_rpg.py checks it composites that way over a live scene rather than
+# only in VRAM.
+#
+# It stops at the PRINTED GLYPHS. A glyph cell is bg_text's 2bpp CHR and its
+# entire background is index 0 — TRANSPARENT by hardware, the same property
+# that makes a box built out of font glyphs not a box — so each text row is a
+# FULL-WIDTH BAND of the running scene crossing the panel, not slivers between
+# strokes. Measured: 57–69% of each text row is byte-identical to the scene
+# behind; fill rows are 0.0%. That is a property of ANY font whose background
+# is index 0, so "no scene pixels show through" is only true of the fill rows
+# — state it that way rather than for the panel as a whole.
+#
+# THE FIX, sketched so the follow-up is cheap rather than open: composite each
+# printed glyph into a tile of THIS feature's own CHR page instead of pointing
+# at the font's. For a 2bpp tile it is sixteen bytes of arithmetic per cell —
+# `bp0 = $FF` (every pixel becomes index 1 = the body, or 3 = the ink) and `bp1
+# = the glyph's stroke plane`. It costs ~78 more tiles in the chr claim (still
+# one page), a compositing pass at open, and a second VBlank transfer. Not
+# taken in the first release; the alternative — a second opaque layer under BG3
+# — is worse, because BG2 belongs to the scene's BG feature and a third chr
+# claim would break this feature's own page-adjacency precondition.
+#
+# =============================================================================
+# THE BINDING CONTRACT — seven symbols, includer-supplied, NO DEFAULTS
+# =============================================================================
+# col_map's shape (col_map/feature.toml), for col_map's reason: the schema has
+# no vocabulary for "same feature, different scene geometry", and a silent
+# default here would draw a panel at the wrong place over a real scene. Each
+# missing symbol is a hard `.error` naming it.
+#
+#  DLG_COL DLG_ROW DLG_W DLG_H panel geometry, in BG3 CELLS
+#  DLG_BG3_CHR the CHR base the scene programs into BG34NBA
+#  (bg_text's ES_V_TEXT_CHR) — the reach assert
+#  DLG_MAP the BG3 tilemap word base (ES_V_TEXT_MAP)
+#  DLG_TEXT_ATTR the attr word printed glyphs carry (the
+#  scene's text palette | priority)
+#
+# The panel's OWN attr is DERIVED, not bound: the sub-palette is ES_C_DLG_PAL /
+# 4 from this feature's own cgram claim, so it cannot drift from where the
+# palette was actually uploaded.
+name = "dialog"
+role = "feature"
+depends = ["bg_text", "text_chr", "dlg_rom"]
+
+# --- the nine-patch page ---------------------------------------------------
+# 9 tiles of 2bpp. It costs a whole chr_align page (0x1000 words) for 72 words
+# of content — the price of BG3 having one base nibble, and the reason
+# Composition Answer 2 measured the alternative before paying it.
+[[claims.vram]]
+name = "dlg_chr"
+kind = "chr"
+tiles = 9
+tile_bytes = 16          # 2bpp
+
+# --- the panel palette -----------------------------------------------------
+# BG3 2bpp sub-palette 6 = CGRAM words 24..27. Pinned for the same reason
+# bg_text pins its own at 28: a 2bpp BG layer's palettes are CGRAM words 0..31
+# by hardware contract and the attr field selects among them, so the word is
+# not free space the packer may choose. 6 is the sub-palette immediately below
+# bg_text's 7, which keeps the two text palettes adjacent and leaves 0..23 for
+# whatever 4bpp layer the scene's BG feature owns.
+[[claims.cgram]]
+name = "dlg_pal"
+words = 4
+at = 24
+
+# --- the enter-time CHR + palette upload -----------------------------------
+# phase forced_blank: scene_mgr's enter has HDMAEN cleared and NMITIMEN zeroed,
+# so this cannot race the vblank claim below even though both may land on the
+# same channel number (bg_text's font_up and sky_band's sky_up are the
+# precedents for the shape).
+[[claims.dma_init]]
+name = "dlg_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# --- the panel's tilemap shadow --------------------------------------------
+# WHOLE ROWS, not the panel rectangle, and that is the load-bearing decision. A
+# BG3 tilemap row is 32 consecutive words; a panel rectangle is not contiguous,
+# so committing the rectangle costs one DMA per row and pays the measured 128-B
+# arm charge H times over. Buffering the FULL 32-cell rows the panel spans
+# makes the commit ONE contiguous transfer at any panel width: 10 rows x 32
+# cells x 2 B is the feature's ceiling, and dialog.asm .asserts DLG_H against
+# it.
+#
+# The cells outside the panel hold the scene's BLANK word, which is what makes
+# close a commit of the same span rather than a second code path.
+[[claims.wram]]
+name = "dlg_buf"
+bytes = 640              # 10 rows x 32 cells x 2 B — the ceiling, asserted
+dma_source = true        # the vblank commit DMAs from here — must not cross a
+                         # WRAM bank
+
+# --- panel state -----------------------------------------------------------
+#  +0 state 0 = closed, 1 = open
+#  +1 dirty non-zero = the buffer is staged and the NMI owes a commit
+#  +2 page current page index within the open message
+#  +3 pages page count of the open message
+#  +4 tab 2 B, the open message's page table (bank-0 ROM address)
+#  +6 t0 2 B, kernel scratch (cell index / pen)
+#  +8 t1 2 B, kernel scratch (row counter / glyph)
+#
+# `[init] zero` IS declared, and it is not a defensive zero-fill. `state` and
+# `dirty` are READ BEFORE ANY WRITE — `dialog_is_open` and the NMI commit hook
+# read them on every frame from boot onward, long before the first open, and
+# there is no path that seeds either (that is what "closed" MEANS). This is
+# exactly mosaic's argument, and mosaic's lesson comes with it: the declaration
+# is emitted by the allocator as a COMMENT, so `dialog_init` (dialog.asm) is
+# the routine behind it and a consumer must call it in its boot block. Mosaic
+# shipped without one and the first ROM to compose it tripped Mesen's
+# uninitialised-read detector on three of its seven bytes.
+[[claims.dp]]
+name = "dlg_ctl"
+bytes = 10
+
+[init]
+zero = ["dlg_ctl"]
+
+# --- the VBlank commit -----------------------------------------------------
+# One declaration covers open, page-advance and close: all three stage the same
+# contiguous span and differ only in what is in it. Sized to the ceiling, the
+# way vwf declares its full 14-tile window rather than its average.
+#
+# phase vblank, so it contends only with other VBLANK claims on a channel
+# number (allocate.channel_free is per-phase) and shares its registers with any
+# other vblank VMDATA writer by construction (allocate._register_exclusive
+# returns True only for `active`) — the same standing vwf's vwfq claim has.
+[[claims.hdma]]
+name = "dlgq"
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1                 # 2-reg write-once: the $2118/$2119 word port
+band = "scene"
+phase = "vblank"
+channels = 1
+
+[claims.dma]
+vblank_bytes_per_frame = 640      # worst case: the full 10-row span
+vblank_transfers_per_frame = 1    # always one contiguous span

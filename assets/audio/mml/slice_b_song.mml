@@ -1,0 +1,41 @@
+#Title the sound of a place
+#Composer SuperForge (procedural)
+#Tempo 70
+
+; Echo volume/feedback = ROOM A's acoustics (the boot default). Room B
+; re-shapes the SAME echo unit at runtime through the room_b_ambience SFX
+; (sound-effects.txt); room A's SFX restores these exact values. The echo
+; DELAY is constant for the whole program — the pin's compiler refuses
+; set_echo_delay inside a sound effect (see sound-effects.txt header), so
+; the rooms differ by EVOL/EFB against one fixed 128 ms buffer (16 KiB of
+; ARAM, reserved once at song start, never resized).
+#EchoLength 128
+#EchoVolume 12
+#EchoFeedback 24
+#FirFilter 127 0 0 0 0 0 0 0
+
+@1 pluck
+@2 square_lead
+@3 tri_bass
+
+; A = pluck melody (echo), B = pulse harmony (echo), C = bass (dry).
+; Bar 8 is a deliberate near-silence: in room B the echo tail rings
+; through it, in room A it collapses -- the audibility test's window.
+
+A @1 v12 o4 E1 l8
+B @2 v7  o3 E1 l2
+C @3 v10 o2 l4
+
+A L
+A a r c+ r e r c+ r | b r d r f+ r d r
+A a r c+ r e r a r | g+ f+ e d c+ r a r
+A a r c+ r e r c+ r | b r d r f+ r d r
+A e r c+ r a r e r | a2 r2
+
+B L
+B a f+ | b g | a f+ | e c+
+B a f+ | b g | a e | a r
+
+C L
+C a a e e | b b f+ f+ | a a e e | c+ c+ e e
+C a a e e | b b f+ f+ | a e a e | a r r r

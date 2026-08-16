@@ -1,0 +1,168 @@
+# m7_barrel — the BARREL-BOWED per-scanline Mode-7 matrix (scene-scoped).
+#
+# Two INDIRECT HDMA channels stream ROM-resident per-scanline COLUMNS through
+# M7A and M7D. The A column is a raised-cosine BULGE (the barrel bow); the D
+# column is the perspective hyperbola. M7B and M7C are zero on every line —
+# this rail's angle is CONSTANT and its apparent rotation comes from a vertical
+# scroll — so they are CPU-written once at enter and declared, not streamed.
+# The camera origin (M7X/M7Y/M7HOFS/M7VOFS) rides a DP shadow the NMI hook
+# commits, which is what makes the vertical roll one 16-bit add per frame.
+#
+# =============================================================================
+# WHY THIS IS A SIBLING OF `mode7_persp` AND NOT A PARAMETERISATION OF IT.
+# `mode7_persp` is the named supply for per-scanline Mode 7 (docs/09 §1.1), and
+# a barrel looks like either a baked pose variant of it or a WRAM-resident AB
+# table with the channel repointed. Read from mode7_persp.asm +
+# pose_rom/feature.toml and RUN as a composition rather than reasoned about:
+#
+#  the animation axis `mode7_persp` streams `pose_rom`'s 64-HEADING set and
+#  its whole per-frame job is `persp_set_pose(h)`. This
+#  rail never rotates: its A column is a BOW and a bow is
+#  not a heading at any index — and the rule is "ask
+#  what a table is INDEXED BY before treating it as
+#  supply".
+#  the A column itself `pose_rom`'s A is `S(k)*cos(h)` — the perspective
+#  scale. A barrel OVERWRITES M7A with a bow curve that
+#  is INDEPENDENT of the perspective scale; that
+#  independence is what bows the floor. Composing
+#  `mode7_persp` renders an un-bowed floor, so the one
+#  effect this rail exists to show would be missing.
+#  the blob binding `persp_set_pose` names `ES_R_POSES_AB_T0_ADDR/BANK`,
+#  resolved at assembly. A feature in this allocator
+#  cannot take a blob as a PARAMETER (`shp_floor`'s
+#  header states the general form), so "the same code
+#  against a different blob" is a new feature here by
+#  construction. Composing it also drags 128 KB of pose
+#  slices nothing streams.
+#  the transfer shape `mode7_persp` is DMAP mode 3 (2 registers, write
+#  twice = 4 B/line/channel) because it streams A AND B.
+#  Half of every unit here would be zeroes written into a
+#  register that already holds zero, so this feature is
+#  mode 2 (1 register, write twice = 2 B/line/channel).
+#  Same two channels, half the bytes, and the declaration
+#  says which registers are actually driven.
+#
+# Four of four differ and the second is the rail's entire point. Sibling
+# feature — the ruling `shp_cam` took against `sh2_cam`, `sh2_floor` took
+# against `m7dg_floor`, and `col_map` took four times.
+#
+# WHY NOT `m7_affine`: it CPU-writes one uniform matrix per frame (M7A-M7D as a
+# single 2,048-byte 256-heading LUT at scale 1.0). A uniform matrix is a flat
+# top-down camera by construction and cannot express a per-scanline anything,
+# bow or perspective. Its `m7_matrix` reg claim also covers the ORIGIN
+# registers, so composing it refuses against `mb_origin` before the matrix
+# conflict is reached (the same collision `shp_cam` measured).
+#
+# THE PARAMETER SPACE, stated because a table-driven feature's DOMAIN is part
+# of its supply contract:
+#  indexed by BOW STEP the A column — MB_BOWS entries, step 0 FLAT
+#  (a runtime non-vacuity control INSIDE the
+#  shipping binary) through step MB_BOWS-1, the deepest
+#  bow ($0100->$0180->$0100).
+#  indexed by NOTHING the D column — one perspective table, because the
+#  camera height is fixed and the bow lives entirely
+#  in A.
+#  NOT indexed at all heading (there is none), scale ramp (there is
+#  none), and band count (one band, one seam).
+# A rail that ramps its perspective SCALE, or rotates, needs a second axis in
+# `barrel_rom` and this header says so rather than leaving the next porter to
+# find it in the picture.
+# =============================================================================
+name = "m7_barrel"
+role = "feature"
+
+# `barrel_rom` because mb_arm and mb_point name its emitted ADDR/BANK/SIZE
+# symbols directly and .assert the table geometry against them. `input`
+# because the BOW STEP is pad-driven. An autonomous bow holds one shape
+# forever and can only be SAMPLED; a pad-driven axis can be stopped, held and
+# walked BACK — what the state-cycle rule asks of a test, and what makes
+# step 0 a control the shipping ROM can reach.
+depends = ["barrel_rom", "input"]
+
+# --- the two matrix columns: INDIRECT, per scanline -------------------------
+# DMAP mode 2 = ONE register, written TWICE: exactly [lo, hi] of a 16-bit
+# write-twice Mode-7 matrix register. `bbad_span(mode=2)` is one port, so the
+# declaration names one register per claim and nothing is hand-narrated.
+#
+# `band = "scene"` and not [MB_SEAM, 224], deliberately: each index table opens
+# with a NON-REPEAT skip entry that fires ONE unit at line 0 before idling
+# through the Mode-1 band, so the channel genuinely does write during those
+# scanlines. Declaring the narrower band would be the more flattering statement
+# and the false one. (The stray unit is invisible: the top band is Mode 1,
+# where M7A/M7D are not read. Mode7_persp's head-skip entry is the same shape
+# and its header says the same thing.)
+[[claims.hdma]]
+name = "mba"
+registers = ["M7A"]
+mode = 2
+indirect = true
+band = "scene"
+phase = "active"
+channels = 1
+
+[[claims.hdma]]
+name = "mbd"
+registers = ["M7D"]
+mode = 2
+indirect = true
+band = "scene"
+phase = "active"
+channels = 1
+
+# The two index tables, 16 B apart so the offsets read as a table rather than
+# as arithmetic. Each is 10 B — [skip, ptr][repeat 127, ptr][repeat tail,
+# ptr+127*2][0] — and the slack is what the zero in mb_arm covers.
+#
+# WRAM and not ROM because the A table's pointer MOVES: it is re-stamped in
+# VBlank whenever the bow step changes, which is the whole of the runtime axis.
+[[claims.wram]]
+name = "mb_idx"
+bytes = 32
+
+# The Mode 7 camera origin shadow: +0 M7X, +2 M7Y, +4 M7HOFS, +6 M7VOFS. DP
+# because the NMI hook commits all four every frame and the roll's 16.8
+# accumulator writes M7Y between commits.
+[[claims.dp]]
+name = "mb_org"
+bytes = 8
+
+# +0 the live bow step (0..MB_BOWS-1), +2 the step the index table currently
+# points at, +4 the pointer multiply's scratch. The live/applied pair is what
+# keeps the VBlank stamp to a COMPARE in the frames the player is not touching
+# the axis, without hiding the cost when they are. No `[init] zero`: scene
+# enter writes both steps before anything reads them (write-before-read by
+# construction, §4.5's second form) — the same contract shp_cam's dp claim
+# keeps.
+[[claims.dp]]
+name = "mb_bow"
+bytes = 6
+
+[init]
+# The bytes past each index table's terminator are never stamped, but the DMA
+# controller's terminator processing still fetches indirect-address bytes after
+# the $00 — real hardware reads them, so they must not be power-on garbage (the
+# uninit-read contract; mode7_persp's and shp_cam's arms open the same way for
+# the same reason).
+zero = ["mb_idx"]
+
+# C4 (docs/09 §2.1): the Mode 7 camera origin, CPU-written in the NMI HOOK
+# every frame (m7_barrel.asm, mb_commit_origin). $210D/$210E are M7HOFS/M7VOFS
+# but they are physically BG1HOFS/BG1VOFS — one port, one name — so a feature
+# wanting BG1 scroll in a Mode-1 band contends here instead of fighting
+# silently. NOT a seed: no HDMA claim in this scene drives these four, so there
+# is nothing to override the CPU value and `seed = true` would be a lie the
+# allocator refuses.
+[[claims.reg]]
+name = "mb_origin"
+registers = ["M7X", "M7Y", "BG1HOFS", "BG1VOFS"]
+
+# C4: the two matrix columns this rail does NOT stream. M7B and M7C are the
+# off-diagonal terms — `S(k)*sin(angle)` — and the angle is constant zero, so
+# both are zero on every scanline. Written ONCE under forced blank at enter
+# (m7_barrel.asm, mb_arm) rather than streamed, which is what buys the mode-2
+# transfer shape above. Declared because they configure the Mode 7 mode and
+# another feature could want them: a rail that composes m7_barrel and then
+# rotates would find the contention here rather than in the picture.
+[[claims.reg]]
+name = "mb_offdiag"
+registers = ["M7B", "M7C"]

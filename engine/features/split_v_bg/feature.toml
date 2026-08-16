@@ -1,0 +1,146 @@
+# split_v_bg — the seamless vertical dual-camera stage. Scene-scoped.
+#
+# WHAT THE MECHANISM IS. Two cameras onto ONE stage, clipped to opposite halves
+# of the screen by PPU window 1: BG1 scrolled to camera A shows LEFT of the
+# seam, BG2 scrolled to camera B shows RIGHT of it. At zero divergence the two
+# halves are pixel-identical, so the ever-present seam is invisible and the
+# split "opens" continuously out of a single view. A beveled bar on BG3,
+# revealed only inside window 2 (a band of half-width `hw` about the seam),
+# marks the divide once the halves part; its width ramps from zero so it steals
+# no screen at merge.
+#
+# ONE COPY OF THE STAGE, NOT TWO. The obvious reading of a two-camera split is
+# that the stage's CHR + tilemap must be duplicated into BG1's and BG2's VRAM
+# regions. It does not: BG2SC points at BG1's tilemap and BG12NBA at BG1's
+# CHR, both written under forced blank, so both layers render the same bytes
+# at different scroll offsets. The comment is secondary; the code is primary
+# (CLAUDE.md). Hence ONE chr claim and ONE tilemap claim below -- believing the
+# header would have doubled both for nothing.
+#
+# LAYER OWNERSHIP. This feature owns BG1, BG2 AND BG3 in the fight
+# scene. BG layers cannot be split across features: BG12NBA/BG34NBA are
+# write-only ports with one owner per scene, so the feature that owns the
+# scene's display owns all of it. Room_bg already pays this for two layers;
+# this is the same statement for three.
+#
+# TWO BUILT FEATURES ARE EXCLUDED BY THAT OWNERSHIP, not by preference:
+#  * window_iris claims W12SEL, WOBJSEL and TMW -- the exact registers the
+#  split programs. It is the mechanism's NEIGHBOUR, not its shape, and a
+#  scene cannot compose both. The allocator will say so if anyone tries.
+#  * bg_text claims BG3SC/BG34NBA/BG3HOFS/BG3VOFS, and BG3 here IS the
+#  divider. The fight scene therefore has no text -- which matches the rail,
+#  whose HUD is the picture itself.
+# And a scene with a BG feature cannot compose `backdrop`, so this
+# feature claims CGRAM word 0 (the sky the transparent tiles show through) as
+# part of the same statement it makes about the scene's base display.
+#
+# NO HDMA, NO CHANNEL CLAIM. A straight moving seam is three CPU writes a frame
+# (WH0, WH2, WH3) into engine shadows the NMI commits. A SHAPED seam would
+# need a per-scanline HDMA variant on 3 channels; this rail never draws one,
+# so declaring a channel here would reserve bandwidth nothing spends.
+name = "split_v_bg"
+role = "feature"
+depends = ["split_v_rom"]
+
+# Enter-time uploads: stage CHR, the shared tilemap, the bevel CHR, palettes.
+# Phase forced_blank -- scene_mgr's enter clears HDMAEN and zeroes NMITIMEN, so
+# this cannot race an active or vblank claim even on a shared channel number.
+[[claims.dma_init]]
+name = "sv_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# The shadow the VBlank commit reads. The game's director writes these; the NMI
+# hook derives cam A, cam B AND the divider band from them in one place, so the
+# three cannot disagree about where the seam is (platformer_bg's "both layers
+# from one shadow" discipline). They live ON THE FEATURE rather than in the
+# game's user state because the commit routine is the feature's, and a feature
+# reading the game's `[scene.*]` block would invert the dependency.
+[[claims.dp]]
+name = "sv_mid"
+bytes = 2                # shared viewpoint: (fx1+fx2)/2 - 128
+
+[[claims.dp]]
+name = "sv_spread"
+bytes = 2                # integer camera divergence, px (0..SPREAD_MAX)
+
+[[claims.vram]]
+name = "stage_chr"
+kind = "chr"
+tiles = 9
+tile_bytes = 32          # 4bpp
+
+[[claims.vram]]
+name = "stage_map"
+kind = "tilemap"
+words = 0x400            # 32x32; BGnSC bases are 0x400-word granular.
+                         # BG1SC and BG2SC BOTH point here -- see the header.
+
+[[claims.vram]]
+name = "bevel_chr"
+kind = "chr"
+tiles = 2
+tile_bytes = 32
+
+[[claims.vram]]
+name = "bevel_map"
+kind = "tilemap"
+words = 0x400            # BG3's own tilemap: a column of bevel tiles at the
+                         # seam. BG3 needs its own map even though the bar is
+                         # revealed by the window, because BGnSC is per-layer.
+
+# PALETTES, and why the stage claim is 8 words rather than the usual 16. A 4bpp
+# BG sub-palette is 16 CGRAM words by hardware contract, and room_bg
+# deliberately claims all 16 so the region has one owner. That is not available
+# here: BG3 is 2bpp in Mode 1 and its palettes live in words 0..31, four words
+# each, so the bevel's palette 2 IS words 8..11 -- inside BG palette 0's 16.
+# The stage genuinely uses only indices 0..7, so the honest split is 0..7 to
+# the stage and 8..11 to the bevel. Claiming 16 here would be a false statement
+# that the allocator would then enforce against the bevel.
+[[claims.cgram]]
+name = "stage_pal"
+words = 8
+at = 0                   # includes word 0: the sky backdrop the transparent
+                         # tiles show through (no `backdrop` feature
+                         # to own it, so the BG feature does)
+
+[[claims.cgram]]
+name = "bevel_pal"
+words = 4
+at = 8                   # BG3 2bpp palette 2 = words 8..11
+
+# C4 (docs/09 §2.1): the three-layer configuration, the scene's base display
+# mode, and the whole window recipe.
+#
+# The window registers are the SUBJECT of this rail, so they are named here
+# rather than left to a generic windowing feature:
+#  WH0/WH1 window 1 edges = [seam, 255] -- the half-split
+#  WH2/WH3 window 2 edges = [seam-hw, seam+hw] -- the divider band
+#  W12SEL BG1 win1-inside (hidden right of seam) + BG2 win1-outside
+#  W34SEL BG3 win2-inside -- the bar shows ONLY in the band
+#  WBGLOG all-OR, so win1 and win2 combine
+#  TMW main-screen window mask for BG1|BG2|BG3
+#  WOBJSEL optional OBJ clip to the left half at the seam
+#
+# ATTRIBUTION. BGMODE and TM are written by the scene's enter code, not by
+# split_v_bg.asm, so they are the scene_writes list -- same shape as room_bg,
+# and the lies-check compares per REGISTER because the opened set and the
+# owner-written set are disjoint.
+[[claims.reg]]
+name = "sv_layers"
+registers = ["BG1SC", "BG2SC", "BG3SC", "BG12NBA", "BG34NBA",
+             "BG1HOFS", "BG1VOFS", "BG2HOFS", "BG2VOFS",
+             "BG3HOFS", "BG3VOFS",
+             "WH0", "WH1", "WH2", "WH3",
+             "W12SEL", "W34SEL", "WBGLOG", "TMW", "TSW", "WOBJSEL",
+             "BGMODE", "TM"]
+scene_writes = ["BGMODE", "TM", "TMW"]
+# TMW is written by the feature's own sv_window_arm AND by the scene: the
+# -DSV_NOWIN reference arm disarms window masking entirely, and `exit` disarms
+# it so a single-scene rail still cannot leave a mask over a screen it no
+# longer owns. Two writers by design, so it is declared SHARED rather than
+# handed over: the shared list QUALIFIES the permission rather than granting
+# it, so TMW appears in both -- scene_writes to permit the scene's write, and
+# scene_writes_shared to say the owner writes it too.
+scene_writes_shared = ["TMW"]

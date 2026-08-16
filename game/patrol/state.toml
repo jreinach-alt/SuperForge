@@ -1,0 +1,43 @@
+# patrol user game state.
+#
+# All `@dp`, all scene-scoped: `play` is the only scene and every word is on
+# the frame path — player pos/physics exactly as jumper, two enemies, shared
+# patrol scratch, a hits counter.
+#
+# NO [global] SECTION: game-lifetime state is what survives a scene
+# transition, and this rail has none (game.toml).
+
+[scene.play]
+# --- player ------------------------------------------------------------------
+px = "u16@dp"            # player x, pixels, top-left of the 8x8 box
+pyf = "u16@dp"           # player y, 8.8 fixed (high byte = the draw pixel)
+vy = "u16@dp"            # signed 8.8 vertical velocity (negative = up)
+newy = "u16@dp"          # physics scratch: tentative pixel y for the probe
+grounded = "u16@dp"      # 1 = standing (the physics step owns it)
+pyi = "u16@dp"           # the integer draw pixel of pyf (derived per frame)
+newx = "u16@dp"          # tentative x for the per-axis move-check
+
+# --- enemies (E1 ground beat, E2 platform beat) + shared patrol scratch -----
+e1x = "u16@dp"           # ground enemy x (its y is the constant beat row 200)
+e1dir = "u16@dp"         # 0 = walking left, 1 = walking right
+e2x = "u16@dp"           # platform enemy x (its y is the constant 152)
+e2dir = "u16@dp"
+pnewx = "u16@dp"         # patrol scratch: the tentative x — shared between
+pleadx = "u16@dp"        #   both enemies, consumed within each step
+pfooty = "u16@dp"
+
+# --- the solid-box probe's input pair (m7_dungeon's US_PROBEX/Y shape) ------
+# pat_solid_box reads the box top-left from here; every caller writes both
+# first (write-before-read by construction — the cm_hot argument).
+probex = "u16@dp"
+probey = "u16@dp"
+
+# --- the HUD ----------------------------------------------------------------
+hits = "u16@dp"          # PACKED BCD, +$0001 per contact — so bg_text's
+                         # text_queue_hex4 nibble walk prints four DECIMAL
+                         # digits (hud_game makes the same call)
+dirty = "u16@dp"         # HUD reprint request: bit 0 = the hits cells. Set
+                         # only on the frame the value changed; an idle frame
+                         # stages nothing and VRAM is not rewritten.
+frames = "u16@dp"        # frames since enter. Drives nothing — the
+                         # free-running heartbeat (breaker's blink convention)

@@ -1,0 +1,66 @@
+# m7_affine — the reusable STATIC-affine Mode 7 matrix. Global (not
+# scene-scoped).
+#
+# WHAT THIS IS. One uniform affine matrix per frame, driven by a single byte of
+# heading, committed from a DP shadow inside the NMI hook. That is the cheapest
+# Mode 7 shape there is: no HDMA channel, no per-scanline table, no runtime
+# trigonometry and no multiply. Several rails reuse it, which is why it lives
+# here rather than inside the dungeon rail's own dirs.
+#
+# NOT THE SAME MECHANISM AS mode7_persp, AND THE ALLOCATOR SAYS SO. Mode7_persp
+# streams M7A-M7D from two INDIRECT HDMA channels for a per-scanline
+# perspective; this feature CPU-writes those same four registers once per
+# VBlank. A scene composing both is refused by check_reg_ownership's reg x hdma
+# check -- correctly, because they are two different mechanisms for one set of
+# registers, not two users of one mechanism.
+#
+# WHY A TABLE AND NOT A SOLVE. At a fixed scale the matrix is a pure function
+# of one byte, so it has exactly 256 possible answers. Solving it costs a
+# `sincos` LUT read plus two signed 16x16 multiplies EVERY FRAME to recompute
+# one of them. Tools/gen_m7_affine_lut.py tabulates all 256 at build time and
+# is proven bit-identical to that runtime solve at every heading
+# (tests/test_m7_affine_lut.py). 2,048 B of ROM buys
+# away all of the arithmetic.
+#
+# WHY THE COMMIT IS IN THE NMI HOOK. Writing M7A-M7D straight from the main
+# thread mid-loop looks fine while the loop is short — the writes happen to
+# land before scanline 0 — but nothing makes that true, and the tearing
+# arrives the day the loop grows. Here the main thread writes a DP SHADOW
+# and the NMI hook commits it, which is SuperForge's established idiom
+# (mode7_persp::persp_commit_origin, scene_mgr's INIDISP commit) and is
+# strictly safer at no cost.
+name = "m7_affine"
+role = "feature"
+
+# The 256-entry matrix table. A `rom` claim, so it is GLOBAL by construction:
+# the allocator packs a ROM window once for the whole composition.
+[[claims.rom]]
+name = "m7_lut"
+bytes = 2048             # 256 headings x 4 signed 1.7.8 words, order A,B,C,D
+
+# The shadow the NMI hook commits. Sixteen bytes, in the order the commit
+# writes them:
+#  +0 M7A +2 M7B +4 M7C +6 M7D the rotation, signed 1.7.8
+#  +8 M7X +10 M7Y the affine PIVOT, world px
+#  +12 BG1HOFS(=M7HOFS) +14 BG1VOFS(=M7VOFS) the screen origin
+#
+# NO `[init] zero`, deliberately. Every one of these sixteen bytes is written
+# by m7a_set_heading + m7a_set_center before the first NMI is ever armed (scene
+# enter runs under NMI-masked forced blank), so the write-before-read contract
+# is met by the code path rather than by a zero-fill. Rule 5: zeroing "to be
+# safe" would hide the day some future scene forgot to seed the shadow.
+[[claims.dp]]
+name = "m7aff"
+bytes = 16
+
+# C4 (docs/09 section 2.1): the whole static-affine register set, CPU-written
+# in the NMI HOOK every frame (m7_affine.asm, m7a_nmi_commit).
+#
+# $210D/$210E are named BG1HOFS/BG1VOFS because that is this build; in Mode 7
+# they ARE M7HOFS/M7VOFS -- one port, one name (schemas.py's comment, and
+# mode7_persp makes the identical declaration for the identical reason). A
+# feature wanting BG1 scroll in a Mode-1 band therefore contends here rather
+# than fighting silently.
+[[claims.reg]]
+name = "m7_matrix"
+registers = ["M7A", "M7B", "M7C", "M7D", "M7X", "M7Y", "BG1HOFS", "BG1VOFS"]

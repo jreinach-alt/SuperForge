@@ -1,0 +1,55 @@
+# m7_dungeon user state.
+#
+# The matrix shadow, the pivot and the screen origin are NOT here: they are
+# m7_affine's own `dp` claim, because the routine that reads them is that
+# feature's VBlank commit and a feature reading the game's `[scene.*]` block
+# would invert the dependency (split_v_bg makes the same split for the same
+# reason). What lives here is what the GAME owns — the hero, the cast's live
+# positions, and the director's latches.
+#
+# ALL @dp: every one of them is read or written
+# on the per-frame path (the physics, the four-corner footprint probe, the
+# patrol, the contact scan), and the scene has DP to spare — the allocator
+# reuses scene DP across scenes, and this game has one scene.
+#
+# NO [init]-style zero fill. `enter` writes every byte of every variable below
+# before anything reads one (rule 5), which is checkable by reading it: power-on
+# WRAM is random, and a zero fill "to be safe" would hide the day that stops
+# being true.
+[scene.dungeon]
+heading = "u16@dp"       # 0..255 = one full turn. Kept 16-bit because the tick
+                         # increments it in A16 and m7a_set_heading masks to 8
+                         # bits itself, so the accumulator never needs narrowing.
+
+# --- the hero -------------------------------------------------------------
+posx = "u32@dp"          # world x, 16.16: +0 fraction, +2 integer px. The
+posy = "u32@dp"          #   fraction is what lets a sub-pixel speed move at all
+speed = "u16@dp"         # SIGNED 8.8 px/frame. B/UP accelerates forward, Y/DOWN
+                         #   reverses, release coasts toward 0.
+
+# --- one frame's motion, and the candidate it proposes --------------------
+# Write-before-read within a single tick: the step is computed from the matrix
+# and the speed, then move_x / move_y turn it into a candidate that collision
+# either commits or drops. Dead between frames — a call frame, not state.
+stepx = "u32@dp"         # this frame's x step, 16.16 (coeff x speed)
+stepy = "u32@dp"
+cand_fr = "u16@dp"       # the candidate's fraction word, committed on a clear axis
+cand_px = "u16@dp"       # the footprint CENTRE the four corners are taken from
+cand_py = "u16@dp"
+
+# --- the enemies ----------------------------------------------------------
+# LIVE positions, not the ROM seeds: they pace, so where they are is state.
+# Seeded from `enemy_world` at enter; obj_draw projects these, so the sprite and
+# the collision test cannot disagree about where an enemy is.
+ene_pos = "u16[6]@dp"    # INTERLEAVED (x, y) world px, one pair per enemy —
+                         #   the layout m7dg_obj's MDO_ENEMY_POS binding walks
+                         #   at stride 4, and the layout `enemy_world` already
+                         #   has in ROM, so seeding is a straight copy.
+ene_dir = "u16[3]@dp"    # signed +/-PATROL_SPEED along that enemy's pace axis
+idx = "u16@dp"           # the patrol / contact loop index
+
+# --- the director ---------------------------------------------------------
+hits = "u16@dp"          # hero-enemy contacts, the knockback counter
+grace = "u16@dp"         # post-respawn frames with contact suppressed
+paused = "u16@dp"        # 0 running, 1 paused (START toggles it)
+prev_start = "u16@dp"    # last frame's START bit — pause is an EDGE, not a state

@@ -1,0 +1,104 @@
+# bs_obj — the boss fight's cast: the player ship, the attack rain, the HP HUD,
+# the player shots. Scene-scoped. Model: mo_obj (the same OAM disciplines) /
+# rs_obj (the same pools).
+#
+# STABLE OAM SLOTS ARE THE CONTRACT: the draw assigns fixed slots (0 player,
+# 1-8 attacks, 9-16 HP HUD, 17-20 shots) and dead pool slots are PARKED at
+# y=$F0 rather than skipped, so a test reads an actor by slot identity instead
+# of hunting OAM for something that looks right.
+#
+# TWENTY-ONE SPRITES, TWENTY-FOUR SLOTS. A hi-table byte covers four sprites;
+# slot 20 ends mid-byte, so the tail byte would carry two bits this feature
+# does not own. Claiming the three pad slots lets all SIX hi bytes be REBUILT
+# WHOLE every frame — mo_obj's ruling (its header carries the stale-X9 failure
+# mode), paid here with three parked slots.
+#
+# OBSEL IS CLAIMED HERE (breaker_obj/m7dg_obj/mo_obj precedent): oam_sprites is
+# the OAM transport, not the sprite size/base authority. Size pair 0 (8x8 /
+# 16x16): the player is the LARGE half, everything else small.
+name = "bs_obj"
+role = "consumer"
+depends = ["oam_sprites", "bs_rom", "pool"]
+
+# The enter-time CHR + palette upload path. Channel is declared; DAS re-armed
+# at the one arming site in bs_obj.asm (single-shot, per transfer).
+[[claims.dma_init]]
+name = "bs_obj_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# Per-frame draw scratch. A call frame, not state — every byte written before
+# read inside one draw pass, so no `[init] zero`.
+#  +0 the emitting OAM slot's shadow byte offset +2 screen x scratch
+#  +4 the hi-table field being built +6 tile/attr scratch
+[[claims.dp]]
+name = "bs_draw"
+bytes = 8
+
+# THE POOLS' STORAGE. One region, documented offsets in game/boss/boss.inc:
+#  +0x00 attacks alive[8] | x[8] | y[8] | vx[8] | vy[8] (80 B)
+#  +0x50 shots alive[4] | x[4] | y[4] (24 B)
+# The arrays live here and not in state.toml because POOL_BIND takes a 24-bit
+# CONSTANT base, so the alive arrays must be one emitted _LONG symbol plus a
+# compile-time offset (mo_obj's reasoning, rs_obj's before it).
+#
+# NO `[init] zero`: battle_init pool_init's both alive arrays and spawn writes
+# the parallel fields before any read (rule 5 — a pre-zero would hide a "the
+# init stopped running" defect behind a plausible answer).
+[[claims.wram]]
+name = "bs_actors"
+bytes = 104
+
+# 32 tiles = two 16-wide OBJ rows = 1024 B = 512 words. The Mode 7 claim pins
+# words $0000-$3FFF and the allocator floors OBJ CHR above it; the emitted
+# ES_V_OBJ_CHR_OBSEL_BASE is what bs_obj.asm writes into OBSEL.
+[[claims.vram]]
+name = "obj_chr"
+kind = "chr"
+obj = true
+words = 512
+
+# One OBJ palette for the whole cast — the sheet is authored to a single
+# 16-colour ramp, so a second palette would buy nothing.
+# OBJ palette 0 = CGRAM 128..143, a hardware contract.
+[[claims.cgram]]
+name = "sprite_pal"
+words = 16
+at = 128
+
+# THE SLOT MAP IS PINNED, NOT PACKED (OamClaim.at: index order IS priority and
+# a packed layout's priority is an accident of claim names). Priority here is
+# assigned by what must stay readable: the player in front, the rain over the
+# HUD's band, the HUD over the boss face, shots behind everything that could
+# occlude a read.
+[[claims.oam]]
+name = "player"
+sprites = 1
+at = 0
+
+[[claims.oam]]
+name = "attacks"
+sprites = 8
+at = 1
+
+[[claims.oam]]
+name = "hud"
+sprites = 8
+at = 9
+
+[[claims.oam]]
+name = "shots"
+sprites = 4
+at = 17
+
+# The three pad slots that complete hi byte 5 (slots 20..23), parked for the
+# ROM's life so the byte has one owner and is rebuilt whole.
+[[claims.oam]]
+name = "hi_pad"
+sprites = 3
+at = 21
+
+[[claims.reg]]
+name = "obj_obsel"
+registers = ["OBSEL"]

@@ -1,0 +1,19 @@
+# split_v_seamtrial user state.
+#
+# `mid` and `spread` are NOT here -- they are split_v_bg's own dp claims,
+# because the routine that reads them is the feature's VBlank commit. What
+# lives here is what the rail's DIRECTOR owns, and it is the whole of it: the
+# sweep's fractional accumulator and which way it is going.
+#
+# This is the entire delta against split_v_fight's state.toml, which carries
+# four cells (two fighter positions, the ease accumulator and a crossover
+# latch). Two cells drive the same mechanism because the trial's `spread` is a
+# function of the frame count rather than of anything on screen.
+[scene.trial]
+spreadf = "u16@dp"       # the sweep accumulator, 8.8. The integer part is what
+                         # reaches split_v_bg; the fraction is what makes the
+                         # divergence smooth rather than stepping a pixel at a
+                         # time (SPR_STEP is 0.75 px/frame).
+sdir    = "u16@dp"       # 0 = opening (spread growing), 1 = closing. The
+                         # triangle's phase, latched at each end so the sweep
+                         # is a state machine rather than a modulo.

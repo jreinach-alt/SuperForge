@@ -1,0 +1,143 @@
+# sh2_obj — the split_h_2p rail's cast: world-fixed markers standing on the two
+# rotating floors. Scene-scoped. Model: m7dg_obj / split_v_obj /
+# platformer_obj.
+#
+# THE SPLIT OF LABOUR, and it is the tree's established one. `m7_persp_project`
+# owns the MATH — the inverse transform, the LUTs, the cull order, the 8x8 dot
+# core — and answers one question per (marker, band): where on screen, at what
+# size, or culled. This feature owns everything the PPU sees: the OBJ character
+# block, the two palettes, OBSEL, the OAM slot range, and the per-band loop
+# that turns answers into shadow entries. That is exactly how `m7_project` and
+# `m7dg_obj` divide the same job on the dungeon rail.
+#
+# EVERY MARKER IS PROJECTED TWICE, ONCE PER BAND, AND THAT IS THE RAIL. The two
+# bands are two independent cameras over ONE world, so a marker inside both
+# views is drawn twice — at different rows, different sizes and different
+# screen x. Nothing about the projection is shared between the two passes
+# except the LUTs; the coefficients, the camera position and the band top are
+# re-staged per band.
+#
+# THE PALETTE IS THE BAND'S SIGNATURE, not decoration. Band 1's markers are
+# WHITE and band 2's are MAGENTA, so which camera produced a sprite is legible
+# in the PICTURE. That is what lets the seam claim be tested as pixels — "no
+# white below the seam, no magenta above it" — rather than as a slot-order
+# argument that would depend on the projector's own bookkeeping. The
+# `sh2_sp_culloff` control makes exactly that false.
+#
+# OAM SLOT COMPACTION. Visible markers take CONSECUTIVE slots from 0; a culled
+# one costs no store at all. The tail is parked only as far as the PREVIOUS
+# frame's watermark, so a frame that shows fewer markers than the last still
+# leaves no ghosts, and a frame that shows the same number pays nothing. The
+# shrink path is the one an only-ever-growing cast ships broken, which is why
+# the marker world is gated on the visible count both RISING and FALLING
+# (tools/gen_split_h_2p_assets.py, marker_world).
+name = "sh2_obj"
+role = "consumer"
+
+# oam_sprites for the shadow and its VBlank GP-DMA — CHECKED, not assumed:
+# that feature already claims the 544-B ES_OAM_SHADOW and the one declared
+# `OAMDATA` vblank transfer, parks every entry at boot, and commits the whole
+# table each armed frame. Nothing about a compacted cast needs a different
+# transport, so there is no sibling here — the ruling m7dg_floor took against
+# mode7_floor does not apply when the existing feature fits.
+#
+# `sh2_swarm`: the cast is not a world-fixed ROM blob but that feature's live
+# WRAM entity table and its live count, both of which obj_band reads every
+# frame. The split is deliberate — this feature knows nothing about waypoints,
+# pads or steering, and that one owns nothing the PPU can see.
+depends = ["oam_sprites", "m7_persp_project", "sh2_swarm", "sh2_sprite_rom",
+           "sh2_rom"]
+
+# The enter-time CHR upload: one DMA, 2,048 B, under forced blank. Channel 0 is
+# a declared resource shared with sh2_floor's own enter-time upload the same
+# way m7dg_obj shares it with m7dg_floor — both are `forced_blank` phase and
+# run in sequence from the scene's enter, where scene_mgr has cleared HDMAEN.
+# DAS is re-armed at the one arming site because it is consumed by the
+# transfer.
+[[claims.dma_init]]
+name = "sho_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# 1,024 words = 64 OBJ names = the whole block the base points at. The base is
+# not written here and cannot be: sh2_floor's `mode7` claim pins words
+# $0000-$3FFF and the allocator floors every OBJ CHR claim above it (substrate
+# [vram.mode7] displaces_obj_chr_to_word). The emitted ES_V_OBJ_CHR_OBSEL_BASE
+# is what the ASM ORs into OBSEL.
+[[claims.vram]]
+name = "obj_chr"
+kind = "chr"
+obj = true
+words = 1024
+
+# Two OBJ palettes at the hardware's own indices. Only entry 1 of each is drawn
+# (the tokens are colour index 1 only), but a palette is 16 CGRAM words by
+# hardware contract and claiming the used entry alone would leave fifteen with
+# no owner.
+[[claims.cgram]]
+name = "band1_pal"
+words = 16
+at = 128                 # OBJ palette 0 — band 1's markers, white
+
+[[claims.cgram]]
+name = "band2_pal"
+words = 16
+at = 144                 # OBJ palette 1 — band 2's markers, magenta
+
+# THIRTY-TWO SLOTS, PINNED AT 0, AND THE NUMBER IS CHECKED AGAINST THE CAST.
+# The generator walks four laps of the rail's complete 256-state camera cycle
+# with the AI running, takes the PEAK concurrent visible count over both bands
+# — 16 for the shipped 24-entity swarm — and REFUSES to emit a world whose peak
+# exceeds this claim. The Makefile passes the number in from here, so the claim
+# is the authority and the asset gate is what enforces it rather than a comment
+# agreeing with one. Pinned at 0 because OAM index order IS sprite-vs-sprite
+# priority and a packed range's position would be an accident of the (-sprites,
+# name) sort; this is the only cast on the rail, so it takes the front.
+#
+# A MULTIPLE OF FOUR, DELIBERATELY. One hi-table BYTE covers four sprites (two
+# bits each: X9 and size), so a range ending mid-byte could only be
+# read-modify-WRITTEN against bits belonging to somebody else. 32 slots is
+# exactly eight whole hi-table bytes, which is what lets the loop REBUILD them
+# rather than patch them — and a stale X9 is a sprite 256 px from where it
+# belongs, which on this rail is not hypothetical: a marker straddling the left
+# edge of a view has screen x < 0 every time.
+[[claims.oam]]
+name = "sho_cast"
+sprites = 32
+at = 0
+
+# C4 (docs/09 §2.1): the OBJ size pair and name base. Oam_sprites claims only
+# OAMDATA — it is the OAM TRANSPORT, not the sprite size/base authority — so
+# every rail's OBJ feature declares OBSEL itself (breaker_obj, platformer_obj,
+# split_v_obj, m7dg_obj). Written once by this feature's own obj_arm under
+# forced blank, which is why there is no `scene_writes` and no `seed`.
+[[claims.reg]]
+name = "sho_obsel"
+registers = ["OBSEL"]
+
+# The cast's own bookkeeping. DP because the compaction cursor is read and
+# written once per VISIBLE marker inside the band loop, and the loop is the
+# whole per-frame cost of the feature.
+#
+#  +0 slot the compaction cursor: BYTE offset into the OAM shadow's low
+#  table, 0..128. Not a slot index — the stores are indexed and
+#  ldx has no long mode, so the byte offset is the useful form.
+#  +2 water the PREVIOUS frame's final cursor. The tail park runs
+#  [slot, water) and nothing further, which is what makes a
+#  shrinking cast cost one store per vanished sprite instead of
+#  a full-table park.
+#  +4 ment the marker's byte offset in the ROM table (i * 4)
+#  +6 mcnt markers left in this band's pass
+#  +8 half the tier's half box size (8 / 16) — the OAM (x,y) is the
+#  token's CENTRE minus this
+#  +10 tile the tier's CHR name
+#  +12 attr the band's OAM attribute byte (priority + palette)
+#  +14 bits the 9-bit OAM x, then the hi-table X9/size pair
+#  +16 w0 OAM word 0 under construction
+#
+# NO `[init] zero`: `water` is the one byte that must survive between frames
+# and obj_arm writes it before the first projection reads it (rule 5).
+[[claims.dp]]
+name = "sho"
+bytes = 18

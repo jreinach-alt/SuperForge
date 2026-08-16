@@ -1,0 +1,57 @@
+# boss user state. The matrix shadow is m7_affine's dp
+# claim; the track pointer is m7_track's; the pool arrays are bs_obj's
+# bs_actors wram claim (POOL_BIND needs a constant base — that feature.toml
+# carries the reasoning). What lives here is what the GAME owns: the state
+# machine, the combat counters, and the draw/update cursors.
+#
+# NO [init] zero. battle_init writes every persistent variable below before
+# the first NMI is armed and re-writes them on every loop RESET; the per-frame
+# scratch is written before read inside one tick (rule 5 — a zero fill would
+# hide the day that stops being true).
+[scene.arena]
+
+# --- the state machine -----------------------------------------------------
+b_state = "u16@dp"       # ST_* index (boss.inc). Eight states plus ST_DYING —
+                         #   the ring-capture beat inserted between FIGHT and
+                         #   DEATH so the baked death track's start angle is
+                         #   reached without a snap.
+b_timer = "u16@dp"       # per-state frame countdown (REVEAL/HOLD/DEATH/LOSE/
+                         #   RESULT/RESET). ALSO the ramp cursor's complement:
+                         #   the track index is FRAMES - timer + 1, so the
+                         #   cursor needs no variable of its own and cannot
+                         #   disagree with the state's own clock.
+b_heading = "u16@dp"     # rotation heading, low byte 0..255 (one full turn).
+                         #   The ring tracks' index. Stepped +1 in HOLD, +1/+2/
+                         #   +3 by phase in FIGHT (the boss_phase schedule),
+                         #   +4 in DYING; frozen in LOSE/RESULT.
+b_hp = "u16@dp"          # boss HP, 0..BOSS_HP0 (240)
+b_phase = "u16@dp"       # 0..2 from HP thirds; drives spawn cadence + spin
+b_vuln = "u16@dp"        # 1 = player shots damage the boss (FIGHT only)
+b_result = "u16@dp"      # 0 none / 1 win / 2 lose — set at DEATH/LOSE exit
+
+# --- the player ------------------------------------------------------------
+p_x = "u16@dp"           # screen x, clamped 8..232; y is the constant PLAYER_Y
+p_hp = "u16@dp"          # 0..3
+p_iframe = "u16@dp"      # invulnerability frames after a hit (30); also the
+                         #   hit-flash blink phase (FRAME parity picks the
+                         #   flash tile)
+
+# --- combat pacing ---------------------------------------------------------
+spawn_timer = "u16@dp"   # attack-rain cadence countdown (36/26/18 by phase)
+fire_timer = "u16@dp"    # player shot cadence countdown (8 between shots)
+rng = "u16@dp"           # 16-bit xorshift state, seeded non-zero by init, so
+                         #   the attack spread is a deterministic closed
+                         #   sequence
+
+# --- per-frame cursors and scratch (write-before-read inside one tick) -----
+ui = "u16@dp"            # update-loop pool cursor (byte offset), shots+attacks
+di = "u16@dp"            # draw-loop pool cursor (byte offset)
+hud_x = "u16@dp"         # HP-HUD segment x cursor
+hud_thr = "u16@dp"       # HP-HUD segment threshold accumulator
+scr = "u16@dp"           # one-word scratch (the player tile pick, the capture
+                         #   distance test)
+frame = "u16@dp"         # free-running frame counter; read ONLY for its
+                         #   parity classes (the iframe blink). Persistent, so
+                         #   the scene's `enter` seeds it ONCE (rule 5) —
+                         #   deliberately not battle_init, which re-runs on
+                         #   every loop RESET

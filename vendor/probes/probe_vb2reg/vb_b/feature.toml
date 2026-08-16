@@ -1,0 +1,65 @@
+# vb_b — second VBlank VMDATAL consumer (the composition the relaxation
+# exists for), PLUS the active-phase COLDATA channel pinned to channel 0 so
+# the first VBlank claim's GP-DMA provably time-shares a live HDMA channel's
+# $43xx register file (the scene_mgr re-arm discipline, minimally mirrored).
+name = "vb_b"
+role = "fixture"
+
+[[claims.vram]]
+name = "targ_b"
+kind = "raw"
+words = 256
+
+# mode 1 = 2-reg write-once: drives $2118 AND $2119, so both ports are named.
+# See vb_a/feature.toml for why naming only one port was wrong.
+[[claims.hdma]]
+name = "vbb"
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+band = "scene"
+phase = "vblank"
+
+# vbc's DMAP is picked at RUNTIME from tab_cfg (probe_vb2reg.asm:301-311) so the
+# host can walk the HDMA table-structure matrix on one channel; the five
+# structures use DMAP $02, $40, $00, $02, $02 — modes 2, 0, 0, 2, 2. Every one
+# of those is span 1, so the declared footprint (COLDATA, $2132 alone) is
+# accurate for all five, which is why `mode` stays omitted here rather than
+# naming one of them: no single mode describes this claim, and the thing the
+# allocator needs to know — the set of ports driven — is the same either way.
+[[claims.hdma]]
+name = "vbc"
+registers = ["COLDATA"]
+band = "scene"
+phase = "active"
+channel = 0
+
+# probe_vb2reg.asm:238-241 seeds all three COLDATA planes to 0 at boot,
+# because the band table only ever drives R and B. That store used to reach
+# the gate through `covered` -- $2132 is a port `vbc` names -- and item 5
+# narrows that arm: an in-class port a transfer claim covers is kept only if
+# the SAME feature opens it on a [[claims.reg]] and lists it in scene_writes.
+# So the write needs a declaration, and this is it.
+#
+# THREE things about its shape are forced, not stylistic:
+#  - `seed` is required. Without it the allocator refuses (rule 3: a reg
+#    claim on a port an hdma claim already drives is the collision the class
+#    exists to catch, unless the reg write is declared a BASE VALUE the hdma
+#    claim overrides -- which is exactly what :238-241 is).
+#  - it must be a SEPARATE claim, not "COLDATA" added to vb_a's
+#    vb2reg_display. `seed` is claim-level (schemas.py) and rule 3's honesty
+#    check is per-claim (allocate.py), so seeding vb2reg_display would assert
+#    an overrider for INIDISP, TM, NMITIMEN, CGDATA, CGWSEL and CGADSUB too --
+# a declaration that lies, inside the work item whose lies-check exists to
+#    catch exactly that. (Folding it in WITHOUT `seed` is refused outright.)
+#  - it lives on vb_b, not vb_a: the narrowed `covered` rule asks whether the
+#    same feature that COVERS the register opens it, and vb_b is the one
+#    holding `vbc`.
+[[claims.reg]]
+name = "vb2reg_coldata"
+registers = ["COLDATA"]
+seed = true                     # vb_b's own `vbc` hdma claim is the overrider
+scene_writes = ["COLDATA"]      # probe_vb2reg.asm:241
+
+[claims.dma]
+vblank_bytes_per_frame = 512
+vblank_transfers_per_frame = 1

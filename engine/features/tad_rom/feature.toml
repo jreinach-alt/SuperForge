@@ -1,0 +1,56 @@
+# tad_rom — the tad-compiler ca65-export blob.
+#
+# ONE blob dir, because the export is ONE artifact: loader (offset 0, 116 B),
+# SPC700 driver (offset 116), data table and audio data are offsets into a
+# single .incbin (assets/audio/export/tad_audio_data.bin), exported as
+# Tad_Loader_Bin / Tad_AudioDriver_Bin / Tad_DataTable by the generated
+# .asm beside it. Three dirs would invent a decomposition the artifact does
+# not have.
+#
+# WHOLE-WINDOW claim on purpose, and it is PINNED to window 1 — which the
+# paragraph below used to say it did not need to be, and that was wrong.
+#
+# The generated export asserts its segment starts at a LoROM bank start
+# (`.loword(*) = $8000`, lderror), so alignment really is guaranteed by
+# arithmetic for a 32,768-byte claim. WHICH bank is not: vendor/rom's
+# lorom_512k.cfg maps segment AUDIO_DATA0 to ROM1 BY NAME, so the export
+# physically is window 1, and the allocator agreed with that only because
+# `tad_export` happened to be the largest claim in every composition — nothing
+# said so. `sh2_map` is the first rail with a SECOND whole-window claim: it
+# ties at 32,768 B, sorts ahead by name, takes window 1, and the link then
+# overflows BANK1 by this blob's 8,450 bytes. A tie-break was deciding a
+# hardware placement. `window = 1` states the constraint the cfg already
+# imposes, and the allocator now solves around it instead of racing it.
+# Verified byte-neutral: every rail's ROM md5 is unchanged, because
+# largest-first was already putting it here. The tail slack absorbs content
+# growth; if the export ever spills into AUDIO_DATA1 the link fails loudly (no
+# such segment) and the claim grows to 65536 — NOTE for that day:
+# LoadAudioData's bank arithmetic assumes AUDIO_DATA1 is the ADJACENT next
+# bank, so a two-window claim must land in adjacent windows.
+#
+# dma_source = false: the blob is read by CPU long addressing and the
+# byte-at-a-time loader handshake only — no GP-DMA ever sources it.
+name = "tad_rom"
+role = "blob"
+
+# backed_by: the rom-backing gate's declared exemption (docs/37 §3, case 1).
+# This is the ONE claim in the tree whose bytes do not come from a
+# hand-authored
+# .incbin the no_literals scope reads. The generated export is a SEPARATE ca65
+# compilation unit ($(BUILD)/*_tad_data.o) that is deliberately outside that
+# scope, and its claim site is a LINKER segment rather than an ES_R_* assert —
+# so the gate's default rule (find an .incbin tied to my symbol) cannot see it
+# and would refuse a claim that is in fact backed.
+[[claims.rom]]
+name = "tad_export"
+bytes = 32768
+dma_source = false
+window = 1               # the cfg's AUDIO_DATA0 -> ROM1, stated as a claim
+backed_by = """\
+assets/audio/export/tad_audio_data.asm:119 `.incbin "tad_audio_data.bin"` into \
+segment AUDIO_DATA0, mapped to ROM1 by vendor/rom/lorom_512k.cfg:53 and linked \
+as its own ca65 unit (Makefile: $(BUILD)/rm_tad_data.o, $(BUILD)/bk_tad_data.o). \
+Generated + vendored, so it is outside the no_literals scope by design \
+(Makefile:157). Its own `.assert .loword(*) = $8000, lderror` is the \
+placement check the ES_R_TAD_EXPORT_* asserts would otherwise be.\
+"""

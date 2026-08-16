@@ -1,0 +1,21 @@
+# reg-gate fixture (FIRES): a feature directory that is NOT under
+# `engine/features/`.
+#
+# The lies-check used to gate on the hardcoded path shape
+# parts[-4:-2] == ("engine", "features"), so a real feature dir anywhere else
+# was silently skipped -- `engine/toy/feat_a/` is one, with two `scene_writes`
+# declarations, and the skip was visible only as a smaller number in the
+# summary's validated count. The scope is now "the scanned file's own directory
+# holds a feature.toml", which is what the docstring always claimed.
+#
+# Both rules fire here, which is the compact way to show the whole check runs
+# off-path: MOSAIC is written by playtesting and not declared shared (rule 1),
+# and M7SEL is declared shared and written by nobody (rule 2).
+name = "rgfx_lies_offpath"
+role = "fixture"
+
+[[claims.reg]]
+name = "ro_mode"
+registers = ["MOSAIC", "M7SEL"]
+scene_writes = ["MOSAIC", "M7SEL"]
+scene_writes_shared = ["M7SEL"]

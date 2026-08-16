@@ -1,0 +1,46 @@
+# rpg_obj — the rpg rail's actors in OAM: the avatar, the overworld villager and
+# the town villager. Scene-scoped (both scenes compose it: unlike mode7_explore,
+# where the overworld avatar is pinned at the affine pivot and the interior
+# avatar walks, BOTH of this rail's scenes place a MOVING sprite from a tile
+# coordinate, so one routine serves both).
+name = "rpg_obj"
+role = "feature"
+depends = ["rpg_rom", "oam_sprites"]
+
+[[claims.dma_init]]
+name = "rpgo_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "obj_chr"
+kind = "chr"
+obj = true
+tiles = 64
+tile_bytes = 32          # 4bpp
+
+[[claims.cgram]]
+name = "obj_pal"
+words = 16
+at = 128                 # hardware contract: OBJ palettes are CGRAM 128..255;
+                         # palette 0 of the OBJ half is words 128..143
+
+[[claims.reg]]
+name = "rpgo_obsel"
+registers = ["OBSEL"]
+# NO `scene_writes`: rpgo_arm writes OBSEL itself (see rpg_floor for the rule).
+
+# The two actors, plus the rest of their hi-table quad. Four sprites for two,
+# for m7x_obj's reason: a hi-table BYTE covers four sprites (2 bits each: X9 and
+# size), so claiming the whole quad lets the draw REBUILD that byte from the
+# actors' own X rather than read-modify-write around slots it does not own.
+[[claims.oam]]
+name = "actors"
+sprites = 2
+at = 0
+
+[[claims.oam]]
+name = "hi_pad"
+sprites = 2
+at = 2

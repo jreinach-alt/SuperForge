@@ -1,0 +1,47 @@
+# rs_logic — the railshooter's rail driver: the autonomous S-curve, the bank,
+# the world-anchored reticle, fire, the obstacle field's approach/recycle, the
+# grow-only tier hysteresis, and the bullet x obstacle hit test. Scene-scoped
+# game logic.
+#
+# THE TWO AXES THAT MAKE THIS A RAIL SHOOTER RATHER THAN A RACER:
+#
+#  * DRIVER = rail, not input-throttle. The camera auto-advances forward at a
+#  constant speed every frame with no button held; `racer` coasts to a stop
+#  and this never stops.
+#  * The SHIP IS FIXED and ignores the pad; the RAIL swings it along a baked
+#  S-curve and the d-pad aims the world-anchored reticle. The
+#  pre-redesign strafe text said LEFT/RIGHT slid the camera across
+#  the world AND lean the ship on screen, instead of `racer`'s fixed-screen
+#  kart plus steering.
+#
+# The GAME state (camera x/y, the path odometer, ship screen x, lean frame,
+# bank, the respawn lane cursor) is declared as user state in
+# game/railshooter/state.toml -- rc_logic's split, taken again. This feature
+# claims only the kernel's transient scratch, which is engine-owned and never
+# user-visible.
+#
+# WHY NOT `rc_logic` OR `race_logic`. Both are velocity models over a collision
+# map: `race_logic` is microzero's brake-and-reverse with laps and sectors,
+# `rc_logic` is accelerate/coast-to-stop with an off-road drag term. This rail
+# has no throttle, no brake, no drag and no collision map at all -- forward
+# speed is a constant and the only player axis is lateral. What the three share
+# is the WORD "physics"; they share no kernel.
+name = "rs_logic"
+role = "game_logic"
+depends = ["pool", "rs_obj", "mode7_persp"]
+
+# The kernel's transient scratch. Every byte is a per-loop cursor or a value
+# live only across one nested scan, which is why it is one claim rather than
+# six and why there is no `[init] zero`.
+#
+#  +0 obs_off the actor pool's byte-offset cursor (0,2,4,...)
+#  +2 bul_off the tracer pool's byte-offset cursor
+#  +4 scratch0 a value held across one nested scan
+#  +6 scratch1 likewise
+#  +8 best_off the hitscan's current best (nearest) hazard offset
+#  +10 best_z ...and its depth, so "nearest wins" needs no second pass
+#  +12 arg_base the pool base the generic per-actor loops are running over
+#  +14 arg_n ...and its slot count
+[[claims.dp]]
+name = "rs_hot"
+bytes = 16

@@ -1,0 +1,22 @@
+# jumper user state.
+#
+# Every word is game state the scene owns, so it lives here rather than on a
+# feature: the physics is GAME-SIDE, and the routines that read and write these
+# words are all in scenes/sky.asm.
+#
+# `tent` holds the tentative 8.8 position. Carrying it on the STACK across the
+# two box probes instead would put a width-sensitive push/pull balance on the
+# audit list; a DP word says the same thing with none — the platformer's
+# US_NEWY made the same trade. `bx`/`by` are jr_solid_box's box-corner
+# operands: a subroutine needs named words where a macro would take operands.
+[scene.sky]
+px = "u16@dp"            # player x, pixels (the horizontal axis is the game's)
+pyf = "u16@dp"           # player y, 8.8 fixed — the physics owns this
+vy = "u16@dp"            # vertical velocity, signed 8.8 (negative = up)
+tent = "u16@dp"          # tentative 8.8 y, before the probe verdict
+pyi = "u16@dp"           # draw-pixel mirror of pyf's high byte
+newx = "u16@dp"          # horizontal move-check scratch
+bx = "u16@dp"            # jr_solid_box in: box top-left x
+by = "u16@dp"            # jr_solid_box in: box top-left y
+grounded = "u16@dp"      # 1 = standing (physics owns this; the jump gates on it)
+frames = "u16@dp"        # frames since enter — the free-running heartbeat

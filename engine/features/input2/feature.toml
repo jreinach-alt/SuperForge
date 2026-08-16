@@ -1,0 +1,31 @@
+# input2 — auto-joypad pad 2 with edge detection (global feature).
+#
+# The docs/09 §5 "cheapest row": a second dp triple, no new class, no reg claim
+# (reads — pads 2-4 are delivered free by the automatic read into $421A+).
+# Kernel mirrors input's exactly.
+#
+# WHY A SIBLING DIR AND NOT THREE MORE CLAIMS ON `input`: `input` is a global
+# in BOTH games, and microzero is the measurement reference whose md5 is
+# pinned. Any new dp claim on `input` re-packs microzero's DP map and any
+# kernel edit changes its code — measured: one 2-byte claim moved
+# microzero.sfc from e45ddea… to c618795…. A separate global feature keeps
+# pad 2 out of every composition that does not ask for it, which is the
+# allocator's own thesis. Folding these claims back onto `input` is a
+# one-commit move for anyone willing to re-pin microzero.
+name = "input2"
+role = "feature"
+
+[[claims.dp]]
+name = "inp2_cur"
+bytes = 2                # $421A/1B this frame
+
+[[claims.dp]]
+name = "inp2_prev"
+bytes = 2                # last frame's state
+
+[[claims.dp]]
+name = "inp2_press"
+bytes = 2                # cur & ~prev (new presses this frame)
+
+[init]
+zero = ["inp2_cur", "inp2_prev", "inp2_press"]

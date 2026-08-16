@@ -1,0 +1,37 @@
+# race_logic — the race scene's velocity physics + lap detection.
+#
+# The GAME state (heading, vel, sub-pixel accumulators, lap/sector/checkpoint)
+# is declared as user state in game/microzero/state.toml — this feature only
+# claims the kernel's DP scratch, which is engine-owned and never user-visible.
+# Physics constants come from the generated move_lut.inc (tools/gen_move_lut.py
+# is their single source of truth AND the tests' bit-exact oracle).
+name = "race_logic"
+role = "game_logic"
+depends = ["mode7_persp", "mode7_stream"]
+
+[[claims.dp]]
+name = "rl_hot"
+bytes = 16               # +0 mag +2 sign +4 acc +6 |vel| +8 vel_neg
+                         # +10 step +12 t (+14 spare) — the 16x16 magnitude
+                         # product needs scratch: the hardware multiplier is
+                         # 8x8, so the kernel decomposes and accumulates here
+
+[init]
+zero = ["rl_hot"]        # scratch is write-before-read within each kernel,
+                         # but the power-on contract costs 8 stores once
+
+# C4 (docs/09 §2.1): the hardware ALU, used on the MAIN THREAD
+# (race_logic.asm:243,260 -- $4202/$4203 then $4216). The sharp one, and the
+# reason the class is not phase-partitioned.
+#
+# ALU is ONE name covering $4202-$4206 + $4214-$4217 because Mesen2's
+# AluMulDiv.cpp holds a single _state that multiply and divide mutually
+# destroy: starting a multiply overwrites the divide result and vice versa, and
+# a write during an in-flight operation is SILENTLY DROPPED. So a hypothetical
+# NMI-side multiply would corrupt this in-flight one AND get garbage itself,
+# intermittently, timing-dependent. Nothing prevented one; now a second
+# claimant refuses the build. Note the four `nop`s below the write sites are
+# the 8 CPU cycles AluMulDiv counts down (_multCounter = 8).
+[[claims.reg]]
+name = "rl_alu"
+registers = ["ALU"]

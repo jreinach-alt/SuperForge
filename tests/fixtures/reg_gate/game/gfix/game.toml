@@ -1,0 +1,12 @@
+# reg-gate fixture game: one global (rgfx_glob is imaginary here — the map the
+# test supplies carries its reg claim by consumer, exactly as allocate.py
+# emits it), two scenes. Drives the scene-union and globals-union contexts.
+globals = ["rgfx_glob"]
+
+[[scene]]
+id = "s1"
+features = ["rgfx_scenef"]
+
+[[scene]]
+id = "s2"
+features = ["rgfx_scenef"]

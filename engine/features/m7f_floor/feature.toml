@@ -1,0 +1,206 @@
+# m7f_floor — the flight rail's Mode 7 overworld plane AND its sky band.
+# Scene-scoped.
+#
+# WHY NOT `mode7_floor` — the NINTH instance of a ruling `sau_floor`'s header
+# records as already having eight (m7dg_floor, rs_floor, sh2_floor, shm_floor,
+# m7x_floor, mo_floor, shp_floor, sau_floor). That feature is welded to
+# microzero: `depends = ["world_rom"]` drags in a 256 KB map this rail never
+# reads, it pins CGRAM 0..16 for MICROZERO's floor palette, and its
+# `m7_upload_seed` streams a position-wrapped 128x128 window out of a 512x512
+# world. This rail's map is a single flat 32,768 B interleaved blob uploaded
+# ONCE, and it carries a sky band besides. Sibling feature, not a
+# parameterisation.
+#
+# WHY THE SKY LIVES HERE AND NOT IN `sky_band`. `sky_band` is a BG2 texture
+# behind a Mode-1 HUD band and its own header records that it "Costs NO HDMA
+# channel" (sky_band/feature.toml:1-14) — a different mechanism entirely. Mode
+# 7 has ONE background, so there is no second layer to put a sky on: the split
+# turns BG1 OFF above the horizon and what shows through is the BACKDROP, i.e.
+# CGRAM word 0. One HDMA channel, two bands, a five-byte table.
+#
+# H2 LAYER IDENTITY: none arises. The sky is the absence of BG1, not a second
+# layer, so this feature claims one BG and the layer-identity question has no
+# subject here.
+name = "m7f_floor"
+role = "feature"
+depends = ["m7f_rom"]
+
+# The enter-time upload: ONE DMA for the whole interleaved blob. Mode 1 drives
+# VMDATAL then VMDATAH alternately, which IS the interleave — even source byte
+# to $2118 (tilemap), odd to $2119 (CHR) — so the blob streams straight in with
+# no unpacking and no second pass. Phase forced_blank: scene_mgr's enter clears
+# HDMAEN and zeroes NMITIMEN, so this cannot race an active or vblank claim
+# even on a shared channel number.
+[[claims.dma_init]]
+name = "m7f_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# The Mode 7 region is the fixed pinned 32 KB at words $0000-$3FFF — a hardware
+# address, not a packing decision, which is why `kind = "mode7"` takes neither
+# `words` nor `tiles`.
+[[claims.vram]]
+name = "m7"
+kind = "mode7"
+
+# HARDWARE CONTRACT: a Mode 7 8bpp pixel value IS an absolute CGRAM index, so
+# this palette can only live at 0. Sixteen words, and WORD 0 IS THE SKY — it is
+# simultaneously palette index 0 and the BACKDROP slot the TM split reveals
+# above the horizon. Tools/gen_m7f_assets.py asserts that no floor CHR byte is
+# 0, so the two readings of that slot can never disagree. A scene composing
+# `backdrop` alongside this must refuse the build — colour 0 has exactly one
+# owner.
+[[claims.cgram]]
+name = "m7f_pal"
+words = 16
+at = 0
+
+# --- the sky split ----------------------------------------------------------
+# Mode 0 is one-register-one-byte: each entry writes ONE byte to TM. The table
+# is [64, $10][1, $11][$00] — non-repeat counts, so "transfer the unit once,
+# then hold". Lines 0..63 get TM = OBJ only (BG1 off: the backdrop shows, and
+# the airship still draws over it); line 64 onward gets TM = BG1 + OBJ, which
+# is the floor. The write-twice latch is not involved — TM is a single-write
+# register and the terminator simply leaves the last value standing.
+[[claims.hdma]]
+name = "m7f_sky"
+registers = ["TM"]
+mode = 0
+band = "scene"
+phase = "active"
+channels = 1
+
+# Five bytes: [count, TM][count, TM][terminator]. WRAM rather than ROM because
+# `m7f_arm`'s zero-the-claim contract and this table's construction sit in the
+# same routine, and because a future day/night or HUD band would rewrite it.
+[[claims.wram]]
+name = "m7f_sky_tbl"
+bytes = 5
+
+# --- the sky ramp + horizon fog: rgb_gradient's CURSOR ----------------------
+# THREE INDIRECT HDMA HEADER TABLES, ten bytes each, plus the live day/night
+# snapshot's byte offset. The CHANNELS, the COLDATA planes, the colour-math
+# config and the DATA BLOB are all `rgb_gradient`'s — composed, not modified
+# (game.toml carries the five-game grep that puts it at engine tier). What
+# lives here is the CURSOR, and that division is the D5 contract shape this
+# rail already took from `m7_track` for its pose blob: consumer binds the blob,
+# consumer owns the cursor.
+#
+# WHY THE CURSOR HAS TO MOVE, and it is the one thing about this rail that
+# rgb_gradient could not have anticipated. Every other consumer of that feature
+# has a FIXED camera height, which its own generator states as the reason its
+# tables are static (`tools/gen_gradient.py`: "fixed camera height,
+# fixed geometry"). Here the horizon travels 40 scanlines with altitude
+#, so a table indexed by scanline would nail the fog to one
+# altitude's horizon: climb, and the white haze stays behind at scanline 64
+# while the floor's first row walks down to 104, leaving a fog band floating in
+# the middle of the sky and a hard un-hazed seam at the real horizon. So the
+# BLOB is indexed by distance from the horizon and these three tables re-point
+# into it every time the horizon moves — in VBlank, beside the TM split's own
+# re-anchor, from the one M7F_HORIZON both read.
+#
+# Ten bytes per plane is three entries and a terminator:
+#  [horizon - RAMP] -> the plane's zenith byte (non-repeat: HOLD it)
+#  [$80 | RAMP] -> the snapshot's sky ramp (a new byte per line)
+#  [$80 | FOG] -> the snapshot's fog fade (a new byte per line)
+#  [$00] terminator — and the fade's LAST byte is intensity 0, so
+#  the untinted floor below it costs no entry and no byte.
+#
+# NO `[init] zero`: `fog_arm` writes the offset and `fog_reanchor` writes all
+# thirty header bytes before the first VBlank arms a channel at them.
+[[claims.wram]]
+name = "m7f_fog"
+bytes = 32
+
+# --- the day/night clock ----------------------------------------------------
+# A 16-bit phase, advanced once per armed VBlank by a fixed rate. Its top two
+# bits select the time-of-day segment and `phase >> 10` indexes the table
+# below, so a step is 32 frames and a full cycle is 2,048 — 34.1 s.
+# Sixteen bits rather than eight because eight would make each step a single
+# frame: a whole day in about a second.
+#
+# THE STEP IS 32 FRAMES BECAUSE THE PROPELLER IS 16. The airship's two-state
+# flip repeats on a 16-frame cycle, so a shorter step would leave no window in
+# which two frames are byte-identical for any reason — and byte-identity across
+# a skipped frame is the compose gate's whole user-visible claim. Measured, not
+# reasoned: at a 16-frame step three identity cases failed on the propeller.
+#
+# NO `[init] zero`: `tod_arm` writes it at scene enter.
+[[claims.wram]]
+name = "m7f_clock"
+bytes = 4                # +0 the phase, +2 the palette row last written
+
+# --- the time-of-day tables: which ramp, and what the whole palette is ------
+# BAKED, and the reason is a claim rather than a preference: interpolating the
+# zenith at runtime needs a multiply, and the hardware multiplier is
+# `m7f_cam`'s `m7f_alu` claim — WHOLE, one owner per scene. So this feature
+# could not do the arithmetic even if it wanted to, and it should not want to:
+# the interpolation is a pure function of the generator's snapshot colours, and
+# that is where such functions live on this rail.
+#
+# The OFFSET column lags the zenith by half a segment, so the ROM ramp swaps
+# when the interpolated zenith is already halfway to the next snapshot — which
+# halves the step at the one place in the cycle a player could see one.
+[[claims.rom]]
+name = "m7f_tod"
+bytes = 128              # 64 steps x one word: the snapshot's byte offset
+
+# The SIXTEEN CGRAM words in force at each step — word 0 the sky's zenith,
+# 1..15 the floor scaled by that step's ambient. The floor is here because
+# colour math on this rail can only ADD (the sky and the floor share one global
+# subtract bit), so the COLDATA ramp can light the sky at dawn but can never
+# darken the ground at night. Without it the first render of the cycle put a
+# convincing night sky over a noon-bright landscape.
+#
+# 2 KB, and it buys a palette that is EXACT at every step rather than a runtime
+# scale the multiplier's owner would have to lend this feature.
+[[claims.rom]]
+name = "m7f_todpal"
+bytes = 4096             # 64 steps x 32 words (16 floor + OBJ palette 2)
+
+# --- the clouds' four OBJ colours -------------------------------------------
+# THE PALETTE IS THE ATMOSPHERE'S, THE SPRITES ARE m7f_obj'S, and the split is
+# not arbitrary: what colour a cloud is at 3 a.m. Is a fact about the time of
+# day, which is this feature's subject and this feature's clock. `tod_commit`
+# writes these four words in the same VBlank run it writes the floor's sixteen.
+# A white cloud over a night landscape is the same defect the floor had, one
+# layer up.
+#
+# The WHOLE OBJ palette, of which the cloud art uses four words and twelve are
+# black. The padding is load-bearing rather than lazy: `tod_commit` finds its
+# row with a shift and a mask, which is a division only when the row stride is
+# a power of two — a 20-word row silently served a neighbouring row's colours.
+[[claims.cgram]]
+name = "cloud_pal"
+words = 16
+at = 160                 # OBJ palette 2 = CGRAM 160..175
+
+# --- C4 (docs/09 §2.1): the scene's base display shape ----------------------
+# ATTRIBUTION. M7SEL is written by this feature's own `floor_arm` — it is a
+# Mode 7 register and Mode 7 is this feature's mechanism. BGMODE is written by
+# the scene's enter code (game/mode7_flight/scenes/sky.asm), which has no
+# feature.toml of its own, so it is attributed to the feature it SERVES and
+# opened through `scene_writes` — the shape room_bg, split_v_bg, m7dg_floor and
+# mo_floor all use.
+#
+# The lies-check compares per REGISTER rather than per claim, which is what
+# makes this work: the opened set (BGMODE) and the owner-written set (M7SEL)
+# are disjoint.
+[[claims.reg]]
+name = "m7f_display"
+registers = ["BGMODE", "M7SEL"]
+scene_writes = ["BGMODE"]
+
+# TM IS A SEED, and the distinction is the whole point of the class. The scene
+# writes it ONCE under forced blank to establish a base; the `m7f_sky` claim
+# above then drives it per band from line 0 onward. That is not a second owner.
+# `seed = true` says so, and it is self-checking in both directions:
+# check_reg_ownership refuses a `seed` with no overriding hdma claim in the
+# scene, and no_literals' declaration-that-lies check refuses a `scene_writes`
+# register this feature's own ASM also writes — m7f_floor.asm writes no TM.
+[[claims.reg]]
+name = "m7f_tm_seed"
+registers = ["TM"]
+seed = true
+scene_writes = ["TM"]

@@ -1,0 +1,70 @@
+# maze_bg — BG1: the walled room, rendered from the SAME bytes col_map probes.
+#
+# The keystone BG pattern. What is specific to this rail:
+#
+#  * THE TILEMAP IS RENDERED FROM THE mz_room BLOB, cell by cell, at scene
+#  enter — not uploaded as a baked VRAM-format map. The blob is col_map's
+#  world (maze_rom/feature.toml's header carries the single-source
+#  argument), and the render loop derives the picture from it, so the wall
+#  you see and the wall that blocks are one byte. The room is built
+#  cell-by-cell at enter, from the same byte map the generator authored it
+#  with — the map is the source and the picture is derived, never the other
+#  way round.
+#
+#  * SCROLL IS PINNED AT ENTER, room_bg's way (`room_bg.asm:154-163` — "a
+#  scene must not inherit whatever the previous one left in these latches"),
+#  not committed per-frame, scroller_bg's way: the room is one screen and
+#  does not scroll. The pin includes pfs_bg's measured VOFS -1 (scanline N
+#  shows tilemap line VOFS + N and the first active scanline is 1), so
+#  world y = screen y = OAM y and the wall-stop coordinates the tests
+#  assert are the same numbers in all three surfaces.
+#
+# The map authors palette group 0 and priority 0, so a tilemap word IS its tile
+# id (scroller_bg's property) — which is what lets the render loop write the
+# blob byte straight to VMDATA and lets a test compare the VRAM tilemap
+# word-for-byte against the blob.
+name = "maze_bg"
+role = "feature"
+depends = ["maze_rom"]
+
+# The enter-time CHR upload, word-port. Phase is forced_blank by class:
+# scene_mgr's enter clears HDMAEN and zeroes NMITIMEN, so it cannot race an
+# active- or vblank-phase claim on a shared channel number.
+[[claims.dma_init]]
+name = "mz_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "mz_chr"
+kind = "chr"
+tiles = 3                # tile 0 floor, tile 1 explicit zero, tile 2 wall
+tile_bytes = 32          # 4bpp
+
+[[claims.vram]]
+name = "mz_map"
+kind = "tilemap"
+words = 0x400            # 32x32; BG1SC bases are 0x400-word granular
+
+# THE PALETTE AND THE BACKDROP ARE ONE CLAIM, by hardware contract: the map
+# authors palette group 0, word 0 of which is the backdrop slot — one word, two
+# meanings, one owner (scroller_bg / pfs_bg / m7x_floor all record the fold,
+# and it is why this scene cannot also compose `backdrop`).
+[[claims.cgram]]
+name = "mz_pal"
+words = 16
+at = 0
+
+# C4 (docs/09 §2.1): the BG1 layer configuration and the scene's base display.
+#
+# ATTRIBUTION. BGMODE/TM/BG1SC/BG12NBA are written by the scene's enter code in
+# game/maze/scenes/room.asm (the layer identity of a Mode 1 BG1 scene is the
+# scene's to state), so they are opened to it via scene_writes. BG1HOFS/BG1VOFS
+# are written by maze_bg.asm's own arm routine — the enter-time scroll pin —
+# and are therefore NOT in scene_writes; no_literals' declaration-that-lies
+# check refuses the mistake in either direction.
+[[claims.reg]]
+name = "mz_layers"
+registers = ["BGMODE", "TM", "BG1SC", "BG12NBA", "BG1HOFS", "BG1VOFS"]
+scene_writes = ["BGMODE", "TM", "BG1SC", "BG12NBA"]

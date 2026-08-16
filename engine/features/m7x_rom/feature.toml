@@ -1,0 +1,188 @@
+# m7x_rom — the mode7_explore rail's world, in ROM. Global (not scene-scoped).
+#
+# ROM claims cannot be scene-scoped: the allocator packs a ROM window once for
+# the whole composition, and a scene-scoped rom claim would reserve bytes only
+# one scene's map names. This rail has TWO scenes (the Mode 7 overworld and the
+# Mode 1 town interior) that share this blob set, which makes the point
+# concrete rather than conventional. Same reasoning as m7dg_rom's and
+# split_v_rom's headers.
+#
+# The blobs come from tools/gen_mode7_explore_assets.py, which authors them
+# from a height field and eleven hand-authored 8x8 textures — nothing is read
+# from a pack, and nothing outside this repo is read at build time. The
+# generator's output is pinned byte-for-byte by its tests, so a change to the
+# height field or a texture fails the suite instead of quietly redrawing the
+# world.
+#
+# THE CLAIMS BELOW ARE NOT YET BACKED, AND THAT IS DELIBERATE AND TEMPORARY.
+# This is the data side only; the rail's .asm lands separately. No
+# composition names m7x_rom yet, so `scope` reads "unused" in docs/09's census
+# and `make rom-unbacked` — which only walks a COMPOSITION's translation unit —
+# has nothing to check here. The moment the rail's game.toml lists this
+# feature, every claim needs an .incbin claim site or the build refuses. The
+# required shape is written out per claim below, so the rail's own code does not
+# have to rediscover it. `backed_by` is deliberately NOT used: these bytes are
+# supplied by an .incbin inside the no_literals scope, so the hatch would be a
+# false statement (docs/37 §3 boundary case 3).
+name = "m7x_rom"
+role = "blob"
+
+# --- the streamed world -----------------------------------------------------
+# 512x512 tile ids, one byte each, 512 B/row, row-major = 256 KB. BANK-TILED:
+# 64 rows are exactly one 32 KB LoROM window, so the allocator places eight
+# chunks and a DMA source inside any one of them cannot span a bank (the A-bus
+# address wraps within its bank instead of carrying).
+#
+# The tilemap is the SINGLE SOURCE OF TRUTH for terrain. Collision reads the
+# byte here and LUTs it through m7x_terr below, rather than consulting a second
+# 256 KB table — two of those plus the code do not fit in a 512 KB ROM, and a
+# second table is a thing that can drift from what you see.
+#
+# NAMED m7x_map, not world_map: that symbol family is microzero's world_rom,
+# and mode7_stream binds a rail's blob through ES_R_* symbols. Two rails
+# claiming the same name is the collision this naming avoids.
+#
+# The claim site the rail's main.asm must write (world_rom's shape — a bank_tiled
+# claim's chunk symbols exist only inside .sprintf templates, which is the one
+# form the backing gate expands):
+#
+#  .repeat ES_R_M7X_MAP_CHUNKS, WI
+#  .segment .sprintf("BANK%d", WI + <first window>)
+#  .ident(.sprintf("m7x_map_t%d", WI)):
+#  .incbin "m7x_map.bin", WI * 32768, 32768
+#  .assert ^.ident(.sprintf("m7x_map_t%d", WI)) =
+#  .ident(.sprintf("ES_R_M7X_MAP_T%d_BANK", WI)), error, "m7x map chunk bank
+#  drifted"
+#  .assert .loword(.ident(.sprintf("m7x_map_t%d", WI))) =
+#  .ident(.sprintf("ES_R_M7X_MAP_T%d_ADDR", WI)), error, "m7x map chunk addr
+#  drifted"
+#  .endrepeat
+#
+# The chunk COUNT must come from ES_R_M7X_MAP_CHUNKS. A narrated `.repeat 8`
+# is a refusal — the gate derives the count rather than trusting a literal.
+[[claims.rom]]
+name = "m7x_map"
+bytes = 0x40000          # 256 KB = 512 rows x 512 B
+bank_tiled = true
+
+# --- the initial VRAM image -------------------------------------------------
+# The interleaved Mode 7 seed: 16,384 tilemap bytes in the EVEN positions and
+# 16,384 bytes of 8bpp CHR in the ODD ones, exactly as the PPU reads the Mode 7
+# region. Uploaded ONCE under forced blank by a single mode-1 DMA, whose
+# alternation between VMDATAL and VMDATAH IS this interleave.
+#
+# The CHR half NEVER STREAMS — only tilemap low bytes do — which is why the
+# char set is baked in here rather than shipped as its own blob. 256 tiles x 64
+# B is 16,384 B and the window is 128x128 = 16,384 words, so it fills every odd
+# byte exactly once with nothing left over.
+#
+# The seed's tile ids use the SAME VRAM-WRAPPED placement the streamer uses:
+# world tile (wx,wy) at word (wy & 127)*128 + (wx & 127). A sequentially-built
+# seed would disagree with the streamer the first time a row was re-written and
+# the picture would tear at the first step.
+#
+# 32 KB is exactly one LoROM window, so the single upload DMA cannot cross a
+# bank. `dma_source` is written out here as documentation, NOT as an opt-in:
+# it DEFAULTS TO TRUE for every rom claim (schemas.py — unlike a wram claim,
+# where it defaults to false), so the guard is already armed on all eight
+# claims below whether or not they say so. What the guard does is refuse a
+# dma_source claim larger than one window unless it is bank_tiled, so the day
+# someone grows this plane past 32 KB the allocator says so instead of the
+# upload silently wrapping to the bank start. M7x_map is exactly that case
+# already, and carries bank_tiled for it.
+#
+#  m7x_seed_bin:
+#  .incbin "m7x_seed.bin"
+#  .assert ^m7x_seed_bin = ES_R_M7X_SEED_BANK, error, "m7x_seed bank drifted"
+#  .assert .loword(m7x_seed_bin) = ES_R_M7X_SEED_ADDR, error, "m7x_seed addr
+#  drifted"
+[[claims.rom]]
+name = "m7x_seed"
+bytes = 32768
+dma_source = true
+
+# --- the world palette ------------------------------------------------------
+# Twelve BGR555 words. Mode 7 is 8bpp with ABSOLUTE CGRAM indices, and index 0
+# is also the backdrop slot — so tile id 0 is opaque grass by design. This is a
+# flat top-down view with no horizon, so nothing shows through the backdrop and
+# putting real ground in word 0 is the right call rather than a compromise.
+#
+#  m7x_pal_bin:
+#  .incbin "m7x_pal.bin"
+#  .assert ^m7x_pal_bin = ES_R_M7X_PAL_BANK, error, "m7x_pal bank drifted"
+#  .assert .loword(m7x_pal_bin) = ES_R_M7X_PAL_ADDR, error, "m7x_pal addr
+#  drifted"
+[[claims.rom]]
+name = "m7x_pal"
+bytes = 24
+
+# --- the collision LUT ------------------------------------------------------
+# ONE BYTE PER TILE ID — 256 entries — not one per world tile. That is the
+# whole economy of this rail: `terrain = m7x_terr[ m7x_map[ty*512 + tx] ]`, a
+# ROM read and a LUT, against the 256 KB a byte-per-world-tile table would
+# cost. 256 is TOTAL, not generous: the map is one byte per tile, so every id
+# has an entry and the lookup needs no bounds check.
+#
+# Ids outside the eleven-tile authored vocabulary map to GRASS, so a stray byte
+# reads as walkable rather than as a phantom wall. Blocking is a contiguous
+# class-RANGE test (WATER..MOUNTAIN), not a set membership, which is why those
+# two classes are numerically adjacent.
+#
+#  m7x_terr_bin:
+#  .incbin "m7x_terr.bin"
+#  .assert ^m7x_terr_bin = ES_R_M7X_TERR_BANK, error, "m7x_terr bank drifted"
+#  .assert .loword(m7x_terr_bin) = ES_R_M7X_TERR_ADDR, error, "m7x_terr addr
+#  drifted"
+[[claims.rom]]
+name = "m7x_terr"
+bytes = 256
+
+# --- the avatar -------------------------------------------------------------
+# A 38-tile 4bpp OBJ sheet holding THREE authored 16x16 facings on the PPU's
+# quad grid {N, N+1, N+16, N+17}: DOWN at 16, UP at 18, SIDE at 20. The lower
+# half of a 16x16 sprite is +16 tile numbers away rather than +2, so the tiles
+# between the two rows are zero — that padding is the hardware's alignment, not
+# slack. A tighter blob would have to be uploaded as two transfers to land in
+# the same places.
+#
+# LEFT is the SIDE sprite H-FLIPPED via the free OAM attribute bit, so a fourth
+# facing is neither authored nor shipped. That only works because the sprite is
+# a TRUE 16x16 OBJ: a 32x32 size box holding 16x16 art would slide the art
+# +16 px when flipped instead of mirroring in place.
+#
+#  m7x_obj_chr_bin:
+#  .incbin "m7x_obj_chr.bin"
+#  .assert ^m7x_obj_chr_bin = ES_R_M7X_OBJ_CHR_BANK, error, "m7x_obj_chr bank
+#  drifted"
+#  .assert .loword(m7x_obj_chr_bin) = ES_R_M7X_OBJ_CHR_ADDR, error,
+#  "m7x_obj_chr addr drifted"
+[[claims.rom]]
+name = "m7x_obj_chr"
+bytes = 1216             # 38 tiles x 32 B
+
+[[claims.rom]]
+name = "m7x_obj_pal"
+bytes = 32               # 16 BGR555 words: a 4bpp OBJ palette is 16 entries
+                         # whether or not the art uses them all
+
+# --- the Mode 1 town interior ----------------------------------------------
+# Four 4bpp BG1 tiles (plank floor, stone wall, exit door, table) and a 16-word
+# warm interior palette. The interior's CHR and tilemap live in UPPER VRAM, so
+# the Mode 7 image is PRESERVED across the visit and the return needs no
+# re-stream — which is what makes the town a mosaic swap rather than a scene
+# reload. Palette word 0 is the floor base AND the backdrop, so gaps read as
+# floor rather than as a hole.
+#
+#  m7x_town_chr_bin:
+#  .incbin "m7x_town_chr.bin"
+#  .assert ^m7x_town_chr_bin = ES_R_M7X_TOWN_CHR_BANK, error, "m7x_town_chr
+#  bank drifted"
+#  .assert .loword(m7x_town_chr_bin) = ES_R_M7X_TOWN_CHR_ADDR, error,
+#  "m7x_town_chr addr drifted"
+[[claims.rom]]
+name = "m7x_town_chr"
+bytes = 128              # 4 tiles x 32 B
+
+[[claims.rom]]
+name = "m7x_town_pal"
+bytes = 32               # 16 BGR555 words

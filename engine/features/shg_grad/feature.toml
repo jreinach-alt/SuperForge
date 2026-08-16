@@ -1,0 +1,71 @@
+# shg_grad — THE PAYLOAD: one freed HDMA channel spent on a per-scanline
+# COLDATA gradient over the whole frame. Scene-scoped.
+#
+# This feature is the reason the rail exists. `seam_irq_trial` proved that
+# moving band 2's origin to a seam IRQ frees the origin channel PAIR; a freed
+# channel that nothing spends proves nothing, so one of them buys a real
+# per-line raster effect here.
+#
+# THE PLANE-SELECT TRICK: COLDATA ($2132) carries three plane-select bits
+# (bit5=R, bit6=G, bit7=B) and a 5-bit intensity in the low nibble+1. Setting
+# ALL THREE plane bits in ONE write ($E0 | v) sets R=G=B together, so a
+# 224-line grey ramp costs ONE byte per scanline — a 227-byte repeat-mode table
+# ([$80|112, 112 vals] x2 + terminator) on ONE channel, where rgb_gradient's
+# per-plane shape needs THREE. That is the whole economy: this rail has exactly
+# one channel to spend.
+#
+# WHY `registers = ["COLDATA"]` AND NOT THE PLANES: schemas.py names both the
+# whole port and its three plane sub-registers, and the footprint masks make a
+# whole-port claim and a plane claim SEEN to intersect. A $E0 write is
+# genuinely the whole port, so the whole-port name is the true one — and it is
+# what makes this claim refuse against rgb_gradient's planes rather than
+# silently composing with them.
+#
+# WHY NOT COMPOSE `rgb_gradient`: three reasons, each independently
+# disqualifying. (1) It claims THREE channels (colr/colg/colb) — five with the
+# matrix pair before the seam pair is counted, which is the channel starvation
+# this rail exists to disprove. (2) Its table is a 672 B ROM blob
+# (`grad_tabs`); building the table at boot in WRAM instead keeps a generated
+# binary out of the tree entirely, which is what this rail does. (3)
+# It also claims CGWSEL + CGADSUB, so composing it and writing colour math here
+# would refuse.
+#
+# THE TABLE IS BUILT AT BOOT, IN WRAM. ~15 lines of scene-enter code
+# (shg_grad.asm's grad_build) fill it: value(line) = $E0 | (line >> 3), an
+# intensity ramp 0..27 down the 224 content lines. WRAM rather than ROM because
+# a generated blob would need a generator, an oracle and a provenance surface
+# for 227 bytes an arithmetic loop authors exactly.
+name = "shg_grad"
+role = "feature"
+
+# The one channel — the point of the exercise. Mode 0 = 1 byte -> 1 register
+# per unit; DIRECT (the table holds the values, not pointers); band "scene"
+# because the wash covers all 224 lines; phase "active" because it is a
+# per-scanline effect during display.
+[[claims.hdma]]
+name = "shggr"
+registers = ["COLDATA"]
+mode = 0
+band = "scene"
+phase = "active"
+channels = 1
+
+# C4 (docs/09 §2.1): the colour-math MODE, CPU-written at scene enter by this
+# feature's own grad_arm and cleared at exit by its own grad_disarm — BOTH
+# writers are this feature's asm, so the writer-side gate's feature-strict tier
+# covers them and no scene_writes hatch is needed in either direction. CGWSEL
+# $00 = fixed-colour source, never clip, never prevent; CGADSUB $01 = add, full
+# (not half), BG1 only. The COLDATA writes themselves are COVERED by the
+# transfer claim above — §2.1's boundary covers a write to a port you already
+# claim — which is why COLDATA appears in the hdma claim and not here.
+# Encodings derived from Mesen2 SnesPpu.cpp; see shg_grad.asm.
+[[claims.reg]]
+name = "shg_math"
+registers = ["CGWSEL", "CGADSUB"]
+
+# The 227-byte repeat-mode COLDATA table: [$80|112][112 values][$80|112][112
+# values][$00]. Dma_source because the channel's A-bus reads it every scanline.
+[[claims.wram]]
+name = "shg_gtbl"
+bytes = 227
+dma_source = true

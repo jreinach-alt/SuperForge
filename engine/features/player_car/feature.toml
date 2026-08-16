@@ -1,0 +1,47 @@
+# player_car — the race scene's screen-fixed player sprite (scene-scoped).
+# One 16x16 OBJ (large size in OBSEL mode 0) at the pivot line. The CHR
+# claim is obj = true: the allocator floors it past the Mode-7 interleaved
+# region and emits the OBSEL name-base encoding — ASM never mask-narrates
+# the VRAM base. CGRAM claims the hardware-fixed OBJ palette 0 window
+# (words 128..143). One OAM slot; enter writes it, exit re-parks it.
+name = "player_car"
+role = "consumer"
+depends = ["oam_sprites", "car_rom"]
+
+# The enter-time upload: word-port (mode 1 drives VMDATAL+VMDATAH) on the
+# channel this claim names. Declared so the channel and target ports are
+# visible instead of a hard-coded $4300 with a hand-written BBAD byte.
+# phase forced_blank — scene_mgr's enter clears HDMAEN and zeroes NMITIMEN,
+# so this cannot race an active or vblank claim on a shared channel number.
+[[claims.dma_init]]
+name = "car_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "car_chr"
+kind = "chr"
+obj = true
+words = 512              # 32 tiles x 16 words: a 16-wide OBJ tile grid row
+                         # pair (the PPU reads 16x16 sprites at N,N+1,N+16,
+                         # N+17 — lessons_learned tile-layout rule)
+
+[[claims.cgram]]
+name = "car_pal"
+words = 16
+at = 128                 # hardware contract: OBJ palette 0 = CGRAM 128..143
+
+[[claims.oam]]
+name = "car"
+sprites = 1
+
+# C4 (docs/09 §2.1): OBSEL, CPU-written at enter (player_car.asm:68-70). The
+# most dangerous of the original census rows -- OBSEL sets sprite size AND CHR
+# base for EVERY sprite, so oam_sprites and any second sprite feature share it
+# globally. The VALUE already comes from an emitted symbol
+# (ES_V_CAR_CHR_OBSEL_BASE), so the address discipline held and only the
+# OWNERSHIP was invisible; this is the half that was missing.
+[[claims.reg]]
+name = "car_obsel"
+registers = ["OBSEL"]

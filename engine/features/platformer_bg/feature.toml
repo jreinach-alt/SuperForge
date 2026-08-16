@@ -1,0 +1,232 @@
+# platformer_bg — the 512x224 level on BG1, the parallax skyline on BG2.
+#
+# A BG feature following the keystone `breaker_bg` and `shmup_bg`. It takes
+# what both established -- a tilemap BUILT from declared geometry under the
+# enter-time forced blank, mutated on running frames through a one-cell VBlank
+# queue, with the layer moving from a DP shadow the NMI commits -- and adds
+# the one genuinely new mechanism on this rail: PARALLAX.
+#
+# =============================================================================
+# PARALLAX: a stepped-band HOFS table, not a per-scanline fill
+# =============================================================================
+# What shipping SNES games use for multi-distance parallax is a STEPPED BAND
+# table: two to five horizontal scanline bands, each holding ONE constant
+# BG2HOFS derived from a per-band scroll ratio against a shared world-X. That
+# is the shape here -- clouds above the split at 1/8 of camera X, hills below
+# at 3/8, i.e. ratios of 32/256 and 96/256.
+#
+# THE INSTINCT TO FILL 224 ENTRIES IS THE SLOW PATH, and it has cost this
+# project real time: a 225-iteration table fill runs ~16 cycles an entry =
+# ~3,700 cycles per active channel per frame, enough to tip a tight budget and
+# surface as a CRYPTIC DOWNSTREAM TEST FAILURE rather than as anything that
+# looks like cycle starvation. The HDMA NON-REPEAT-PAUSE pattern does the same
+# job for a fraction of it: a mode-$02 entry whose count byte is in $01..$80
+# means "transfer once at the entry's first line, then idle for count-1
+# lines", and BG2HOFS's write-twice latch HOLDS the transferred value through
+# the idle lines. So the whole table is three entries and a terminator -- ten
+# bytes -- and the cost is the two ratio applications plus ten stores.
+#
+# MEASURED, NOT ESTIMATED: 532 master cycles a frame -- 0.149% of the 357,368
+# mc NTSC frame, about 89 CPU cycles at mc/6. Taken on the SHIPPED binary with
+# write breakpoints on the table's first byte and its terminator
+# (tests/test_platformer.py::test_the_parallax_rebuild_costs_what_it_claims).
+# The shape it rejected -- a 224-entry per-scanline fill at ~16 cycles an entry
+# -- is ~3,700 CPU cycles, ~22,000 mc, over 6% of the frame. Forty times this
+# one.
+#
+# THE RATIOS ARE POWERS OF TWO ON PURPOSE. 1/8 and 3/8 are the shifts `x>>3`
+# and `(x + x*2) >> 3`, so the rebuild needs no multiply at all -- and
+# therefore no claim on ALU ($4202-$4206, one name for one resource in
+# schemas.py, which a multiplier-based build would have to take and hold
+# against an NMI). A runtime ratio byte forces that multiply; a DECLARED ratio
+# turns it into a build-time fact. Retuning the look means editing PLX_R* in
+# platformer.inc and re-deriving the shift chain, which is the honest price of
+# not owning the ALU.
+#
+# THE TABLE IS REBUILT IN VBLANK, not in the tick. HDMA reads it during active
+# display, so a main-thread rebuild races the read; the drift is one pixel a
+# frame and would almost certainly never be seen, which is exactly what makes
+# it the wrong kind of bug. The NMI hook rebuilds it from the same DP camera
+# shadow it commits BG1HOFS from, so the two layers can never disagree about
+# where the camera is.
+#
+# FREEZING IS THE ABSENCE OF MOTION, NEVER A ZEROED RATIO. Setting the ratios
+# to 0 makes HOFS = world_x * 0 = 0, which TELEPORTS the layer to its
+# world-zero scroll position instead of freezing it. The bug is invisible in
+# any per-layer byte assertion and obvious the moment a human watches the sky
+# snap. Here the ratios are assembly-time constants and there is nothing to
+# zero: a paused or ended round simply stops advancing the camera, the rebuilt
+# table is identical frame to frame, and the pixels do not move.
+#
+# =============================================================================
+# ONE FEATURE, BOTH LAYERS -- and here it is the whole point
+# =============================================================================
+# BG12NBA is one write-only port carrying both layers' CHR base nibbles, so a
+# "level" feature owning BG1 and a "sky" feature owning BG2 would each have to
+# claim it and `check_reg_ownership`'s reg x reg loop has no `seed` exemption:
+# the allocator REFUSES that composition. This rail is the exact case that
+# decision was written for -- a level layer AND a parallax sky layer -- and
+# they are one feature.
+#
+# ...AND THEY SHARE ONE CHR PAGE AND ONE PALETTE. BG12NBA's granularity is a 4
+# K-WORD page, so giving BG2 its own base would burn a whole page to hold three
+# tiles. Nine tiles and sixteen colours cover the level and the sky together
+# (the level draws in indices 1-6, the sky in 7-8), so both nibbles name the
+# same base and both tilemaps carry the same palette number. Shmup made this
+# fold for two tiles; this rail makes it for a whole skyline.
+name = "platformer_bg"
+role = "feature"
+depends = ["platformer_rom"]
+
+# The enter-time CHR upload, word-port (mode 1 drives VMDATAL+VMDATAH). Phase
+# forced_blank -- scene_mgr's enter clears HDMAEN and zeroes NMITIMEN, so this
+# cannot race an active or vblank claim even on a shared channel.
+[[claims.dma_init]]
+name = "plf_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "plf_chr"
+kind = "chr"
+tiles = 9                # blank, ground, ledge, platform, coin, dirt, cloud,
+tile_bytes = 32          # hill body, hill crest -- BG1 AND BG2 read this page
+
+# THE LEVEL MAP IS 64x32, which is two hardware pages side by side and the
+# reason this claim is 0x800 and not 0x400. BGnSC's size bits select it (01 =
+# 64x32) and the emitted _SC_BASE carries only the base, so the scene ORs the
+# size bit in -- a value, not an address.
+#
+# The world is 512 px wide = 64 cells, and 224 px tall = 28 cells, so the map
+# has four unused rows at the bottom and NO vertical scroll: BG1VOFS is pinned
+# at 0 for the rail's life. Running a full two-axis follow camera with a CAMY
+# that never moves costs the same code and the same tests as one that does;
+# dropping the axis removes a whole degree of freedom from both.
+[[claims.vram]]
+name = "plf_map"
+kind = "tilemap"
+words = 0x800
+
+[[claims.vram]]
+name = "plf_sky"
+kind = "tilemap"
+words = 0x400            # BG2: 32x32. It never scrolls VERTICALLY and wraps
+                         # horizontally under the parallax HOFS, so 32 cells x
+                         # 8 px = the 256 px BG2HOFS wraps at.
+
+[[claims.cgram]]
+name = "plf_pal"
+words = 16
+at = 32                  # hardware contract: BG 4bpp palette 2 = words 32..47.
+                         # BG3's 2bpp palettes live in words 0..31 and bg_text
+                         # pins 28..31, so this feature starts above them --
+                         # the split room_bg, breaker_bg and shmup_bg all made.
+
+# THE DUSK BACKDROP, and why it is here rather than in the `backdrop` feature.
+# A scene with a BG feature CANNOT also compose `backdrop`, because
+# `backdrop` declares BGMODE + TM and so does every per-rail BG feature, and a
+# CPU-written register has one owner per scene. So the BG feature owns colour 0
+# as part of the same statement it already makes about the scene's display.
+#
+# AND IT IS FLAT, WHICH IS WORTH STATING. Arming colour math on the BACKDROP
+# ($20 in CGADSUB) would let the dusk ramp paint the open sky too, but
+# `rgb_gradient` declares BG1 + BG2 (rgb_gradient.asm:110-113), and
+# re-targeting it means editing a shared engine feature that `microzero` and
+# `breaker` both ship -- which moves microzero's ROM, whose md5 is PINNED. So
+# the ramp lands on the terrain and on the skyline, the open sky is this one
+# flat colour, and a cosmetic preference does not get to rewrite a shared
+# feature (`breaker` reaches the same conclusion from the other side).
+[[claims.cgram]]
+name = "dusk"
+words = 1
+at = 0                   # hardware contract: CGRAM word 0 IS the backdrop
+
+# THE PARALLAX CHANNEL. Mode 2 = one register, written TWICE per transfer,
+# which is exactly what a BGnHOFS write-twice latch wants. Direct, not
+# indirect: the table below IS the source.
+[[claims.hdma]]
+name = "plx"
+registers = ["BG2HOFS"]
+mode = 2
+band = "scene"
+phase = "active"
+channels = 1
+
+[[claims.wram]]
+name = "plx_tab"
+bytes = 16               # 10 used: 3 entries x [count, hofs_lo, hofs_hi] + a
+                         # terminator. 16 is the next clean size.
+dma_source = true        # HDMA reads it; it must not straddle a WRAM bank
+
+# THE COLLECTED-COIN BITMAP. One bit per level cell, 64 x 28 / 8 = 224 bytes
+# rounded to 256. It exists because the level itself is IMMUTABLE ROM (see
+# platformer_rom): the probe asks ROM "is this cell a coin" and asks this "has
+# it been taken", and a coin that has been taken reads as sky.
+#
+# NO [init] zero. Plf_build_level writes all 256 bytes in the scene's enter,
+# before any tick can read one, so a pre-zero here would only hide a "the level
+# build stopped running" defect behind a plausible answer -- the argument
+# breaker_bg makes for its collision mirror and col_map makes at length, and
+# CLAUDE.md rule 5's "never zero-init to be safe".
+[[claims.wram]]
+name = "plf_taken"
+bytes = 256
+
+# The camera. The tick advances it; the NMI hook commits BG1HOFS from it AND
+# rebuilds the parallax table from it, so the foreground and the two sky bands
+# can never disagree about where the camera is.
+#
+# NO [init] zero and no armed flag: main.asm's sm_nmi_hook calls the commit
+# only while the play scene is live, and scene_mgr sets `cur = next` BEFORE
+# calling enter while holding NMI masked across the whole switch, so the first
+# NMI that can see the play scene is the first one after plf_arm wrote this.
+# (shmup_bg reaches the same conclusion.)
+[[claims.dp]]
+name = "plf_cam"
+bytes = 2
+
+# THE COIN-PICKUP CELL QUEUE. A collected coin has to become tile 0 while the
+# display is ACTIVE, which no forced-blank writer can do -- breaker_bg's
+# problem exactly, and the same answer: stage the cell, write it in VBlank with
+# CPU stores. No channel, no VBlank byte budget, four stores.
+#
+# It is NOT bg_text's queue even though that one is generic (it takes a tile
+# word and a VRAM address, not a BG3 address). Collecting a coin also dirties
+# the COINS counter, so on the pickup frame both queues want the single cell
+# bg_text's holds. Two queues, no race.
+#
+# IT IS ZEROED AT BOOT, unlike plf_taken, and by an explicit `plf_q_init` in
+# MAIN's boot block (breaker_bg's shape): sm_nmi_hook calls the commit on EVERY
+# frame of EVERY scene and the count byte is its only guard, so power-on
+# garbage there would make the title's first VBlank write a random word to a
+# random VRAM address. Plf_taken has no such reader before its own writer.
+[[claims.dp]]
+name = "plf_q"
+bytes = 6                # +0 count (0/1), +2 VMADD, +4 tile word
+
+# C4 (docs/09 §2.1): the BG1+BG2 layer configuration AND the scene's base
+# display mode.
+#
+# ATTRIBUTION. BGMODE/TM are written by game/platformer/scenes/play.asm -- the
+# scene's enter code -- not by platformer_bg.asm; the rest are written by
+# platformer_bg.asm itself (BG1HOFS from the NMI hook, every armed frame).
+# Scene enter code has no feature.toml and `[[scene]]` accepts no claims, so
+# the ownership is attributed to the feature the write SERVES, which is this
+# one: platformer_bg is what makes `play` a two-BG-layer Mode 1 scene.
+[[claims.reg]]
+name = "plf_layers"
+registers = ["BG1SC", "BG2SC", "BG12NBA", "BG1HOFS", "BG1VOFS", "BG2VOFS",
+             "BGMODE", "TM"]
+scene_writes = ["BGMODE", "TM"]
+
+# THE SEED, and the tree's second instance of split_band's case. Plf_arm zeroes
+# the BG2HOFS write-twice latch at enter so the layer's first frame is not
+# whatever the previous scene left there; from line 0 onward the `plx` claim
+# above drives this build every scanline. That makes the enter write a SEED and
+# not a second owner -- and it is self-checking, because if the parallax claim
+# ever left this feature the seed would be a lie and the build would say so.
+[[claims.reg]]
+name = "plf_plx_seed"
+registers = ["BG2HOFS"]
+seed = true

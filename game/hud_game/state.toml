@@ -1,0 +1,28 @@
+# hud_game user game state.
+#
+# Five words, all `@dp` and all scene-scoped: `play` is the only scene, and
+# every one of these is read or written on the frame path.
+#
+# NO [global] SECTION, deliberately. Game-lifetime state is what survives a
+# scene transition, and this rail has no transitions (game.toml). A `[global]`
+# here would be a claim on the game-lifetime DP/WRAM region for something that
+# is never observed to survive anything.
+
+[scene.play]
+px = "u16@dp"            # player x, screen pixels, top-left of the 8x8 box
+py = "u16@dp"            # player y
+score = "u16@dp"         # PACKED BCD, +$0001 per A press — so bg_text's
+                         # `text_queue_hex4` nibble walk prints four DECIMAL
+                         # digits (breaker and shmup make the same call for the
+                         # same reason)
+dirty = "u16@dp"         # HUD reprint request: bit 0 = the score's four cells.
+                         # THE RAIL'S SUBJECT. Set only on the frame the value
+                         # actually changed; cleared by the frame that stages
+                         # the run. An idle frame stages nothing, so
+                         # text_vblank_commit is a no-op and VRAM is not
+                         # rewritten — which is the property the tests measure
+                         # on the destination's write counters.
+blink = "u16@dp"         # frames since boot. Drives nothing — it is the
+                         # free-running heartbeat a test reads to tell "the
+                         # tick is running" from "the tick is stuck" (the
+                         # breaker/shmup convention)

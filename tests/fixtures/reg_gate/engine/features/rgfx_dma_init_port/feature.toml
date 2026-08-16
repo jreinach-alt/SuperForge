@@ -1,0 +1,13 @@
+# reg-gate fixture: dma_init-ONLY port coverage. No vram
+# claim, no hdma claim — VMDATAL/VMDATAH named on a [[claims.dma_init]]
+# alone. The covered branch's dma_init half was live but no committed
+# fixture isolated it (every in-tree dma_init holder also holds the region
+# claim); this pins it against drift.
+name = "rgfx_dma_init_port"
+role = "fixture"
+
+[[claims.dma_init]]
+name = "rgfx_dip_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1

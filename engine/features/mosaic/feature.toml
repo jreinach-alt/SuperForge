@@ -1,0 +1,165 @@
+# mosaic — the pixelate-to-black scene wipe (global feature).
+#
+# WHAT THIS IS. A symmetric dissolve that hides a scene swap: 20 frames OUT
+# (brightness 15->0, mosaic size 0->15), the caller's swap routine JSR'd at
+# peak black, then 15 frames IN (brightness 0->15, size 15->0). Size is LOCKED
+# to `15 - brightness` every frame, so full brightness is a clean image and
+# black is full pixelation. The two hand-authored ease curves (quarter-cosine
+# out, quarter-sine in) and the phase lengths are tabulated below; the two
+# decisions the claim discipline forced are recorded below.
+#
+# =============================================================================
+# COMPOSITION ANSWER 1 — mosaic does NOT claim INIDISP. It writes the shadow.
+# =============================================================================
+# scene_mgr owns brightness for the whole game: `sm_display` claims ["INIDISP",
+# "NMITIMEN"], and its comment names the hazard —
+#
+#  "INIDISP -- committed from the fade shadow in the NMI HANDLER every armed
+#  frame (`sm_nmi_core`'s INIDISP commit). Single writer by design ... an
+#  enter-time
+#  INIDISP write would be reverted by the very next NMI."
+#
+# and its `scene_writes = ["NMITIMEN"]` deliberately withholds INIDISP, so even
+# boot has no permission to write $2100. The commit is scene_mgr.asm:
+#
+#  lda z:ES_SM_NMI+1
+#  sta a:$2100; commit INIDISP shadow (fade / forced blank)
+#
+# So the ONLY way to drive brightness here is to write ES_SM_NMI+1, and that is
+# exactly what `fade` already does — fade.asm's @commit is `lda z:ES_FADE_CTL /
+# sta z:ES_SM_NMI+1`, and fade's feature.toml claims a DP pair and NOTHING ELSE.
+# mosaic follows that precedent exactly: it writes ES_SM_NMI+1's low nibble and
+# claims no register for it. A `[[claims.reg]] registers = ["INIDISP"]` here
+# would be refused by check_reg_ownership's reg x reg pass against scene_mgr's
+# global `sm_display` in every scene of every game — correctly, because there
+# is genuinely one writer of $2100 and it is the NMI.
+#
+# FADE AND MOSAIC ARE TWO WRITERS OF ONE SHADOW, AND THAT IS A CALLER CONTRACT,
+# NOT AN ALLOCATOR ONE. Neither claims INIDISP, so the allocator has nothing to
+# see; both write ES_SM_NMI+1, and each writes it only while it is itself
+# non-idle (fade gates on ES_FADE_CTL+1 != 0, mosaic on its own state byte). A
+# rail that ramps a fade THROUGH a wipe gets whichever ticked last. The
+# contract is therefore stated in the API rather than enforced: **the consumer
+# gates its fade tick (and any other brightness work, e.g. A boot ramp) on
+# `mosaic_active`**, and if it ticks both anyway it ticks mosaic LAST. The
+# `mosaic_active` query exists for precisely this and for the scene-freeze the
+# rail also needs.
+#
+# mosaic preserves the high nibble of the shadow (`and #$F0` / `ora bright`),
+# unlike fade which writes the byte whole. That keeps a forced-blank bit ($80)
+# set by boot or by the caller's swap routine intact across the wipe — the swap
+# runs mid-OUT under its own forced blank and must not be un-blanked by the
+# next brightness write.
+#
+# =============================================================================
+# COMPOSITION ANSWER 2 — mosaic does NOT claim TM. The OBJ drop is the
+# CALLER'S.
+# =============================================================================
+# The obvious wipe drops OBJ from TM at arm (`and #$EF`) and restores it on
+# the final IN frame (`ora #$10`), because OBJ has no hardware mosaic and
+# un-pixelated sprites floating over a dissolving BG look broken. That cannot
+# live inside this feature, and the refusal is a design
+# answer:
+#
+#  * TM has exactly one owner per scene, and it is the scene's BG feature.
+#  check_reg_ownership's FIRST check (allocate.py) is reg x reg: "any
+#  intersecting footprint refuses. No same-feature exemption". Nine features
+#  in the tree claim TM today — backdrop, room_bg, breaker_bg, platformer_bg,
+#  shmup_bg, split_v_bg, m7dg_floor, sh2_floor, split_band — i.e. every rail
+#  that could ever want a wipe. A `registers = ["TM"]` here refuses against
+#  all of them. This was confirmed by composing it: see the header of
+#  mosaic.asm for the verbatim refusal.
+#
+#  * `seed = true` does NOT rescue it. seed exempts check TWO (reg x hdma/
+#  dma_init) and only for hdma; check one takes no notice of it. split_band's
+#  `sb_mode_seed` is the tree's one seed case and it is a seed against
+#  split_band's OWN HDMA claims, not against another reg claim.
+#
+#  * And it would be the wrong mechanism anyway, which is the part that makes
+#  this a real answer rather than a workaround. When a scene drives TM per
+#  scanline through an HDMA channel — the Mode 7 sky/floor split, which is
+#  exactly what `mode7_explore` is — that HDMA OVERRIDES the shadow TM's OBJ
+#  bit every scanline, so the drop is DEFEATED and the actor sprites stay
+#  visible through the dissolve. The only thing that works there is the scene
+#  culling its own actor OAM. So the TM drop is never the general mechanism;
+#  it is the cheap case.
+#
+# THE CONTRACT, therefore: **hiding OBJ for the duration of the wipe belongs to
+# the consumer**, in whichever of the two forms its scene needs —
+#
+#  static-TM scene (plain Mode 1): the feature that OWNS TM clears bit 4 of the
+#  value it writes while `mosaic_active` is non-zero, and sets it again when
+#  the query goes idle.
+#  HDMA-TM scene (Mode 7 band split): TM is per-scanline and the drop cannot
+#  work; park the actor OAM at Y >= $F0 while `mosaic_active` is
+#  non-zero and restore it when idle.
+#
+# Both are one `jsr mosaic_active` + `beq` away, and both live where the
+# knowledge is. Mosaic.asm contains no write to $212C at all, so no_literals'
+# reg-ownership pass has nothing to refuse.
+#
+# =============================================================================
+name = "mosaic"
+role = "feature"
+
+# C4 (docs/09 §2.1): $2106, CPU-written in the NMI HOOK every armed frame from
+# the shadow byte below. Unclaimed anywhere else in the tree, so this feature
+# takes it outright — no seed, no sharing.
+#
+# The commit is UNCONDITIONAL (it does not test the state byte), for two
+# reasons. The final IN frame is also the frame that goes idle, so a
+# commit-only-while-active hook would skip the very write that clears the
+# mosaic. And a register nobody writes at boot is a register holding power-on
+# garbage (rule 5): with `[init] zero` below, an idle mosaic commits $00 every
+# frame, which is both correct and an establishment. It costs two instructions.
+[[claims.reg]]
+name = "mos"
+registers = ["MOSAIC"]
+
+# The wipe state. Seven bytes, in the order the code uses them:
+#  +0 state 0 idle · 1 OUT · 2 IN
+#  +1 timer frames remaining in the current phase
+#  +2 bright current brightness 0..15 (mosaic size is 15 minus this)
+#  +3 bg_mask the caller's affected-BG nibble for $2106's low nibble
+#  +4 swap_ptr 2 B, the caller's swap routine (bank-0 CODE addr; 0 = none)
+#  +6 shadow the $2106 byte the NMI hook commits
+#
+# `[init] zero` IS declared here, and it is not a "to be safe" zero-fill of the
+# kind rule 5 and m7_affine's header reject. Two of these seven bytes are
+# genuinely READ BEFORE ANY WRITE: `state`, which mosaic_tick and mosaic_active
+# read on every frame from boot onward and long before the first arm, and
+# `shadow`, which the NMI hook commits on every armed frame from the first one.
+# There is no code path that seeds either — that is what "idle" MEANS — so the
+# write-before-read contract m7_affine gets from its enter-time seed does not
+# exist for those two. The other five are written at arm; they ride along
+# because `[init] zero` is per-claim, and splitting the claim to zero two bytes
+# and not five would buy nothing but a second symbol.
+#
+# THE DECLARATION NEEDS A ROUTINE BEHIND IT, and for one build it did not have
+# one. `[init] zero` is emitted by the allocator as a COMMENT in the scene map;
+# no code falls out of it. Every other feature in the tree pairs it with a
+# `<name>_init` the game's boot block calls (sm_init, fade_init, input_init),
+# and mosaic shipped without one — so the first ROM ever to compose this
+# feature tripped Mesen's break-on-uninitialized-read detector on
+# $000010/$11/$13: `state`, `timer` and `bg_mask`. A non-zero `state` at boot
+# is a wipe nobody armed, ticking a curve from a random elapsed index and
+# JSR'ing a swap pointer made of DRAM noise. `mosaic_init` (mosaic.asm) is that
+# routine, and a consumer must call it in its boot block.
+[[claims.dp]]
+name = "mos_ctl"
+bytes = 7
+
+[init]
+zero = ["mos_ctl"]
+
+# NO `[[claims.rom]]` for the two ease curves, deliberately — they are 35 bytes
+# of `.byte` in mosaic.asm's own CODE segment. A rom claim is the right shape
+# for m7_affine's 2 KB generated LUT: it needs bank placement, it is produced
+# by a build-time tool, and `make rom-unbacked` proves the `.incbin` really
+# fills it. None of that applies here. Backing 35 hand-authored bytes would
+# mean checking in a 35-byte .bin plus an `.incbin` site in every consuming
+# game's main.asm, to buy nothing — the curves have no alignment requirement,
+# are not a DMA source, and do not pressure window 0. Precedent in the tree:
+# split_band's HDMA tables, "the tables live in the code bank (tiny; HDMA
+# A1B/DASB are label-derived)". The reads are `lda f:label, x`, long-indexed,
+# so they are bank-independent exactly as m7_affine's LUT reads are.

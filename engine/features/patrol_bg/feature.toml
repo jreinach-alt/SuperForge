@@ -1,0 +1,71 @@
+# patrol_bg — BG1: the 32x28 walled level, rendered at enter from the pat_map
+# blob. The terrain half of the `patrol` rail's display.
+#
+# THE SEVENTH INSTANCE OF THE KEYSTONE BG PATTERN. What is specific to this
+# one:
+#
+#  THE MAP IS RENDERED FROM THE BLOB, NOT BUILT BY GAME ARITHMETIC. scroller
+#  builds its checkerboard from an expression because that expression is its
+#  rail's lesson; patrol's lesson is that the SAME level bytes drive the
+#  picture and the collision. So the enter loop walks pat_map's 1024 bytes and
+#  writes each as a tilemap word — the four build loops live in the generator
+#  that authored the blob, and col_map binds the identical bytes. One source,
+#  two consumers, no drift.
+#
+#  THE SCROLL IS PINNED AT ENTER, WITH THE VOFS -1. The level is one screen
+#  and nothing on this rail scrolls it. BG1HOFS = 0 and
+#  BG1VOFS = -1 are written ONCE by pat_bg_arm under the enter forced blank —
+#  scanline N shows tilemap line VOFS + N and the first active scanline is 1
+#  (pfs_bg's measured derivation), so the -1 is what makes world y = screen
+#  y = OAM y, and a wall-stop coordinate is the same number in the map, the
+#  picture and the OAM byte. No per-frame BG commit: the NMI hook carries
+#  only the OAM DMA and the text queue on this rail.
+name = "patrol_bg"
+role = "feature"
+depends = ["patrol_rom"]
+
+# The enter-time CHR upload, word-port (mode 1 drives VMDATAL+VMDATAH). Phase
+# is forced_blank by class: scene_mgr's enter clears HDMAEN and zeroes
+# NMITIMEN, so it cannot race an active- or vblank-phase claim on a shared
+# channel number.
+[[claims.dma_init]]
+name = "pat_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "pat_chr"
+kind = "chr"
+tiles = 3                # 0 empty, 1 blank (unused; it keeps the terrain tile
+                         # at id 2, which is the id the level map stores),
+                         # 2 the grey terrain tile
+tile_bytes = 32          # 4bpp
+
+[[claims.vram]]
+name = "pat_map_v"
+kind = "tilemap"
+words = 0x400            # 32x32; BG1SC bases are 0x400-word granular
+
+# THE PALETTE AND THE BACKDROP ARE ONE CLAIM, by hardware contract (the
+# scroller_bg / pfs_bg / m7x_floor fold): the map authors palette group 0, so a
+# tilemap word IS its tile id and the BG reads CGRAM words 0..15 — word 0 of
+# that group is also the BACKDROP slot. One word, two meanings, one owner —
+# so this scene cannot also compose `backdrop`.
+[[claims.cgram]]
+name = "pat_pal"
+words = 16
+at = 0
+
+# C4 (docs/09 §2.1): the BG1 layer configuration and the scene's base display.
+#
+# ATTRIBUTION. BGMODE/TM/BG1SC/BG12NBA are written by the scene's enter code in
+# game/patrol/scenes/play.asm (the layer identity of a Mode 1 BG1+BG3 scene),
+# so they are in scene_writes. BG1HOFS/BG1VOFS are written by patrol_bg.asm
+# itself (the enter-time pin) and are therefore NOT in scene_writes —
+# no_literals' declaration-that-lies check refuses the mistake in either
+# direction.
+[[claims.reg]]
+name = "pat_layers"
+registers = ["BGMODE", "TM", "BG1SC", "BG12NBA", "BG1HOFS", "BG1VOFS"]
+scene_writes = ["BGMODE", "TM", "BG1SC", "BG12NBA"]

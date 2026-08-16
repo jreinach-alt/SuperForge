@@ -1,0 +1,66 @@
+# split_v_rom — the split_v_fight rail's art, in ROM. Global (not
+# scene-scoped).
+#
+# ROM claims cannot be scene-scoped: the allocator packs a ROM window once for
+# the composition, and a scene-scoped rom claim would reserve bytes that only
+# one scene's map names. Same reasoning as room_rom's header, one rail over.
+#
+# Every claim here is BACKED by an .incbin claim site in
+# game/split_v_fight/main.asm, which is what `make rom-unbacked` proves
+# (docs/37). A claim with no .incbin is the grad_tabs bug -- an armed reader
+# streaming whatever the linker left there -- and it is now a build refusal.
+#
+# The blobs come from tools/gen_split_v_assets.py. Two of them (sv_stage_pal,
+# sv_knight_chr) are derived from third-party art packs -- under two DIFFERENT
+# grants, only one of which is CC0; see NOTICE -- and vendored under
+# vendor/art/split_v for bare runners; the rest are authored. See that
+# generator's header for provenance.
+name = "split_v_rom"
+role = "blob"
+
+# --- the stage, shared by BOTH cameras -------------------------------------
+# ONE copy, not two. The obvious reading of a two-camera split is that the
+# stage must be "duplicated into BG1's and BG2's VRAM regions"; it does not
+# have to be -- BG2SC points at BG1's tilemap and BG12NBA at BG1's CHR, so the
+# split is purely camera scroll over one copy. Read the code, not the comment
+# (CLAUDE.md). Believing the comment would have doubled both the VRAM claim and
+# this blob.
+[[claims.rom]]
+name = "sv_stage_chr"
+bytes = 288              # 9 tiles x 32 B 4bpp
+
+[[claims.rom]]
+name = "sv_stage_map"
+bytes = 2048             # 32x32 words
+
+[[claims.rom]]
+name = "sv_stage_pal"
+bytes = 32               # 16 BGR555 words
+
+# --- the divider bar on BG3 ------------------------------------------------
+[[claims.rom]]
+name = "sv_bevel_chr"
+bytes = 64               # 2 tiles x 32 B 4bpp
+
+[[claims.rom]]
+name = "sv_bevel_pal"
+bytes = 32
+
+# --- the fighters ----------------------------------------------------------
+# 2048 B for ONE 32x32 frame is not waste: OBJ VRAM is a 16-tile-wide grid and
+# a 32x32 sprite reads its lower tile rows +16 tile numbers away
+# (hardware-fixed), so the frame occupies tiles {0..3, 16..19, 32..35, 48..51}
+# of a 64-tile block. The gaps are the alignment the hardware requires.
+[[claims.rom]]
+name = "sv_knight_chr"
+bytes = 2048
+
+# Two palettes, one sprite: the P1/P2 team identity is an OBJ-palette swap, so
+# the side-swap reads at a glance without a second CHR copy.
+[[claims.rom]]
+name = "sv_knight_pal_r"
+bytes = 32
+
+[[claims.rom]]
+name = "sv_knight_pal_b"
+bytes = 32

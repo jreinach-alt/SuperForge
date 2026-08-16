@@ -1,0 +1,39 @@
+# m7_dungeon — the rotating Mode 7 dungeon floor.
+#
+# A rotating Mode 7 floor under a static affine matrix, the cast projected onto
+# it through that matrix's transpose (m7_project), and the game played on it:
+# tank controls, world-space collision through col_map, a wall-turn patrol,
+# tank controls, world-space collision through col_map, a wall-turn patrol,
+# contact knockback and the goal's win card. Built in three slices over this one
+# scene.
+#
+# ONE SCENE, no edges, mirroring split_v_fight's shape. The rail's subject is
+# the floor; framing it with a title screen would add surface with no showcase
+# value, and the later slices grow the same scene rather than new ones.
+#
+# NOT COMPOSED, and each for a reason the allocator would enforce anyway:
+#   mode7_persp  -- its m7ab/m7cd HDMA claims OWN M7A-M7D. A static-matrix rail
+#                   CPU-writing those registers in the same scene is refused by
+#                   check_reg_ownership's reg x hdma check. Correct, and by
+#                   check_reg_ownership's reg x hdma check. Correct, and by
+#                   design: static-affine and per-scanline perspective are two
+#                   mechanisms for one set of registers.
+#   mode7_floor  -- depends on world_rom (a 256 KB map this rail never reads)
+#                   and pins CGRAM 0..16 for microzero's palette.
+#   backdrop     -- a scene with a BG feature cannot also compose it, and
+#                   m7dg_floor claims CGRAM word 0 — which in Mode 7 is BOTH
+#                   palette index 0 and the backdrop slot, so it has exactly one
+#                   owner by hardware contract.
+#   bg_text      -- BG3 does not exist in Mode 7. There is no HUD here; the
+#                   picture is the HUD.
+globals = ["scene_mgr", "input", "fade", "oam_sprites",
+           "m7_affine", "m7_project", "m7dg_rom"]
+
+[[scene]]
+id = "dungeon"
+features = ["m7dg_floor", "m7dg_obj", "col_map"]
+# col_map is composed here rather than globally because its code belongs to the
+# one scene that has a world, and its `dp` claim is then space the allocator can
+# reuse in any scene that does not. Its SIX binding symbols are defined at the
+# include site in scenes/dungeon.asm — the feature carries no default for any of
+# them, so a missing one is an assembly-time error naming it.

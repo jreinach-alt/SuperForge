@@ -1,0 +1,115 @@
+# pool — fixed-slot actor pools, as a REUSABLE mechanism (global feature).
+#
+# WRITTEN FOR FOUR RAILS, NOT ONE. `railshooter`, `m7_oshoot` and `boss` each
+# want TWO pools; `boss_saucer` wants ONE. The multiplicity is not a design
+# input in either direction, because N pools cost N `POOL_BIND` stamps and no
+# extra claim. `railshooter` is the cheapest of the four, so the mechanism is
+# built against it — but the contract below is written for all four, which is
+# why it is a contract and not just the shape one rail happened to need.
+#
+# =============================================================================
+# WHAT A POOL IS, AND WHY IT NEEDS NO NEW CLAIM CLASS
+# =============================================================================
+# A pool needs no state of its own and no engine link partners. It is an
+# `alive[]` array of N words (0 = free, non-zero =
+# live) plus parallel arrays the game indexes with the SAME byte offset, and
+# the macros are a scan, a store and a clear over them. There is no channel, no
+# register, no VBlank cost, no hardware surface -- nothing for a claim class to
+# describe that `wram` does not already describe.
+#
+# `shmup_obj` demonstrates it: three pools as one 160-B `wram` claim plus four
+# pinned `[[claims.oam]]`, with `allocator/schemas.py` untouched. THIS feature
+# does not revisit that -- it generalises the ROUTINES and leaves the storage
+# where the consumer declares it.
+#
+# =============================================================================
+# THE OWNERSHIP SPLIT — the contract m7_oshoot and boss build against
+# =============================================================================
+# **`pool` supplies the MECHANISM. The CONSUMER claims the STATE.**
+#
+#  this feature claims 4 B of DP (one 24-bit base pointer + 1 pad byte)
+#  the consumer claims the `wram` block holding every pool's alive[] and
+#  every parallel array, sized and laid out by the game
+#
+# That is the only split that survives the four consumers. A pool's SIZE (slot
+# count), its FIELD SET (x/y/z/tier/timer/type...) and its MULTIPLICITY (two
+# per rail, three on shmup) are all game vocabulary; a feature that claimed the
+# arrays would have to guess all three, and would then have to be re-guessed
+# per rail -- which is a sibling feature per rail, i.e. No feature at all.
+#
+# HOW ONE SCENE HOLDS TWO POOL INSTANCES. The same way it holds ten: the pool
+# routines take the alive[] array's 24-bit base as a RUNTIME argument in this
+# feature's DP pointer, so N pools cost N base stamps and nothing else.
+# Concretely, `railshooter` has two (obstacles, bullets) inside ONE consumer
+# `wram` claim at two documented offsets.
+#
+# WHY NOT THE OTHER TWO SHAPES THE BRIEF NAMED:
+#
+#  * SIBLING FEATURES (`pool` / `pool2`, the `input`/`input2` shape). That
+#  precedent exists for a MEASURED reason that does not apply here:
+#  `input2/feature.toml` records that `input` is a global in both PINNED
+#  games, so adding a claim to it re-packs microzero's DP map -- "one 2-byte
+#  claim moved microzero.sfc from e45ddea... to c618795...". A sibling kept
+#  pad 2 out of compositions that never asked for it. `pool` is a NEW
+#  feature composed by no pinned game, so there is nothing to protect; and a
+#  `pool2` would duplicate a scratch pointer to buy a second instance the
+#  runtime-base design gives away free. Multiplicity here is a property of
+#  the CONSUMER'S claim, not of the feature list.
+#  * ONE FEATURE HOLDING BOTH CLAIM SETS (mechanism + arrays). That is
+#  `shmup_obj`, and it is right for that one rail: the pools are folded into
+#  the sprite feature because "pool slot k is ALWAYS OAM slot k" -- the
+#  stable-slot contract WAS the coupling. **That coupling does not hold on
+#  this rail**, and the divergence is the reason the mechanism is being
+#  lifted out now: `railshooter` re-derives the obstacle OAM order from
+#  DEPTH every frame (the tier-bucketed emit), so an obstacle's pool slot
+#  and its OAM slot are deliberately unrelated. A mechanism welded to a
+#  slot-identity contract could not serve its own second consumer.
+#
+# =============================================================================
+# THE COST OF GENERICITY, STATED
+# =============================================================================
+# docs/09 §1.1's POOL row flagged this in advance: the routines index ONE claim
+# by compile-time offset, so a shared feature would have to take a 24-bit base
+# in DP and use `[dp],y`, costing a pointer setup per call. That is exactly
+# what shipped here. The measured shape:
+#
+#  shmup `lda f:ES_SHM_POOLS_LONG + SHM_ALIVE, x` 5 cycles, no setup
+#  pool `lda [ES_POOL_PTR], y` 7 cycles + a 3-store
+#  base stamp per call
+#
+# The stamp is amortised over a whole scan (spawn walks up to N slots; init
+# writes N words), so the per-CALL overhead is ~10 cycles, not ~10 per slot.
+# Nothing on these four rails calls a pool routine more than a few times a
+# frame -- `railshooter`'s per-frame budget is two `pool_count`s and at most
+# one `pool_spawn`; the per-slot work (move, recycle, hit test) is the GAME's
+# loop over its own parallel arrays with the cursor in X, which is unchanged
+# from `shmup` and costs the same.
+#
+# THE CURSOR IS X FOR THE CALLER AND Y INSIDE. `[dp],y` is the only
+# indirect-long indexed mode the 65816 has -- there is no `[dp],x` -- but `lda
+# long,x` exists and `lda long,y` does not, so a caller's parallel arrays must
+# be indexed with X. The routines therefore take and return the byte offset in
+# X and transfer it to Y internally. That keeps the caller's idiom identical to
+# `shmup`'s.
+name = "pool"
+role = "feature"
+
+# The base pointer the routines dereference. 3 bytes are the pointer; the 4th
+# is padding so a caller can stamp it with TWO 16-bit stores (address lo-word,
+# then bank-in-low-byte) instead of a word plus a width toggle for the bank
+# byte. `pool_bind` in pool.asm is that stamp.
+#
+# ONE pointer, shared by every pool in the composition, because it is a CALL
+# FRAME and not state: it is written immediately before each call and dead
+# immediately after. Two consumers in one scene cannot interleave -- the
+# routines are straight-line and call nothing.
+[[claims.dp]]
+name = "pool_ptr"
+bytes = 4
+
+# NO `[init] zero`, deliberately, and this is CLAUDE.md rule 5 rather than
+# thrift: every byte is written by `pool_bind` before any read within one call,
+# which is checkable by reading pool.asm. Zero-filling it at boot would make a
+# "the caller forgot to bind" defect resolve to bank 0 offset 0 -- a plausible
+# address in the low-WRAM mirror -- instead of to whatever garbage power-on
+# left, which the uninitialised-read detector can see.

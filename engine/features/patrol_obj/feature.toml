@@ -1,0 +1,68 @@
+# patrol_obj — the patrol rail's three actors: the red player and the two
+# magenta patrollers, one 8x8 OBJ each, positioned every frame from the play
+# scene's state into the oam_sprites shadow — never into hardware OAM, which
+# the engine's declared VBlank GP-DMA owns.
+#
+# ONE TILE, THREE SPRITES, TWO PALETTES. All three actors draw tile #1, the
+# player with attr $00 (OBJ palette 0, red) and both enemies with attr $02
+# (OBJ palette 1, magenta) — they are told apart by palette, not by CHR. The
+# CHR claim is therefore one tile, while the palette claim spans both 16-word
+# OBJ palettes.
+#
+# CPU-WRITTEN REGISTER, DECLARED: OBSEL $2101 (obj_obsel), following
+# breaker_obj / shmup_obj / hud_obj: oam_sprites is the OAM *transport*, not
+# the sprite size/base authority, so every rail's OBJ feature declares OBSEL
+# itself and composing two games' sprite features in one scene must refuse. The
+# VALUE comes from ES_V_POBJ_CHR_OBSEL_BASE.
+#
+# FOUR SPRITES CLAIMED FOR THREE ACTORS, and the reason is the hi table
+# (hud_obj's argument, one slot bigger): a hi-table byte covers FOUR sprites (2
+# bits each: X9 + size), so claiming 3 would leave this feature
+# read-modify-writing a byte a quarter of which belongs to nobody. Claiming the
+# whole byte lets the draw REBUILD it from the three actors' own X values every
+# frame. Pinned, not packed: OAM index order IS sprite-vs-sprite priority, and
+# a test must read entry 0 and say where the player is, entries 1..2 and say
+# where each enemy is.
+name = "patrol_obj"
+role = "consumer"
+depends = ["oam_sprites", "patrol_rom"]
+
+# The enter-time upload: the shared actor tile into OBJ VRAM. Mode 1 drives
+# VMDATAL+VMDATAH (word port); phase forced_blank by construction.
+[[claims.dma_init]]
+name = "pobj_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "pobj_chr"
+kind = "chr"
+obj = true
+words = 16               # 1 tile x 16 words
+
+[[claims.cgram]]
+name = "pobj_pal"
+words = 32
+at = 128                 # hardware contract: OBJ palettes live in CGRAM
+                         # 128..255; palette 0 = 128..143 (player red), palette
+                         # 1 = 144..159 (enemy magenta)
+
+[[claims.oam]]
+name = "player"
+sprites = 1
+at = 0
+
+[[claims.oam]]
+name = "enemies"
+sprites = 2
+at = 1                   # entry 1 = the ground patroller, 2 = the ledge one
+
+[[claims.oam]]
+name = "hi_pad"
+sprites = 1
+at = 3                   # the rest of the hi-table byte, parked at y = $F0
+
+[[claims.reg]]
+name = "pobj_obsel"
+registers = ["OBSEL"]

@@ -1,0 +1,71 @@
+#!/bin/sh
+# SuperForge pre-push gate — makes a red push structurally impossible.
+#
+# Runs the SECONDS-scale gate set (measured ~0.1 s each on 2026-07-30) before
+# any push leaves this machine:
+#
+#   make register     the docs/09 census + demand lint — the gate CI runs
+#                     #191/#192 shipped red on, because the census regen was
+# batched into a later commit (the friction log, "the audio slice —
+#                     the sound of a place": the census regen belongs IN the
+#                     wiring commit, and this hook is the structural fix)
+#   make width-check  the width lint, zero-findings baseline
+#   make time-check   the TIME-COUPLING lint (docs/45) — wall-clock waits
+#                     in tests/ + tools/. Same tier: 0.85 s. It is here
+#                     for the same reason width-check is: the rule
+# existed as prose in AGENTS.md for two work items and
+#                     22 violating call sites accumulated underneath it.
+#   make toy-bad      the allocator collision gate (exit 0 = refused correctly)
+#   make rom-unbacked the rom-claim BACKING gate, toy-bad's presence-side twin
+#                     and the same polarity (exit 0 = the gate refused the
+# unbacked arm). Added because
+#                     it shipped wired into `make gates` and into
+#                     `make test` only, so the documented front door did not
+#                     run it. ~0.3 s.
+#
+# Deliberately NOT here: make test, make measure, ROM builds. A push gate that
+# costs minutes gets bypassed out of habit; one that costs a second gets kept.
+# The minutes-scale sequence is `make gates` (and CI runs it on every push).
+#
+# BYPASS — this is a guardrail, not a prison: `git push --no-verify` skips
+# this hook entirely. Use it deliberately (e.g. pushing a WIP branch whose
+# census you already know is mid-edit) and expect CI to report the red you
+# chose to ship.
+#
+# Wiring: hooks do not clone with the repo, so tools/setup.sh installs this
+# directory via `git config core.hooksPath tools/git-hooks`. That config is
+# RELATIVE on purpose — worktrees share repo config, git resolves a relative
+# hooksPath against the working tree the push runs from, so every worktree
+# runs its OWN checked-out copy of this file against its OWN tree. The cd
+# below pins cwd to that tree's root explicitly (git already starts client
+# hooks there; the cd is the documented contract, not a guess). Stdin (the
+# ref list) is deliberately unread: these gates are tree-level, so they run
+# the same for any ref, including deletes.
+
+TOPLEVEL="$(git rev-parse --show-toplevel)" || {
+    echo "pre-push: git rev-parse --show-toplevel failed — refusing to push ungated" >&2
+    exit 1
+}
+cd "$TOPLEVEL" || {
+    echo "pre-push: cannot cd to $TOPLEVEL — refusing to push ungated" >&2
+    exit 1
+}
+
+# Each gate runs PLAINLY — no pipes, no output redirection — and its exit
+# code is checked individually ("never pipe a gate", CLAUDE.md via AGENTS.md:
+# a pipe replaces the gate's exit code with the last stage's, so the gate is
+# the exit code or it is nothing).
+for gate in register width-check time-check toy-bad rom-unbacked; do
+    echo "pre-push: make $gate"
+    make "$gate"
+    st=$?
+    if [ "$st" -ne 0 ]; then
+        echo "" >&2
+        echo "pre-push: REFUSED — 'make $gate' failed (exit $st)." >&2
+        echo "pre-push: fix it (or 'git push --no-verify' to bypass deliberately)." >&2
+        exit "$st"
+    fi
+done
+
+echo "pre-push: register + width-check + time-check + toy-bad + rom-unbacked green — push proceeds"
+exit 0

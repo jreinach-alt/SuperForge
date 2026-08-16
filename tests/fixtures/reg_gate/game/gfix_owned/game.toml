@@ -1,0 +1,9 @@
+# reg-gate fixture game (item 5): same single global as gfix, existing so a
+# game top-level file can be checked against the globals' union while gfix's
+# own main.asm stays the SILENT sibling. Boot writing an owned-but-unopened
+# port is the sm_display shape and needs its own file to fire in.
+globals = ["rgfx_glob"]
+
+[[scene]]
+id = "s1"
+features = ["rgfx_scenef"]

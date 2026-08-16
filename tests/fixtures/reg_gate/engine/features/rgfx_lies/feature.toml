@@ -1,0 +1,14 @@
+# reg-gate fixture (FIRES, item 5 rule 1): a declaration that LIES.
+#
+# The claim opens MOSAIC to scene-enter code via `scene_writes` -- "enter-time
+# code writes this" -- and the feature's OWN asm writes it too, without
+# declaring the co-write. `scene_writes` says who ELSE may write the register;
+# it does not say the owner stays out. This is scene_mgr's sm_display shape
+# with the honest half missing.
+name = "rgfx_lies"
+role = "fixture"
+
+[[claims.reg]]
+name = "rl_mode"
+registers = ["MOSAIC", "M7SEL"]
+scene_writes = ["MOSAIC"]

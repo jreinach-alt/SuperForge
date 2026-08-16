@@ -1,0 +1,26 @@
+# rpg — the top-down RPG. A Mode 7 perspective overworld you
+# walk on a tile grid, a mosaic wipe into a Mode 1 town, an OPAQUE BG3 dialog
+# box with paged text, a battery save, and music that survives the swap.
+#
+# The rail debuts ONE engine feature: `dialog`. Everything else is composed.
+globals = ["scene_mgr", "input", "fade", "oam_sprites", "mosaic",
+           "text_dp", "font_rom", "enter_scr", "save", "audio", "tad_rom",
+           "rpg_rom", "dlg_rom", "pose_rom", "rpg_logic"]
+
+[[scene]]
+id = "overworld"
+features = ["rpg_floor", "split_band", "mode7_persp", "col_map", "rpg_obj"]
+
+[[scene]]
+id = "town"
+features = ["rpg_town", "bg_text", "dialog", "rpg_obj"]
+
+[[edge]]
+from = "overworld"
+to = "town"
+style = "mosaic"
+
+[[edge]]
+from = "town"
+to = "overworld"
+style = "mosaic"

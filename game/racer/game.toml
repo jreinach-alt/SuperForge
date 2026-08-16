@@ -1,0 +1,56 @@
+# racer — THE CHANNEL-PRESSURE RAIL.
+#
+# A kart on the Mode-7 perspective floor: accelerate/coast physics with a
+# steerable camera and off-road drag (the map is collision ground truth), a
+# screen-fixed kart with lean frames, a sprite speed bar, a day-night COLDATA
+# cycle, static red/white rumble strips, pause, and race music.
+#
+# THE HDMA LEDGER IS THE SUBJECT. Nine composed features between them want more
+# HDMA than a naive count of "one channel per effect" can supply, which is why
+# this rail exists: it is the densest channel composition in the kit and the
+# place a channel-pool bug would surface first. It does NOT refuse, and the
+# reason is PHASE occupancy — SuperForge binds an eight-channel pool in which a
+# vblank-phase claim and an active-phase claim can share one channel number. The
+# ledger is 7 active + 2 vblank sharing three of those numbers = 7 of 8 used,
+# one spare. Count phases, not effects.
+#
+# ONE SCENE. One screen, no edges: the picture is the whole showcase, and the
+# controls are B / LEFT-RIGHT / START and nothing else.
+#
+# NOT COMPOSED, and each for a reason measured rather than assumed. The method
+# is a double supply-negative: COMPOSE the candidate and read what it would
+# RENDER, rather than arguing from its description.
+#   rgb_gradient -- the obvious supply for a colour cycle, and the allocator
+#                   ACCEPTS it (7/8 channels, green). It still cannot serve:
+#                   its three COLDATA channels stream ONE STATIC ROM table
+#                   each, chosen at build time (a fixed camera height gives a
+#                   fixed band geometry, so it has no fog dynamics), and its
+#                   header tables are ROM CONSTANTS in the code bank. A
+#                   day-night cycle is a table that CHANGES. Composing it
+#                   renders microzero's fixed dusk wash forever. rc_grad is the
+#                   same three channels with the header tables in WRAM and
+#                   eight ROM keyframes behind them -- mode7_persp's retarget
+#                   shape.
+#   player_car   -- one 16x16 OBJ at a fixed tile, no lean frame and no HUD.
+#                   This rail's OBJ surface is a kart with two draw frames plus
+#                   a six-tick speed bar = 7 slots across two hi-table bytes.
+#                   It ALSO refuses if composed beside rc_kart: both claim
+#                   OBSEL, which is exactly the contention that claim exists
+#                   to surface.
+#   race_logic   -- microzero's lap/sector/checkpoint physics over a brake-and-
+#                   reverse velocity model. This rail's model is
+#                   accelerate/coast-to-stop with an off-road drag term and no
+#                   laps; sharing the ALU claim is all they have in common.
+#   bg_text/vwf  -- BG3 does not exist in Mode 7. That is WHY THE HUD IS
+#                   SPRITES on this rail, and why the speed bar is OBJ.
+#                   font_rom/vwf_rom follow them out.
+#   backdrop     -- mode7_floor pins CGRAM word 0 (Mode 7 8bpp pixel value IS
+#                   the CGRAM index), so colour 0 has exactly one owner.
+globals = ["scene_mgr", "input", "fade", "oam_sprites", "enter_scr",
+           "world_rom", "pose_rom", "col_map_rom", "rc_rom",
+           "audio", "tad_rom"]
+
+[[scene]]
+id = "race"
+features = ["mode7_floor", "mode7_persp", "mode7_stream", "split_band",
+            "sky_band", "rc_grad", "col_map", "rc_kart", "rc_logic"]

@@ -1,0 +1,31 @@
+# camera_follow user game state.
+#
+# Five words, all `@dp` and all scene-scoped: `world` is the only scene, and
+# every one of these is read or written on the frame path.
+#
+# THE SPLIT: the player and the derived screen position are GAME state (this
+# file), while the camera is cf_bg's `cf_cam` dp claim — because the routine
+# that READS the camera is that feature's VBlank commit (the scroller_bg /
+# pfs_bg division, unchanged).
+#
+# pwx/pwy and scrx/scry are DIFFERENT SPACES, and keeping both named is the
+# rail's lesson made structural: the player LIVES in world coordinates; the
+# sprite is DRAWN at world - camera. The subtraction happens in the scene's
+# tick (game-side); cf_obj_place consumes scrx/scry
+# and never sees a world coordinate.
+#
+# NO [global] SECTION, deliberately: this rail has no transitions, so
+# game-lifetime state would be a claim on the game-lifetime region for
+# something never observed to survive anything (hud_game's reasoning).
+
+[scene.world]
+pwx = "u16@dp"           # player x, WORLD px, top-left of the 8x8 box.
+                         # Clamped to [0, CF_WORLD_W - 8] by the tick.
+pwy = "u16@dp"           # player y, WORLD px. Clamped to [0, CF_WORLD_H - 8].
+scrx = "u16@dp"          # sprite x, SCREEN px = pwx - cam_x. In [0, 248] by
+                         # construction once both clamps hold.
+scry = "u16@dp"          # sprite y, SCREEN px = pwy - cam_y. In [0, 216].
+frames = "u16@dp"        # frames since enter. Drives nothing — the
+                         # free-running heartbeat a test reads to tell "the
+                         # tick is running" from "the tick is stuck" (the
+                         # breaker/scroller convention).

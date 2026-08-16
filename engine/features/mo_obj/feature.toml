@@ -1,0 +1,203 @@
+# mo_obj — the overhead shooter's cast: the hero, six chasers, eight bullets.
+# Scene-scoped. Model: m7dg_obj (the same projection) / rs_obj (the same
+# pools).
+#
+# THE HERO DOES NOT PROJECT, AND THAT IS THE CAMERA MODEL, not a shortcut.
+# M7a_set_center pins the pivot — the hero's world position — at screen centre
+# (128,112) for every heading, and this rail re-pins it EVERY FRAME to a hero
+# who is walking (m7dg_dungeon's hero never leaves his tile; this one does). So
+# the hero's screen position is still a CONSTANT by construction and computing
+# it would be computing 128 the long way. What rotates AND SLIDES beneath him
+# is the floor. Everything else in the world moves relative to that pin, which
+# is what m7_project exists to work out.
+#
+# FIFTEEN SPRITES, SIXTEEN SLOTS. A hi-table BYTE covers four sprites (2 bits
+# each: bit 0 = X9, bit 1 = size), so a fifteen-sprite cast ends mid-byte and
+# the last two bits would belong to a sprite this feature does not own — which
+# means the byte could only be read-modify-WRITTEN, and a stale X9 renders a
+# sprite 256 px away. Owning the sixteenth slot lets all four bytes be REBUILT
+# WHOLE every frame. M7dg_obj and platformer_obj each pay one parked slot for
+# the same property; this pays one too.
+#
+# EVERY POOL SLOT IS EMITTED EVERY FRAME, live at its projection or parked at
+# y = $F0. Drawing every slot every frame — live at its position, dead parked
+# off-screen — keeps slot identity STABLE, so a test can read an actor by its
+# OAM slot instead of searching OAM for something plausible. That is what
+# makes an OAM-byte assertion mean something: slot 7 is bullet 0 whether or
+# not bullet 0 exists.
+#
+# OBSEL IS CLAIMED HERE, following breaker_obj / m7dg_obj / platformer_obj /
+# rs_obj. Oam_sprites claims only OAMDATA — it is the OAM *transport*, not the
+# sprite size/base authority — so every rail's OBJ feature declares OBSEL
+# itself.
+name = "mo_obj"
+role = "consumer"
+depends = ["oam_sprites", "mo_rom", "m7_project", "pool"]
+
+# The enter-time uploads: two sprite sheets into OBJ VRAM, one DMA each. The
+# channel is a declared resource; DAS is re-armed per transfer at the one
+# arming site (mo_obj.asm, MO_CHR_UP) because it is consumed by each one.
+[[claims.dma_init]]
+name = "mo_obj_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# The per-frame placement scratch. A call frame, not state — every byte is
+# written before it is read inside one draw pass, so there is no `[init] zero`.
+#  +0 screen x (9-bit OBJ space) +2 screen y
+#  +4 the pool cursor (a BYTE offset, the idiom pool_spawn/pool_kill use)
+#  +6 the OAM slot the cursor is emitting into
+[[claims.dp]]
+name = "mo_draw"
+bytes = 8
+
+# THE POOLS. Two of them, laid out as one region with a fixed 16-byte stride
+# per field (8 slots x 2 B) so a pool is (base, count) and a field is (base +
+# field_offset + slot*2), every part of it allocator-emitted — rs_obj lays its
+# two pools out the same way. Byte offsets inside this claim are game
+# vocabulary and live in game/m7_oshoot/m7_oshoot.inc.
+#
+#  +0x00 enemies alive[8] | wx[8] | wy[8] (6 slots used)
+#  +0x30 bullets alive[8] | wx[8] | wy[8] | vx[8] | vy[8] | ttl[8]
+#
+# WHY THE ARRAYS ARE HERE AND NOT IN state.toml, which would also work and is
+# what m7dg_obj does for its three pacing enemies: `pool`'s binding contract
+# takes a 24-bit CONSTANT base (`POOL_BIND <expr>`, pool.asm's header), so the
+# alive arrays have to be reachable as one emitted `_LONG` symbol plus a
+# compile-time offset. A `wram` claim gives exactly that in one name; six
+# separate state vars would give six unrelated bases and would put the pool
+# layout somewhere the feature that walks it cannot see. Rs_obj made the same
+# call for the same reason and it is the shape pool.asm's header is written
+# against.
+#
+# NO `[init] zero`, and that is deliberate. `mo_actors_arm` writes every alive
+# word of both pools in the scene's enter, before any tick runs, and the
+# parallel arrays are written by spawn-then-use. Pre-zeroing here would hide a
+# "the init stopped running" defect behind a plausible answer — rs_obj's
+# argument, shmup_obj's, col_map's, and CLAUDE.md rule 5's "never zero-init to
+# be safe".
+#
+# TEN FIELDS, NOT NINE, since the control restoration: the enemy pool gained a
+# `dying` countdown so a killed chaser can spend a few frames visibly dying
+# where it stood instead of vanishing between two frames. That field is what
+# makes a KILL distinguishable from a DESPAWN in the rendered frame — the one
+# thing a test cannot get from a live-count alone — and it lives in the pool
+# rather than in the scene's state because it is per-slot, exactly like
+# wx/wy.
+[[claims.wram]]
+name = "mo_actors"
+bytes = 160
+
+# 64 tiles = FOUR rows of the 16-wide OBJ name sheet, and the row pairing is
+# the hardware's, not ours: a 16x16 sprite reads {N, N+1, N+16, N+17}, so each
+# actor spans TWO grid rows and the two sheets sit at tiles 0 and 32 — one row
+# PAIR each. The 18-tile blobs the generator emits are laid out for exactly
+# that ({0,1,16,17} filled, the fourteen between them zero), so a sheet uploads
+# as one contiguous DMA with no unpacking.
+#
+# The two base tiles are hero 0 and enemy 32, and the bullet draws with the
+# enemy's tile under a different palette, so there is no third sheet and no
+# third base.
+#
+# The base is not written here and cannot be: the scene's `mode7` claim pins
+# words $0000-$3FFF, and the allocator floors every OBJ CHR claim above it
+# (substrate [vram.mode7] displaces_obj_chr_to_word). The emitted
+# ES_V_OBJ_CHR_OBSEL_BASE is what the ASM writes into OBSEL.
+[[claims.vram]]
+name = "obj_chr"
+kind = "chr"
+obj = true
+words = 1024
+
+[[claims.cgram]]
+name = "hero_pal"
+words = 16
+at = 128                 # hardware contract: OBJ palette 0 = CGRAM 128..143
+
+[[claims.cgram]]
+name = "enemy_pal"
+words = 16
+at = 144                 # OBJ palette 1
+
+[[claims.cgram]]
+name = "bullet_pal"
+words = 16
+at = 160                 # OBJ palette 2 — the bolt's own bright yellow, which
+                         # is what makes a rendered bullet identifiable apart
+                         # from the red enemy that shares its CHR
+
+# A FOURTH OBJ PALETTE, for the score readout and the death flash. It exists
+# rather than reusing one of the three above for one reason: this module's
+# rendered-pixel predicates (`_yellow` = a bolt, `_red` = a chaser, `_cyan` =
+# the hero) are exact only because the generator proves at build time that no
+# other emitted colour satisfies them. Drawing HUD digits in the bolt's yellow
+# would make "how many yellow pixels" stop meaning "how much bolt is on screen"
+# and would silently weaken three existing cases. A fourth band keeps every one
+# of them exact and gives the score its own.
+[[claims.cgram]]
+name = "score_pal"
+words = 16
+at = 176                 # OBJ palette 3
+
+# THE SLOT MAP IS PINNED, NOT PACKED. OAM index order IS sprite-vs-sprite
+# priority (lowest index in front) and the packer sorts by (-sprites, name), so
+# a packed layout's priority would be an accident of claim names. The hero is
+# slot 0 — in front of everything, because on a plan-view rail the one sprite
+# the player is steering must never be occluded by a chaser walking over it.
+# Bullets sit BEHIND the enemies (higher indices) so a bolt passing over a
+# chaser reads as travelling under it rather than replacing it.
+[[claims.oam]]
+name = "hero"
+sprites = 1
+at = 0
+
+[[claims.oam]]
+name = "enemies"
+sprites = 6
+at = 1
+
+[[claims.oam]]
+name = "bullets"
+sprites = 8
+at = 7
+
+# The sixteenth slot, claimed so the fourth hi-table byte has ONE owner and can
+# be rebuilt whole (see the header). Parked at y = $F0 for the ROM's life.
+[[claims.oam]]
+name = "hi_pad"
+sprites = 1
+at = 15
+
+# --- the score readout --------------------------------------
+# THREE 8x8 DIGITS, and they are sprites because on this rail they have to be:
+# BGMODE 7 has exactly one layer and the affine plane is using it, so there is
+# no tilemap to write a HUD into. Rs_obj's header states the same conclusion
+# for the same reason ("WHY THE WHOLE HUD IS SPRITES ... Mode 7"), and
+# `bg_text` — the repo's other live-cell HUD — writes a BG tilemap and is
+# therefore unavailable here. Checked, not assumed: bg_text.asm's commit
+# programs VMADD at a BG tilemap base.
+#
+# EIGHT BY EIGHT, which this feature can spend because OBSEL size pair 0 is
+# (8x8 / 16x16) and every actor is the LARGE half — mo_put ORs MO_LARGE into
+# the hi-table field for each one (mo_obj.asm). The digits simply do not set
+# it. (The
+# .inc's claim that "every actor is the SMALL 16x16 of the OBSEL pair, so nothing
+# sets it" is wrong on both halves; the code is the primary source and it is
+# what this claim is written against.)
+[[claims.oam]]
+name = "score"
+sprites = 3
+at = 16
+
+# The twentieth slot, for the FIFTH hi-table byte, on exactly hi_pad's
+# argument: a hi byte covers four sprites and this feature rebuilds each one
+# whole rather than read-modify-writing bits that belong to nobody.
+[[claims.oam]]
+name = "hi_pad2"
+sprites = 1
+at = 19
+
+[[claims.reg]]
+name = "obj_obsel"
+registers = ["OBSEL"]

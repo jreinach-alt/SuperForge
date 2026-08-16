@@ -1,0 +1,73 @@
+# rs_floor — the railshooter rail's Mode 7 plane. Scene-scoped.
+#
+# The grid the rail rushes over: one 128x128 wrapping plane, uploaded once at
+# scene enter and never touched again. The camera auto-advances forever and the
+# world wraps at 1024 px by the hardware's own Mode 7 addressing, so there is
+# nothing to stream -- which is why this rail has no `mode7_stream` and no
+# streaming channel.
+#
+# WHY THIS IS shm_floor's / m7x_floor's SHAPE AND NOT mode7_floor's. That
+# feature is welded to microzero: `depends = ["world_rom"]` drags in a 256 KB
+# map keyed to THAT rail's generator, and it pins CGRAM 0..16 for microzero's
+# track palette. This rail's plane is 32 KB of authored grid and its palette is
+# sixteen words. What transfers is the SHAPE -- one interleaved 32 KB blob, one
+# mode-1 DMA, an absolute palette pinned at 0, one display register -- not the
+# code. The ruling is m7dg_floor's, taken again by sh2_floor, shm_floor and
+# m7x_floor before this one, and the probe behind it is the same each time:
+# `mode7_floor` ALLOCATES here and still cannot serve.
+#
+# WHY NO `hdma` CLAIM. Nothing this feature does is per-scanline. The matrix is
+# mode7_persp's two INDIRECT channels; the sky seam is split_band's two; the
+# scroll origin is two registers the NMI commits from mode7_persp's DP shadow.
+# This feature is one enter-time DMA and one register.
+name = "rs_floor"
+role = "feature"
+depends = ["rs_rom"]
+
+# The enter-time upload: ONE DMA for the whole interleaved plane. Mode 1 drives
+# VMDATAL then VMDATAH alternately, which IS the interleave -- even source byte
+# to $2118 (tilemap low), odd to $2119 (8bpp CHR) -- so the blob streams
+# straight in with no unpacking and no second pass. Phase forced_blank:
+# scene_mgr's enter clears HDMAEN and zeroes NMITIMEN, so this cannot race an
+# `active` or `vblank` claim even on a shared channel number.
+[[claims.dma_init]]
+name = "rs_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# The Mode 7 region is the fixed pinned 32 KB at words $0000-$3FFF -- a
+# hardware address, not a packing decision, which is why `kind = "mode7"` takes
+# neither `words` nor `tiles` (giving them is a schema error).
+[[claims.vram]]
+name = "m7"
+kind = "mode7"
+
+# HARDWARE CONTRACT: a Mode 7 8bpp pixel value IS an absolute CGRAM index, so
+# this palette can only live at 0.
+#
+# Word 0 is included DELIBERATELY and is not spare: it is both palette index 0
+# and the Mode 7 BACKDROP slot, and this rail SEES it -- split_band turns BG1
+# off above the seam, so every sky scanline is the backdrop colour. The
+# generator puts deep space there so the two agree. A scene composing
+# `backdrop` alongside this must be refused -- colour 0 has exactly one owner
+# (mode7_floor, m7dg_floor, sh2_floor, shm_floor and m7x_floor all say
+# the same).
+[[claims.cgram]]
+name = "rs_pal"
+words = 4
+at = 0
+
+# C4 (docs/09 §2.1): M7SEL, CPU-written by THIS FEATURE's own asm
+# (rs_floor.asm's last act, under the scene's forced blank). Mode 7 is this
+# feature's mechanism, so the register is attributed here.
+#
+# NOT `seed`, and NO `scene_writes` — m7_persp_project's shape rather than
+# mode7_floor's. That difference is the whole point of the narrowed union
+# tiers: mode7_floor opens M7SEL because microzero's SCENE writes it, and this
+# rail's scene does not. The declaration-that-lies check enforces the
+# distinction in both directions and refused the first draft of this claim,
+# which had copied mode7_floor's `scene_writes` line along with its shape.
+[[claims.reg]]
+name = "rs_m7sel"
+registers = ["M7SEL"]

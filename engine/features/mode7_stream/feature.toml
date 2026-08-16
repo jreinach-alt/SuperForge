@@ -1,0 +1,81 @@
+# mode7_stream — leading-edge tilemap streaming for the 4096x4096 world
+# (scene-scoped). Main-thread tick converts camera tile-deltas into staged
+# 128-B row/col slices (position-wrapped, clamp 8/axis/frame, NO snap-to-cam —
+# the clamp covers the declared max 6 tiles/frame with margin, so no tile is
+# ever skipped); the NMI hook drains the slots as multi-queue GP-DMA (VMAIN $00
+# rows / $02 cols, DAS re-armed per slot — "DAS Is Single-Shot"). Inner loops
+# split by axis: rows = span-decomposed MVN (<=2 spans; source window wrap and
+# dest mod-128 wrap always cut together), cols = 8x-unrolled strided copy per
+# 64-row bank span. 68,578 mc/row is the measured bar a row transfer must beat.
+#
+# WHY `depends = []`. This feature used to declare `depends = ["world_rom",
+# "mode7_floor"]`, which welded it to microzero: a second rail streaming its
+# own world got a 256 KB map it never reads plus microzero's floor palette
+# (CGRAM 0..16) dragged into its composition, and `mode7_stream.asm` named
+# `ES_R_WORLD_MAP_*` outright in four places. Both levels are now bound by the
+# includer — three symbols, no defaults, each
+# missing one a named `.error` (see THE BINDING CONTRACT at the top of
+# `mode7_stream.asm`). The precedent is `engine/features/col_map/col_map.asm`,
+# which took the same treatment for the same reason: `schemas.py` has no
+# vocabulary for "same feature, different blob", so the binding is
+# assembly-time and `depends` is empty. That is a stronger check, not a lost
+# one — an unbound symbol refuses the build by name, and the blob's own `rom`
+# claim is still gated independently by `make rom-unbacked`.
+#
+# WHAT THE GAME STILL OWES BESIDES THE THREE SYMBOLS: the seed upload that
+# `stream_arm`'s tracking assumes (microzero's `mode7_floor`, another rail's
+# own floor feature), the camera-origin shadow `ES_M7ORG` (`mode7_persp` —
+# never declared here either, before or after), and world.inc's
+# `WORLD_COLS_BYTES` / `CAM0_TX` / `CAM0_TY`. None of those is a blob.
+#
+# AND ONE OBLIGATION THAT IS NOT A SYMBOL: a multi-chunk blob must `.assert`
+# beside its own `.incbin` that its chunk banks are CONSECUTIVE and its chunks
+# WINDOW-ALIGNED ALIKE. `mode7_stream.asm` derives chunk i's bank as
+# `M7S_BLOB_BANK + i` and uses one `M7S_WORLD_WIN` for every chunk, and neither
+# property is promised by `bank_tiled` — 3 of 4 synthetic shapes driven through
+# the real `place_rom` pack non-consecutively. The exact two lines to paste are
+# in `mode7_stream.asm`'s BINDING CONTRACT block; they cannot live in the
+# feature file, which is denied the blob's name by construction. Microzero
+# discharges it at `game/microzero/main.asm`. A one-chunk blob owes nothing.
+name = "mode7_stream"
+role = "feature"
+depends = []
+
+[[claims.dp]]
+name = "stream_hot"
+bytes = 22               # +0 cam_tx +2 cam_ty +4 last_tx +6 last_ty (u16),
+                         # +8 row_cnt +9 col_cnt (u8), +10.. kernel locals
+                         # K0..K5 (MVN consumes A/X/Y, so span math lives in
+                         # DP)
+
+[[claims.dp]]
+name = "stream_nmi"
+bytes = 2                # NMI dispatch loop scratch (remaining-slot count)
+
+[[claims.wram]]
+name = "stream_rows"
+bytes = 1024             # 8 row slots x 128 B, position-wrapped dest indexing
+
+[[claims.wram]]
+name = "stream_cols"
+bytes = 1024             # 8 col slots x 128 B
+
+[[claims.wram]]
+name = "stream_meta"
+bytes = 32               # 8+8 per-slot VMADD words (rows, then cols)
+
+[[claims.hdma]]
+name = "mzs"
+registers = ["VMDATAL"]
+mode = 0
+band = "scene"
+phase = "vblank"         # GP-DMA channel: time-shared with active HDMA, the
+channels = 1             # NMI core re-arms $43xx from the shadow afterwards
+
+[claims.dma]
+vblank_bytes_per_frame = 2048        # 16 slots x 128 B, worst frame
+vblank_transfers_per_frame = 16
+
+[init]
+zero = ["stream_hot", "stream_nmi"]  # buffers/meta are write-before-read by
+                                     # construction (staged slots only)

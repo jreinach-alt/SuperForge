@@ -1,0 +1,28 @@
+; Demo sound effects — the per-room reverb path (: echo is
+; not an IO command; game-triggered echo changes are SFX bytecode).
+;
+; The two ambience SFX re-shape the shared echo unit to the entering
+; room's acoustics using EVOL + EFB only. The echo DELAY is deliberately
+; CONSTANT (song header: #EchoLength 128 = #MaxEchoLength) — at the
+; vendored pin the compiler structurally refuses set_echo_delay in a
+; sound effect (bytecode.rs:3180, BytecodeContext::SoundEffect — an SFX
+; cannot know its host song's max_edl), and a constant EDL also removes
+; the \edl glitch/settle hazard entirely: the buffer is allocated once at
+; song start and never resized. Room character = how much signal feeds
+; the 128 ms tail (EVOL) and how long it regenerates (EFB).
+;
+; The scene fires one of these at enter time, under the transition fade.
+
+=== room_a_ambience ===
+    set_echo_feedback   24
+    set_echo_volume     12
+    rest                4
+
+=== room_b_ambience ===
+    set_echo_feedback   96
+    set_echo_volume     70
+    rest                4
+
+=== footstep ===
+    set_instrument_and_gain step F127
+    play_note c3 4

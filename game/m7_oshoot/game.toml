@@ -1,0 +1,52 @@
+# m7_oshoot — THE SECOND POOL CONSUMER.
+#
+# A top-down run-and-gun on a ROTATING Mode 7 ground plane. The D-pad picks one
+# of eight compass headings and walks the world; the floor rotates so the facing
+# always reads "up", and the pivot is RE-PINNED TO THE PLAYER EVERY FRAME — a
+# moving pivot, which is this rail's stress on `m7_project` and which
+# `m7_dungeon` does not have (its hero never leaves his tile). Timed waves of chasers spawn on a world ring and close in; bullets fire
+# along the facing; everything but the hero is projected onto the spinning floor
+# through the matrix transpose, and all of the gameplay runs in world space and
+# never reads the matrix.
+#
+# NO NEW ENGINE FEATURE. The scale this rail renders at is 1.0 screen->texel —
+# flat, no zoom — which is exactly the scale `m7_affine`'s 256-entry LUT
+# tabulates, so this is the one static-affine rail the feature supplies AS
+# BUILT. `pool` arrives from the preceding rail and this composition is its
+# first external consumption.
+#
+# ONE SCENE, no edges — m7_dungeon's shape and split_v_fight's before it. The
+# rail's subject is the spinning floor with a cast glued to it; a title screen
+# would add surface with no showcase value.
+#
+# NOT COMPOSED, and each for a reason the allocator would enforce anyway:
+#   mode7_persp  -- its m7ab/m7cd HDMA claims OWN M7A-M7D. A static-matrix rail
+#                   CPU-writing those registers in the same scene is refused by
+#                   check_reg_ownership's reg x hdma check. Correct, and by
+#                   design: static-affine and per-scanline perspective are two
+#                   mechanisms for one set of registers.
+#   mode7_floor  -- depends on world_rom (a 256 KB map this rail never reads)
+#                   and pins CGRAM 0..16 for microzero's palette. mo_floor's
+#                   header carries the full ruling.
+#   m7dg_floor / m7dg_obj
+#                -- the same SHAPE, welded to m7dg_rom's blobs. Composing either
+#                   uploads the dungeon's maze and reserves 49 KB of ROM this
+#                   rail never reads.
+#   backdrop     -- mo_floor pins CGRAM word 0 (a Mode 7 8bpp pixel value IS
+#                   the CGRAM index), so colour 0 has exactly one owner.
+#   bg_text/vwf  -- BG3 does not exist in Mode 7. There is no HUD here; the
+#                   picture is the HUD, and the verification surface is
+#                   rendered pixels and OAM.
+#   audio        -- this rail composes no audio at all; adding a soundtrack
+#                   would be content it does not have.
+globals = ["scene_mgr", "input", "fade", "oam_sprites",
+           "m7_affine", "m7_project", "pool", "mo_rom"]
+
+[[scene]]
+id = "arena"
+features = ["mo_floor", "mo_obj", "col_map"]
+# col_map is composed here rather than globally because its code belongs to the
+# one scene that has a world, and its `dp` claim is then space the allocator can
+# reuse in any scene that does not. Its SIX binding symbols are defined at the
+# include site in scenes/arena.asm — the feature carries no default for any of
+# them, so a missing one is an assembly-time error naming it.

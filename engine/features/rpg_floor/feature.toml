@@ -1,0 +1,46 @@
+# rpg_floor — the rpg overworld's Mode 7 ground plane. Scene-scoped.
+#
+# A SIBLING of mode7_floor, for mode7_floor's own stated reason: that feature
+# `depends = ["world_rom"]`, microzero's 256 KB streamed map, and pins CGRAM
+# 0..16 for microzero's palette. This rail's world is a STATIC 128x128 Mode 7
+# map uploaded whole at scene enter, and its palette is its own. Same
+# mechanism, different world — which is the m7dg_floor / m7x_floor shape, and
+# the third instance of it.
+#
+# BGMODE and TM are NOT claimed here: `split_band` drives both per scanline so
+# the lines above the horizon show the backdrop as sky. That is also why
+# mode7_floor claims only M7SEL: the same split exists in microzero's race.
+name = "rpg_floor"
+role = "feature"
+depends = ["rpg_rom"]
+
+[[claims.dma_init]]
+name = "rpgf_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "m7"
+kind = "mode7"           # the whole interleaved 32 KB, words $0000-$3FFF
+
+[[claims.cgram]]
+name = "floor_pal"
+words = 32
+at = 0                   # hardware contract: a Mode 7 8bpp pixel value IS an
+                         # absolute CGRAM index, so this claim cannot float.
+                         # Word 0 is the SKY: the split's top band enables no
+                         # BG at all, so the backdrop shows, and no floor tile
+                         # uses index 0 (asserted in tools/gen_rpg_assets.py).
+
+# C4 (docs/09 §2.1): M7SEL, written by this feature's scene-enter code. Screen
+# Over = wrap ($00), because the world IS a 1024-px torus — the same statement
+# col_map's `and #(CM_W-1)` makes on the collision side, and the reason
+# col_map's out-of-bounds caution does not bite here.
+[[claims.reg]]
+name = "rpgf_m7sel"
+registers = ["M7SEL"]
+# NO `scene_writes`: rpgf_arm writes M7SEL itself, and `scene_writes` means
+# "someone ELSE may write this too". No_literals' declaration-that-lies check
+# refuses the untrue permission by name — a permission nobody checked against
+# the code is worth as much as an undeclared write.

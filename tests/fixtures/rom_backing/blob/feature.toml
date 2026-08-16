@@ -1,0 +1,30 @@
+# Three rom claims, one per shape the gate has to get right.
+#
+#   fixture_blob   — the plain case: a literal `ES_R_FIXTURE_BLOB_BANK` assert
+#                    beside its .incbin.
+#   fixture_tiles  — bank_tiled, so the allocator emits _T0/_T1 and the only
+#                    claim site anyone can write is a `.repeat` whose symbols
+#                    exist as `.sprintf` templates and nowhere as text. If the
+#                    gate could not expand templates it would refuse the two
+#                    chunk placements that microzero, room and probe_colmap
+#                    declare 12 of between them.
+#   fixture_extern — the declared escape hatch: bytes from a unit the
+#                    no_literals scope never reads, so NEITHER main includes it
+#                    and BOTH arms must accept it.
+name = "blob"
+role = "fixture"
+
+[[claims.rom]]
+name = "fixture_blob"
+bytes = 256
+
+[[claims.rom]]
+name = "fixture_tiles"
+bytes = 0x10000          # 64 KB = 2 bank windows -> _T0, _T1
+bank_tiled = true
+
+[[claims.rom]]
+name = "fixture_extern"
+bytes = 128
+dma_source = false
+backed_by = "tests/fixtures/rom_backing/extern_unit.asm — a fixture standing in for a generated/vendored unit outside the no_literals scope (the tad_export shape, docs/37 §3 case 1). Neither arm's file list contains it, so both arms must accept this claim on the declaration alone."

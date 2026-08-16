@@ -1,0 +1,33 @@
+# shmup — the vertical-scrolling shooter.
+#
+# TWO SCENES, AND THE RESTART IS A TRANSITION. Restarting IN PLACE is nearly
+# possible here -- unlike `breaker`, this rail's BG1 map is untouched by play,
+# so nothing needs rebuilding -- but the GAME OVER banner would then have to be
+# UNPRINTED on a running frame, and a running scene reaches VRAM only through
+# bg_text's one-cell-per-frame queue. So the restart is a scene transition
+# instead. `sm_request` refuses a self-transition, so START on the end screen
+# goes to the title and START there comes back, re-entering `play::enter` under
+# forced blank where every screen the round needs is legal to write.
+globals = ["scene_mgr", "input", "fade", "text_dp", "font_rom", "enter_scr",
+           "oam_sprites", "shmup_rom", "audio", "tad_rom"]
+
+[[scene]]
+id = "title"
+features = ["bg_text", "backdrop"]
+
+[[scene]]
+id = "play"
+features = ["bg_text", "shmup_bg", "shmup_obj"]
+
+[[edge]]
+from = "title"
+to = "play"
+style = "fade"
+budget_bytes = 12000     # play reload: the BG planet page + the OBJ page +
+                         # the font, plus the two 32x32 maps the enter builds
+
+[[edge]]
+from = "play"
+to = "title"
+style = "fade"
+budget_bytes = 4096      # title reload: BG3 font + 32x32 map + 5 CGRAM words

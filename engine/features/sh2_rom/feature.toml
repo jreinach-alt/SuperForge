@@ -1,0 +1,127 @@
+# sh2_rom — the split_h_2p_demo rail's art, in ROM. Global (not scene-scoped).
+#
+# ROM claims cannot be scene-scoped: the allocator packs a ROM window once for
+# the whole composition, and a scene-scoped rom claim would reserve bytes only
+# one scene's map names. Same reasoning as m7dg_rom's and split_v_rom's
+# headers.
+#
+# Every claim here is BACKED by an .incbin claim site in
+# game/split_h_2p_demo/main.asm, which is what `make rom-unbacked` proves
+# (docs/37), and every one is READ by the ROM: the map by the
+# floor's single DMA, the palette by its CGRAM loop, the eight pose slices by
+# the four INDIRECT matrix channels (two per band, each band's DASB selecting
+# its own slice), and the move LUT by the VBlank drive step. Declaring a claim
+# ahead of its reader reserves ROM nothing fills — the grad_tabs shape that
+# gate exists to refuse.
+#
+# The blobs come from tools/gen_split_h_2p_assets.py, which authors them from
+# the checker algebra and the perspective ramp — nothing is read from a pack.
+# That generator is also a GATE: it refuses to write anything that disagrees
+# with the vendored oracle blobs under vendor/art/split_h_2p, so a converter
+# change that moves a byte fails the build instead of quietly redrawing the
+# floor. See its header.
+name = "sh2_rom"
+role = "blob"
+
+# The interleaved Mode 7 VRAM image: 16,384 tilemap bytes in the EVEN positions
+# and 16,384 bytes of 8bpp CHR in the ODD ones, exactly as the PPU reads the
+# Mode 7 region. 32 KB is one whole LoROM window, so the single DMA that
+# uploads it cannot cross a bank boundary.
+#
+# `dma_source` ARMS THE GUARD rather than changing anything today: place_rom
+# refuses a dma_source claim larger than the LoROM window unless it is
+# bank_tiled, because a transfer's A-bus address wraps within its bank instead
+# of carrying. At exactly one window this claim passes either way — the flag is
+# here so the day someone grows the plane the allocator says so, instead of
+# floor_arm's single DMA silently wrapping to the bank's start.
+[[claims.rom]]
+name = "sh2_map"
+bytes = 32768
+dma_source = true
+
+# Five BGR555 words. Mode 7 is 8bpp with ABSOLUTE CGRAM indices, and index 0 is
+# also the backdrop slot — word 0 is the dusk backdrop deliberately, so what
+# shows through where the plane does not reach is a sky rather than a floor
+# colour. Words 1-2 are the COOL pair (red 0) and 3-4 the WARM pair (red 31):
+# that separation is the rail's own per-band position oracle and the generator
+# asserts it at emit time.
+[[claims.rom]]
+name = "sh2_pal"
+bytes = 10
+
+# --- the per-scanline pose tables -------------------------------------------
+# 112 lines x 4 bytes each: [A_lo,A_hi,B_lo,B_hi] and [C_lo,C_hi,D_lo,D_hi],
+# signed 8.8. These are the DATA the four INDIRECT matrix channels fetch — not
+# the index tables, which are WRAM and are sh2_cam's.
+#
+# BAND-LOCAL: index 0 is the BAND's first scanline, not the frame's. That is
+# what lets a band re-start its 112-line table at line 112 with one index
+# entry.
+#
+# 256 HEADINGS, in EIGHT bank-slice claims. The set is 256 poses of 448 B =
+# 114,688 B per channel, which is more than a LoROM window, and the ROM's
+# runtime address is
+#
+#  ptr = slice_base + (h & 63) * 448 (slice_base is at window offset 0)
+#  bank = base_bank + (h >> 6)
+#
+# so a slice must be a WHOLE window's worth of poses at a window's START. That
+# is 64 poses = 28,672 B, which is what these claims are: four AB slices and
+# four CD ones, cut by tools/gen_split_h_2p_assets.py from the blob its oracle
+# already matched byte-for-byte.
+#
+# WHY NOT ONE bank_tiled CLAIM. `place_rom` chunks a bank_tiled claim at the
+# WINDOW size (32,768 B), not at a caller-chosen stride — which would split
+# poses across a window boundary and break the `(h & 63)` arithmetic outright.
+# Eight explicit claims say the real shape and let main.asm .assert each one's
+# bank and address against the allocation, which is what makes the +1-per-slice
+# bank arithmetic in sh2_cam.asm checkable rather than assumed.
+#
+# THERE IS NO FIXED-ANGLE PAIR. A separate 448 B `sh2_pose1_ab`/`_cd` streamed
+# at a fixed heading would duplicate data the set below already holds: heading
+# 0 IS offset 0 of that set, and the generator asserts the two derivations
+# agree. Keeping the claims would reserve ROM no reader fills, which is the
+# `grad_tabs` shape `make rom-unbacked` exists to refuse. (The generator still
+# EMITS the 448-byte pair and the asset gate still checks it against the
+# vendored oracle — it is an oracle artefact now, not a ROM claim.)
+[[claims.rom]]
+name = "sh2_pose256_ab_s0"
+bytes = 28672
+
+[[claims.rom]]
+name = "sh2_pose256_ab_s1"
+bytes = 28672
+
+[[claims.rom]]
+name = "sh2_pose256_ab_s2"
+bytes = 28672
+
+[[claims.rom]]
+name = "sh2_pose256_ab_s3"
+bytes = 28672
+
+[[claims.rom]]
+name = "sh2_pose256_cd_s0"
+bytes = 28672
+
+[[claims.rom]]
+name = "sh2_pose256_cd_s1"
+bytes = 28672
+
+[[claims.rom]]
+name = "sh2_pose256_cd_s2"
+bytes = 28672
+
+[[claims.rom]]
+name = "sh2_pose256_cd_s3"
+bytes = 28672
+
+# --- the forward-vector LUT --------------------------------------------------
+# 256 entries x (dx, dy) as two s16 words in 8.8 fixed point: heading h's world
+# "forward" at a CONSTANT 2.0 px/frame. Read by cam_drive every VBlank, indexed
+# h*4. 8.8 rather than integer because the rail accumulates the FRACTION per
+# axis — an integer velocity produces a speed pulse and a direction staircase,
+# which is the translation jerk this LUT's format exists to remove.
+[[claims.rom]]
+name = "sh2_move256"
+bytes = 1024

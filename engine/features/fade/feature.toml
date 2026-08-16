@@ -1,0 +1,11 @@
+# fade — INIDISP brightness ramp for scene transitions (global feature).
+# The NMI commits the level (PPU regs are VBlank-only); this owns the ramp.
+name = "fade"
+role = "feature"
+
+[[claims.dp]]
+name = "fade_ctl"
+bytes = 2                # level(1: 0..15) + dir(1: 0 idle, 1 in, 2 out)
+
+[init]
+zero = ["fade_ctl"]

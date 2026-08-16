@@ -1,0 +1,112 @@
+# pfs_bg — BG1 as a 64x64 streaming RING, and the scene's whole display.
+#
+# The streaming BG feature: the keystone pattern `breaker_bg` established and
+# `room_bg` / `shmup_bg` / `platformer_bg` each re-instantiated. What is
+# different here is what the tilemap MEANS. Every prior rail's BG feature owns
+# a tilemap it BUILDS once and then mutates a cell at a time; this one owns a
+# 64x64 RING that `pfs_stream` slides over a world sixteen times its area, and
+# whose contents are only ever the window the camera is standing in.
+#
+# So the division is: this feature owns the LAYER (the registers, the CHR page,
+# the palette, the backdrop, the scroll) and `pfs_stream` owns the CONTENTS.
+# They are separate features because the streaming mechanism is engine work
+# that outlives this rail, and the layer configuration is this rail's look.
+#
+# =============================================================================
+# WHY THE TILEMAP CLAIM IS 0x1000 WORDS AND NOT 0x400
+# =============================================================================
+# A 64x64 BG tilemap is FOUR 32x32 hardware pages, not one big rectangle, and
+# the PPU's addressing of them is the single most important fact in this rail:
+#
+#  VRAM(col,row) = base + (col>=32 ? $400: 0) <- SC1/SC3, horizontally
+#  + (row>=32 ? $800: 0) <- SC2/SC3, vertically
+#  + (row & 31)*32 + (col & 31)
+#
+# BGnSC's size bits select it (11 = 64x64) and the emitted `_SC_BASE` symbol
+# carries only the base, so the scene ORs the size bit in — a value, not an
+# address, which is the distinction `no_literals` cares about. 0x1000 words is
+# the four pages; anything less would allocate three quarters of a ring and the
+# fourth page would silently land on whatever was packed after it.
+#
+# =============================================================================
+# ONE FEATURE, ONE LAYER — and here it costs nothing
+# =============================================================================
+# A BG feature owns all its rail's co-resident BG layers, because BG12NBA is
+# one write-only port with one owner per scene. This rail has only BG1. TM is
+# $11 (OBJ + BG1) and TS is 0, with no second layer at all — the open sky is
+# the BACKDROP, tinted by the dusk ramp, not a BG2 skyline. So the rule is
+# satisfied trivially. It is stated anyway because the NEXT person to want a
+# parallax band here needs to know it lands in this feature and not in a
+# sibling.
+name = "pfs_bg"
+role = "feature"
+depends = ["pfs_rom"]
+
+# The enter-time CHR + palette upload, word-port (mode 1 drives VMDATAL and
+# VMDATAH alternately). Phase is forced_blank by class: scene_mgr's enter
+# clears HDMAEN and zeroes NMITIMEN, so this cannot race pfs_stream's
+# vblank-phase channel even though both touch VMDATAL — the same coexistence
+# `m7x_floor` and `mode7_stream` ship in the overworld rail.
+[[claims.dma_init]]
+name = "pfs_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "pfs_chr_v"
+kind = "chr"
+tiles = 25               # the Four Seasons set: ground, grass cap, wood
+tile_bytes = 32          # platform, dirt, bush, crate — 4bpp, 4 quads each
+
+[[claims.vram]]
+name = "pfs_map"
+kind = "tilemap"
+words = 0x1000           # 64x64 = four 32x32 pages. See the header.
+
+# THE PALETTE AND THE BACKDROP ARE ONE CLAIM, by hardware contract.
+#
+# The level authors palette group 0, so a tilemap word IS its tile id and the
+# BG reads CGRAM words 0..15. Word 0 of that group is also the BACKDROP slot —
+# one word, two meanings, and therefore necessarily one owner. M7x_floor
+# records the identical fold for the identical reason in Mode 7.
+#
+# And a scene with a BG feature cannot compose `backdrop`, because `backdrop`
+# declares BGMODE + TM and so does this feature. The dusk sky colour lands
+# here instead — $2C68, the floor of the ramp, so that even a frame with
+# colour math off is a warm dusk rather than bare black.
+[[claims.cgram]]
+name = "pfs_pal_c"
+words = 16
+at = 0
+
+# The camera, and it is a REAL two-axis camera — the first in the set.
+# `platformer_bg` pinned BG1VOFS at 0 for its rail's life and dropped the
+# vertical degree of freedom entirely; this rail's world is 1024 px tall, so
+# both axes move and both are clamped to the world.
+#
+# The tick advances it; the NMI hook commits BG1HOFS/BG1VOFS from it. Keeping
+# the commit in the hook rather than the tick is what keeps the scroll and the
+# streamed ring from ever disagreeing about which window is on screen: the same
+# DP words feed both.
+#
+# NO [init] zero: `pfs_arm` writes both at scene enter, and scene_mgr holds NMI
+# masked across the whole switch, so the first NMI that can see this scene is
+# the first one after the arm. (shmup_bg reaches the same conclusion.)
+[[claims.dp]]
+name = "pfs_cam"
+bytes = 4                # +0 cam_x, +2 cam_y (world px, u16)
+
+# C4 (docs/09 §2.1): the BG1 layer configuration and the scene's base display.
+#
+# ATTRIBUTION. BGMODE/TM/TS/BG1SC/BG12NBA are written by the scene's enter code
+# in game/platformer_stream/scenes/play.asm, which has no feature.toml of its
+# own and no `[[scene]]` claim vocabulary, so ownership is attributed to the
+# feature the write SERVES — this one, which is what makes `play` a Mode 1 BG1
+# scene at all. BG1HOFS/BG1VOFS are written by pfs_bg.asm itself, from the NMI
+# hook, every armed frame; they are therefore NOT in scene_writes, and the
+# declaration-that-lies check refuses the mistake in either direction.
+[[claims.reg]]
+name = "pfs_layers"
+registers = ["BGMODE", "TM", "TS", "BG1SC", "BG12NBA", "BG1HOFS", "BG1VOFS"]
+scene_writes = ["BGMODE", "TM", "TS", "BG1SC", "BG12NBA"]

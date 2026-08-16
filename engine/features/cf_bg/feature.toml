@@ -1,0 +1,117 @@
+# cf_bg — BG1: a 32x32 checkerboard and the FOLLOW camera that slides it.
+#
+# =============================================================================
+# WHAT THE OBVIOUS COMPOSITION LOOKS LIKE, AND WHAT WAS ACTUALLY RUN
+# =============================================================================
+# `room_bg`, `oam_sprites`, `input` is the composition this rail appears to
+# want. It was RUN through the allocator before any ASM existed — and the
+# answer is a NEW instance of the pattern, different from scroller's two
+# refusals: composing `room_bg` as this rail's only BG feature is ACCEPTED by
+# the allocator (it drags `room_rom` in via `depends` and places the whole
+# room art pack). The disqualification lives one level down, in the feature's
+# own code, where no allocator can see it:
+#
+#  - room_bg.asm PINS the scroll registers at zero for the room's life —
+#  "scroll pinned at 0 — the room is one screen and does not scroll", in
+#  its arm routine. The follow camera is the entire subject of this rail.
+#  - its uploads are room_rom's art (bg1_chr_bin etc., six symbols by name),
+#  not a checkerboard.
+#
+# So the lesson sharpens: "run allocate.py first" catches the refusal class,
+# but an ACCEPTED composition can still be unable to express the rail — the
+# allocator proves collision-freedom, not sufficiency. What carries across
+# rails is the keystone BG PATTERN, which cf_bg instantiates exactly as
+# scroller_bg / breaker_bg / shmup_bg / pfs_bg do.
+#
+# =============================================================================
+# THE CAMERA IS FOLLOW-DERIVED, NOT PAD-DRIVEN — the delta from scroller_bg
+# =============================================================================
+# scroller_bg's camera IS the game state: the d-pad adds to it directly and it
+# wraps on a torus. Here the camera is a PURE FUNCTION of the player's world
+# position, recomputed every tick by the scene's follow step:
+#
+#  cam_x = clamp(pwx - 128, 0, WORLD_W - 256) (WORLD_W = 512 -> max 256)
+#  cam_y = clamp(pwy - 112, 0, WORLD_H - 224) (WORLD_H = 448 -> max 224)
+#
+# The clamp means the camera STOPS at the world edges while the player keeps
+# moving — the split between world space and screen space, which is this
+# rail's whole lesson.
+#
+# The claim shape is scroller_bg's, unchanged: the scene's tick WRITES cf_cam,
+# this feature's NMI hook READS it and commits BG1HOFS/BG1VOFS — one source of
+# truth for "which window is on screen", read at the one moment the PPU will
+# accept it (pfs_bg's division).
+#
+# THE MAP REPEATS UNDER THE CAMERA. The tilemap is 32x32 cells = 256 px; the
+# world is 512x448 px; the 10-bit scroll latch wraps the map every 256 px. So a
+# camera range of [0..256]x[0..224] slides across the SAME map twice on the x
+# axis: a small tilemap covers a large world, which is the reason this rail
+# needs no map bigger than scroller's.
+#
+# =============================================================================
+# ONE FEATURE, ONE LAYER — and here it costs nothing
+# =============================================================================
+# This rail has only BG1: the source writes `gfxmode #1` and nothing else, so
+# the other cell of the checkerboard is the BACKDROP, not a second layer.
+name = "cf_bg"
+role = "feature"
+depends = ["cf_rom"]
+
+# The enter-time CHR upload, word-port (mode 1 drives VMDATAL+VMDATAH). Phase
+# is forced_blank by class: scene_mgr's enter clears HDMAEN and zeroes
+# NMITIMEN, so it cannot race an active- or vblank-phase claim on a shared
+# channel number.
+[[claims.dma_init]]
+name = "cf_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "cf_chr"
+kind = "chr"
+tiles = 2                # tile 0 empty, tile 1 solid — the two checker cells
+tile_bytes = 32          # 4bpp
+
+[[claims.vram]]
+name = "cf_map"
+kind = "tilemap"
+words = 0x400            # 32x32; BG1SC bases are 0x400-word granular
+
+# THE PALETTE AND THE BACKDROP ARE ONE CLAIM, by hardware contract.
+#
+# The map authors palette group 0, so a tilemap word IS its tile id and the BG
+# reads CGRAM words 0..15. Word 0 of that group is also the BACKDROP slot — one
+# word, two meanings, therefore necessarily one owner. Scroller_bg, pfs_bg and
+# m7x_floor record the identical fold for the identical reason. That is also
+# And this scene cannot ALSO compose `backdrop`.
+[[claims.cgram]]
+name = "cf_pal"
+words = 16
+at = 0
+
+# THE CAMERA. Two axes, both live, both CLAMPED — this is the rail.
+#
+# Written by the scene's follow step every tick (a pure function of the
+# player's world position); read by cf_bg_nmi_commit every armed VBlank.
+#
+# NO [init] zero: `cf_arm` writes both at scene enter, and scene_mgr holds NMI
+# masked across the whole switch, so the first NMI that can see this scene is
+# the first one after the arm (shmup_bg reaches the same conclusion).
+[[claims.dp]]
+name = "cf_cam"
+bytes = 4                # +0 cam_x, +2 cam_y (world px, u16, clamped)
+
+# C4 (docs/09 §2.1): the BG1 layer configuration and the scene's base display.
+#
+# ATTRIBUTION. BGMODE/TM/BG1SC/BG12NBA are written by the scene's enter code in
+# game/camera_follow/scenes/world.asm, which has no feature.toml of its own and
+# no `[[scene]]` claim vocabulary, so ownership is attributed to the feature
+# the write SERVES — this one, which is what makes `world` a Mode 1 BG1 scene
+# at all. BG1HOFS/BG1VOFS are written by cf_bg.asm itself, from the NMI hook,
+# every armed frame; they are therefore NOT in scene_writes, and no_literals'
+# declaration-that-lies check refuses the mistake in either direction.
+[[claims.reg]]
+name = "cf_layers"
+registers = ["BGMODE", "TM", "BG1SC", "BG12NBA", "BG1HOFS", "BG1VOFS"]
+scene_writes = ["BGMODE", "TM", "BG1SC", "BG12NBA"]

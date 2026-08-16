@@ -1,0 +1,76 @@
+# rs_rom — the railshooter rail's ROM blobs (global feature).
+#
+# Five blobs: the interleaved Mode 7 grid plane, its palette, the OBJ CHR
+# sheet, the OBJ palettes, and the two halves of the pinhole projection LUT.
+# All authored by tools/gen_railshooter_assets.py -- nothing is imported, so
+# there is no fallback asset path here and none is needed on a bare runner.
+#
+# WHY THIS RAIL DOES NOT READ `world_rom`. `mode7_floor` is the named supply
+# for a Mode 7 plane (docs/09 §1.1) and it `depends = ["world_rom"]` -- a 256
+# KB map keyed to microzero's track generator, plus a 17-word CGRAM pin for
+# that rail's asphalt/grass palette. Composing it ALLOCATES and renders
+# microzero's circuit under a rail shooter, at 224 KB more ROM than this
+# rail's own plane costs. Same ruling `m7dg_floor`, `sh2_floor`, `shm_floor`
+# and `m7x_floor` each took: "'M7 plane -- built' is true of the PATTERN, not
+# of a reusable feature."
+name = "rs_rom"
+role = "blob"
+
+# The Mode 7 plane, INTERLEAVED: even byte -> VMDATAL (tilemap low), odd byte
+# -> VMDATAH (8bpp CHR). 16,384 map entries (128x128) + 16,384 CHR bytes
+# (256 tiles x 64 B) = the fixed 32 KB the Mode 7 region holds wholesale. One
+# window exactly, so no bank_tiled and no chunk arithmetic.
+[[claims.rom]]
+name = "rs_map"
+bytes = 32768
+
+# The floor palette. A Mode 7 8bpp pixel value IS an absolute CGRAM index, so
+# this is 4 BGR555 words at CGRAM 0 -- see rs_floor's cgram claim.
+[[claims.rom]]
+name = "rs_floor_pal"
+bytes = 8
+
+# The OBJ CHR sheet: 224 tiles x 32 B, 4bpp, laid out on the 16-wide OBJ tile
+# grid the {N, N+1, N+16, N+17} rule forces. Layout in
+# gen_railshooter_assets.py. It grew 96 -> 224 with the redesign: four pylon
+# tiers, two kill-flash frames, ten score digits and the two life-segment
+# frames.
+[[claims.rom]]
+name = "rs_obj_chr"
+bytes = 7168
+
+# Two OBJ palettes back to back: palette 0 (the ship) then palette 1 (the
+# obstacle tiers, the bullet tracer and the reticle).
+[[claims.rom]]
+name = "rs_obj_pal"
+bytes = 64
+
+# --- the pinhole (1/z) projection LUT, in two blobs -------------------------
+# Split by WIDTH, not by taste: the scanline table is one byte per bucket and
+# the scale table is one word, so a single blob would need the reader to carry
+# a base offset the allocator can emit for free. Both are indexed by `bucket =
+# z >> RS_PROJ_Q_LOG2` over the same 81 buckets.
+[[claims.rom]]
+name = "rs_proj_scan"
+bytes = 81               # screen_y per z bucket (u8)
+
+[[claims.rom]]
+name = "rs_proj_scale"
+bytes = 162              # FOCAL*256/z per z bucket (u16 LE), the .8 factor
+
+# --- the S-curve the rail flies ------------------------------
+# 256 SIGNED words: one full S period of LATERAL camera offset from the rail's
+# centre column, baked rather than solved per frame (house style). The driver
+# indexes it with `dist & 255` -- ONE ENTRY PER FRAME -- and writes the result
+# into the camera's world x: a TRANSLATION of the Mode 7 origin, never a
+# heading rotation, because the pose table is quantised to 64 headings and that
+# is what made the shipped rail's turning read as binary.
+#
+# 256 AND NOT 64 IS THE POINT. At 64 entries the driver held each
+# one for four frames, and `cam_x` lands in both M7X and the floor's HOFS, so
+# the whole plane froze for three frames and then lurched up to 21 screen px
+# sideways -- the quantisation this redesign exists to remove, reintroduced on
+# a different axis. The extra 384 B buys the curve at frame resolution.
+[[claims.rom]]
+name = "rs_path"
+bytes = 512              # 256 x s16, one full S period, one entry per frame

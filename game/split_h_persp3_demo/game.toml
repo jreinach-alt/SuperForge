@@ -1,0 +1,34 @@
+# split_h_persp3_demo — the SAME rail at THREE bands.
+#
+# A band-count variation on `split_h_matrix_demo`, and it ships beside that rail
+# because the PAIR is the evidence. This file is that rail's with one word
+# changed in one place, and that is the claim being tested rather than a
+# coincidence: the composition below is
+# IDENTICAL, feature for feature, because `shm_cam` puts the band count in its
+# WRAM table's entry list instead of in its declaration. The whole difference
+# between the two rails is `scenes/bands.asm` expanding SHM_BAND three times
+# instead of twice.
+#
+# THREE distinct zooms over one world: 1.0 (an 8-px on-screen checker period),
+# 0.25 (32 px) and 0.5 (16 px). Two seams, three camera regions, one map in
+# VRAM — no extra VRAM over a single Mode 7 view, and no extra HDMA channel
+# over the two-band rail either.
+#
+# WHY FLAT PRECOMPUTED MATRICES AND NOT THREE LIVE SOLVES. A live per-scanline
+# perspective solve has been MEASURED at ~87-138% of a 60 fps CPU frame — one
+# of them does not reliably fit, so a second does not fit by any incremental
+# route and a third is hopeless. Mode 7 is table-driven end to end here, so
+# there is no live solve to begin with, and the conclusion is the shape this
+# rail already ships: N constant matrices, N HBlank writes per channel per
+# frame, zero per-frame CPU unless the pad is held.
+#
+# NOT COMPOSED: identical list and identical reasons to the two-band rail's —
+# see game/split_h_matrix_demo/game.toml. `sh2_cam` is the one worth repeating
+# here, because THIS rail is where its band count stops being a parameter: its
+# four matrix claims declare `band = [0,112]` and `[112,224]`, so a third band
+# is an edit to the feature rather than an argument to it.
+globals = ["scene_mgr", "fade", "input", "shm_rom"]
+
+[[scene]]
+id = "bands"
+features = ["shm_floor", "shm_cam"]

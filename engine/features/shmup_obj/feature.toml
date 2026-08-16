@@ -1,0 +1,139 @@
+# shmup_obj — the ship, the bullets, the enemy fighters, the kill-bursts... AND
+# THE POOLS THEY LIVE IN. Sixteen OBJs, positioned every frame into the
+# oam_sprites shadow -- never into hardware OAM, which the engine's declared
+# VBlank GP-DMA owns.
+#
+# =============================================================================
+# POOL — what it turned out to be
+# =============================================================================
+# `docs/09` §1.1 predicted POOL would need NO new claim class: *"derived: wram
+# (pool arrays) + oam slot range; likely no new class"*. **The prediction
+# holds, exactly and in both halves** -- `shm_pools` below is the wram half,
+# the four `[[claims.oam]]` are the oam half, and `allocator/schemas.py` is
+# untouched.
+#
+# It holds because of what a pool actually IS — a mechanism with no state of
+# its own and no engine link partners: an alive[] array of N words plus
+# parallel arrays the game indexes with the same byte offset, and the macros
+# are a scan, a store and a clear over them. There is no channel, no register,
+# no VBlank cost, no hardware surface -- nothing for a claim class to describe
+# that `wram` does not already describe.
+#
+# WHY THE POOLS LIVE HERE AND NOT IN A `shmup_pool` FEATURE OF THEIR OWN. The
+# stable-OAM-slot contract IS the coupling. Every pool slot is drawn every
+# frame -- live actors at their position, dead slots parked at y=$F0 -- so pool
+# slot k is ALWAYS OAM slot k, and a test can name an actor by its OAM index.
+# Splitting "the array" from "the slot" across two features would put the two
+# halves of one identity in two places and give the allocator nothing extra to
+# check. A feature dir holding three subroutines and no claims is also the one
+# shape `role` has no word for.
+#
+# THE SLOT MAP IS PINNED, NOT PACKED. `OamClaim.at` exists because OAM index
+# order IS sprite-vs-sprite priority (lowest index in front) and the packer
+# sorts by (-sprites, name) -- a packed layout's priority would be an accident
+# of claim names. Pinned:
+#
+#  0 the ship (in front of everything)
+#  1..7 bullets (7 -- see below)
+#  8..11 enemy fighters
+#  12..15 kill-bursts (behind, where an explosion belongs)
+#
+# SEVEN BULLETS, NOT SIX, AND THE REASON IS THE HI TABLE. A hi-table byte
+# covers FOUR sprites (2 bits each: bit 0 = X9, bit 1 = size). 1+6+4+4 is
+# fifteen, which ends mid-byte -- so the last byte would
+# have to be read-modify-written around two bits belonging to a sprite this
+# feature does not own. At sixteen the footprint is exactly FOUR WHOLE BYTES,
+# so the hi table is REBUILT from the four X values and the size class every
+# frame rather than patched. That is breaker_obj's argument ("the hi byte is
+# rebuilt from scratch, not patched": a stale X9 renders a sprite 256 px away,
+# which is the failure this project has a lessons-learned entry about) with the
+# pool sizes chosen so it stays available. One extra bullet is the whole price.
+#
+# SIZE MODE 0 (small 8x8 / large 16x16) and here BOTH halves are used: the
+# bullet is small, the ship, the fighters and the bursts are large. So unlike
+# breaker_obj this feature writes the hi table's SIZE bits too, and they are
+# derived per slot rather than assumed.
+#
+# CPU-WRITTEN REGISTER, DECLARED: OBSEL $2101, which sets sprite size AND OBJ
+# CHR base for EVERY sprite -- the same global-to-all-sprites register
+# room_hero, player_car and breaker_obj declare in their own games, and
+# declared here for the same reason: composing two games' sprite features in
+# one scene must refuse. The VALUE comes from ES_V_OBJ_CHR_OBSEL_BASE, so the
+# address discipline holds independently of the ownership.
+name = "shmup_obj"
+role = "consumer"
+depends = ["oam_sprites", "shmup_rom"]
+
+[[claims.dma_init]]
+name = "obj_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "obj_chr"
+kind = "chr"
+obj = true
+words = 768              # 48 tiles x 16 words: three rows of the 16-wide grid
+                         # the {N, N+1, N+16, N+17} rule forces
+
+[[claims.cgram]]
+name = "ship_pal"
+words = 16
+at = 128                 # hardware contract: OBJ palette 0 = CGRAM 128..143
+
+[[claims.cgram]]
+name = "foe_pal"
+words = 16
+at = 144                 # OBJ palette 1 -- the fighters, and the bullet's
+                         # yellow rides its spare index (one claim, two actors,
+                         # the same fold breaker_obj made for paddle + ball)
+
+[[claims.cgram]]
+name = "burst_pal"
+words = 16
+at = 160                 # OBJ palette 2 -- the explosion's own warm ramp
+
+[[claims.oam]]
+name = "ship"
+sprites = 1
+at = 0
+
+[[claims.oam]]
+name = "bullets"
+sprites = 7
+at = 1
+
+[[claims.oam]]
+name = "foes"
+sprites = 4
+at = 8
+
+[[claims.oam]]
+name = "bursts"
+sprites = 4
+at = 12
+
+# THE POOLS. Three of them, laid out as one region with a fixed 16-byte stride
+# so a pool is (base, count) and a field is (base + field_offset + slot*2) --
+# one base plus a field offset plus slot*2, all of them allocator-emitted. Byte
+# offsets inside this claim are game vocabulary and live in
+# game/shmup/shmup.inc.
+#
+#  +0x00 bullets alive[8] | x[8] | y[8] (7 slots used)
+#  +0x30 fighters alive[8] | x[8] | y[8] (4 slots used)
+#  +0x60 bursts alive[8] | x[8] | y[8] | t[8] (4 slots used)
+#
+# NO [init] zero, and that is deliberate. `shm_pool_init` writes every alive
+# word of all three pools in the scene's enter, before any tick runs, and the
+# parallel arrays are written by spawn-then-use. Pre-zeroing here would hide a
+# "pool_init stopped running" defect behind a plausible answer -- the argument
+# breaker_bg/feature.toml makes for its collision mirror and col_map makes at
+# length, and CLAUDE.md rule 5's "never zero-init to be safe".
+[[claims.wram]]
+name = "shm_pools"
+bytes = 160
+
+[[claims.reg]]
+name = "obj_obsel"
+registers = ["OBSEL"]

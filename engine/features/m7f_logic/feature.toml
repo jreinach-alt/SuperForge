@@ -1,0 +1,21 @@
+# m7f_logic — the flight rail's per-frame state step: heading, throttle,
+# altitude. Scene-scoped. `role = "game_logic"` — this is GAME code that lives
+# under engine/features/ only because that is where the allocator looks.
+#
+# It holds NO STATE OF ITS OWN. Every word it writes belongs to `m7f_cam`'s
+# `m7f_pose` claim, which is the deliberate direction: the pose player owns
+# the state its tables are composed from, and the logic drives it. `sh2_cam`
+# fuses the two into one feature; they are split here because this rail's
+# logic is four independent axes (turn, throttle, altitude, integrate) rather
+# than one drive step, and a reader looking for "what does holding R do"
+# should not have to read a pose composer to find out.
+#
+# NOTHING TO CLAIM, and that is worth saying out loud rather than leaving as an
+# empty file: the axes it steps are m7f_cam's `m7f_pose` DP words, the pad word
+# it reads is `input`'s latched JOY, and the multiply the position integrator
+# needs is m7f_cam's `m7f_move` — which lives there because the ALU is WHOLE
+# and m7f_cam owns it. A `dp` claim here would be a second name for bytes that
+# already have one.
+name = "m7f_logic"
+role = "game_logic"
+depends = ["m7f_cam", "input"]

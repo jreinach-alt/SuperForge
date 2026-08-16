@@ -1,0 +1,99 @@
+# sr_bg — BG1: the 512px two-page level world, and the clamped follow camera
+# that slides it. The scroll_run rail's whole terrain display.
+#
+# THE 64x32 TILEMAP IS THE RAIL. A 512px world needs no engine change at all:
+# switch BG1 to the hardware 64x32 tilemap and the second page is just more
+# VRAM. There is no shadow plumbing to smuggle page 1 through and no need for
+# any: the claim below simply asks for 0x800 words of tilemap, the allocator
+# places it on the 0x400-word SC alignment the hardware demands, and
+# `sr_build_map` writes BOTH pages from the world blob at scene enter — page 0
+# = world columns 0..31, page 1 = world columns 32..63, each row split across
+# the two pages exactly as the hardware will read it back. The SEAM at world
+# column 32 is therefore a display-addressing fact this feature owns;
+# collision needs no seam handling at all, because SuperForge's col_map probes
+# the blob in world coordinates — a page split only leaks into collision when
+# the collision probe is per-layer rather than per-world).
+#
+# THE SC SIZE BITS ARE THE CLAIM'S SHAPE, NOT AN ADDRESS. The allocator's
+# _SC_BASE emits the base bits (2..7) of BG1SC; bits 0..1 select the map shape,
+# and this scene's enter code ORs in 1 (64x32) at the write site. That is a
+# hardware-shape choice like BGMODE's 1 or TM's layer mask — a value, not a
+# narrated address — and the tilemap claim's 0x800 words is what makes it true.
+#
+# THE CAMERA: X live and CLAMPED, Y pinned at 0. Cf_bg's follow shape on one
+# axis: the scene's tick derives cam_x = clamp(px - 128, 0, 256) every frame (a
+# pure function of the player — no camera state survives a tick), and this
+# feature's NMI hook publishes both words to BG1HOFS/BG1VOFS every armed frame.
+# Cam_y stays 0 for the rail's life ("vertical stays one screen — the 8.8
+# physics range"), but the commit reads it rather than hardcoding 0 so the
+# VOFS -1 derivation stays in one place.
+name = "sr_bg"
+role = "feature"
+depends = ["sr_rom"]
+
+# The enter-time CHR upload, word-port (mode 1 drives VMDATAL+VMDATAH). Phase
+# is forced_blank by class: scene_mgr's enter clears HDMAEN and zeroes
+# NMITIMEN, so it cannot race an active- or vblank-phase claim on a shared
+# channel number.
+[[claims.dma_init]]
+name = "sr_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "sr_chr"
+kind = "chr"
+tiles = 4                # tile 0 empty, 1 pad, 2 terrain, 3 goal — reference
+                         # ids
+tile_bytes = 32          # 4bpp
+
+[[claims.vram]]
+name = "sr_map"
+kind = "tilemap"
+words = 0x800            # 64x32: TWO hardware pages, page 1 at base + 0x400.
+                         # The 0x400-word tilemap alignment means the base
+                         # encodes exactly in BG1SC bits 2..7; the enter code
+                         # ORs in size bit 0 (64x32).
+
+# THE PALETTE AND THE BACKDROP ARE ONE CLAIM, by hardware contract. The map
+# authors palette group 0, so a tilemap word IS its tile id and the BG reads
+# CGRAM words 0..15. Word 0 of that group is also the BACKDROP slot — one word,
+# two meanings, therefore necessarily one owner (scroller_bg / pfs_bg /
+# m7x_floor record the identical fold). And this scene cannot
+# also compose `backdrop`.
+[[claims.cgram]]
+name = "sr_pal"
+words = 16
+at = 0
+
+# THE CAMERA. Cam_x live (follow-derived, clamped 0..256 by the scene's tick),
+# cam_y pinned 0 by the same tick. Written by the scene every frame, read by
+# this feature's NMI commit — scroller_bg's division of labour, with cf_bg's
+# "nothing in this file MOVES the camera" refinement.
+#
+# NO [init] zero: `sr_arm` writes both words at scene enter, and scene_mgr
+# holds NMI masked across the whole switch, so the first VBlank that can commit
+# them is the first one after the arm (shmup_bg reaches the same conclusion).
+[[claims.dp]]
+name = "sr_cam"
+bytes = 4                # +0 cam_x (world px, u16, clamped) +2 cam_y (pinned 0)
+
+# C4 (docs/09 §2.1): the BG1 layer configuration and the scene's base display.
+#
+# ATTRIBUTION. BGMODE/TM/BG1SC/BG12NBA are written by the scene's enter code in
+# game/scroll_run/scenes/run.asm, which has no feature.toml of its own, so
+# ownership is attributed to the feature the write SERVES — this one, which is
+# what makes `run` a Mode 1 BG1 scene at all. BG1HOFS/BG1VOFS are written by
+# sr_bg.asm itself, from the NMI hook, every armed frame; they are therefore
+# NOT in scene_writes, and no_literals' declaration-that-lies check refuses the
+# mistake in either direction.
+#
+# TM is $15 (OBJ + BG3 + BG1): BG3 is bg_text's layer (its claim covers
+# BG3SC/BG34NBA/BG3HOFS/BG3VOFS; TM belongs to the feature that defines the
+# scene's display shape — bg_text's own feature.toml says so and names this
+# division).
+[[claims.reg]]
+name = "sr_layers"
+registers = ["BGMODE", "TM", "BG1SC", "BG12NBA", "BG1HOFS", "BG1VOFS"]
+scene_writes = ["BGMODE", "TM", "BG1SC", "BG12NBA"]

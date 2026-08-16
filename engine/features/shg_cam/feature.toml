@@ -1,0 +1,155 @@
+# shg_cam — TWO INDEPENDENTLY MOVING Mode 7 cameras over ONE plane, band 2's
+# origin delivered by a SEAM-SCANLINE IRQ + pre-armed GP-DMA pair instead of an
+# origin HDMA channel pair. Scene-scoped.
+#
+# THE APPLIED CASE of the mechanism `seam_irq_trial` isolates. That rail proves
+# the seam-IRQ origin renders BYTE-IDENTICAL to the classic origin pair, frozen
+# and alone. Here it earns its keep: the pair it frees from the HDMAEN mask is
+# what pays for shg_grad's per-line COLDATA channel, and the two cameras MOVE
+# at different speeds — so the origin the IRQ delivers is a LIVE per-frame
+# value rather than a boot-time constant, and "the two bands are independently
+# driven" is visible in the picture.
+#
+#  matrix pair DMAP $43 (mode 3 + INDIRECT) -> M7A/M7B and M7C/M7D, ONE
+#  channel per register pair for the WHOLE frame. Each WRAM index
+#  table holds TWO band-local repeat entries
+#  [$80|112, ptr][$80|112, ptr][$00] streaming the SAME
+#  fixed-angle 448 B pose in both bands — band 2's entry
+#  re-starts it at line 112. In the HDMAEN mask.
+#
+#  seam pair the claims below named shgxy/shghv: mode 3, DIRECT, band
+#  [112, 224) — but fired by MDMAEN from the seam IRQ handler,
+#  NOT enabled in HDMAEN. Each channel is pre-armed as GP-DMA
+#  (A1T -> a 4-byte staged block in shg_tbl, DAS = 4) and ONE
+#  MDMAEN write in scanline 112's trailing HBlank delivers all 8
+#  bytes: M7X/M7Y then BG1HOFS/BG1VOFS, per-register lo/hi order
+#  preserved by mode 3 through the shared Mode-7 write-twice
+#  ValueLatch (SnesPpu.cpp:1992/2008/2082-2097 — one latch for
+#  ALL Mode-7 pairs; mode 3's B,B,B+1,B+1 is exactly the
+#  HDMA-origin channel's byte order).
+#
+# THE CLAIM IS TRUE RATHER THAN CONVENIENT: the fired values own those four
+# ports for band 2 of every frame — so an HDMA-origin claim on the same ports
+# refuses, the matrix pair composes (disjoint registers), and the band-1 VBlank
+# re-stamp is the `seed = true` reg claim below, whose declared overrider
+# genuinely exists.
+#
+# OUT-OF-HDMAEN IS A CONVENTION, NOT A SCHEMA FIELD: the
+# seam channels ride scene_mgr's sm_hdma shadow — cam-armed DMAP/BBAD/A1T/A1B/
+# DAS slots that sm_nmi_core's MVN re-stamps into $43xx every armed VBlank,
+# which IS the per-frame A1T/DAS re-arm (a GP-DMA fire consumes both; the
+# DAS-is-single-shot lesson) — but the scene's HDMAEN mask takes only the
+# matrix bits and shg_grad's. Proven the strong way: a falsify plant ORs the
+# seam bits into the mask and the named test goes RED
+# (tools/plants/split_h_irq_grad_demo.py).
+#
+# THE MOTION IS THE ONE THING sit_cam DID NOT DO, and it moves two contracts:
+#  * the VBlank hook re-stamps band 1's four registers AND re-stages band 2's
+#  eight bytes from LIVE positions every frame (sit_cam re-stamped constants
+#  to keep the shape honest; here the values genuinely change);
+#  * the positions advance in the scene TICK, outside VBlank, and are read by
+#  the hook — never the other way round. Tick completes before the frame's
+#  `wai`, so the hook always sees a settled pair.
+#
+# WHY NOT `sh2_cam`: the same either/or the allocator spoke for seam_irq_trial
+# — its per-band matrix pairs and this rail's whole-frame pair are two
+# streamers of one register set, and its origin CHANNEL pair is exactly the
+# mechanism this rail replaces. Re-run for THIS composition; the refusals are
+# reproduced in game/split_h_irq_grad_demo/game.toml's NOT-COMPOSED block.
+name = "shg_cam"
+role = "feature"
+# shg_rom: the two matrix channels stream its pose pair (index tables + DASB
+# point at the emitted ADDR/BANK symbols). Irq: the seam fire IS an IRQ
+# consumer — this feature stages the channels and provides the handler; irq
+# owns the timer and the arming API.
+depends = ["shg_rom", "irq"]
+
+# --- the matrix pair: INDIRECT, per scanline, ONE channel per register pair
+# over the WHOLE frame (each channel's two-entry table covers lines 0..111 and
+# 112..223 back to back).
+[[claims.hdma]]
+name = "shgab"
+registers = ["M7A", "M7B"]
+mode = 3
+indirect = true
+band = "scene"
+phase = "active"
+channels = 1
+
+[[claims.hdma]]
+name = "shgcd"
+registers = ["M7C", "M7D"]
+mode = 3
+indirect = true
+band = "scene"
+phase = "active"
+channels = 1
+
+# --- the seam pair: the freed channels -------------------------------------
+# GP-DMA channels wearing hdma claims, and the claims are honest: mode 3
+# derives DMAP $03 and BBAD $1F/$0D from the declaration, the band says where
+# the fired values OWN the ports, and phase "active" is what makes an
+# HDMA-origin claim on these registers refuse. Fired by MDMAEN from the IRQ
+# handler; never in the HDMAEN mask. Under the -DSHG_HDMA_ORIGIN control build
+# the SAME channels carry the classic two-entry origin tables and ARE enabled —
+# the control's line-0 entry re-delivers the seed's own band-1 values through
+# the same channel.
+[[claims.hdma]]
+name = "shgxy"
+registers = ["M7X", "M7Y"]
+mode = 3
+band = [112, 224]
+phase = "active"
+channels = 1
+
+[[claims.hdma]]
+name = "shghv"
+registers = ["BG1HOFS", "BG1VOFS"]
+mode = 3
+band = [112, 224]
+phase = "active"
+channels = 1
+
+# --- band 1's origin: the seed case -----------------------------------------
+# BG1HOFS/BG1VOFS are physically M7HOFS/M7VOFS — one port, one name. The
+# scene's enter code establishes band 1's origin under forced blank, and this
+# feature's own VBlank hook re-establishes it EVERY frame from the live camera
+# position (the seam fire left band 2's values in the registers; band 1 of the
+# next frame needs its own back). Both writers live in shg_cam.asm, so the
+# feature-strict tier covers them and no scene_writes hatch is needed; `seed =
+# true` is what lets this claim compose with the seam pair above, which is its
+# declared overrider for band 2 (check_reg_ownership's third check refuses a
+# seed nothing overrides).
+[[claims.reg]]
+name = "shg_origin"
+registers = ["M7X", "M7Y", "BG1HOFS", "BG1VOFS"]
+seed = true
+
+# The two matrix index tables + the two staged GP-DMA source blocks + the
+# control build's two origin tables + the two live camera positions, 16 B apart
+# so the offsets read as a table:
+#  +0 AB index (7 B)
+#  +16 CD index (7 B)
+#  +32 staged M7X/M7Y bytes (4 B, shgxy's A1T)
+#  +36 staged HOFS/VOFS bytes (4 B, shghv's A1T)
+#  +40 XY origin table (11 B, -DSHG_HDMA_ORIGIN only)
+#  +56 HV origin table (11 B, -DSHG_HDMA_ORIGIN only)
+#  +72 POS1X/POS1Y/POS2X/POS2Y (8 B, the two live camera positions)
+# The control-only tables are sized in the ONE claim because variants share the
+# rail's map, so the layout must be the union of every build. Dma_source
+# because the seam channels' A-bus reads the staged blocks.
+[[claims.wram]]
+name = "shg_tbl"
+bytes = 80
+dma_source = true
+
+# The rail's evidence counters, read by tests/test_split_h_irq_grad_demo.py:
+# +0 seam-IRQ fire count (u16) — lockstep with scene_mgr's frame counter
+# +2 raw wai-wake count (u16) — H1: 2/frame armed, 1/frame unarmed
+# +4 entry OPHCT (lo, hi bit) — H/V latched at handler entry
+# +6 entry OPVCT (lo, hi bit)
+# +8 fire OPHCT (lo, hi bit) — re-latched immediately after MDMAEN
+# +10 fire OPVCT (lo, hi bit) returns: the fire-completion point (H2)
+[[claims.wram]]
+name = "shg_cnt"
+bytes = 12

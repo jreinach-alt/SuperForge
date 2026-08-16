@@ -1,0 +1,80 @@
+# platformer_rom — the flagship rail's ROM blobs (global blob feature).
+#
+# Model: room_rom / breaker_rom / shmup_rom. Every blob is `.incbin`-ed at a
+# claim site in game/platformer/main.asm that .asserts its linker bank and
+# address against the emitted ES_R_* symbols, so a reorder there refuses the
+# build rather than silently shifting every later blob.
+#
+# It is GLOBAL rather than scene-scoped because ca65 scopes resolve backward: a
+# .incbin site at the top of main.asm cannot name a symbol declared inside a
+# scene's .scope, and the level and the art are read by the play scene while
+# the OBJ page is also wanted by whatever draws a title card later.
+#
+# NOTE WHAT IS NOT HERE: the dusk gradient table. `rgb_gradient` claims
+# `grad_tabs` itself (it is that feature's own ROM), so plf_grad.bin is
+# .incbin-ed at the play scene's claim site the way breaker's brk_grad.bin is.
+name = "platformer_rom"
+role = "blob"
+
+[[claims.rom]]
+name = "plf_bg_chr_rom"
+bytes = 288              # 9 tiles x 32 B, 4bpp: blank, ground, ledge,
+                         # platform, coin, dirt, cloud, hill body, hill crest.
+                         # BG1 AND BG2 read this one page -- see platformer_bg.
+
+[[claims.rom]]
+name = "plf_bg_pal_rom"
+bytes = 32               # 16 BGR555 words, and ONE palette serves both layers
+
+[[claims.rom]]
+name = "plf_obj_chr_rom"
+bytes = 2048             # TWO 32-tile pages, one per actor: the hero at tile
+                         # 0, the ghost at tile 32. A page is 32 tiles and not
+                         # 16 because a 16x16 OBJ reads {N, N+1, N+16, N+17},
+                         # so a four-frame sheet's bottom halves land in the
+                         # NEXT 16-wide tile row. That is also why the two
+                         # bases are 32 apart and each a multiple of 16. Get
+                         # that wrong by 16 and the ghost's top row lands on
+                         # the hero's bottom row -- a sprite made of two
+                         # different sprites, which reads as corruption rather
+                         # than as an offset.
+
+[[claims.rom]]
+name = "plf_hero_pal_rom"
+bytes = 32
+
+[[claims.rom]]
+name = "plf_ghost_pal_rom"
+bytes = 32
+
+# THE WORLD, AS ROM. 64 x 28 tile ids, one byte per cell.
+#
+# It is ROM and not a WRAM shadow, which is this build's first structural
+# decision. Keeping the level in a WRAM shadow map that is re-DMA'd every
+# frame lets a write clear a collected coin and the next collision probe see
+# the change — at the price of a per-frame transfer. The BG1 map here is
+# written to VRAM under the enter-time forced blank and VRAM is not readable on
+# a running frame, so the probe needs its own source anyway -- and an immutable
+# ROM blob is the better one: it is the col_map argument (that feature's toml
+# says reading ROM directly is what makes it independent of anything that
+# mutates), it costs no WRAM, and "the map says coin, the mirror says empty" is
+# not a reachable state because there is no mirror. Collected coins are tracked
+# in platformer_bg's 256-byte `plf_taken` bitmap instead, which is a smaller
+# thing to get wrong.
+[[claims.rom]]
+name = "plf_level_rom"
+bytes = 2048             # 64 cols x 32 rows. The four rows below the 224 px
+                         # screen are pure sky and exist so the collision
+                         # probe's row index is `(y >> 3) & 31` -- a MASK, so
+                         # every u16 input names a real cell and there is no
+                         # bounds check to get wrong. It also makes the blob a
+                         # 1:1 image of the 64x32 BG1 tilemap.
+
+# BG2's skyline, 32 rows x 8 columns, periodic across the map. It is a blob
+# rather than a `.byte` table in platformer_bg.asm for one reason: the
+# generator is then the TEST'S ORACLE as well as the ROM's source, so a tilemap
+# assertion compares the render against the thing that produced it rather than
+# against a transcription that can drift.
+[[claims.rom]]
+name = "plf_sky_rom"
+bytes = 256

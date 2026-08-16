@@ -1,0 +1,7 @@
+# reg-gate fixture: the override hatch with a stated reason (SILENT).
+name = "rgfx_override"
+role = "fixture"
+
+[[claims.dp]]
+name = "rgfx_ov_state"
+bytes = 2

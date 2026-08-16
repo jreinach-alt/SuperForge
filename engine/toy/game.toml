@@ -1,0 +1,7 @@
+# allocator toy game manifest: one scene, two features, purely to exercise the
+# allocator machinery.
+globals = []
+
+[[scene]]
+id = "toy"
+features = ["feat_a", "feat_b"]

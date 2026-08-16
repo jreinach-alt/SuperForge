@@ -1,0 +1,141 @@
+# col_map — world-space tile collision (scene-scoped).
+#
+# Given a world pixel coordinate, return the collision flag byte for the tile
+# there. It answers questions ABOUT the world; it does not participate in
+# drawing it, and it holds no opinion about the streaming ring — every rail
+# that ships col_map wants it decoupled from the ring (docs/09 §1.1), and
+# reading the ROM blob directly is what MAKES it decoupled. The tempting
+# alternative — read a WRAM mirror of the streamed window — aliases by
+# construction: the mirror only holds the window the ring currently covers, so
+# a query outside it answers confidently about a different tile.
+#
+# Scene-scoped because its code belongs to the one scene that has a world;
+# scene-scoped dp is the cheaper kind, since the allocator reuses the space in
+# other scenes. The flag TABLE is game-lifetime ROM and lives on the global
+# companion `col_map_rom` (docs/09 §4.1).
+#
+# PARAMETERISED, not forked. The kernel is a world-space tile probe whose
+# folded constants all derive from log2(world width) at ASSEMBLY time; the
+# world it reads is bound by the INCLUDER, `rgb_gradient`-style, through six
+# symbols defined immediately above the `.include`:
+#
+#  CM_WORLD_W_LOG2 CM_WORLD_H_LOG2 world size, log2 tiles
+#  CM_WORLD_BLOB CM_WORLD_BLOB_BANK CM_WORLD_BLOB_CHUNKS
+#  the tilemap blob's emitted symbols
+#  CM_FLAGS the tile-id -> flag table label
+#
+# Each missing one is a hard `.error` naming it, and there is NO DEFAULT --
+# rgb_gradient.asm records why ("a silent default is exactly how the platformer
+# inherited a wash on its terrain and shipped a teal sky"), and a defaulted
+# world size is worse: it reads real ROM bytes at the wrong stride and returns
+# a plausible flag.
+#
+# `depends` is EMPTY for that reason, and the check is replaced rather than
+# dropped: `schemas.py` has no vocabulary for "same feature, different blob"
+# (no parameterised depends, no template instantiation), so naming ONE game's
+# blobs here would make every other demanding rail -- m7_dungeon,
+# platformer_stream, m7_oshoot -- carry microzero's world as a dependency. An
+# unbound symbol is now an assembly-time failure instead, which this repo
+# already treats as the stronger signal. The blob's own `rom` claim stays gated
+# independently by `make rom-unbacked`, and
+# tools/falsify_col_map_binding.py proves each of the six `.error`s FIRES.
+name = "col_map"
+role = "feature"
+depends = []
+
+[[claims.dp]]
+name = "cm_hot"
+bytes = 10               # +0 px  +2 py  (u16 world pixel IN — caller writes)
+                         # +4 flag (u8 flag byte OUT — what tests read)
+                         # +5 (pad, keeps the scratch pair u16-aligned)
+                         # +6 t0 +8 t1 (u16 kernel scratch: tile y, and the
+                         #  row's byte offset. MVN-style register
+                         #  pressure is not the reason — the two
+                         #  intermediates simply outlive A.)
+                         #
+                         # THE COORDINATE CONTRACT. In: two u16 world PIXEL
+                         # coordinates. Out: the flag byte, in A and in +4.
+                         #
+                         # Out-of-bounds DOES NOT EXIST. The kernel masks `and
+                         # #511` after `lsr x3`, so every u16 input --
+                         # including one the caller never wrapped -- maps onto
+                         # a real tile. The function is TOTAL: no bounds check,
+                         # no sentinel return, no branch, no trap.
+                         #
+                         # Wrapping is the FEATURE's, and it is free: the mask
+                         # is already required to build the index, so handling
+                         # the 4096-px torus costs ZERO extra cycles over not
+                         # handling it. The classic silent-corruption seam in a
+                         # lookup like this is REMOVED, not guarded -- there is
+                         # no out-of-range input, so there is no branch to get
+                         # wrong and no sentinel a caller can forget to check.
+                         # Contrast the tempting alternative: bounds-check per
+                         # layer and return 0 when the query falls outside.
+                         # That sentinel is indistinguishable from a
+                         # legitimately unflagged tile, so a caller cannot tell
+                         # "nothing here" from "you asked outside the world" --
+                         # and an aliasing bug upstream hides behind it
+                         # forever.
+                         #
+                         # The masks are now CM_H-1 / CM_W-1 rather than the
+                         # literal 511s, which changes nothing about any of the
+                         # above: they are still exactly the masks the index
+                         # needs, so totality is still free.
+                         #
+                         # THE DEFERRED LIMIT, now RESOLVED. The limit read:
+                         # this is correct because microzero's world IS a
+                         # 4096-px torus (race_logic.asm:312, `and #4095; the
+                         # 4096-px world wraps`), while platformer_stream's
+                         # world is 128x128 tiles and plausibly NOT a torus,
+                         # where a query past the edge is a real event.
+                         #
+                         # The resolution is that BOUNDS IS NOT A PROBE AXIS. A
+                         # bounded world clamps IN THE GAME, before it ever
+                         # queries -- m7_dungeon's `clamp_world` pins the
+                         # candidate inside `move_x`/`move_y` and derives the
+                         # footprint corners from the clamped centre, so the
+                         # probe never sees an out-of-range coordinate. Not
+                         # because it guards, but because the game decided
+                         # where to ask, which is this feature's own stated
+                         # boundary. In a bounded world the outer ring is wall
+                         # and stopping at the edge is level design, not a
+                         # lookup concern. So the probe stays TOTAL by mask and
+                         # the clamp stays a gameplay rule: nothing was added
+                         # to the kernel and nothing taken from this contract.
+                         # WORLD SIZE was the one real axis, and it is now a
+                         # parameter (see the header).
+
+# NO [init] zero -- WRITE-BEFORE-READ BY CONSTRUCTION, the second of the two
+# forms docs/09 §4.5 allows, and the form vwf/feature.toml:25-27 already uses.
+# Per call, in order: the caller writes +0/+2 before `jsr col_map_at` (that IS
+# the calling convention); the kernel writes +6 at col_map.asm:155 before
+# reading it at :186, writes +8 at :167 before reading it at :175, and writes
+# +4 at :208. +5 is pad and is never touched by anyone. Nothing in the ROM reads
+# +4 at all -- col_map is a read-only producer whose consumer is a test.
+#
+# An earlier revision of this file declared `[init] zero = ["cm_hot"]`. Review
+# found nothing implemented it: `allocator/allocate.py::_init_contract_lines`
+# emits COMMENTS, so the declaration was honoured by convention and here by no
+# convention at all. Deleting it rather than implementing it, for three
+# reasons:
+#
+#  1. Its stated justification was false. It said the result byte "is read by
+#  tests before any query has necessarily run". `cm_tick` runs every frame
+#  of race::tick, and every test that reads +4 frame-steps first.
+#
+#  2. Zeroing would HIDE the bug it claims to prevent. 0 is a legitimate flag
+#  value (grass). Pre-writing it means a future "cm_tick stopped running"
+#  defect reads back a plausible answer; leaving the byte untouched means
+#  the uninit-read detector fires instead. CLAUDE.md rule 5 and docs/09
+#  §4.5 both say this outright: do not zero-init "to be safe".
+#
+#  3. It would make the covering test vacuous. T6 (tests/
+#  test_col_map_scene.py) asserts no byte of cm_hot is read before it is
+#  written, using Mesen's per-address counters -- which classify on
+#  WriteCounter == 0. Zeroing all ten bytes at scene enter sets
+#  WriteCounter > 0 everywhere, so T6 could never fire again. The
+#  declaration would have disarmed its own gate.
+#
+# T6 is what holds this contract to account, and it is falsified: plant
+# P10-scratch-store-dropped (tools/falsify_col_map.py) removes the +8 store and
+# T6 goes red on the bytes that are then never written.

@@ -1,0 +1,50 @@
+# barrel_rom — m7_barrel's per-scanline matrix column tables, in ROM. Global.
+#
+# ROM claims cannot be scene-scoped: the allocator packs a ROM window once for
+# the whole composition. Same reasoning as pose_rom's, shp_rom's and m7dg_rom's
+# headers.
+#
+# THIS IS THE FEATURE'S DOMAIN, WRITTEN DOWN. Two tables, and they are indexed
+# DIFFERENTLY, which is the whole statement:
+#
+# bow_a indexed by BOW STEP (0..MB_BOWS-1). Nine per-scanline M7A columns,
+# each a raised-cosine bulge of a different amplitude: step 0 is FLAT (M7A =
+# 1.0 on every line, i.e. no barrel at all) and step 8 is the deepest bulge
+# ($0100 -> $0180 -> $0100). NOT indexed by heading: this rail holds its angle
+# constant and gets apparent rotation from a vertical scroll, so a heading
+# axis would have no reader.
+#
+#  persp_d indexed by NOTHING. One per-scanline M7D column, the perspective
+#  hyperbola S(k) = K/(k+k0) solved through (MB_SCALE_FAR at the
+#  horizon, MB_SCALE_NEAR at the bottom line). It is a single table
+#  because the camera height is fixed, and because the bow lives
+#  entirely in the A column: this rail overwrites M7A alone and leaves
+#  M7B/C/D to the engine
+#
+#
+# Both are MODE-2 HDMA data: one 16-bit write-twice register, 2 bytes per
+# scanline, not the 4-byte [A,B] / [C,D] pairs mode7_persp and shp_cam stream.
+# M7B and M7C are zero on every line of this rail (angle 0), so streaming them
+# would be 2 bytes per line of zeroes through a register that already holds
+# zero. M7_barrel writes those two ONCE at enter and declares them.
+name = "barrel_rom"
+role = "blob"
+
+# --- the bow set ------------------------------------------------------------
+# MB_BOWS (9) x MB_LINES (192) x 2 B = 3,456 B. One LoROM window holds the
+# whole set many times over, so the runtime pointer is `base + step * 384` with
+# NO bank arithmetic and the DASB byte is written once at scene enter — the
+# same payoff shp_rom's 64-heading set takes, at a twentieth of the size.
+#
+# The sizes are ASSERTED against these claims in m7_barrel.asm rather than
+# trusted, so a generator/allocator disagreement stops the build instead of
+# streaming the neighbouring table's bytes.
+[[claims.rom]]
+name = "bow_a"
+bytes = 3456
+
+# --- the perspective column -------------------------------------------------
+# MB_LINES (192) x 2 B = 384 B.
+[[claims.rom]]
+name = "persp_d"
+bytes = 384

@@ -1,0 +1,40 @@
+# m7c_roll — the chamber's VERTICAL ROLL: the rail's whole motion model.
+#
+# NOT AN ENGINE FEATURE. `role = "game_logic"` — this is the game's code, and
+# it lives under engine/features/ only because that is where the allocator
+# looks (AGENTS.md's role vocabulary). `race_logic`, `rc_logic`, `m7x_logic`
+# and `pfs_logic` are the same shape.
+#
+# THE MOTION MODEL, and why it is the whole port's substance. The chamber does
+# NOT rotate. Picture a stick sliding down the inside of a pipe: the angle is
+# held constant and the floor TEXTURE rolls vertically through a static bow,
+# so all the apparent rotation is the scroll. The roll runs
+# in LEGS, each one direction and made of NUM_HUMPS surges — the speed rises
+# smoothly to a randomised peak, touches it momentarily, then drops QUICKLY
+# (DECEL > ACCEL) toward a slow creep. After the surges the leg stops dead,
+# HOLDS ~half a second, then REVERSES. Forward and reverse legs draw their
+# peaks from SEPARATE LFSR streams, so each direction evolves its own variance
+# pattern rather than replaying the other's.
+#
+# That three-state cycle — ROLLING forward, HOLDING at a dead stop, ROLLING
+# reverse — is also what makes the rail testable without a pad: it drives the
+# forward AND reverse AND idle transitions the state-cycle rule asks for, by
+# itself, deterministically, on absolute frames.
+#
+# The user-visible state (posy, the velocity, the surge counters, both LFSRs)
+# is declared in game/mode7_chamber/state.toml. This feature claims only the
+# kernel's own scratch.
+name = "m7c_roll"
+role = "game_logic"
+depends = ["m7_barrel"]
+
+# ONE byte of it is live: the sign-extension byte for the 24-bit posy += signed
+# 8.8 velocity add. Two because DP claims are word-granular in practice and a
+# one-byte claim would buy nothing.
+#
+# No `[init] zero`: it is written before it is read inside every single call
+# (the add computes it from the velocity's high byte three instructions
+# earlier), which is §4.5's write-before-read form stated rather than assumed.
+[[claims.dp]]
+name = "roll_scr"
+bytes = 2

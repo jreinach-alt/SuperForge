@@ -1,0 +1,93 @@
+# m7_persp_project — world point -> screen point on a PER-SCANLINE Mode 7
+# plane. Scene-scoped. The inverse of what sh2_cam's matrix channels stream.
+#
+# WHY NOT `m7_project`, WHICH IS THE SAME QUESTION. That feature answers it for
+# a STATIC AFFINE plane: `depends = ["m7_affine"]`, the matrix is one rotation
+# for the whole frame, and a rotation's inverse is its TRANSPOSE — four
+# coefficients read in the other order, two shift-add multiplies, done. None of
+# that holds here. This plane's matrix CHANGES EVERY SCANLINE (that is what the
+# 448-byte pose table is), so there is no single matrix to transpose and no
+# single scale to divide by. The inverse has to be taken against the ramp
+# itself, which is why this feature reads a build-time inverse LUT (`sp_vk`)
+# and a reciprocal table instead of doing algebra. Sibling feature, not a
+# parameterisation — the ruling `m7dg_floor` took against `mode7_floor` and
+# `sh2_floor` took against `m7dg_floor`.
+#
+# THE MAP, IN FOUR LINES. The floor at band-local row k samples
+#
+#  texel = P + S(k)/256 * R(theta) * (sx - 128, k - 112)
+#
+# so a world point W is at camera-frame (u, v) = R(-theta) * (W - P), and
+#
+#  k = sp_vk[-v] the row whose forward distance is -v
+#  sx = 128 + u * recip(k) >> 8 recip(k) = 65536 / S8.8(k)
+#  sy = band_top + k
+#
+# `R(-theta)`, not `R(theta)`, is the whole correctness question — and it is
+# the failure that survives a casual look, exactly as m7_project's header
+# records for its own transpose. Feed the FORWARD pairing and the markers
+# still move, still stay on screen and still look plausible; they simply slide
+# off the world tile they stand on. That mistake is kept REACHABLE as a
+# deliberate negative control for exactly that reason: `sh2_sp_forward`
+# negates sin, and the placement test measures the difference against the
+# FLOOR — max 4 world px when the pairing is right, a median of 106 when it is
+# not.
+#
+# THE CULL ORDER IS THE DESIGN, NOT AN OPTIMISATION. The naive four-multiply
+# core measures 8,522 mc per sprite per visible band, and 6,965 mc even for
+# CULLED sprites, because both dot products run before the v cull. This one
+# runs: wrap-subtract dx -> |dx| > 176 out; dy likewise (a Chebyshev pre-cull
+# with NO multiplies) -> the v dot -> the v / d / k / seam culls -> and only
+# then the u dot. Reproducing the arithmetic without the order reproduces the
+# cost. No cycle figure is claimed here: nothing on this path has been
+# measured on the emulator yet, and the first rail whose headroom rule depends
+# on the number is the one that owes it.
+name = "m7_persp_project"
+role = "feature"
+
+# The LUTs are ROM this feature reads by label: sp_vk, the recip pair, the tier
+# ladder and the clamped sincos set. The dependency is real — mpp_project's
+# addressing names those blobs' emitted ES_R_* symbols and .asserts their sizes
+# against its own row/heading model.
+depends = ["sh2_sprite_rom"]
+
+# THE HARDWARE MULTIPLIER, DECLARED. $4202-$4206 + $4214-$4217 is ONE resource
+# under one name in this repo's vocabulary (schemas.py "ALU": the two entry
+# points share a single AluMulDiv state and destroy each other's result), and
+# it is WHOLE — one owner per scene. That is precisely the contention
+# m7_project's header refused to enter for twelve products a frame; here the
+# trade is the other way round. This core does four 8x8 products per surviving
+# sprite per band and the alternative is a software shift-add loop in the
+# middle of a VBlank, so the ALU is worth owning — and owning it is a
+# DECLARATION the allocator checks, not an assumption about who else might be
+# using it.
+#
+# NOT `seed`, and no `scene_writes`: this feature's own ASM is the only writer,
+# which is what makes the claim true as written.
+[[claims.reg]]
+name = "mpp_alu"
+registers = ["ALU"]
+
+# The projection's scratch. ONE block rather than a dozen claims because every
+# byte is dead between calls — it is a call frame, not state.
+#
+#  +0 wx +2 wy the world point — the caller stages it and calls
+#  +4 adx +6 ady |dx|, |dy| after the wrap-subtract (0..176)
+#  +8 mdx +10 mdy their sign masks ($0000 / $FFFF)
+#  +12 cmag +13 smag |cos|, |sin| bytes — the 8x8 multiply operands
+#  +14 mc +16 ms their sign masks
+#  +18 tmpm the per-term sign mask (staged over the product's
+#  8-cycle latency, which is what makes the multiply
+#  free of a wait loop)
+#  +20 acc the dot accumulator, then |u|
+#  +22 u the signed camera-frame lateral
+#  +24 px +26 py the band's camera position } staged per BAND,
+#  +28 top the band's first screen row } not per marker
+#  +30 sx +32 sy +34 tier the ANSWER the caller reads
+#
+# NO `[init] zero`. Every byte is written before it is read within one
+# mpp_band_coeffs + mpp_project pair (rule 5: a zero-fill would hide the day
+# that stops being true, and it is checkable by reading the routine).
+[[claims.dp]]
+name = "mpp"
+bytes = 36

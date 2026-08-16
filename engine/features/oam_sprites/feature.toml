@@ -1,0 +1,26 @@
+# oam_sprites — the OAM engine runtime (global feature).
+# One 544-B WRAM shadow (512 B low table + 32 B hi table), parked at boot
+# (Y = $F0 hides every sprite; hi table zeroed), committed to hardware OAM
+# every armed VBlank as ONE declared GP-DMA transfer. Scenes claim OAM slot
+# ranges ([[claims.oam]]) and write their entries into the shadow; exits
+# re-park what they armed. The shadow is fully written by the boot park
+# before the first DMA read — power-on contract satisfied without blanket
+# hardware clears.
+name = "oam_sprites"
+role = "feature"
+
+[[claims.wram]]
+name = "oam_shadow"
+bytes = 544              # 128 x 4 B entries + 32 B hi table (X9 + size bits)
+
+[[claims.hdma]]
+name = "oamq"
+registers = ["OAMDATA"]
+mode = 0
+band = "scene"
+phase = "vblank"         # GP-DMA in the NMI hook; core re-arms $43xx after
+channels = 1
+
+[claims.dma]
+vblank_bytes_per_frame = 544
+vblank_transfers_per_frame = 1

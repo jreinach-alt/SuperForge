@@ -1,0 +1,110 @@
+# shp_rom — the split_h_persp_demo rail's art, in ROM. Global (not
+# scene-scoped).
+#
+# ROM claims cannot be scene-scoped: the allocator packs a ROM window once for
+# the whole composition, and a scene-scoped rom claim would reserve bytes only
+# one scene's map names. Same reasoning as sh2_rom's, shm_rom's and m7dg_rom's
+# headers.
+#
+# Every claim here is BACKED by an .incbin claim site in
+# game/split_h_persp_demo/main.asm (what `make rom-unbacked` proves, docs/37)
+# and every one is READ by the ROM: the map by shp_floor's single DMA, the
+# palette by its CGRAM loop, camera A's heading set by band 1's two INDIRECT
+# matrix channels and camera B's zoom set by band 2's. Declaring a claim ahead
+# of its reader reserves ROM nothing fills — the `grad_tabs` shape that gate
+# exists to refuse.
+#
+# WHY NOT `sh2_rom`, whose map and palette claims are the same SHAPE and whose
+# 32,768-byte map is BYTE-IDENTICAL to this rail's. Two reasons, and the second
+# is the structural one:
+#
+#  1. The palettes differ — split_h_2p_demo's forest/autumn five against this
+#  rail's cool-green / warm-red five. Same structure, different bytes.
+#  2. `sh2_rom` carries 229,376 B of 256-heading pose slices and a 1,024 B
+#  move LUT. This rail reads NONE of them: camera A needs 64 headings of
+#  its OWN perspective parameters and camera B needs a ZOOM set, which
+#  `sh2_rom` does not have at any index. Composing it would force eight
+#  .incbin sites for blobs nothing streams — 2.4x this feature's whole ROM
+#  footprint, reserved for no reader — the `grad_tabs` shape `make
+#  rom-unbacked` exists to refuse, at 2.4x scale.
+#
+# The blobs come from tools/gen_split_h_persp_assets.py, which authors them
+# from the checker algebra and the perspective ramp. That generator is also a
+# GATE: it refuses to write a map that disagrees with the vendored oracle
+# (vendor/art/split_h_2p/ref_checker_map.bin — the same file, because both
+# rails ship identical map bytes) or a palette that disagrees with
+# vendor/art/split_h_persp/ref_palette.inc, and refuses outright if either
+# oracle is absent.
+name = "shp_rom"
+role = "blob"
+
+# The interleaved Mode 7 VRAM image: 16,384 tilemap bytes in the EVEN positions
+# and 16,384 bytes of 8bpp CHR in the ODD ones, exactly as the PPU reads the
+# Mode 7 region. 32 KB is one whole LoROM window, so the single DMA that
+# uploads it cannot cross a bank boundary.
+#
+# `dma_source` ARMS THE GUARD rather than changing anything today: place_rom
+# refuses a dma_source claim larger than the LoROM window unless it is
+# bank_tiled, because a transfer's A-bus address wraps within its bank instead
+# of carrying. At exactly one window this passes either way — the flag is here
+# so the day someone grows the plane the allocator says so, instead of
+# floor_arm's single DMA silently wrapping to the bank's start.
+[[claims.rom]]
+name = "shp_map"
+bytes = 32768
+dma_source = true
+
+# Five BGR555 words. Mode 7 is 8bpp with ABSOLUTE CGRAM indices, and index 0 is
+# also the backdrop slot — word 0 holds the dusk backdrop deliberately, so what
+# shows where the plane does not reach is a sky rather than a floor colour.
+# Words 1-2 are the COOL pair (red 0) and 3-4 the WARM pair (red > 0): that
+# separation is the rail's per-band POSITION oracle, orthogonal to the checker
+# period, and the generator asserts it at emit time.
+[[claims.rom]]
+name = "shp_pal"
+bytes = 10
+
+# --- camera A's ROTATION set -------------------------------------------------
+# 64 headings x a band-local 112-line pose: 112 lines x 4 bytes each,
+# [A_lo,A_hi,B_lo,B_hi] and [C_lo,C_hi,D_lo,D_hi], signed 8.8. These are the
+# DATA band 1's two INDIRECT matrix channels fetch — not the index tables,
+# which are WRAM and are shp_cam's.
+#
+# BAND-LOCAL: index 0 is the BAND's first scanline, not the frame's. That is
+# what lets band 2 re-start its own 112-line table at scanline 112 with one
+# index entry (sh2_cam's shape, and the reason the seam is one scanline wide).
+#
+# 64 AND NOT 256, which is a deliberate step down from `sh2_rom`'s set. One
+# heading is 448 B, so 64 is 28,672 B — exactly the largest whole number of
+# poses that fits ONE LoROM window, which collapses the runtime address to `ptr
+# = base + h*448` with NO bank arithmetic and a DASB written once at scene
+# enter instead of every VBlank. `sh2_cam` pays four .asserts, a `h >> 6` slice
+# index and four per-frame DASB stamps for its 256; this rail does not need
+# them because its cameras do not drive, so a 5.625-degree step is a step EVERY
+# frame held and the floor never visibly stutters.
+[[claims.rom]]
+name = "shp_poseA_ab"
+bytes = 28672
+
+[[claims.rom]]
+name = "shp_poseA_cd"
+bytes = 28672
+
+# --- camera B's ZOOM set -----------------------------------------------------
+# THE RULE THAT MAKES THIS A SECOND SET rather than more entries in the first
+# — *"ask what a table is INDEXED BY before treating it as supply"*: camera A's
+# table is indexed by HEADING at one fixed perspective, and camera B animates
+# its SCALE, which is not a heading at any index. 8 poses x 448 B, same
+# band-local shape, same `C = -B, D = A`.
+#
+# Zoom index 0 is pinned EXACTLY onto camera A's heading-0 pose (asserted at
+# emit time), which makes driving the zoom to its floor a runtime NON-VACUITY
+# CONTROL: band 2's matrix collapses onto band 1's inside the shipping binary.
+# No separate seam-defeating build is needed to reach it.
+[[claims.rom]]
+name = "shp_poseB_ab"
+bytes = 3584
+
+[[claims.rom]]
+name = "shp_poseB_cd"
+bytes = 3584

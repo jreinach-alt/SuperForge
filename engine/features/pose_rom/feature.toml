@@ -1,0 +1,16 @@
+# pose_rom — the ROM-resident pose-table blobs (global feature).
+# 64 poses x 1024-B stride per blob (AB + CD), 2 windows each: pose pointer
+# math is pure shifts (ptr = base + (h & 31)*1024; bank = base + (h >> 5)).
+# bank_tiled: whole poses per window by construction, no window spans.
+name = "pose_rom"
+role = "blob"
+
+[[claims.rom]]
+name = "poses_ab"
+bytes = 0x10000          # 64 KB = 2 windows
+bank_tiled = true
+
+[[claims.rom]]
+name = "poses_cd"
+bytes = 0x10000
+bank_tiled = true

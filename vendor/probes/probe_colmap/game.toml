@@ -1,0 +1,9 @@
+# One-scene "game" wrapping the col_map COST probe so its map is
+# allocator-emitted. Design review scaffolding for — it
+# measures a candidate lookup kernel's per-query cost. It is NOT the
+# feature: no engine/features/ dir, no game wiring, nothing includes it.
+globals = []
+
+[[scene]]
+id = "probe"
+features = ["probe_colmap"]

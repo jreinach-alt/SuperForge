@@ -1,0 +1,16 @@
+# reg-gate fixture (SILENT, item 5): room_bg's room_layers shape, and the
+# REGRESSION GUARD against re-introducing claim-granular comparison.
+#
+# Nine registers, two opened, and the seven the owner writes are the OTHER
+# seven -- the opened set and playtesting-written set are DISJOINT. A whole-claim
+# comparison ("this claim opens something and this claim's owner writes
+# something") calls that a lie. Measured on the real tree: claim-granular
+# baseline 2, register-granular 1, and the spurious one is room_layers.
+name = "rgfx_lies_disjoint"
+role = "fixture"
+
+[[claims.reg]]
+name = "rl_layers"
+registers = ["BG1SC", "BG2SC", "BG12NBA", "BG1HOFS", "BG1VOFS",
+             "BG2HOFS", "BG2VOFS", "MOSAIC", "M7SEL"]
+scene_writes = ["MOSAIC", "M7SEL"]

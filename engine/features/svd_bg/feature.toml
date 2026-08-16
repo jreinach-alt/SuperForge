@@ -1,0 +1,150 @@
+# svd_bg — the vertical window dual-view: ONE stage, TWO cameras, a coloured
+# seam that can be straight-and-moving or slanted. Scene-scoped.
+#
+# WHAT THE MECHANISM IS, and how it differs from split_v_bg. Both rails put BG1
+# left of a seam and BG2 right of it with PPU window 1, over ONE copy of the
+# stage. Split_v_fight's seam is FIXED at screen centre and its subject is the
+# CAMERAS converging until the halves are pixel-identical; this rail's subject
+# is the SEAM — it moves under the shoulders, it can be SLANTED per scanline,
+# and it can CLIP OBJ to one half. The two cameras here are independent (one
+# per player), not a mid +/- spread.
+#
+# THE SEAM BAR IS THE BACKDROP, NOT A LAYER. Window 2 is a thin band about the
+# seam that masks BG1 AND BG2, so what shows inside it is CGRAM word 0 — which
+# svd_rom authors white. That polarity is the OPPOSITE of split_v_bg's: that
+# rail draws a real bevel on BG3 and therefore masks BG3 *outside* the band.
+# Here BG3 does not exist at all: it carries nothing, so it is off TM and its
+# bases are not claimed. A window term for a layer that is not on the main
+# screen is a write with no effect, and this rail does not make one.
+#
+# ONE COPY OF THE STAGE, NOT TWO. BG2SC is written with BG1's tilemap base and
+# BOTH BG12NBA nibbles with BG1's CHR page, so the two cameras read one upload
+# and only the scroll differs. Duplicating CHR+tilemap per layer is the
+# obvious reading of a two-camera split and it is not needed here.
+name = "svd_bg"
+role = "feature"
+depends = ["svd_rom"]
+
+# Enter-time uploads: stage CHR + the shared tilemap. Phase forced_blank —
+# scene_mgr's enter clears HDMAEN and zeroes NMITIMEN, so this cannot race the
+# seam channel below even though both name channel 0's register file.
+[[claims.dma_init]]
+name = "svd_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+#
+# THE SEAM CHANNEL — one HDMA channel drives ALL FOUR window edges.
+#
+# WH0/WH1/WH2/WH3 are $2126..$2129: four CONSECUTIVE B-bus ports, which is
+# exactly what DMAP mode 4 (four registers written once) addresses from a
+# single BBAD. So one channel and one 4-byte group per scanline carry window
+# 1's left edge (the seam), its right edge (the screen edge), and the divider
+# band's two edges — the whole seam geometry, per line.
+#
+# WHY THE STRAIGHT SEAM IS HDMA'd TOO, when three CPU stores a frame would
+# move it and cost no channel at all:
+#
+#  * This rail's subject INCLUDES the slanted seam, so the channel is spent
+#  either way — the question is only whether the straight case takes a
+#  second, different mechanism.
+#  * Two mechanisms over one register set is precisely the reg-x-hdma
+#  contention `_register_exclusive` refuses, and the only declaration that
+#  survives it is `seed = true` — which claims the CPU write is a BASE VALUE
+#  an hdma claim always overwrites. Here the CPU write would be the LIVE
+#  value whenever the slant is off. That is a declaration that lies in the
+#  other direction, and the class exists to stop exactly that.
+#  * The straight table is ELEVEN BYTES. HDMA's non-repeat entry ("transfer
+#  once, then idle count-1 lines" — the non-repeat-pause pattern)
+#  covers 127 lines from one 4-byte group, so two entries plus a terminator
+#  span the screen and a moving seam is EIGHT byte writes a frame. The
+#  per-scanline table this rail could have built instead is 899 B and ~3,700
+#  cycles; window_iris's file is a standing warning about reaching for it.
+#
+# So the mode switch is not a mechanism switch: it repoints A1T/A1B at the
+# other table. Straight -> the 11-byte WRAM table below; diagonal -> svd_rom's
+# 899-byte static blob.
+[[claims.hdma]]
+name = "svdw"
+registers = ["WH0", "WH1", "WH2", "WH3"]
+mode = 4
+band = "scene"
+phase = "active"
+channels = 1
+
+# The straight seam's table. 11 B used of 16:
+#  [$7F] non-repeat, 127 lines -> ONE group at line 0, then 126 idle
+#  [$61] non-repeat, 97 lines -> ONE group at line 127, then 96 idle
+#  [$00] terminator
+# The window registers HOLD through the idle lines, which is what makes a
+# straight seam cost two groups instead of 224.
+#
+# No `[init] zero`: svd_arm writes all eleven bytes at enter, before the
+# channel is ever armed, so write-before-read holds by construction (docs/09
+# §4.5's second form). A zeroed table would be a WRONG seam, not a safe one.
+[[claims.wram]]
+name = "svd_tab"
+bytes = 16
+dma_source = true
+
+[[claims.vram]]
+name = "stage_chr"
+kind = "chr"
+tiles = 5
+tile_bytes = 32          # 4bpp
+
+[[claims.vram]]
+name = "stage_map"
+kind = "tilemap"
+words = 0x400            # 32x32. BG1SC and BG2SC BOTH point here — see header.
+
+[[claims.cgram]]
+name = "stage_pal"
+words = 16
+at = 0                   # includes word 0, the BACKDROP: with no `backdrop`
+                         # feature composable beside a BG feature, the
+                         # BG feature owns it — and here it is load-bearing
+                         # rather than incidental, because word 0 IS the seam
+                         # bar's colour.
+
+# The live seam geometry and the two cameras. On the FEATURE, not in the game's
+# state.toml, because the routine that reads them is this feature's VBlank
+# commit — a feature reaching into the game's `[scene.*]` block would invert
+# the dependency.
+#
+# Write-before-read: svd_arm seeds all four at enter.
+[[claims.dp]]
+name = "svd_cam"
+bytes = 6                # +0 camera A (BG1, left)  +2 camera B (BG2, right)
+                         # +4 the seam x, clamped to [SEAM_LO, SEAM_HI]
+
+[[claims.dp]]
+name = "svd_mode"
+bytes = 2                # 0 = straight, 1 = straight + per-half OBJ clip,
+                         # 2 = diagonal. The mode is a STATE, cycled both
+                         # directions, so every teaching is reachable from
+                         # every other one in one binary.
+
+# C4 (docs/09 §2.1): the two layers' configuration, the scene's display mode,
+# and the window recipe MINUS the four edge registers — those belong to the
+# hdma claim above and appear nowhere here, which is what keeps the two
+# mechanisms from both claiming to own the seam.
+#
+#  W12SEL BG1 win1-inside|win2-inside, BG2 win1-outside|win2-inside
+#  W34SEL zeroed — BG3 is not on the main screen and carries nothing
+#  WBGLOG all-OR, so win1 and win2 combine per layer
+#  WOBJSEL win1-inside in the OBJ-clip mode, cleared otherwise
+#  TMW BG1|BG2, plus OBJ in the clip mode
+#  TSW zeroed — no subscreen windowing
+#
+# BGMODE and TM are written by the scene's enter code rather than by
+# svd_bg.asm, so they are the scene_writes list (room_bg's / split_v_bg's
+# shape, and the lies-check compares per register).
+[[claims.reg]]
+name = "svd_layers"
+registers = ["BG1SC", "BG2SC", "BG12NBA",
+             "BG1HOFS", "BG1VOFS", "BG2HOFS", "BG2VOFS",
+             "W12SEL", "W34SEL", "WBGLOG", "WOBJSEL", "TMW", "TSW",
+             "BGMODE", "TM"]
+scene_writes = ["BGMODE", "TM"]

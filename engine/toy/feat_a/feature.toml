@@ -1,0 +1,47 @@
+# allocator toy feature A — NOT a real engine feature. Exercises: a 2 KB VRAM
+# tilemap + an 8 KB CHR base + a 4-byte DP var.
+name = "feat_a"
+role = "fixture"
+
+[[claims.vram]]
+name = "feat_a_map"
+kind = "tilemap"
+words = 0x400            # 2 KB tilemap (32x32)
+
+[[claims.vram]]
+name = "feat_a_chr"
+kind = "chr"
+words = 0x1000           # 8 KB CHR base
+
+[[claims.dp]]
+name = "feat_a_pos"
+bytes = 4
+
+[[claims.cgram]]
+name = "feat_a_pal"
+words = 16               # one 16-color sub-palette
+
+[init]
+zero = ["feat_a_pos"]
+
+# `engine/toy/main.asm` used to match NO reg-context shape and got no reg
+# pass at all — "fixture residue by design". The gate printed `1
+# file(s) clean` about a file holding 29 io write sites and examining ZERO of
+# them. The default tier for an unrecognised path is now the composed union, so
+# the toy is CHECKED, and these are its boot writes, declared rather than
+# exempted.
+#
+# They live on feat_a because the toy has no separate boot feature and feat_a
+# is its first: the ownership statement that matters is "one feature in this
+# program owns these ports", which is what the union check can verify. The
+# audit record
+[[claims.reg]]
+name = "toy_boot_display"
+registers = ["INIDISP", "BGMODE", "BG1SC", "BG12NBA", "TM"]
+scene_writes = ["INIDISP", "BGMODE", "BG1SC", "BG12NBA", "TM"]
+
+# The scroll registers the toy writes every frame from its main loop.
+[[claims.reg]]
+name = "toy_scroll"
+registers = ["BG1HOFS", "BG1VOFS"]
+scene_writes = ["BG1HOFS", "BG1VOFS"]

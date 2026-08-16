@@ -1,0 +1,51 @@
+# m7x_logic — the mode7_explore rail's walk machine. `role = "game_logic"`:
+# game code that lives under `engine/features/` only because that is where the
+# allocator looks (AGENTS.md's role taxonomy). Model: room_logic / race_logic.
+#
+# THE GAME STATE IS NOT HERE. The camera pixel position, the slide animation,
+# the latched facing and the step candidate are declared as user state in
+# `game/mode7_explore/state.toml` — this feature claims only what is
+# ENGINE-owned and never user-visible. That is race_logic's and room_logic's
+# split, applied to a grid-step kernel.
+#
+# WHAT IS ENGINE-OWNED: exactly one thing, and it is a BINDING, not a
+# convenience. `mode7_stream::stream_tick` reads the camera origin out of
+# `ES_M7ORG` by name. Parameterising the streamer covered its BLOB
+# (M7S_WORLD_WIN / M7S_BLOB_BANK / M7S_CHUNKS) but left the origin shadow,
+# `WORLD_COLS_BYTES` and `CAM0_TX`/`CAM0_TY` bound by name (mode7_stream's own
+# feature.toml says so: "the camera-origin shadow ES_M7ORG (mode7_persp —
+# never declared here either, before or after)"). On microzero that claim
+# comes from `mode7_persp`. This rail cannot compose `mode7_persp`: its
+# m7ab/m7cd HDMA claims OWN M7A-M7D, and a static-affine rail CPU-writing
+# those same registers through `m7_affine` is refused by check_reg_ownership's
+# reg x hdma check — correctly, because they are two mechanisms for one
+# register set. So the claim is declared HERE, by the feature that writes it,
+# which is also the honest attribution: on this rail the camera origin is the
+# game's, not a perspective engine's.
+name = "m7x_logic"
+role = "game_logic"
+depends = ["m7x_floor", "m7x_obj"]
+
+# The camera-origin shadow mode7_stream reads. Eight bytes because that is
+# mode7_persp's layout and the streamer indexes into it (+0 M7X px, +2 M7Y px);
+# the remaining pair (+4 HOFS, +6 VOFS) is mode7_persp's own commit and is
+# unused here — this rail's scroll is m7_affine's BG1HOFS/BG1VOFS, committed
+# from ES_M7AFF. Kept at eight so the layout the streamer was written against
+# is the layout it is given, rather than a truncation that happens to work
+# because it only reads the first four bytes today.
+#
+# NO `[init] zero`: the scene's enter writes +0 and +2 before the first NMI is
+# ever armed and before stream_arm runs (rule 5 — a zero fill would hide the
+# day that stops being true).
+[[claims.dp]]
+name = "m7org"
+bytes = 8
+
+# The grid-step kernel's own scratch: the candidate tile a held direction
+# proposes, which try_step builds, clamps and probes before the slide is armed.
+# Per-tick, written before read, dead between frames — a call frame, not state,
+# which is why it is here rather than in state.toml beside the camera.
+#  +0 candidate tile x +2 candidate tile y
+[[claims.dp]]
+name = "mxl_cand"
+bytes = 4

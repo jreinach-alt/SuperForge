@@ -1,0 +1,44 @@
+# room_logic — the room's movement kernel: 8-way D-pad motion with the walls as
+# the only collision.
+#
+# The GAME state (px, py) is declared as user state in game/room/state.toml —
+# this feature claims only the kernel's DP scratch, which is engine-owned and
+# never user-visible. That is race_logic's split, applied to a much smaller
+# kernel.
+#
+# The wall clamp is the room's whole collision model. It is a clamp and not a
+# test, so the hero cannot be placed out of bounds by any input sequence —
+# there is no escape branch to get wrong, which is the same "remove the seam
+# rather than guard it" shape col_map's total-over-u16 kernel uses.
+name = "room_logic"
+role = "game_logic"
+depends = ["room_hero", "window_iris"]
+
+[[claims.dp]]
+name = "rm_hot"
+bytes = 6                # +0 dx +2 dy — the frame's motion vector, rebuilt
+                         # from the pad every tick; +4 moved-this-frame flag,
+                         # the footstep trigger (also per-tick)
+
+[[claims.dp]]
+name = "rm_step"
+bytes = 2                # footstep cadence countdown — PERSISTS across
+                         # frames (unlike rm_hot's per-tick scratch)
+
+[[claims.oam]]
+name = "hud_pips"
+sprites = 8
+at = 0                   # THE H3 PIN (OamClaim.at, shipped with C2): the
+                         # visit-count pip row must render OVER both heroes,
+                         # and OAM index order IS sprite priority — pinning
+                         # slots 0..7 makes that a declaration instead of a
+                         # packing accident. 8x8 small OBJ, tile 2 of the hero
+                         # CHR block, OBJ palette 0 (colour-math-exempt like
+                         # the heroes — SnesPpu.cpp:962 — so the pips stay lit
+                         # outside the lantern). The docs/09 §5 OBJ-HUD row's
+                         # "convention, not mechanism", made concrete: claims +
+                         # a pin, no new machinery.
+
+[init]
+zero = ["rm_hot", "rm_step"]  # write-before-read within the kernel, but the
+                              # power-on contract costs the stores once

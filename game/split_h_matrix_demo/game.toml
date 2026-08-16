@@ -1,0 +1,64 @@
+# split_h_matrix_demo — TWO Mode 7 cameras for ~nil CPU.
+#
+# Two vertically-stacked views of ONE flat top-down Mode 7 world, each band
+# rendered through a DIFFERENT constant camera matrix
+# (M7A-M7D) swapped at the seam scanline by HDMA. The top band's scale is 1.0,
+# so the world's 8x8-px checker renders at an 8-px on-screen period; the
+# bottom band's is 0.25, so the SAME map renders at 32 px. That 8-vs-32 ratio
+# is the rail's whole signal, and it is a property of the rendered frame.
+#
+# ONE SCENE, no edges, mirroring split_h_2p_demo's and split_v_fight's shape.
+# The picture is the showcase; a title screen would add surface with no value.
+#
+# BYPASS, NOT COEXIST — the one thing about this rail the allocator states
+# better than prose. A conventional engine ships a perspective renderer that
+# also owns the per-scanline M7A-D HDMA, so a rail that wants its own constant
+# matrices has to bypass that renderer by hand, and the bypass is a discipline
+# nothing checks. Here the same exclusivity is a DECLARATION: `shm_cam` claims
+# M7A/M7B and M7C/M7D for the scene, so composing any other owner of those
+# registers refuses the build by name instead of rendering a fight between two
+# mechanisms.
+#
+# NOT COMPOSED, and each for a reason the allocator would enforce anyway:
+#   sh2_cam     -- the nearest-looking candidate, and a SIBLING rather than
+#                  this rail's supply: two hard-declared bands, INDIRECT pose
+#                  streaming, four channels, and a 229,376 B pose-slice
+#                  dependency neither rail reads. The full four-property
+#                  finding is shm_cam/feature.toml's header.
+#   mode7_persp -- owns M7A-M7D by the same mechanism in a different shape
+#                  (one band, a CPU origin shadow, a 180-line 1024-B stride),
+#                  and drags `pose_rom`'s 128 KB. Register contention with
+#                  shm_cam's two claims.
+#   m7_affine   -- its single `m7_matrix` claim covers M7A-M7D *and* the origin
+#                  registers, so it collides with shm_cam on both halves at
+#                  once. And its LUT is one matrix per heading at scale 1.0
+#                  only — the one axis this rail varies is the one axis that
+#                  table is not indexed by.
+#   split_band  -- splits BGMODE/TM per scanline. This rail writes BGMODE 7 and
+#                  TM 1 ONCE under forced blank for all 224 lines: the split
+#                  here is of the camera MATRIX, not of the video mode, so
+#                  there is no second splitter to generalise. (`split_h_demo`
+#                  is the rail that DOES split the mode, which is why it is a
+#                  separate rail rather than a variant of this one.)
+#   mode7_floor -- depends on `world_rom` (a 256 KB map this rail never reads)
+#                  and pins CGRAM 0..16 for microzero's palette.
+#   backdrop    -- shm_floor claims CGRAM word 0, which in Mode 7 is BOTH
+#                  palette index 0 and the backdrop slot, so it has exactly one
+#                  owner by hardware contract.
+#   bg_text     -- BG3 does not exist in Mode 7. The picture is the HUD.
+#   oam_sprites -- nothing draws, and this rail has no cast. Adding one would
+#                  be a "prettify the demo" move that buys picture at the cost
+#                  of the signal.
+#   audio       -- silent, deliberately: nothing here is timed to sound.
+#
+# ONE PAD, driving the one axis worth driving. The BOTTOM band's scale is
+# patched in its WRAM table each VBlank, so the band is demonstrably LIVE rather
+# than a second constant; D-pad Right/Left steps it, which turns the
+# demonstration into a state cycle a test can walk in BOTH directions and hold
+# still on. `input` is composed for exactly that and `shm_cam`'s shm_zoom_step
+# is its only reader.
+globals = ["scene_mgr", "fade", "input", "shm_rom"]
+
+[[scene]]
+id = "bands"
+features = ["shm_floor", "shm_cam"]

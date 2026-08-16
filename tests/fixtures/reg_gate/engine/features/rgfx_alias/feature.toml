@@ -1,0 +1,10 @@
+# reg-gate fixture: the equate-evasion plant (the design review). This tool's own
+# audit history (N3, R5) is textual patterns being spelled around; the pass
+# resolves file-local port equates, so the alias spelling gets the literal
+# spelling's verdict.
+name = "rgfx_alias"
+role = "fixture"
+
+[[claims.dp]]
+name = "rgfx_alias_state"
+bytes = 2

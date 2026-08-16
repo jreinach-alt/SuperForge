@@ -1,0 +1,52 @@
+# mode7_chamber — four cooperating per-scanline HDMA effects over one plane.
+#
+# FOUR COOPERATING PER-SCANLINE HDMA EFFECTS OVER ONE MODE 7 PLANE. An ashlar
+# stone floor bows into a barrel (m7_barrel's M7A column), recedes into
+# perspective (its M7D column), rolls endlessly beneath a Mode 1 band
+# (split_band's BGMODE + TM split at scanline 32) and is darkened top and
+# bottom by a brightness vignette (rgb_gradient's three COLDATA planes). The
+# apparent rotation is the vertical SCROLL through a static bow, not an affine
+# matrix — a popsicle stick turning inside a length of pipe.
+#
+# ONE SCENE, no edges. This rail is one screen and the picture is the whole
+# showcase.
+#
+# THE ONE NEW ENGINE FEATURE IS `m7_barrel`: the bow is a BAKED ROM column set
+# indexed by BOW STEP, not a per-frame overwrite of a live solve, because the
+# matrix stream here is ROM-resident and INDIRECT by construction.
+#
+# NOT COMPOSED, and each RUN as a composition rather than reasoned:
+#   mode7_persp -- the allocator ACCEPTS it, and it still cannot serve: its A
+#                  column is the perspective scale times cos(heading), and this
+#                  rail's A column is a BOW that is independent of the scale.
+#                  Composing it renders microzero's un-bowed floor — the effect
+#                  the rail exists to teach would be the thing that is missing.
+#                  Four differences, in m7_barrel/feature.toml's header.
+#   mode7_floor -- depends on world_rom (a 256 KB streamed map this rail never
+#                  reads) and pins CGRAM 0..16 for microzero's palette against
+#                  this rail's six words.
+#   m7_affine   -- one UNIFORM matrix per frame; a per-scanline bow is not
+#                  expressible in it at any heading, and its m7_matrix reg
+#                  claim covers the ORIGIN registers so it collides with
+#                  mb_origin before the matrix conflict is reached.
+#   mode7_stream -- the plane is 128x128 and fits VRAM whole. Nothing streams.
+#   sky_band    -- the top band shows the Mode 7 plane's own backdrop colour
+#                  (CGRAM word 0, the dark stone) under the vignette. A BG2 sky
+#                  would be a second layer this band does not have.
+#   backdrop    -- m7c_floor claims CGRAM word 0, which in Mode 7 is BOTH
+#                  palette index 0 and the backdrop slot, so it has exactly one
+#                  owner by hardware contract.
+#   bg_text/vwf -- BG3 does not exist in Mode 7 and the top band is a clean
+#                  strip with no tilemap to author.
+#   oam_sprites -- nothing draws.
+#   col_map     -- there is no collision: the roll is a state machine over a
+#                  16.8 accumulator and the plane is scenery.
+#   audio       -- this rail is silent. Adding music would be the "prettify the
+#                  demo" move rather than a showcase of the mechanism.
+#   input2      -- one pad drives the one runtime axis.
+globals = ["scene_mgr", "fade", "input", "m7c_rom", "barrel_rom"]
+
+[[scene]]
+id = "chamber"
+features = ["m7c_floor", "m7_barrel", "split_band", "rgb_gradient",
+            "m7c_roll"]

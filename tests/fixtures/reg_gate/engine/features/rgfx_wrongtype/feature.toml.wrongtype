@@ -1,0 +1,6 @@
+name = "rgfx_wrongtype"
+role = "fixture"
+
+[[claims.reg]]
+name = "rgfx_wt_bg"
+registers = "BGMODE"

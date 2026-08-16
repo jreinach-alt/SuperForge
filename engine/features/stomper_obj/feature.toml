@@ -1,0 +1,68 @@
+# stomper_obj — the three live actors: the red player and the two magenta
+# patrollers, staged into the oam_sprites shadow every frame.
+#
+# FIXED SLOTS, PARK-ON-DEATH. A clear-then-emit-in-call-order draw COMPACTS
+# the slot order when an enemy dies, and every test then has to know the death
+# order to read OAM ("E2 draws in slot 1 now that E1 is dead"). OAM claims here
+# are positional, so this build pins player = slot
+# +0, enemy 1 = +1, enemy 2 = +2, and culls a dead enemy by PARKING its entry
+# (Y = $F0, oam_park_all's own convention) instead of shifting its neighbour
+# down. The screen output is identical — the done-condition speaks in pixels
+# ("sprite culled, magenta drops") — and every OAM readback stays interpretable
+# without knowing the death order.
+#
+# FOUR SPRITES CLAIMED FOR THREE ACTORS, and the reason is the hi table: a
+# hi-table byte covers four sprites (2 bits each: X9 + size), so claiming the
+# whole byte lets the draw REBUILD it from the actors' own Xs every frame
+# rather than read-modify-write a byte one quarter of which belongs to nobody
+# (hud_obj's argument at the next size up). Slot +3 is permanently parked.
+#
+# CPU-WRITTEN REGISTER, DECLARED: OBSEL $2101 — every rail's OBJ feature
+# declares it itself (breaker_obj / hud_obj / scroller_obj's shared reasoning:
+# oam_sprites is the transport, not the size/base authority), so composing two
+# games' sprite features in one scene must refuse. The VALUE comes from
+# ES_V_ST_OBJ_CHR_OBSEL_BASE.
+#
+# SIZE MODE 0 and all three actors are SMALL 8x8, so the hi table's size bits
+# stay clear; only X9 bits are written, each DERIVED from its actor's bit 8
+# every frame rather than assumed clear.
+name = "stomper_obj"
+role = "consumer"
+depends = ["oam_sprites", "stomper_rom"]
+
+[[claims.dma_init]]
+name = "st_obj_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "st_obj_chr"
+kind = "chr"
+obj = true
+words = 32               # 2 tiles x 16 words: 0 empty, 1 the solid actor cell
+
+# OBJ palettes 0 AND 1 in one claim: pal 0 (CGRAM 128..143) carries the
+# player's red at word 1, pal 1 (144..159) the enemies' magenta at word 1. One
+# claim because one blob uploads both in one pass and neither half has a
+# separate owner to belong to.
+[[claims.cgram]]
+name = "st_obj_pal"
+words = 32
+at = 128                 # hardware contract: OBJ palettes start at CGRAM 128
+
+[[claims.oam]]
+name = "actors"
+sprites = 4              # +0 player, +1 enemy 1, +2 enemy 2, +3 parked pad
+
+# The hi-byte assembly scratch: the three X9 bits are OR'd together here before
+# the single whole-byte store (the draw REBUILDS the byte — see the header).
+# Write-before-read per call; no [init] zero, so the uninit-read detector holds
+# the contract (cm_hot's argument).
+[[claims.dp]]
+name = "st_hi"
+bytes = 2
+
+[[claims.reg]]
+name = "st_obsel"
+registers = ["OBSEL"]

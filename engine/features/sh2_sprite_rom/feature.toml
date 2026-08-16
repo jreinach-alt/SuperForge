@@ -1,0 +1,111 @@
+# sh2_sprite_rom — the sprite projector's build-time tables, plus its cast.
+# ROM only; no behaviour, no state. Global, like sh2_rom, because the tables
+# are the same in every scene that would project against this plane.
+#
+# WHY A SECOND BLOB FEATURE RATHER THAN MORE CLAIMS ON sh2_rom. Sh2_rom is the
+# FLOOR's data — the world image, its palette, the per-scanline poses the
+# matrix channels stream and the forward-vector LUT the drive reads. Everything
+# here is the INVERSE of that: tables a CPU routine reads to put a world point
+# on the screen. They are emitted by the same generator from the same
+# scale_ramp, and that sharing is exactly why they must be declared apart — a
+# scene can compose the floor without the projector at all, and a claim nothing
+# reads is the `grad_tabs` shape `make rom-unbacked` refuses.
+#
+# WHAT WAS DELIBERATELY ABSENT UNTIL SOMETHING READ IT. The AI's waypoint loops
+# went undeclared while nothing read them, because a
+# claim declared ahead of its reader is the `grad_tabs` shape `make
+# rom-unbacked` refuses. `sh2_swarm` reads both blobs below, so both are
+# declared; the instrument worlds nothing reads are STILL absent, for the same
+# reason.
+name = "sh2_sprite_rom"
+role = "blob"
+
+# --- the rotation coefficients ----------------------------------------------
+# 256 x (cos, sin) as s8.8 words with magnitudes CLAMPED to 255. The clamp is
+# the whole reason the projector's four rotation products are 8x8 HARDWARE
+# multiplies rather than software 16x16s: after the sign/magnitude split each
+# operand is a byte, so |dx| (<= 176 by the pre-cull) and |cos| both fit
+# $4202/$4203. An unclamped +-256 would not.
+[[claims.rom]]
+name = "sh2_sp_sincos"
+bytes = 1024
+
+# --- the inverse of the floor's own ramp ------------------------------------
+# d (world px in front of the pivot) -> band-local scanline k, $FF = no row.
+# The floor draws row k at forward distance g(k) = (112-k)*S(k)/256; this is
+# that function inverted ONCE, offline, at 1-px resolution over [1, g(0)]. It
+# is what makes the projector divide-free: the expensive half of "where does
+# this world point land" is a table lookup.
+[[claims.rom]]
+name = "sh2_sp_vk"
+bytes = 256
+
+# --- the reciprocal of the ramp, split for the 8x8 core ---------------------
+# recip(k) = 65536 / S8.8(k), which is 171..410 — NINE bits. The low byte
+# multiplies |u| through $4202/$4203 and the 9th bit adds |u| again, so the
+# screen-x offset costs one 8x8 multiply and a conditional add instead of a
+# 16-bit divide. Two claims rather than one 224-byte blob because they are two
+# tables indexed by the same k, and the ASM reads them at the same offset.
+[[claims.rom]]
+name = "sh2_sp_recip_lo"
+bytes = 112
+
+[[claims.rom]]
+name = "sh2_sp_recip_hi"
+bytes = 112
+
+# --- the size ladder --------------------------------------------------------
+# row -> tier 0..4. A marker is a fixed world-space size, so its APPARENT size
+# is a function of the row's scale alone: 14 * 256 / S(k) screen px. The FULL
+# ladder (every k maps to a tier); the seam culls are the projector's, not this
+# table's. A second copy with $FF seam marks would encode the culls into the
+# table, but nothing at runtime would read it, so only the full one is here.
+[[claims.rom]]
+name = "sh2_sp_tier"
+bytes = 112
+
+# --- the OBJ character block ------------------------------------------------
+# 64 names, five token sizes: three 16x16 (names 0/2/4) and two 32x32 (8/12). A
+# 32x32 OBJ fetches its whole 4x4 name block, so the empty quadrants are
+# committed as EXPLICIT zeros — a padded block is what stops a neighbour's CHR
+# leaking into a corner of a near marker.
+[[claims.rom]]
+name = "sh2_sp_chr"
+bytes = 2048
+
+# --- the swarm's seed table -------------------------------------------------
+# 64 entity records of eight bytes — +0 x u16, +2 y u16, +4 (wp<<8 | heading),
+# +6 (fracy<<8 | fracx) — copied WHOLESALE into sh2_swarm's WRAM table at scene
+# enter. The record layout is the ROM blob's layout on purpose: the copy is one
+# loop with no marshalling, and the test that reads the table back can compare
+# it to these bytes directly.
+#
+# SIXTY-FOUR SEEDED, TWENTY-FOUR LIVE. The live count is WRAM and ships at 24.
+# The table is bigger because the cadence sweep POKES that count upward to find
+# the cliff, and every record it reaches must have been written before it is
+# read (rule 5) — a table seeded only as far as the shipped count would hand
+# the sweep power-on garbage.
+#
+# NOT A PORT AND NOT ORACLE-CHECKED: this is the rail's own scenario, so the
+# generator gates it by SIMULATION — see `swarm_world` in
+# tools/gen_split_h_2p_assets.py, which walks four laps of the complete
+# 256-state camera cycle with the AI running (and again with the cameras
+# static, which is what the shipping build renders with no pad touched) and
+# asserts every property the test module stands on.
+[[claims.rom]]
+name = "sh2_ents"
+bytes = 512
+
+# --- the AI's world model ---------------------------------------------------
+# 8 loops x 4 waypoints, (x, y) u16. Follower i walks loop (i-2) & 7, advancing
+# to the next target when it is within a Chebyshev 24 px.
+#
+# WHY THERE IS NO ORACLE FOR THIS BLOB. Waypoint loops only mean anything
+# against the plane layout they were authored for, and this rail's cast is
+# rings about the two cameras' ORBIT CENTRES. Byte-comparing these loops
+# against a set authored for a different layout would not be reassuring, it
+# would be meaningless, so this blob is gated by the same simulation as the
+# seeds above rather than by an oracle it has no business matching.
+[[claims.rom]]
+name = "sh2_way"
+bytes = 128

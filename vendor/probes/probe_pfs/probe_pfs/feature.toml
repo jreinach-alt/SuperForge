@@ -1,0 +1,77 @@
+# probe_pfs — the pfs_stream MECHANISM probe.
+#
+# SCAFFOLDING, not the feature. It re-declares pfs_stream's claims
+# under the same names (so the shipped kernel's ES_PFS_* symbols resolve
+# unchanged) plus the two level blobs and the ring's VRAM, and nothing else.
+# There is no BG feature here: the probe's assertion surface is the BG1 VRAM
+# TILEMAP, read back word for word, which needs no layer configured to be
+# true. Configuring one anyway would put a second owner on BGMODE/TM for no
+# gain, and the picture is the rail's job, not the streamer's.
+name = "probe_pfs"
+role = "fixture"
+
+# --- the level, twice, matching pfs_rom's declaration exactly ----------------
+[[claims.rom]]
+name = "pfs_flat"
+bytes = 32768            # COLUMN-major: col N's 128 words at N*256
+
+[[claims.rom]]
+name = "pfs_flat_row"
+bytes = 32768            # ROW-major:    row M's 128 words at M*256
+
+# --- pfs_stream's own claims, name for name ---------------------------------
+[[claims.dp]]
+name = "pfs_hot"
+bytes = 24
+
+[[claims.dp]]
+name = "pfs_nmi"
+bytes = 2
+
+[[claims.wram]]
+name = "pfs_slots"
+bytes = 512
+dma_source = true
+
+[[claims.wram]]
+name = "pfs_meta"
+bytes = 32
+
+[[claims.hdma]]
+name = "pfss"
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+band = "scene"
+phase = "vblank"
+channels = 1
+
+[[claims.dma_init]]
+name = "pfs_fill"
+channel = 1
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[claims.dma]
+vblank_bytes_per_frame = 512         # 4 slots x 2 sub-transfers x 64 B
+vblank_transfers_per_frame = 8
+
+# --- the ring, matching pfs_bg's tilemap claim ------------------------------
+# 0x1000 words = FOUR 32x32 hardware pages. Claiming one page would allocate a
+# quarter of a ring and let the other three land on whatever packed next.
+[[claims.vram]]
+name = "pfs_map"
+kind = "tilemap"
+words = 0x1000
+
+# The default reg tier is the composed union, so a
+# vendored probe is CHECKED and declares its own boot/display writes. This
+# probe arms NMI itself — it is an instrument with no engine underneath it, so
+# it owns its interrupt enable rather than inheriting one (probe_vblank's
+# shape).
+[[claims.reg]]
+name = "probe_pfs_boot"
+registers = ["INIDISP", "NMITIMEN"]
+scene_writes = ["INIDISP", "NMITIMEN"]
+
+[init]
+zero = ["pfs_hot", "pfs_nmi"]

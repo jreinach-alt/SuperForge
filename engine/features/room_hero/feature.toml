@@ -1,0 +1,54 @@
+# room_hero — the room scene's player sprite. One 16x16 OBJ (large size in
+# OBSEL mode 0), positioned every frame from room_logic's px/py.
+#
+# CPU-WRITTEN REGISTER, UNDECLARED (docs/09 §2.1): OBSEL $2101, which sets
+# sprite size AND OBJ CHR base for EVERY sprite. Same shape as player_car's
+# census row, in a different game. The VALUE comes from the emitted
+# ES_V_HERO_CHR_OBSEL_BASE symbol, so the address discipline holds and only the
+# ownership is invisible.
+#
+# The hero is deliberately NOT dimmed by the lantern: CGADSUB's OBJ bit is
+# clear, and colour math on OBJ applies only to palettes 4-7 anyway
+# (SnesPpu.cpp:962, `_spritePalette[x] > 3`) while this claims OBJ palette 0.
+# Two independent reasons, both hardware, both wanted — he is the light source,
+# not a thing the light falls on.
+name = "room_hero"
+role = "consumer"
+depends = ["oam_sprites", "hero_rom"]
+
+[[claims.dma_init]]
+name = "hero_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "hero_chr"
+kind = "chr"
+obj = true
+words = 512              # 32 tiles x 16 words: one 16-wide OBJ grid row pair
+
+[[claims.cgram]]
+name = "hero_pal"
+words = 16
+at = 128                 # hardware contract: OBJ palette 0 = CGRAM 128..143
+
+[[claims.oam]]
+name = "hero"
+sprites = 1
+
+[[claims.oam]]
+name = "hero2"
+sprites = 1              # the identical twin (pad 2): same CHR, same
+                         # OBJ palette 0, its own slot + px2/py2 state. Packs
+                         # BEHIND room_logic's pinned hud_pips (OAM index order
+                         # is sprite priority), which is the declared render
+                         # order, not a packing accident.
+
+# C4 (docs/09 §2.1): OBSEL, CPU-written in hero_arm. Player_car's claim in a
+# different game -- same global-to-all-sprites register, same mitigation (the
+# value comes from ES_V_HERO_CHR_OBSEL_BASE). Composing the two games' sprite
+# features in one scene now refuses.
+[[claims.reg]]
+name = "hero_obsel"
+registers = ["OBSEL"]

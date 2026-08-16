@@ -1,0 +1,37 @@
+# enter_scr — scene-enter shared scratch (global feature).
+# 8 B of DP for shared enter-time routines (uploads, seeds) that run under
+# forced blank. Contract: every routine writes before it reads, per call —
+# no boot zeroing needed, and the uninit-read detector holds it to that.
+name = "enter_scr"
+role = "companion"
+
+[[claims.dp]]
+name = "escr"
+bytes = 8
+
+# The enter-time GP-DMA shapes used by the shared upload routines this
+# feature's scratch already serves. They live here rather than on the feature
+# that fires them because that code is included at TOP LEVEL (main.asm's
+# "engine feature runtimes (shared code, global symbols only)"), so a
+# scene-scoped claim would emit inside `.scope <scene>` and be invisible to
+# it — the same constraint that puts text_dp's DP block there rather than in
+# bg_text. A feature whose code sits INSIDE a scene scope declares its own
+# claim instead (sky_band, player_car).
+#
+# Two shapes, not one, because mode7_floor's uploads target different ports:
+# the interleaved 8bpp CHR walks the ODD VRAM bytes via VMDATAH, the seed
+# tilemap rows walk the EVEN bytes via VMDATAL. Both mode 0 (single port).
+# That difference is exactly what one shared claim could not express.
+# phase forced_blank — scene_mgr's enter clears HDMAEN and zeroes NMITIMEN,
+# so neither can race the active/vblank claims that share channel 0.
+[[claims.dma_init]]
+name = "m7chr_up"
+channel = 0
+registers = ["VMDATAH"]
+mode = 0
+
+[[claims.dma_init]]
+name = "m7map_up"
+channel = 0
+registers = ["VMDATAL"]
+mode = 0

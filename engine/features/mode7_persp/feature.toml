@@ -1,0 +1,50 @@
+# mode7_persp — PPU-offloaded per-scanline perspective (scene-scoped). Two
+# INDIRECT HDMA channels stream ROM-resident pose tables (64 headings x
+# per-scanline AB/CD coefficients) through M7A/B and M7C/D. Retargeting a
+# heading = rewriting two pointers + banks in the WRAM index tables during
+# VBlank (~30 stores) — never a live solve (split_h_2p technique; the route
+# brief §3(a)). Camera origin (M7X/Y/HOFS/VOFS) rides CPU VBlank shadow stores
+# (single camera).
+name = "mode7_persp"
+role = "feature"
+depends = ["pose_rom"]
+
+[[claims.hdma]]
+name = "m7ab"
+registers = ["M7A", "M7B"]
+mode = 3
+indirect = true
+band = "scene"
+phase = "active"
+channels = 1
+
+[[claims.hdma]]
+name = "m7cd"
+registers = ["M7C", "M7D"]
+mode = 3
+indirect = true
+band = "scene"
+phase = "active"
+channels = 1
+
+[[claims.wram]]
+name = "persp_idx"
+bytes = 32               # two 16-B HDMA index tables (head-skip + 2 spans)
+
+[[claims.dp]]
+name = "m7org"
+bytes = 8                # M7X, M7Y, M7HOFS, M7VOFS shadows (NMI commits)
+
+[init]
+zero = ["persp_idx", "m7org"]
+
+# C4 (docs/09 §2.1): the Mode 7 camera origin, CPU-written in the NMI HOOK
+# every frame (mode7_persp.asm:140-153). $210D/$210E are M7HOFS/M7VOFS but they
+# are physically BG1HOFS/BG1VOFS -- one port, one name -- so a second feature
+# wanting BG1 scroll in a Mode-1 band now contends here instead of fighting
+# silently. That contention is precisely why the class is phase-blind: these
+# writes are vblank-phase, the hypothetical rival is active-phase, and a
+# phase-partitioned rule would let them compose.
+[[claims.reg]]
+name = "m7_origin"
+registers = ["BG1HOFS", "BG1VOFS", "M7X", "M7Y"]

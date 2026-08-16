@@ -1,0 +1,18 @@
+# sprite_game user game state.
+#
+# Six words, all `@dp` and all scene-scoped: the player pair, the dot pair, the
+# score and the dot's preset index. They are DECLARED rather than placed, so the
+# allocator picks the addresses and a collision with a feature's own DP claim is
+# a build failure rather than a silent overlap.
+#
+# NO [global] SECTION: one scene, no transitions, nothing survives anything.
+
+[scene.play]
+px = "u16@dp"            # player x, screen pixels, top-left of the 8x8 box
+py = "u16@dp"            # player y
+dot_x = "u16@dp"         # dot x — one of the four preset spots
+dot_y = "u16@dp"         # dot y
+score = "u16@dp"         # catches so far, plain binary +1 per catch. Nothing
+                         # prints it, so no BCD — the rendered output of a
+                         # catch is the dot's JUMP
+dot_idx = "u16@dp"       # which preset the dot sits on (0-3, wraps by mask)

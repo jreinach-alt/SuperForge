@@ -1,0 +1,42 @@
+# maze — col_map against a hand-built map.
+#
+# A red 8x8 player walks a grey walled room — a border wall plus two interior walls,
+# all one solid-flagged tile — with the canonical per-axis move-check: compute
+# the tentative position, probe the map, keep the axis only if clear, so a
+# diagonal push into a wall SLIDES along it instead of sticking.
+#
+# ONE SCENE, no edges — this rail has no scene machine at all (one RESET, one
+# game loop). scene_mgr is composed anyway because it owns the INIDISP commit
+# and the frame sync; `room` is its only destination
+# (scroller's and hud_game's shape).
+#
+# WHY NOT room_bg + col_map STRAIGHT OFF. The allocator ACCEPTS that
+# composition ("allocation OK: 1 scene(s), 24 placements"; resolve_features
+# expands `depends`, so room_bg pulls room_rom in transitively) — and it still
+# cannot produce this rail, for two different reasons at two different gates:
+#
+#   * room_bg renders room_rom's OWN baked art — room_bg.asm resolves six of
+#     that blob's symbols by name — so the picture would be the `room` game's
+#     room, not this rail's walled maze;
+#   * col_map, composed with no world to bind, stops the build at ASSEMBLY
+#     time instead: its six CM_* binding symbols (.error-guarded, no
+#     defaults) have nothing to point at — room_rom carries VRAM-format WORD
+#     tilemaps for display, not the packed byte tile-id map + flag table
+#     col_map indexes.
+#
+# So the allocator proves the claims compose; it holds no opinion on whether
+# the composition can produce the rail — that refusal arrives one gate later,
+# at col_map's binding ("the undefined-symbol error is the design review").
+# Both gates have to be read: run allocate.py AND ask what the bound symbols
+# would point at.
+#
+# NOT COMPOSED, each for a reason the allocator or the hardware would enforce:
+#   backdrop  -- maze_bg's BG reads palette group 0, whose word 0 IS the
+#                backdrop slot (scroller's refusal, same geometry).
+#   bg_text   -- no text in this rail; the picture is the whole of it.
+#   audio     -- this rail is silent: nothing queues music or SFX.
+globals = ["scene_mgr", "fade", "input", "oam_sprites", "maze_rom"]
+
+[[scene]]
+id = "room"
+features = ["maze_bg", "maze_obj", "col_map"]

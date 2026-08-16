@@ -1,0 +1,16 @@
+# Probe control block — the host test writes cmd/param, the ROM answers with
+# seq/done. All addresses allocator-emitted; the test reads symbol_map.json.
+[scene]
+cmd = "u8"           # 0 idle · 1 single DMA of `param` bytes · 2 multi-queue:
+                     #   `param2` transfers of `param` bytes each, every slot
+                     #   fully re-armed (F9) · 3 re-wipe 1 KB at word `param`
+                     #   · 4 CPU word stores: `param2` words, no DMA (the
+                     #   txt_q commit shape — the other side of that threshold)
+param = "u16"        # transfer size in bytes (cmd 3: target word offset)
+param2 = "u16"       # cmd 2: number of queued transfers (K >= 1)
+                     # cmd 4: number of CPU word stores (K >= 1)
+seq = "u16"          # completion counter (increments after each command)
+done_v = "u16"       # V counter latched right after the DMA completed
+done_h = "u16"       # H counter (dots) latched right after the DMA completed
+mq_src = "u16"       # cmd 2 scratch: next slot's A1T low16 (NMI-owned)
+mq_vaddr = "u16"     # cmd 2 scratch: next slot's VMADD word address (NMI-owned)

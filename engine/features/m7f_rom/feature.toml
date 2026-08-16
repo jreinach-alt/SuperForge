@@ -1,0 +1,107 @@
+# m7f_rom — the mode7_flight rail's ROM: the TWO POSE FACTORS plus its art.
+#
+# Global (not scene-scoped), for the reason every `*_rom` blob in this tree is:
+# the allocator packs a ROM window once for the whole composition, so a
+# scene-scoped rom claim would reserve bytes only one scene's map names.
+# (m7dg_rom / mo_rom / room_rom / split_v_rom carry the same paragraph.)
+#
+# THE TWO FACTOR BLOBS ARE THE RAIL'S SUBJECT, and they are what makes this a
+# 28 KB rail rather than a 12.7 MB one. `m7f_cam`'s header carries the whole
+# derivation; the short version is that a per-scanline Mode 7 pose factors as
+# `pose(h,a)[k] = S_a(k) * R(h)` — which is how tools/ already writes it — so
+# the PRODUCT of the axes (256 headings x 81 altitudes x 640 B = 12.7 MB, fits
+# no cartridge) is replaced by the two FACTORS at 25,920 B and 2,048 B, EXACT
+# on both axes with no quantisation of either.
+#
+# WHY NOT `pose_rom`. Five games compose it — microzero, racer, railshooter,
+# rpg, split_h_demo — and `mode7_persp` is hard-bound to its emitted symbols
+# (mode7_persp.asm:96,113,124), so a rail cannot point that player at its own
+# blob and growing pose_rom would grow it for every consumer. The tree has
+# answered this exact situation five times with a rail-private `*_cam`/`*_rom`
+# pair (sh2, shp, shg, shm, sit); this is the sixth.
+# `shp_cam/feature.toml:76-79` names `mode7_persp` a SIBLING for four reasons
+# that already cover this rail, and a fifth applies here: 160 band lines, not
+# 180.
+#
+# Every claim here is BACKED by an `.incbin` claim site in
+# game/mode7_flight/main.asm, which is what `make rom-unbacked` proves
+# (docs/37).
+#
+# THE ART IS AUTHORED, NOT IMPORTED. Tools/gen_m7f_assets.py draws the
+# overworld from a periodic height field and packs the cast from pixel
+# functions; no external `.bin` is converted. That is deliberate, and it is
+# what takes the rail OUT of the asset-import rule ground-truth
+# obligation: there is no converter between a source asset and this output,
+# so there is no converter to ground-truth.
+# `mode7_explore` and `m7_oshoot` took the same route.
+name = "m7f_rom"
+role = "blob"
+
+# --- factor 1: the altitude axis -------------------------------------------
+# 81 reachable altitudes x 160 band scanlines x 2 B. The 81 is DERIVED, not
+# assumed: the altitude step is 3, both clamps are multiples of 3 and spawn is
+# 120, so nothing off the x3 lattice is reachable.
+#
+# THE STRIDE IS 2 B/LINE AND THAT IS LOAD-BEARING. 320 B per altitude puts the
+# whole 25,920 B table inside ONE 32 KB LoROM window with 6,848 B spare, so no
+# profile straddles a bank boundary — where `lda f:base,x` cannot reach, since
+# X wraps inside its own bank. A 4 B stride would be 51,840 B across two
+# windows and would put a boundary in the middle of a profile. The trailing 8 B
+# are the JOIN'S PIPELINE GUARD, not slack: each line stages the next line's
+# operand inside the multiplier's latency window, so the last line of the last
+# group reads one group-stride past the last altitude. Eight bytes make that
+# read land inside this claim rather than on whatever the allocator placed
+# next.
+[[claims.rom]]
+name = "m7f_prof"
+bytes = 25928
+
+# --- factor 2: the heading axis --------------------------------------------
+# 256 headings x 8 B: cmag, smag, cneg, sneg — two 8-bit multiplier operands
+# and two two's-complement sign masks. Read FOUR TIMES PER FRAME, not per
+# scanline: the signs are hoisted out of the join's inner loop into four loop
+# variants chosen once per frame.
+#
+# 256 headings is DERIVED too — one unit of 256 per frame held, masked
+# `and #$00FF` — and it is the count `m7_affine`'s own trig LUT uses.
+[[claims.rom]]
+name = "m7f_trig"
+bytes = 2048
+
+# --- the plane -------------------------------------------------------------
+# The interleaved Mode 7 VRAM image: 16,384 tilemap bytes in the EVEN positions
+# and 16,384 bytes of 8bpp CHR in the ODD ones, exactly as the PPU reads the
+# Mode 7 region. 32 KB is one whole LoROM window, so the single DMA that
+# uploads it cannot cross a bank boundary.
+[[claims.rom]]
+name = "m7f_ground"
+bytes = 32768
+dma_source = true
+
+# --- the cast --------------------------------------------------------------
+# ONE 4-row x 16-col OBJ grid holding all four objects: airship propeller
+# frames A and B (32x32 each), the BIG ground shadow (32x32) and the SMALL high
+# one (16x16). One sheet rather than four because the SNES reads a 32x32 sprite
+# as a 4x4 tile block whose ROW STRIDE IS 16 TILE SLOTS — fixed in hardware —
+# so the objects have to share a 16-wide grid whatever else happens.
+[[claims.rom]]
+name = "m7f_obj_chr"
+bytes = 2048
+
+# --- palettes --------------------------------------------------------------
+# The floor palette is SIXTEEN words and word 0 is THE SKY. In Mode 7 an 8bpp
+# pixel value IS an absolute CGRAM index, so the floor palette can only live at
+# 0; word 0 is simultaneously palette index 0 and the BACKDROP slot the sky
+# TM-split reveals above the horizon. The generator asserts that no floor CHR
+# byte is 0, so the two readings of that slot can never disagree.
+[[claims.rom]]
+name = "m7f_pal"
+bytes = 32
+
+[[claims.rom]]
+name = "m7f_ship_pal"
+bytes = 32               # 16 BGR555 words: a 4bpp OBJ palette is 16 entries
+
+[[claims.rom]]
+name = "m7f_shadow_pal"
+bytes = 32

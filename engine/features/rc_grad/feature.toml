@@ -1,0 +1,67 @@
+# rc_grad — the DAY-NIGHT COLDATA wash over the whole racer frame
+# (scene-scoped). Three active-display indirect HDMA channels, one COLDATA
+# plane each, exactly like rgb_gradient — and the difference is the whole
+# reason this dir exists.
+#
+# rgb_gradient's header tables are ROM CONSTANTS in the code bank pointing at
+# ONE static intensity table (its own header: "fixed camera height ->
+# fixed band geometry, no fog dynamics"). That is supply for a rail whose sky
+# never changes. This rail's signature look is a sky that DOES change, so the
+# header tables move to WRAM and the data pointers are retargeted at one of
+# eight ROM keyframes — mode7_persp's `persp_set_pose` shape applied to COLDATA
+# instead of to M7A-M7D. REBUILDING three 225-entry tables in place every
+# eighth frame is the obvious alternative and it is a whole-frame-class cost;
+# retargeting costs six stores.
+#
+# COLDATA ($2132) is one port with three plane-select bits, so the planes are
+# independently owned sub-registers — the same declaration rgb_gradient makes,
+# and the reason composing BOTH refuses on the reg x reg check rather than
+# silently double-driving one plane.
+name = "rc_grad"
+role = "feature"
+
+[[claims.hdma]]
+name = "rcgr"
+registers = ["COLDATA_R"]
+mode = 0
+indirect = true
+band = "scene"
+phase = "active"
+channels = 1
+
+[[claims.hdma]]
+name = "rcgg"
+registers = ["COLDATA_G"]
+mode = 0
+indirect = true
+band = "scene"
+phase = "active"
+channels = 1
+
+[[claims.hdma]]
+name = "rcgb"
+registers = ["COLDATA_B"]
+mode = 0
+indirect = true
+band = "scene"
+phase = "active"
+channels = 1
+
+[[claims.wram]]
+name = "rcg_idx"
+bytes = 24               # three 8-B indirect header tables: [count, ptr]
+                         # x2 spans + terminator = 7 B, padded to 8 so the
+                         # plane index is a shift. THE RETARGETED SURFACE.
+
+[init]
+zero = ["rcg_idx"]       # the DMA controller fetches indirect-address bytes
+                         # PAST the terminator on real hardware (mode7_persp's
+                         # persp_arm records the same measurement), so the pad
+                         # must not be power-on garbage
+
+# C4 (docs/09 §2.1): the colour-math MODE, CPU-written at arm/disarm. The
+# COLDATA writes themselves are COVERED by the three transfer claims above —
+# §2.1's boundary rule covers a write to a port you already claim.
+[[claims.reg]]
+name = "rcg_math"
+registers = ["CGWSEL", "CGADSUB"]

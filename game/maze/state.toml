@@ -1,0 +1,18 @@
+# maze user state.
+#
+# The player's position and the tentative pair the per-axis move-check probes.
+# ALL @dp: every word is on the per-frame path. col_map's own CM_PX/CM_PY/
+# CM_FLAG are NOT here — they are that feature's `cm_hot` dp claim; the
+# candidate pair below is the GAME's half of the handshake (m7_dungeon's
+# cand_px/cand_py division, unchanged).
+#
+# NO [init]-style zero fill: `enter` writes px/py/frames and every tick writes
+# cand_x/cand_y before anything reads them (rule 5 — power-on WRAM is random,
+# and a zero fill "to be safe" would hide the day that stops being true).
+[scene.room]
+px = "u16@dp"            # player box top-left, world px (= screen px = OAM x:
+py = "u16@dp"            #   the room is one screen and scroll is pinned)
+cand_x = "u16@dp"        # the tentative position under probe, before the
+cand_y = "u16@dp"        #   move-check's verdict commits or drops it
+frames = "u16@dp"        # frames since enter — the free-running heartbeat a
+                         #   test reads to tell "tick running" from "stuck"

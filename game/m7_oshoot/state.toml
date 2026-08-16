@@ -1,0 +1,95 @@
+# m7_oshoot user state.
+#
+# The matrix shadow, the pivot and the screen origin are NOT here: they are
+# m7_affine's own `dp` claim, because the routine that reads them is that
+# feature's VBlank commit and a feature reading the game's `[scene.*]` block
+# would invert the dependency. The POOL ARRAYS are not here either: `pool`'s
+# binding contract takes a 24-bit constant base, so they are mo_obj's `mo_actors`
+# wram claim (that feature.toml carries the reasoning). What lives here is what
+# the GAME owns and nothing else reaches for — the hero, the wave director's
+# latches, and the two census words.
+#
+# NO [init]-style zero fill. `enter` writes every byte of every variable below
+# before anything reads one (rule 5), which is checkable by reading it: power-on
+# WRAM is random, and a zero fill "to be safe" would hide the day that stops
+# being true.
+[scene.arena]
+
+# --- the hero -------------------------------------------------------------
+heading = "u16@dp"       # 0..255 = one full turn, and now EVERY one of them is
+                         #   reachable: LEFT/RIGHT step this by MO_TURN_STEP per
+                         #   held frame. It used to be SNAPPED to
+                         #   one of eight compass values by a lookup table, which
+                         #   is the defect since removed — the table, the
+                         #   UDLR bitfield that indexed it, and the `moving` gate
+                         #   it drove are all gone rather than bypassed.
+                         #   Kept 16-bit because the tick writes it in A16 and
+                         #   m7a_set_heading masks to 8 bits itself.
+posx = "u32@dp"          # world x, 16.16: +0 fraction, +2 integer px. The
+posy = "u32@dp"          #   fraction is what lets a sub-pixel speed move at all
+speed = "u16@dp"         # this frame's SIGNED 8.8 throttle along the facing:
+                         #   +MO_MOVE_SPEED on UP, its negation on DOWN, 0 on
+                         #   neither. m7_dungeon's `US_SPEED` in name, width and
+                         #   role — do_integrate does `ldy z:US_SPEED` exactly as
+                         #   that rail does — but set outright rather than ramped
+                         #   that rail does — but set outright rather than ramped.
+                         #   One frame's scratch: written at the top of every
+strafe = "u16@dp"        # ...and the SIGNED 8.8 lateral rate, +right on R, -left
+                         #   on L, 0 on neither. A second variable rather than a
+                         #   second heading because a strafe must NOT turn the
+                         #   facing — that is the whole of what makes it additive
+                         #   instead of another thing the d-pad means.
+
+# --- one frame's motion, and the candidate it proposes --------------------
+# Write-before-read within a single tick: the step is computed from the matrix
+# and the speed, then move_x / move_y turn it into a candidate that collision
+# either commits or drops. Dead between frames — a call frame, not state.
+stepx = "u32@dp"         # this frame's x step, 16.16 (coeff x MOVE_SPEED)
+stepy = "u32@dp"
+cand_fr = "u16@dp"       # the candidate's fraction word, committed on a clear axis
+cand_px = "u16@dp"       # the footprint CENTRE the four corners are taken from
+cand_py = "u16@dp"
+idx = "u16@dp"           # the wave / chase / contact loop cursor
+idx2 = "u16@dp"          # the INNER cursor of the bolt x chaser scan. Two are
+                         #   needed because that test is a nested loop over two
+                         #   pools, and both cursors are pool BYTE offsets (the
+                         #   idiom pool_spawn and pool_kill take and return), so
+                         #   neither can live in X across a call
+
+# --- the wave director ----------------------------------------------------
+spawn_t = "u16@dp"       # frames until the next wave beat (the shmup cadence)
+spawn_ix = "u16@dp"      # ring-offset cursor, 0..MO_RING_N-1 — successive waves
+                         #   arrive from the eight compass directions
+hits = "u16@dp"          # hero-chaser contacts, the knockback counter
+grace = "u16@dp"         # post-respawn frames with contact suppressed. It is
+                         #   ALSO the blink phase: the hero's sprite is drawn
+                         #   iff (grace & MO_BLINK_MASK) != 0, which is the
+                         #   rail's whole hit cue. One counter, because "am I
+                         #   invulnerable" and "am I flashing" are the same
+                         #   question and a second variable could disagree
+                         #   with the first
+kills = "u16@dp"         # bullet-chaser kills, for the ROM's whole life. NOT the
+                         #   score: this one never falls, which is what keeps it
+                         #   usable as the "did a kill happen" observable the
+                         #   pool-cycle cases already read.
+score = "u16@dp"         # the SCORE — what the three HUD digits render. +1 per
+                         #   kill, and back to 0 on a contact, which is
+                         #   what gives the knockback a cost the player can see.
+                         #   Clamped at 999 so three digits can always show it.
+chase_t = "u16@dp"       # free-running frame counter, and the ONLY thing it is
+                         #   read for is its parity: the chasers step on even
+                         #   values, which halves their rate without giving the
+                         #   pool a fractional position. See MO_CHASE_HALF in
+                         #   m7_oshoot.inc for why half is the number. Persistent
+                         #   across frames, so `enter` seeds it (rule 5)
+
+# --- the pool census, published every frame -------------------------------
+# The live bullet and chaser counts, published once per frame. They are
+# READ-ONLY observables: nothing in this rail branches on either word — the wave
+# cadence is the spawn countdown and a full pool is swallowed by `bmi` on
+# `pool_spawn` rather than pre-checked — which is why adding them cannot move a
+# pixel.
+shots_live = "u16"       # live bullets, 0..MO_BUL_N — cycles as you fire
+chasers_live = "u16"     # live chasers, 0..MO_ENE_N — climbs with the waves and
+                         #   falls as bullets land, so it is the one word that
+                         #   shows the whole allocate -> free -> REUSE cycle

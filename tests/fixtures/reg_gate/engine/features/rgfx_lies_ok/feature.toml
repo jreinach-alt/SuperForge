@@ -1,0 +1,10 @@
+# reg-gate fixture (SILENT, item 5): the OTHER way to fix rgfx_lies -- do not
+# open the register at all. The feature writes MOSAIC itself and nobody else
+# may, which is what a claim with no `scene_writes` has always meant.
+name = "rgfx_lies_ok"
+role = "fixture"
+
+[[claims.reg]]
+name = "rl_mode"
+registers = ["MOSAIC", "M7SEL"]
+scene_writes = ["M7SEL"]

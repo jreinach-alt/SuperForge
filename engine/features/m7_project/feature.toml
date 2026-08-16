@@ -1,0 +1,67 @@
+# m7_project — world point -> screen point on a static-affine Mode 7 plane.
+# Global (not scene-scoped), and reusable: every rail that puts sprites on an
+# affine plane needs the same map.
+#
+# WHAT THIS IS. The INVERSE of what the PPU does. Mode 7's render matrix maps
+# SCREEN -> TEXEL: for a screen pixel (sx,sy) the PPU samples
+#
+#  texel_x = A*(sx + HOFS - M7X) + B*(sy + VOFS - M7Y) + M7X
+#  texel_y = C*(sx + HOFS - M7X) + D*(sy + VOFS - M7Y) + M7Y
+#
+# A sprite is not sampled by that matrix — it is composited in SCREEN space —
+# so putting an OBJ on a world tile needs the map the other way round. At the
+# fixed scale m7_affine ships, [[A,B],[C,D]] is a pure ROTATION, and a
+# rotation's inverse is its TRANSPOSE. So the world->screen map is the SAME
+# four coefficients read in the other order:
+#
+#  dx = wx - M7X dy = wy - M7Y
+#  sx = ((dx*A + dy*C) >> 8) + 128
+#  sy = ((dx*B + dy*D) >> 8) + 112
+#
+# `A,C` for sx and `B,D` for sy — that swap IS the transpose, and it is the
+# whole correctness question here. Feed the FORWARD pairing (A,B / C,D) instead
+# and the sprites counter-rotate: they still move, still stay on screen, and
+# still look plausible for a second, but they slide off the world tile they are
+# supposed to stand on. m7_persp_project keeps that mistake reachable behind a
+# build flag (`SH2_SP_FORWARD`) as a deliberate negative control, precisely
+# because it is the failure that survives a casual look.
+#
+# NO `alu` CLAIM, AND NO HARDWARE MULTIPLIER. The 65816's $4202/$4203 is an 8x8
+# unsigned multiply; a signed 16x16 built on it costs four of those plus the
+# sign and carry plumbing, and it is a SHARED register pair — claiming it would
+# put this feature in contention with every other user of the ALU for a rail
+# that needs twelve products a frame. Owner principle: we do not do complex
+# hardware math here unless it is unavoidable and rare. This is neither — so
+# the multiply is a software shift-add, sized to the operands rather than to
+# the word width (see m7_project.asm, m7p_mac).
+#
+# THE PRE-CULL IS COMPARISONS ONLY, AND IT COMES FIRST. Rotation preserves
+# distance, so a world point farther from the pivot than the padded view's
+# circumradius is off-screen at EVERY heading — no multiply can change that
+# answer. Two signed compares reject it before any arithmetic runs. On this
+# rail two of the three enemies are outside that radius from the spawn pivot,
+# so the pre-cull is not a micro-optimisation: it is most of the frame cost.
+name = "m7_project"
+role = "feature"
+
+# m7_affine owns the matrix. This feature READS its DP shadow (ES_M7AFF) and
+# writes nothing there — the dependency is the documented sixteen-byte layout
+# in that feature.toml, and m7_project.asm names each offset rather than
+# repeating the raw numbers at every use.
+depends = ["m7_affine"]
+
+# The projection's own scratch. One block rather than four claims because every
+# byte of it is dead between calls — it is a call frame, not state.
+#
+#  +0 dx +2 dy the world delta, signed
+#  +4 sx +6 sy the answer, signed screen px (the caller reads these)
+#  +8 ma (4 bytes) the multiplicand, shifted LEFT through 32 bits
+#  +12 mb the multiplier, shifted RIGHT until it is zero
+#  +14 acc (4 bytes) the signed 32-bit dot-product accumulator
+#
+# NO `[init] zero`. Every byte is written before it is read within a single
+# m7p_project call (rule 5: a zero-fill here would hide the day that stops
+# being true, and it is checkable by reading the routine).
+[[claims.dp]]
+name = "m7p"
+bytes = 18

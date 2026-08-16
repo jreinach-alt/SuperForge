@@ -1,0 +1,28 @@
+# backdrop — the scene's CGRAM color 0 (scene-scoped).
+# Deliberately its own claim: a Mode 7 scene's floor palette pins CGRAM 0-16
+# itself, and declaring BOTH there must refuse the build — color 0 has one
+# owner per scene.
+name = "backdrop"
+role = "feature"
+
+[[claims.cgram]]
+name = "backdrop_color"
+words = 1
+at = 0                   # hardware contract: CGRAM word 0 IS the backdrop
+
+# C4 (docs/09 §2.1): BGMODE + TM for the BG3-only scenes.
+#
+# ATTRIBUTION, and why backdrop rather than bg_text. The scene enter code of
+# microzero's title/results and room's title writes BGMODE = 1 and TM = "BG3
+# only". Those writes need an owner, and this feature is EXACTLY co-extensive
+# with the scenes that make them: backdrop appears in all four BG3-only scenes
+# and in no other, while bg_text also ships in race (where split_band owns
+# BGMODE/TM via HDMA) and in room (where room_bg does). So backdrop is the one
+# feature whose scene membership matches the writes, and the reading is
+# coherent on its own terms -- it already declares the scene's base display
+# state (CGRAM colour 0), and BGMODE/TM are the rest of that same statement:
+# "this is a plain BG3-only scene."
+[[claims.reg]]
+name = "backdrop_mode"
+registers = ["BGMODE", "TM"]
+scene_writes = ["BGMODE", "TM"]

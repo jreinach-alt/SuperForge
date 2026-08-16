@@ -1,0 +1,40 @@
+# breaker user game state.
+#
+# The whole game is 17 words. It is all `@dp` and all scene-scoped: the play
+# scene is the only thing that has a game, and scene DP is the cheaper kind
+# because the allocator reuses the space in the title scene.
+
+[global]
+rounds = "u16"           # rounds started this power-on — survives the
+                         # play -> title -> play restart loop, which is the
+                         # only game-lifetime fact breaker has
+
+[scene.title]
+t_frames = "u16"         # frames on title (drives the PRESS START blink)
+
+[scene.play]
+px = "u16@dp"               # paddle x, screen pixels, top-left
+bx = "u16@dp"               # ball x
+by = "u16@dp"               # ball y
+vx = "u16@dp"               # ball x velocity, SIGNED (two's complement)
+vy = "u16@dp"               # ball y velocity, SIGNED
+score = "u16@dp"            # PACKED BCD, +$0010 per brick
+balls = "u16@dp"            # balls remaining, starts at 3
+bricks = "u16@dp"           # bricks still standing, starts at 180
+gstate = "u16@dp"           # 0 wait · 1 play · 2 game over · 3 win
+probe_x = "u16@dp"          # the ball's leading-edge probe point
+probe_y = "u16@dp"
+newx = "u16@dp"             # tentative ball position, before the probe verdict
+newy = "u16@dp"
+tmp = "u16@dp"              # scratch (sprite x, row tile, cell index)
+hitf = "u16@dp"             # probe hit accumulator: bit 0 wall, bit 1 brick
+dirty = "u16@dp"            # HUD reprint request: bit 0 score, bit 1 balls
+blink = "u16@dp"            # frames since the round began. Drives nothing —
+                         # it is the free-running heartbeat a test reads to
+                         # tell "the tick is running" from "the tick is stuck"
+msg = "u16@dp"              # pending message block address, 0 = idle. A block
+                         # is BRK_MSG_LEN chars (a verdict row + a prompt row)
+                         # written ONE CELL PER FRAME through bg_text's VBlank
+                         # queue, because a running scene cannot write VRAM
+                         # any other way
+msgpos = "u16@dp"           # the next cell of that block

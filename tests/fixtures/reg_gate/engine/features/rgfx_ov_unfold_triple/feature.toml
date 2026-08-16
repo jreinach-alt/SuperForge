@@ -1,0 +1,8 @@
+# reg-gate fixture (FIRES): three unfoldable writes in one
+# ±3-line window, so `_window_desc`'s PLURAL branch is the one that renders.
+#
+# Claims nothing, for the same reason rgfx_ov_unfoldable claims nothing:
+# fixture claims are a shared namespace and the sibling owner-survey globs
+# every dir under this root.
+name = "rgfx_ov_unfold_triple"
+role = "fixture"

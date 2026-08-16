@@ -1,0 +1,279 @@
+# rs_obj — the railshooter's OBJ surface: the ship, the pooled obstacle field,
+# the bullet tracers and the lock-on reticle, plus the pinhole projection and
+# the depth-sorted emit that place them. Scene-scoped consumer.
+#
+# WHY THE WHOLE HUD IS SPRITES: Mode 7 has exactly ONE BG layer plus OBJ, so
+# BG3 -- every text renderer's canvas -- does not exist here. Everything the
+# player looks at except the grid is an OBJ.
+#
+# The CHR claim is `obj = true`: the allocator floors it past the Mode-7
+# interleaved region ($0000-$3FFF, which rs_floor's plane owns wholesale) and
+# emits the OBSEL name-base encoding, so ASM never mask-narrates a VRAM base.
+# The OBJ-over-Mode-7 gotcha -- sprite CHR landing inside the region the Mode 7
+# image owns -- is discharged by declaration rather than by a comment.
+#
+# =============================================================================
+# TWENTY-EIGHT SPRITES = SEVEN WHOLE HI-TABLE BYTES
+# =============================================================================
+# A hi-table byte covers FOUR sprites (2 bits each: bit 0 = X9, bit 1 = size),
+# so the slots are claimed in whole bytes and the draw REBUILDS them rather
+# than read-modify-writing bits that belong to nobody (breaker_obj's and
+# hud_obj's argument, and the reason shmup_obj chose seven bullets over six).
+# 1+1+1+4+3+6+12 = 28 lands exactly on a byte boundary; three of the HUD's
+# twelve are the padding that makes it do so, and they stay parked.
+#
+# THE LIMIT THAT SIZED THIS WINDOW IS NOT THE 128-ENTRY TABLE. It is 32 sprites
+# and 34 8x8 SLIVERS PER SCANLINE. The audit record has the arithmetic; the
+# three numbers it decided are 4 hazards (not 6), 3 tracers (not 4) and ONE
+# burst slot -- a second simultaneous flash puts the worst-case play scanline
+# at 36 slivers. The pylon is a 3-tall STACK for the same reason: stacked
+# sprites do not share scanlines, so a 32x96 column costs one sprite and four
+# slivers on any line, where a 4-wide wall costs four and sixteen.
+#
+# =============================================================================
+# THE HAZARD SLOTS ARE DEPTH-ORDERED, NOT IDENTITY-ORDERED — and that is the
+# one place this rail DEPARTS from the stable-slot rule
+# =============================================================================
+# `shmup_obj` folded its pools into the sprite feature because "pool slot k is
+# ALWAYS OAM slot k" -- the stable-slot contract WAS the coupling, and a test
+# could name an actor by its OAM index. **On this rail the hazard half of that
+# is deliberately false.** Lower OAM index draws IN FRONT on the SNES, so the
+# emit walks size tier 0 (nearest/largest) to tier 3 (farthest/smallest) and
+# fills slots 3..6 in that order: correct back-to-front layering DERIVED from
+# depth every frame, with no sort and no comparisons. The alternative is the
+# trap -- a fixed pool-slot->OAM-slot map layers by pool-slot identity, not by
+# depth, so a recycled actor keeps its old slot's depth order and pops in
+# front of something nearer.
+#
+# CONSEQUENCE FOR TESTS, stated because it is a trap: the hazard window [3..6]
+# is deterministic, but WHICH pool actor lands in WHICH slot changes with
+# depth. Track a hazard by its (world x, z) identity or by the window's ORDER
+# INVARIANT -- "no farther hazard sits at a lower slot than a nearer one" --
+# never by a fixed slot. The tracers, the ship, the burst, the reticle and the
+# HUD ARE fixed-slot and can be read directly.
+#
+# =============================================================================
+# WHY THE POOL ARRAYS ARE CLAIMED HERE
+# =============================================================================
+# `pool` supplies the mechanism and claims only its 4-byte base pointer; the
+# CONSUMER claims the storage (see pool/feature.toml for the full argument).
+# This feature is that consumer: the arrays sit beside the OAM claims because
+# the draw is the only thing that reads all of them together, and because the
+# per-slot loop the game runs indexes the parallel arrays directly rather than
+# through the pool routines.
+name = "rs_obj"
+role = "consumer"
+depends = ["oam_sprites", "pool", "rs_rom"]
+
+# The enter-time upload: the OBJ CHR sheet into OBJ VRAM. Mode 1 drives
+# VMDATAL+VMDATAH (word port). Phase forced_blank by construction --
+# scene_mgr's enter clears HDMAEN and zeroes NMITIMEN, so this cannot race the
+# active/vblank claims that share channel 0.
+[[claims.dma_init]]
+name = "rs_obj_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# 224 tiles x 16 words. FOURTEEN rows of the 16-wide OBJ tile grid, because
+# that is the unit the {N, N+1, N+16, N+17} 16x16 rule and its 32x32 extension
+# force -- a 32x32 frame spans four rows and four columns, a 16x16 frame spans
+# two rows and two columns, so frames come in whole row-groups:
+#  rows 0..3 (tiles 0..63) four 32x32 -- ship straight, ship banked,
+#  hazard tier 0, hazard tier 1
+#  rows 4..7 (tiles 64..127) four 32x32 -- pylon tier 0, pylon tier 1,
+#  burst frame A, burst frame B
+#  rows 8..9 (tiles 128..159) eight 16x16 -- score digits 0..7
+#  rows 10..11 (tiles 160..191) eight 16x16 -- digits 8,9, hazard tiers 2/3,
+#  pylon tiers 2/3, the reticle, the tracer
+#  rows 12..13 (tiles 192..223) eight 16x16 -- life segment full / empty,
+#  six spare
+[[claims.vram]]
+name = "rs_chr"
+kind = "chr"
+obj = true
+words = 3584
+
+[[claims.cgram]]
+name = "rs_ship_pal"
+words = 16
+at = 128                 # hardware contract: OBJ palette 0 = CGRAM 128..143
+
+[[claims.cgram]]
+name = "rs_hazard_pal"
+words = 16
+at = 144                 # OBJ palette 1 -- the four hazard tiers, the four
+                         # pylon tiers, the tracer, the reticle, the kill flash
+                         # AND the HUD share one ramp. Sixteen entries still
+                         # covers it because the redesign adds shapes, not
+                         # materials: indices 8..15 were the shipped rail's
+                         # unused tail
+
+# OAM INDEX ORDER *IS* SPRITE-VS-SPRITE PRIORITY on the SNES (lower draws in
+# front), and the packer sorts by (-sprites, name) -- so every slot here is
+# PINNED and the order is a design statement, read top-to-bottom as front-to-
+# back:
+#
+#  0 the reticle IN FRONT OF EVERYTHING. It is the aiming instrument
+#  now, not a ground marker, and a
+#  crosshair a hazard can hide is not a crosshair.
+#  1 the burst over the thing it just killed
+#  2 the ship nearest actor
+#  3..6 the hazards DEPTH-ORDERED among themselves (the kept mechanism)
+#  7..9 the tracers
+#  10..21 the HUD the pilot's instruments, IN FRONT of the scenery. It
+#  used to sit last, behind the pylons, on the premise
+#  that its band (y 8..23) is disjoint from the play
+#  band -- FALSE, and the correction is: a
+#  pylon's stack stands 96 px above its ground point and
+#  crosses these scanlines on ~10% of frames.
+#  22..27 the pylons scenery: behind the targets wholesale, so the things
+#  a pilot must shoot are never occluded by the thing
+#  the rail is flying around -- and behind the HUD
+[[claims.oam]]
+name = "rs_reticle"
+sprites = 1
+at = 0
+
+# The kill flash. ONE slot, 32x32, held for RS_BURST_FRAMES over the hazard's
+# last projected position -- the rendered event that makes a kill not resemble
+# a miss.
+[[claims.oam]]
+name = "rs_burst"
+sprites = 1
+at = 1
+
+[[claims.oam]]
+name = "rs_ship"
+sprites = 1
+at = 2
+
+[[claims.oam]]
+name = "rs_hazards"
+sprites = 4
+at = 3
+
+[[claims.oam]]
+name = "rs_shots"
+sprites = 3
+at = 7
+
+# The HUD, and it is SPRITES because Mode 7 has one BG layer plus OBJ -- there
+# is no BG3 to print on. Twelve slots in one claim: four score digits, five
+# life segments, three parked spares that round the window to a whole number of
+# hi-table bytes (28 sprites = 7 bytes).
+#
+# IT SITS IN FRONT OF THE PYLONS, AND THAT IS A CORRECTION. It used to sit
+# LAST, behind them, justified by "the HUD occupies a disjoint screen band (y
+# 8..23), so its priority against the play band never arises". That premise is
+# FALSE. No projected GROUND POINT can reach the sky band -- true -- but the
+# pylon's SPRITE extends 96 px above its ground point and is not a projected
+# point, so the stack's top segment crosses the HUD's scanlines on about a
+# tenth of all frames, and box-overlaps a life segment on about one frame in
+# fifty. Lower OAM index wins on this hardware, so the pylon was drawing IN
+# FRONT OF the life bar on those frames.
+#
+# It did not bite -- the pylon's painted column is narrower than its 32-px box
+# and falls in the gap between the life bar (x <= 95) and the score (x >= 176),
+# so the audit measured zero green deficit over 300 frames. But that is a
+# coincidence of art, not an invariant, and the per-scanline OBJ budget this
+# would have shown up in is modelled nowhere in the allocator. Putting the HUD
+# in front makes the pilot's instruments un-occludable by construction and
+# costs nothing: same sprites, same scanlines, same sliver count.
+[[claims.oam]]
+name = "rs_hud"
+sprites = 12
+at = 10
+
+# The pylon the rail's S-curve bends around. TWO actors, each drawn as a
+# THREE-TALL vertical stack of its tier's frame, which is what makes a
+# 32-px-wide column read as a structure without costing a wide sprite: a stack
+# occupies at most ONE sprite and FOUR 8x8 slivers on any one scanline, where a
+# 4-wide wall would cost four and sixteen. See the sizing in the audit record
+#
+# LAST in the window, so it is behind the hazards (scenery can never
+# occlude a target) AND behind the HUD (above).
+[[claims.oam]]
+name = "rs_pylons"
+sprites = 6
+at = 22
+
+# THE POOLS. Two of them, laid out as one region with a fixed 16-byte stride
+# per field (8 slots x 2 B) so a pool is (base, count) and a field is (base +
+# field_offset + slot*2). Byte offsets inside this claim are game vocabulary
+# and live in game/railshooter/railshooter.inc.
+#
+#  +0x00 hazards alive[8] | wx[8] | z[8] | tier[8] (4 slots used)
+#  +0x40 pylons alive[8] | wx[8] | z[8] | tier[8] (2 slots used)
+#  +0x80 tracers alive[8] | wx[8] | z[8] (3 slots used)
+#
+# NO `[init] zero`, and that is deliberate. `rs_actors_init` writes every alive
+# word of both pools in the scene's enter, before any tick runs, and the
+# parallel arrays are written by spawn-then-use AND NEVER READ BEFORE THEY ARE
+# WRITTEN. Pre-zeroing here would hide a "the init stopped running" defect
+# behind a plausible answer -- shmup_obj's argument, breaker_bg's, col_map's,
+# and CLAUDE.md rule 5's "never zero-init to be safe".
+#
+# THE SECOND CLAUSE WAS NOT TRUE UNTIL (2026-08-08). It was true of the WRITES
+# and false of the READS: `rs_cache_one` loaded wx/z/tier and ran the
+# projection BEFORE testing alive, so every dead slot read three words spawn
+# had never written -- 38 flagged reads in 400 frames, against 0 for
+# `m7_oshoot` and `racer`, which build on the same pool. The alive test now
+# comes first and the rail measures 0, i.e. This argument for declining [init]
+# zero now rests on something the detector can check rather than on an
+# assertion about writes.
+[[claims.wram]]
+name = "rs_actors"
+bytes = 176
+
+# The projection cache the depth-sorted emit reads. Pass 1 projects each of the
+# six obstacles ONCE and caches (sx, sy, tier, vis) = 4 words; pass 2 walks
+# tier 0..3 over the cache and emits. Without it the four tier passes would
+# re-project every actor four times, i.e. Four times the multiply.
+#
+# NO `[init] zero`: every entry is written by pass 1 before pass 2 reads it,
+# within one call, which is checkable by reading rs_obj.asm.
+[[claims.wram]]
+name = "rs_cache"
+bytes = 48               # (4 hazards + 2 pylons) x 4 words
+
+# The projection + emit call frame. ONE block rather than a dozen claims
+# because every byte is dead between calls -- it is a call frame, not state
+# (m7_project's and m7_persp_project's argument, taken again).
+#
+#  +0 objx +2 z +4 camx the caller stages these, then calls
+#  +6 sx +8 sy +10 tier +12 culled the answer it reads back
+#  +14 mul_a (4 B) the multiplicand, shifted LEFT through 32 bits
+#  +18 mul_b (2 B) the multiplier, shifted RIGHT until it is zero
+#  +20 mul_acc(4 B) the 32-bit product accumulator
+#  +24 rd_idx +26 rd_pass +28 rd_tmp +30 rd_emit the two-pass emit's cursors
+#  +32 ret_sx +34 ret_sy the reticle's PROJECTED screen point, held from the
+#  projection pass to the screen-space hitscan
+#  +36 rd_stk +38 rd_hud the pylon-stack and HUD-digit cursors
+#
+# NO HARDWARE MULTIPLIER AND NO `ALU` CLAIM. `$4202/$4203` is an 8x8 unsigned
+# multiply; a signed 16x16 built on it costs four of those plus sign and carry
+# plumbing, and it is a SHARED register pair whose two entry points destroy
+# each other's state -- claiming it would put this feature in contention with
+# every other ALU user for ELEVEN products a frame (six obstacles + four
+# bullets + the reticle). That is m7_project's measured trade taken again at
+# the same size: "we do not do complex hardware math here unless it is
+# unavoidable and rare. This is neither." The multiply is a software shift-add
+# sized to the operands (rs_mul, rs_obj.asm), and the pre-cull -- comparisons
+# only -- runs first.
+#
+# NO `[init] zero`: write-before-read within one projection call.
+[[claims.dp]]
+name = "rs_draw"
+bytes = 56
+
+# C4 (docs/09 §2.1): OBSEL, CPU-written at enter. OBSEL sets sprite size AND
+# CHR base for EVERY sprite, so oam_sprites (the OAM transport) does not own it
+# and each rail's OBJ feature declares it -- which is what makes composing
+# rs_obj beside rc_kart or player_car refuse instead of silently fighting. The
+# size pair this rail selects is 16x16 / 32x32: the two near tiers, the ship
+# and its lean frame are large; the two far tiers, the bullet and the reticle
+# are small.
+[[claims.reg]]
+name = "rs_obsel"
+registers = ["OBSEL"]

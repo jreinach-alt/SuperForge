@@ -1,0 +1,37 @@
+# text_chr — the BG3 CHR page, owned once and shared by both text renderers.
+#
+# Why this is its own feature and not a claim on bg_text: BG3 has ONE base
+# nibble (BG34NBA) and chr_align_words = 0x1000, so every kind="chr" claim
+# lands on its own 4 K-word page. Two renderers drawing on BG3 must therefore
+# live in ONE claim — and if that claim sat on bg_text, bg_text's declaration
+# would be sized for a feature that is not itself (it grows when vwf is in the
+# build, and vwf cannot be placed in a scene without it). That coupling is
+# invisible at the toml level.
+#
+# So the page gets a companion owner, exactly the argument text_dp records for
+# the text engine's DP block: shared consumers, one owner, on a companion.
+# Bg_text and vwf both `depends` on this and use documented sub-ranges of one
+# owner's claim. The sub-range boundary is ALSO asserted at build time from the
+# emitted symbols (see vwf.asm's .assert), so it is a gate and not just prose.
+#
+# Sub-ranges of the `text_chr` claim, tile-indexed from ES_V_TEXT_CHR:
+#  tiles 0..95 bg_text's 96 fixed-width glyphs ($20..$7F). Glyph n IS tile
+#  n, which is why the claim starts at the font: the mapping in
+#  bg_text.asm's text_puts depends on it.
+#  tiles 96..109 vwf's 14 composited strip tiles (112 px of proportional
+#  text). Sized by G2 of the VWF change: 14 tiles is the widest
+#  window that fits microzero's title->race edge reload budget
+#  (39,762 of 40,000 B before this claim; 39,986 after).
+#
+# Scene-scoped, like bg_text's tilemap and palette claims. A scene with no
+# dialog still carries the 14 strip tiles (224 B) unused — accepted: making it
+# conditional would need the per-scene claim sizing the schema deliberately
+# does not have.
+name = "text_chr"
+role = "companion"
+
+[[claims.vram]]
+name = "text_chr"
+kind = "chr"
+tiles = 110              # 96 fixed-width glyphs + 14 VWF strips
+tile_bytes = 16          # 2bpp

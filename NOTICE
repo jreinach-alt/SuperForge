@@ -1,0 +1,187 @@
+# NOTICE — third-party components and provenance
+
+Every component below was traced to a primary source before it was listed:
+the upstream file or page, the pack zip, or the generator that emits the
+bytes. A licence file or README sitting beside an asset is a **claim**, not
+evidence, so no row here rests on one alone. The method, the evidence per
+verdict, and the limits are in [`docs/92_provenance_audit.md`](docs/92_provenance_audit.md).
+
+Nothing is listed that the audit did not verify. Where a verification could
+not be completed from this machine, the row says so.
+
+---
+
+## 1. Vendored in this repository
+
+### Brad Smith / rainwarrior — `dizworld` — **CC BY 4.0, attribution REQUIRED**
+
+**Upstream:** https://github.com/bbbradsmith/SNES_stuff/tree/main/dizworld
+(c) Brad Smith (rainwarrior), https://rainwarrior.ca
+**Licence:** Creative Commons Attribution 4.0 International — verified live at
+the upstream readme: *"This program was written by Brad Smith. Its source code
+is made freely available under the the terms of the Creative Commons
+Attribution license: CC BY 4.0"*. https://creativecommons.org/licenses/by/4.0/
+
+| file in this tree | what our copy is |
+|---|---|
+| `vendor/probe_ref/inc/mode7_diz_ztable.inc` | **verbatim** — the `pv_ztable` reciprocal LUT, 4,096 bytes. Confirmed as `min(255, round(32768 / i))` at all 4,095 non-zero indices, which is the closed form the upstream source documents |
+| `vendor/probe_ref/inc/mode7_diz_math.asm` | **modified transliteration** — `umul16`, `smul16`, `smul16_u8`, `udiv32`, `sign`, `sincos` |
+| `vendor/probe_ref/src/probe_scene_ref.asm` | **modified transliteration** of `pv_rebuild`, `pv_set_origin`, `pv_abcd_lines_{full,sa1,angle0}`, `pv_interpolate_{2x,4x}`, `pv_buffer_x` — inside an otherwise first-party reference scene |
+| `vendor/probes/probe_cpu_ref.asm` | **generated** from the file above by `vendor/probes/make_probe_cpu.py` (7 anchored patches; regeneration verified byte-identical). Carries the same routines |
+
+**Attribution statement:** *This work includes portions of `dizworld.s` by
+Brad Smith (rainwarrior), licensed CC BY 4.0. The `pv_ztable`
+reciprocal-distance LUT is used unmodified; `pv_rebuild`, `pv_set_origin`,
+their supporting math helpers and the per-scanline variant routines are
+modified transliterations.*
+
+**Where this reaches a ROM, and where it does not.** These four files are
+measurement scaffolding for the CPU calibration probe. They are linked only by
+`build/probe_cpu.sfc` and `build/probe_cpu_step.sfc`, which embed the CC BY
+code and must carry the credit above. **No `engine/` feature and no `game/`
+rail links any of them**, and no asset generator in this repo reads them —
+every Mode 7 table this repo ships is computed from closed-form trigonometry
+in Python with no third-party file input. The full trace, including the
+numeric test that this project's own per-scanline profiles are neither a copy
+of nor a resampling of `pv_ztable`, is `docs/92` §4.
+
+Dizworld's own visual assets (OpenGameArt contributions under CC BY 4.0 /
+CC BY 3.0, credited in its readme) are **not** present in this repository.
+
+### Terrific Audio Driver — Marcus Rowe (undisbeliever) — **zlib**
+
+**Upstream:** https://github.com/undisbeliever/terrific-audio-driver
+**Pin:** commit `822164b` (`v0.3.0-48-g822164b`)
+**Licence:** zlib — `audio-driver/LICENSE` at that commit, fetched and read.
+
+| file in this tree | what our copy is |
+|---|---|
+| `vendor/tad/tad-audio.s` | **verbatim** — sha256 `3ee69484…4a1c822`, byte-identical to `audio-driver/ca65-api/tad-audio.s` fetched live from upstream at `822164b`. SPDX headers intact |
+| `vendor/tad/tad-audio.inc` | **verbatim** — sha256 `63782062…befff088`, same check, same result |
+| `assets/audio/export/tad_audio_data.bin` | **generated**, and embeds two TAD binaries: `Tad_Loader_Bin` (116 B at offset 0) and `Tad_AudioDriver_Bin` (3,218 B at offset 116) — SPC700 code, zlib, same upstream. The remaining 5,116 B is this repo's own song, sound effects and samples |
+| `assets/audio/export/tad_audio_data.asm` | **generated** by `tad-compiler ca65-export`; the generated wrapper carries `SPDX-License-Identifier: Unlicense`, header intact |
+
+This repository does **not** ship the TAD example project's demo songs, sound
+effects or instrument samples. The song
+(`assets/audio/mml/slice_b_song.mml`) and the sound effects
+(`assets/audio/sound-effects.txt`) are authored here, and all four samples
+under `assets/audio/samples/` are synthesised by
+`tools/gen_audio_samples.py` — re-running it reproduces all four wav files
+byte-for-byte (verified).
+
+### unscii-8 — viznut (Ville-Matias Heikkilä) — **public domain / CC0**
+
+**Upstream:** https://github.com/viznut/unscii and http://viznut.fi/unscii/
+**Licence:** *"You can consider it Public Domain (or CC-0) except for the
+files derived from or containing parts of Roman Czyborra's Unifont project
+(unifont.hex, hex2bdf.pl, unscii-16-full.\*) which fall under GPL."* —
+verified at the upstream README. `unscii-8` is not in that GPL carve-out.
+
+| file in this tree | what our copy is |
+|---|---|
+| `vendor/fonts/unscii-8.hex` | **subset, one glyph modified** — the 96 codepoints U+0020..U+007F of upstream `unscii-8.hex`. 95 of 96 bitmaps are byte-identical to upstream; U+007F (DEL) is blanked to all-zero here. Verified by fetching the released `unscii-8.hex` and comparing every glyph |
+
+Consumed by `tools/gen_font.py` and `tools/gen_vwf_font.py`; the derived
+2bpp tiles and VWF width tables reach every rail that draws text.
+
+### analogStudios_ / Kevin's Mom's House — "camelot" (`legends_` series) — **CC0**
+
+**Upstream:** https://analogstudios.itch.io/camelot →
+https://kevins-moms-house.itch.io/camelot
+**Licence:** CC0 — the itch.io page links the CC-0 deed. The grant was read
+from that page and recorded on 2026-07-18; it was **not re-fetched for this
+audit** (`docs/92` §7 L2).
+
+| file in this tree | what our copy is |
+|---|---|
+| `vendor/art/camelot/arthurPendragon_.png`, `mordred_.png`, `READ ME.txt` | **verbatim pack files** — sha256-matched against the contents of the upstream archive `camelot_ [version 1.0].zip`; every digest is recorded in `docs/92` §5.1 (the `READ ME.txt` is renamed only to drop a leading dash) |
+| `vendor/art/camelot/ref_arthur.inc`, `ref_mordred.inc` | **reference conversions**, kept as this repo's refusal oracle |
+| `vendor/art/split_v/sv_knight_chr.bin` | **converted** — a 32×32 trace of `arthurPendragon_.png` frame 0 |
+
+Reaches `game/brawler` and `game/split_v_fight`.
+
+### analogStudios_ / Kevin's Mom's House — "dungeonSprites" (`fantasy_` series) — **CC0**
+
+**Upstream:** https://analogstudios.itch.io/dungeonsprites →
+https://kevins-moms-house.itch.io/dungeonsprites
+**Licence:** CC0 — the itch.io page links the CC-0 deed; same recorded source
+and the same limit as the camelot row above.
+
+| file in this tree | what our copy is |
+|---|---|
+| `vendor/art/dungeon_sprites/fHero_idle_rIdle_{0..3}.png`, `ghost_idleWalkRun_rIdleWalkRun_{0..3}.png` | **verbatim pack files** — every one sha256-matched against the contents of `dungeonSprites_v1.0.zip`; digests in `docs/92` §5.1 |
+| `vendor/art/dungeon_sprites/ref_hero.inc`, `ref_ghost.inc` | **reference conversions**, kept as this repo's refusal oracle |
+
+Reaches `game/platformer` and `game/platformer_stream`.
+
+### Rotting Pixels — "Four Seasons Platformer Tileset [16x16][FREE]" — **custom permissive grant, NOT CC0**
+
+**Upstream:** https://rottingpixels.itch.io/four-seasons-platformer-tileset-16x16free
+**Licence:** the itch.io page, quoted as recorded on 2026-07-18: *"This asset
+pack can be used in both free and commercial projects. You can modify it to
+suit your own needs. Credit is not necessary, but appreciated."* The in-zip
+`RottingPixels.txt` is a follow-us note, **not** a licence. **Not re-fetched
+for this audit** (`docs/92` §7 L2).
+
+**This grant is not CC0 and must not be flattened to it.** It covers
+everything this repository does with the pack (free and commercial use,
+modification, credit optional), but the work is not dedicated to the public
+domain and this project cannot so dedicate it.
+
+| file in this tree | what our copy is |
+|---|---|
+| `vendor/art/four_seasons_tileset/four-seasons-tileset.png`, `RottingPixels.txt` | **verbatim pack files** — sha256-matched against the pack zip; digests in `docs/92` §5.1 |
+| `vendor/art/four_seasons_tileset/ref_terrain.inc` | **reference conversion**, kept as this repo's refusal oracle |
+| `vendor/art/split_v/sv_stage_pal.bin` | **converted** — the 8-colour stage ramp quantised from a region of the tileset |
+| `vendor/art/platformer_stream/ref_level_chr.bin`, `ref_level_pal.bin` | **reference conversions** from this tileset, vendored as committed bytes because the conversion's input path is not in this tree |
+
+Reaches `game/brawler`, `game/split_v_fight` and `game/platformer_stream`.
+
+### AlcWilliam (via `pixel-by-pixel.itch.io`) — "Spaceship Pack" — **permissive commercial grant; CC0 deed unconfirmed**
+
+**Upstream:** https://pixel-by-pixel.itch.io/alcwilliam-space-ship-pack
+**Licence, recorded as it actually stands:** the reachable itch.io page states
+*"Free for commercial use."* and carries **no explicit CC0 deed label**. The
+recorded verification of 2026-07-19 carries the owner's own CC0 attestation
+alongside that live grant and flags the deed as an open question. **This audit
+did not close it** — see `docs/92` §7 Q1.
+
+| file in this tree | what our copy is |
+|---|---|
+| `vendor/art/spaceship_pack/ship_2.png`, `ship_5.png`, `planet_{1,2,4,6}.png`, `turbo_blue.png`, `explosion_sheet.png` | **verbatim pack files** — every one sha256-matched against the contents of `Spaceship Pack.zip` (`explosion_sheet.png` is `Space Ships Explosion.png`, renamed only); digests in `docs/92` §5.1 |
+
+Reaches `game/shmup`.
+
+### Mesen2 — SourMesen and contributors — **GPLv3**
+
+**Upstream:** https://github.com/SourMesen/Mesen2
+
+The emulator is **never committed** — `tools/setup.sh` clones and builds it,
+and the repo-local core cache (`tools/Mesen/`) is git-ignored. It is a
+development and test tool; it is not linked into, distributed with, or
+required by the ROMs this repo produces. Four files nevertheless touch it,
+in three groups:
+
+| file in this tree | what it is |
+|---|---|
+| `vendor/mesen_patches/lockstep_core_edits.patch` | a unified diff against three Mesen2 sources. The added lines are this project's; the **context lines are Mesen2's GPLv3 source** |
+| `vendor/mesen_patches/LockstepSync.h`, `LockstepApiWrapper.cpp` | **first-party**, written against Mesen2 headers and compiled into the core. The resulting `MesenCore-lockstep.so` is a **GPLv3 derivative work** and may only be redistributed on GPLv3 terms. It is a build artifact and is not committed |
+| `tools/mesen_state_offsets.cpp` | **first-party** — a `printf` program that includes Mesen2 headers to print struct offsets. Not built by the Makefile, not linked, contains no Mesen2 code |
+
+Mesen2's source is additionally read as a **hardware reference** across the
+tree (`allocator/schemas.py`, `engine/features/shg_grad/shg_grad.asm` and
+others cite it by file and line). Those citations restate hardware behaviour
+in this project's own words; no Mesen2 code is reproduced.
+
+---
+
+## 2. Fetched on demand — never committed to this repository
+
+- **Mesen2** (https://github.com/SourMesen/Mesen2) — GPLv3. Built from source
+  by `tools/setup.sh` into `/tmp/Mesen2/`, and the patched lockstep core into
+  `/tmp/Mesen2-lockstep/`; both caches are git-ignored.
+- **cc65** — ca65 / ld65, installed by the system package manager
+  (`tools/setup.sh`); not vendored.
+- **Pillow**, **pytest** — installed with pip by `tools/setup.sh`; not vendored.
+- **tad-compiler** (Terrific Audio Driver, zlib) — cloned and built only when
+  the audio export is regenerated; see `assets/audio/README.md`.

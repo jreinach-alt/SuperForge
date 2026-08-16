@@ -1,0 +1,62 @@
+# scene_mgr — the scene state machine + frame/NMI heartbeat (global feature).
+# Owns: current/next scene, the transition phase machine (run -> fade-out ->
+# blank switch -> fade-in), the frame counter, and the NMI handshake flag.
+name = "scene_mgr"
+role = "feature"
+
+[[claims.dp]]
+name = "sm_ctl"
+bytes = 4                # cur(1) next(1) phase(1) spare(1) — hot, every frame
+
+[[claims.dp]]
+name = "sm_nmi"
+bytes = 3                # nmi_ready(1) + INIDISP shadow(1) + HDMAEN shadow(1)
+
+[[claims.wram]]
+name = "sm_hdma"
+bytes = 128              # 8 x 16 B HDMA channel-reg shadow, MVN'd to $4300
+                         # every armed VBlank (channels re-init cleanly even
+                         # when a GP-DMA time-shared their registers)
+
+[[claims.wram]]
+name = "sm_frame"
+bytes = 2                # frame counter (u16)
+
+[init]
+zero = ["sm_ctl", "sm_nmi", "sm_frame", "sm_hdma"]
+
+# C4 (docs/09 §2.1): the two registers scene_mgr owns for the whole game.
+#
+# INIDISP -- committed from the fade shadow in the NMI HANDLER every armed
+# frame (`sm_nmi_core`'s `sta a:$2100`). Cited by ROUTINE, not by line: a line
+# number is a copy of the layout that nothing keeps in step, and an edit here
+# has already broken a test that pinned one. Single writer by design,
+# and worth declaring anyway: any feature wanting forced blank mid-scene needs
+# to know who owns brightness, and an enter-time INIDISP write would be
+# reverted by the very next NMI. That is a cross-phase conflict, which is why
+# this class is phase-blind rather than reusing _register_exclusive.
+#
+# NMITIMEN -- masked and restored across the scene switch (`@switch`'s `stz
+# a:$4200` and its `sta a:$4200` tail, :260 and :289 today). The census recorded
+# this defect as "two writers across three sites"; a grep of the current tree
+# gives THREE writers across FOUR: those two, plus game/room/ and
+# game/microzero/. Both main.asm writes are boot-time enables of the same $81
+# this feature restores, so they are this claimant's initialisation rather than
+# a second owner -- recorded here because a claim can name an owner but cannot
+# stop an undeclared write (see §2.1's named hole on the missing writer-side
+# gate).
+#
+# This claim is GLOBAL, so it is carried into every scene's ownership check.
+[[claims.reg]]
+name = "sm_display"
+registers = ["INIDISP", "NMITIMEN"]
+# NMITIMEN only. INIDISP is committed by `sm_nmi_core` every NMI -- the
+# enter-time-INIDISP hazard docs/09 §2.1 names -- so boot has no permission to
+# write it.
+scene_writes = ["NMITIMEN"]
+# ...and scene_mgr writes NMITIMEN itself too, at both ends of `@switch`,
+# masking NMI around the scene switch. Declared rather than hidden: this is the
+# one irreducible co-write in the tree (boot's $4200 write answers to the
+# globals' union, and scene_mgr is the only globals feature declaring
+# NMITIMEN), so the rule gets a declared escape instead of an exception.
+scene_writes_shared = ["NMITIMEN"]
