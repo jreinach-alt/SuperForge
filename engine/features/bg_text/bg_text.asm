@@ -173,6 +173,7 @@ text_clear_map:
 ; In: X = VRAM word addr (base + row*32 + col — caller computes from ITS
 ;  scene symbols), ES_TXT_PTR = 24-bit string address (0-terminated
 ;  ASCII $20..$7F), ES_TXT_TMP = attr word (palette bits, priority).
+; Clobbers: A, Y (exits with Y = the string length). X is preserved.
 ; Tile id = ascii - $20 + (font base word / 8)? NO — tile ids are relative to
 ; BG34NBA's CHR base, which the SCENE sets to its ES_V_TEXT_CHR. Glyph n IS
 ; tile n.

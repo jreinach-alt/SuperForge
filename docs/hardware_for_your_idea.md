@@ -92,9 +92,13 @@ The proven shapes instead:
 - **Spend one whole VBlank on one cut.** A level that turns upside down can
   bake both orientations into ROM and swap tilemaps in a single 4,096-byte
   DMA — inside the 5,952 pin with ~1.8 KB to spare for the sprite table.
-  Worth knowing before that: the hardware has no whole-layer mirror (flips
-  are per-tile attribute bits), so the cheapest honest flip inverts the
-  *physics* and leaves the picture alone.
+  This is not the rebuild the first bullet refuses: what a running scene
+  cannot do is rework its map *by CPU* through the one-cell queue — one
+  declared whole-map DMA in one VBlank is a different instrument, and
+  declaring its `dma` budget is what makes it legal. Worth knowing before
+  that: the hardware has no whole-layer mirror (flips are per-tile attribute
+  bits), so the cheapest honest flip inverts the *physics* and leaves the
+  picture alone.
 
 ## You want a world bigger than the screen
 

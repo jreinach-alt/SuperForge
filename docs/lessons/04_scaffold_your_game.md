@@ -73,11 +73,13 @@ is silent and misdirecting (the freshness guard checks the wrong map).
 
 ## 5. The register duty
 
-A new `engine/features/` dir owes `docs/09` two entries: its row in the
-**generated** census (`make register-write` regenerates §3 — machine-owned,
-never hand-edit) and a **hand-written** `supplies / serves` line in §3.1.
-`make register` refuses until both exist and agree — regenerate the one,
-write the other.
+This duty is owed by `engine/features/` DIRS, not by your rail as such — a
+game whose scaffold adds feature dirs (its `*_bg` / `*_obj` / `*_rom`) owes
+one pair per dir; a game composing only existing features owes none. Each
+new dir owes `docs/09` two entries: its row in the **generated** census
+(`make register-write` regenerates §3 — machine-owned, never hand-edit) and
+a **hand-written** `supplies / serves` line in §3.1. `make register` refuses
+until both exist and agree — regenerate the one, write the other.
 
 ## 6. Stub honestly
 
@@ -97,3 +99,9 @@ of the booted world attached.
 
 Your composition either allocates or the refusal names the collision — both
 are answers.
+
+One pacing note: iterate on YOUR rail with `make <game> && python3 -m pytest
+tests/test_<game>*.py -q` — seconds, not minutes. The whole-tree surfaces
+(`make gates`, `make bare-check`, and the meta-test modules that launch
+them) are landing tools; reaching for one as an iteration loop costs you the
+suite's full runtime per edit.
