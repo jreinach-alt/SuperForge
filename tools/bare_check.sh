@@ -381,7 +381,7 @@ for ln in lines("probe.tsv"):
         probe = {"expected": f[1], "actual": f[2], "ok": f[1] == f[2]}
 
 md5s = {}
-for rom in ("microzero", "room", "breaker", "shmup", "platformer",
+for rom in ("toy", "microzero", "room", "breaker", "shmup", "platformer",
             "split_v_fight", "m7_dungeon", "split_h_2p_demo",
             "mode7_explore", "platformer_stream", "hud_game", "scroller",
             "camera_follow", "maze", "jumper", "patrol", "sprite_game",
