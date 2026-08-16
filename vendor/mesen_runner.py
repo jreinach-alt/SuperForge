@@ -2995,15 +2995,14 @@ class MesenRunner:
             # a held button behind the caller's back).
             self.debug_resume(clear_input=False)
 
-        # Poll the Screenshots directory for the new PNG. S-3
-        # amendment AC-S3-A7 tightened the original 50 ms × 20 (1 s
-        # cap) to 5 ms × 40 (200 ms cap). S-3-perf-1 adds an opt-in
-        # fast-mode that further tightens to 1 ms × 200 (same 200 ms
-        # cap, finer detection cadence). The throughput work item
-        # measured the 50 ms poll as ~50 ms median latency per
-        # screenshot — the dominant cost of the preview pump after
-        # the run_frames sleep. fast_mode poll holds the same
-        # correctness guarantee (missing file still raises) with
+        # Poll the Screenshots directory for the new PNG. The poll was
+        # tightened twice, measured each time: the original 50 ms × 20
+        # (1 s cap) became 5 ms × 40 (200 ms cap), and the opt-in
+        # fast-mode further tightens to 1 ms × 200 (same 200 ms cap,
+        # finer detection cadence) — the 50 ms poll measured as ~50 ms
+        # median latency per screenshot, the dominant cost of the
+        # preview pump after the run_frames sleep. fast_mode holds the
+        # same correctness guarantee (missing file still raises) with
         # ~1 ms median detection latency.
         if self._fast_mode:
             poll_interval_s = 0.001
