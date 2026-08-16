@@ -283,7 +283,12 @@ What the engine deliberately does not do, and why each refusal is load-bearing:
   deliberately unmodelled; where it binds, the arithmetic is done by hand and
   written down (`docs/01_substrate_reference.md` says so). The audio CPU's
   interior belongs to the vendored driver, the ROM size ceiling to the linker
-  config — a model of either would be a second source of truth.
+  config — a model of either would be a second source of truth. And symbol
+  *reach* is not policed: one feature naming another's emitted symbol
+  assembles once both are composed — the binding contracts (`.error`-guarded
+  includer symbols, contract blocks, `; WIDTH-RISK:` markers) carry that
+  agreement, and the emulator test proves it
+  (`docs/capability_envelope.md`, Part 3).
 - **SRAM is a save, not RAM.** Program-wide, never scene-reused, and
   structurally excluded from init-zeroing — an initialised save is not a save.
   Raw SRAM is read only through the save feature's integrity gate (magic +

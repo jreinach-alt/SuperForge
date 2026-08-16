@@ -111,6 +111,7 @@ Capability → proving game(s) → feature(s). Features live under
 | **Scale-ramping affine tracks** (zoom/rotate composed, frame-indexed) | `boss` (debut), `boss_saucer`, `meteor_event` — each rail bakes its own track blobs | `m7_track` (player; format + contract in its `feature.toml`) |
 | **Per-scanline matrix columns** (barrel/bow) | `mode7_chamber` | `m7_barrel` (baked ROM column sets, indirect by construction) |
 | **Mode 7 ⇄ Mode 1 swaps** | `mode7_explore` (town), `rpg` (town), `meteor_event` (mid-level, with BG-to-sprite capture) | spelled as scene edges — one register owner per scene, proven by `check_reg_ownership` |
+| **How the plane reads on screen** — the camera-style fact, stated plainly: FLAT OVERHEAD (a rotating map seen from above) is the static-affine set; TILTED INTO THE DISTANCE (a road-view horizon) is the per-scanline perspective set; FREE FLIGHT over it adds altitude | flat overhead: `m7_dungeon`, `m7_oshoot`, `mode7_explore` · tilted: `microzero`, `racer`, `railshooter`, `rpg`, `split_h_demo` · flight: `mode7_flight` | the same fact the two rows above state by mechanism (`m7_affine` vs `mode7_persp` + `pose_rom`; `m7f_cam`) |
 | **Projection onto the floor** | `m7_dungeon` (fixed pivot), `m7_oshoot` (re-pinned pivot), `split_h_2p_demo` (perspective bands), `railshooter` (decoupled 1/z pinhole) | `m7_project`, `m7_persp_project`, rail-side pinhole |
 | **Vertical split (PPU windows)** | `split_v_fight`, `split_v_demo`, `split_v_seamtrial` | `split_v_bg` (window 1 clip, seam bar) |
 | **Horizontal raster band split** (BGMODE + TM at a seam) | `split_h_demo` (cockpit); as a Mode 1 band over the Mode 7 plane: `microzero`, `racer`, `railshooter` (HUD band, with `sky_band` — docs/09 §6.A), `rpg`, `mode7_chamber` | `split_band` (+ `sky_band`) |
@@ -243,7 +244,17 @@ side of the line, not as engine surface. A new dir also owes a
 `supplies / serves` line in docs/09 §3.1 — `make register` refuses one
 without the other.
 
-**5. Where a feature's contracts and clobbers actually live.** Three places,
+**5. The allocator does not police symbol REACH — the contracts do.** The
+build refuses an undeclared *claim* and a raw *literal*, but a feature's ASM
+that names ANOTHER feature's emitted symbol assembles fine once both are
+composed — nothing checks that the use was agreed. That is what the binding
+conventions exist for: includer-bound symbols behind named `.error` guards,
+contract blocks at the top of the `.asm`, and the emulator test as the only
+proof. Before consuming a symbol you did not declare, find its owner's
+contract block; if there isn't one, you are proposing a new contract, not
+using an existing one.
+
+**6. Where a feature's contracts and clobbers actually live.** Three places,
 in order: (a) the **`feature.toml` header** — ownership and binding contracts
 (`m7_track`'s "THE CONTRACT — who binds, who indexes, who advances";
 `mode7_stream`'s and `col_map`'s binding contracts continue at the top of

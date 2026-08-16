@@ -182,6 +182,13 @@ The honest list. Each entry is a flat no, with the nearest thing that works.
 - **Two perspective planes.** There is one Mode 7 layer. Nearest proven:
   split the *screen* — two cameras onto one world (`game/split_v_fight`,
   `game/split_h_2p_demo`).
+- **A random-number generator.** No RNG hardware exists, and — stated so you
+  do not go looking — nothing in this tree ships a software one yet either:
+  the library's games are deterministic by design, because every test replays
+  exactly. A game wanting chance writes a few lines of seeded arithmetic in
+  its own logic and feeds it real entropy (frame counters at the moment of a
+  button press are the classic source); determinism under test then comes
+  from seeding it, which the replay harness already knows how to hold.
 
 ## You want it to never stutter
 
