@@ -157,12 +157,12 @@ file:line.
 - NTSC: **262 scanlines/frame, ~1364 master cycles/line** (21.477 MHz ÷ 60 ÷ 262).
   Visible 224 (or 239) lines → **VBlank ≈ 38 lines ≈ 51.8 k MC** (224-line mode).
 - At 8 MC/byte, that's a theoretical **~6.4 KB/VBlank**; realistic usable after
-  register overhead + not overrunning active display is **~4–5 KB** — **⟨measure⟩**
-  the exact figure. **Do not start the pin at 4 KB** — a hand-written engine of
-  this class runs a `VBLANK_DMA_BUDGET` of 5,500 bytes and it holds. This is the
-  number streaming + OAM + tilemap DMA are summed against. OAM DMA alone = 544 B;
-  a Mode 7 row/col update = 128 map bytes, so 2 rows + 2 cols ≈ 512 B.
-  (The measured pin now lives in `allocator/substrate.toml`.)
+  register overhead + not overrunning active display is less, and the exact
+  figure is **measured: 5,952 bytes** (`allocator/substrate.toml`,
+  `vblank_usable_bytes` — `make measure` fails the build if it drifts). This
+  is the number streaming + OAM + tilemap DMA are summed against. OAM DMA
+  alone = 544 B; a Mode 7 row/col update = 128 map bytes, so 2 rows + 2 cols
+  ≈ 512 B.
 - CPU/frame: FastROM 3.58 MHz vs SlowROM 2.68 MHz → ~28-37 k cycles usable
   (`CLAUDE.md`). Perspective is **PPU-offloaded** (precomputed per-scanline pose LUT
   streamed through HDMA), so its steady-state CPU is ~nil: this repo's
@@ -189,7 +189,7 @@ table below is that scene's actual draw, not an estimate.
 | Resource | Exact budget | Draw (reference scene) | Verdict |
 |---|---|---|---|
 | HDMA channels | **8** (`(register, band, phase)`) | gradient CH0/1/2 + BGMODE CH3 + TM CH4 + M7A/B CH5 + M7C/D CH6 = **7**; stream+OAM via VBlank GP-DMA (CH0 time-shares) | ✅ fits — this is its live map |
-| VBlank DMA | **5500 B** (pin; ⟨measure⟩ to confirm) | OAM 544 + stream ~512 (2 rows+2 cols ×128) + HUD ~300 ≈ **1.4 KB** | ✅ headroom to a fast camera |
+| VBlank DMA | **5,952 B** (measured pin — `allocator/substrate.toml`) | OAM 544 + stream ~512 (2 rows+2 cols ×128) + HUD ~300 ≈ **1.4 KB** | ✅ headroom to a fast camera |
 | VRAM | 64 KB | Mode 7 **32 KB** + HUD BG/chr/font ~8–12 KB ≈ **~44 KB** | ✅ ~20 KB spare |
 | CPU/frame | 28–37 k ⟨measure⟩ | **PPU-offloaded** persp (precomputed HDMA table) ≈ **0–1%** steady + stream + sprites | ✅ LUT+HDMA feature, not a CPU tax |
 
