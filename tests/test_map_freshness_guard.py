@@ -1,5 +1,9 @@
 """The collection-time symbol-map guard, tried against real violations.
 
+SLOW BY DESIGN — cases rebuild maps and drive collection repeatedly
+(minutes for the module). For the one live-tree check select
+`::test_the_tree_agrees_with_the_rule` (~30 s) rather than the module.
+
 AGENTS.md: "when you add a gate, prove it fails on a real violation before
 believing it." So this drives `conftest.py`'s guard through both directions —
 and specifically through the two shapes an mtime-based guard gets WRONG, which

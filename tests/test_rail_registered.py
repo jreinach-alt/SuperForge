@@ -1,5 +1,9 @@
 """`make rail-registered`, tried against a real violation at every site.
 
+SLOW BY DESIGN — each case synthesises a violating tree and runs the gate
+over every rail, per site (minutes for the module). For one decisive check
+select a node: `pytest tests/test_rail_registered.py::test_the_live_tree_is_registered -q` (~30 s).
+
 AGENTS.md: "when you add a gate, prove it fails on a real violation before
 believing it." The violation is the one waves 1-5 kept committing — a rail
 under `game/` wired into some of its registration sites and not others. Each
