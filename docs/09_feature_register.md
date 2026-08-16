@@ -439,10 +439,9 @@ name (`sta $4203` is checked against the ALU claim). The refusal names the
 file, the port, the footprint name, and who does own it — or "declared by
 nobody — add a `[[claims.reg]]`".
 
-**Strengthened 2026-08-01 by the reg-gate PORT pass** (`claude/rg-port`,
-scoped by after two sessions built
-this gate twice, independently). What changed, and each item's measured
-effect:
+**Strengthened 2026-08-01 by a cross-comparison pass** (this gate was built
+twice, independently; the two final gates were cross-fired and the stronger
+halves merged). What changed, and each item's measured effect:
 
 - **The write set is no longer four stores.** `inc`/`dec`/`asl`/`lsr`/`rol`/
  `ror`/`trb`/`tsb` write ports too — `inc a:$2105` sets BGMODE. (`mvn`/`mvp`

@@ -199,8 +199,8 @@ def test_generated_region_count_tracks_the_tree():
 
     The expected number is READ FROM THE TREE and incremented, not written
     down. An earlier version asserted "**All 26 dirs" — correct on the day,
-    and a guaranteed failure for the next change that adds a feature (Slice
-    A added six and turned it red). A test that enforces "counts must follow
+    and a guaranteed failure for the next change that adds a feature (one
+    feature batch added six and turned it red). A test that enforces "counts must follow
     the tree" while hardcoding a count is asserting the opposite of its own
     subject, and this repo has the lesson on file: state counts from
     commands, never from documents."""
@@ -347,8 +347,8 @@ def test_lint_knows_the_not_built_synonyms(phrase):
 
 
 def test_lint_accepts_an_unbolded_subject_cell():
-    """Three of the route brief's five collider rows carry no bold at all; requiring
-    `**bold**` excluded them on typography."""
+    """A demand row's subject cell may carry no bold at all; requiring
+    `**bold**` excluded real rows on typography."""
     dirs = set(G.load_tree()[0])
     table = ("| collider | state |\n"
              "|---|---|\n"
@@ -362,18 +362,16 @@ def test_reach_is_reported_and_is_the_measured_ratio():
     Floors, not equalities, so adding a demand row does not fail the suite --
     but a REGRESSION in the mechanism does.
 
-    THE TOTAL MOVED 30 -> 25 ON 2026-07-30, AND IT IS NOT A REGRESSION. The
-    lint reads two live surfaces: docs/09's demand tables (25 rows) and the
-    route brief's collider table (5 rows). an earlier phase closed, all five
-    colliders shipped, and that table became history -- it moved to the spec
-    with the rest of the archived handoff. The archive is deliberately NOT
-    linted: a phase record is *supposed* to contain frozen claims like "not
-    started", and linting it would fight the archive rather than catch drift.
-    So 25 is the live surface now.
+    THE TOTAL HAS MOVED BEFORE (30 -> 25), AND A MOVE IS NOT A REGRESSION.
+    The lint reads the LIVE demand surface — docs/09's demand tables, 25
+    rows today. A demand table whose last row ships can be retired to a
+    frozen record, and a frozen record is deliberately NOT linted: it is
+    *supposed* to contain claims like "not started", and linting it would
+    fight the record rather than catch drift. So 25 is the live surface now.
 
-    Reach went 20/30 -> 15/25 for the same reason: all five collider rows named
-    a dir and were reachable, so the ratio is unchanged in substance (67% ->
-    60% only because docs/09's unreachable rows are now a larger share). A later review
+    Reach went 20/30 -> 15/25 in one such retirement: every retired row
+    named a dir and was reachable, so the ratio moved (67% -> 60%) only
+    because docs/09's unreachable rows became a larger share. A later review
     measured 5/30 before the widening.
 
     If this floor fails again, check FIRST whether a demand surface was archived

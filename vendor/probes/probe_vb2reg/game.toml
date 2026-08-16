@@ -1,4 +1,4 @@
-# REVIEW attack ROM (HANDOFF §8.7 item 1) — one-scene game wrapping TWO
+# REVIEW attack ROM — one-scene game wrapping TWO
 # same-register (VMDATAL) VBlank-phase claims that are actually WIRED to
 # GP-DMAs in the NMI, plus an active-phase COLDATA HDMA pinned to channel 0
 # so it time-shares the channel registers with the first VBlank claim.

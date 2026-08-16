@@ -25,5 +25,5 @@ jobs:
           make sprite_game
           size=$(stat -c%s build/sprite_game.sfc)
           echo "build/sprite_game.sfc = $size bytes"
->>>>>>> claude/sweep-sprite_game
+>>>>>>> topic/sweep-sprite_game
           test "$size" -eq 524288 || { echo "::error::expected 524288 bytes, got $size"; exit 1; }

@@ -25,5 +25,5 @@ jobs:
           make scroll_run
           size=$(stat -c%s build/scroll_run.sfc)
           echo "build/scroll_run.sfc = $size bytes"
->>>>>>> claude/sweep-scroll_run
+>>>>>>> topic/sweep-scroll_run
           test "$size" -eq 524288 || { echo "::error::expected 524288 bytes, got $size"; exit 1; }

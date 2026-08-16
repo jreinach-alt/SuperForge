@@ -438,7 +438,7 @@ jobs:
 
       # docs/09's supply census is generated from the tree; this fails with a
       # diff when the committed doc has drifted, and also when a TABLE ROW in
-      # docs/09 or HANDOFF.md resolves to an existing feature dir (through its
+      # docs/09 resolves to an existing feature dir (through its
       # subject cell or its `supplied by` column) while claiming it is not
       # built. That second half is the one that matters: the hand-written
       # census has drifted repeatedly when hand-written, and most of those

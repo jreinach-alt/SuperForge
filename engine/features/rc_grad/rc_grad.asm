@@ -158,8 +158,8 @@ rcg_set_key:
     ; k -> the keyframe's byte offset. A TABLE rather than a shift chain: the
     ; multiply would need DP scratch, and the only scratch in this scene
     ; belongs to rc_logic — reaching across a feature boundary for a spare word
-    ; is exactly the undeclared coupling the allocator exists to stop (and the
-    ; route brief flags mode7_stream's surviving instance of it).
+    ; is exactly the undeclared coupling the allocator exists to stop
+    ; (mode7_stream still carries one surviving instance of it).
     and #(RCG_MAX_KEY)
     asl
     tax

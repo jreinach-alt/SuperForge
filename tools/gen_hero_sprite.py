@@ -4,7 +4,7 @@
 Emits (byte-identical on re-run, pure integer math):
   hero_chr.bin  1024 B — 32 tiles x 32 B 4bpp: a 16-tile-wide OBJ grid row
                 pair with the 16x16 hero in tiles 0, 1, 16, 17 (the PPU
-                reads 16x16 sprites at N, N+1, N+16, N+17), the Slice C
+                reads 16x16 sprites at N, N+1, N+16, N+17), the
                 visit-pip in tile 2 (an 8x8 lamp dot for room_logic's
                 hud_pips row — rides the same blob + hero_up upload, so
                 the byte count and the DMA are unchanged), rest empty

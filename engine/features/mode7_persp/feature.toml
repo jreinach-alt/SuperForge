@@ -2,8 +2,8 @@
 # INDIRECT HDMA channels stream ROM-resident pose tables (64 headings x
 # per-scanline AB/CD coefficients) through M7A/B and M7C/D. Retargeting a
 # heading = rewriting two pointers + banks in the WRAM index tables during
-# VBlank (~30 stores) — never a live solve (split_h_2p technique; the route
-# brief §3(a)). Camera origin (M7X/Y/HOFS/VOFS) rides CPU VBlank shadow stores
+# VBlank (~30 stores) — never a live solve (the split_h_2p technique).
+# Camera origin (M7X/Y/HOFS/VOFS) rides CPU VBlank shadow stores
 # (single camera).
 name = "mode7_persp"
 role = "feature"

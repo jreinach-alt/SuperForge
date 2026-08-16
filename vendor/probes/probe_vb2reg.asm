@@ -1,5 +1,5 @@
-; REVIEW attack ROM (HANDOFF §8.7 item 1) — two same-register VBlank claims
-; WIRED, plus channel-0 time-sharing with a live active-phase HDMA.
+; REVIEW attack ROM — two same-register VBlank claims WIRED, plus channel-0
+; time-sharing with a live active-phase HDMA.
 ;
 ; Every frame the NMI fires two GP-DMAs, both writing VMDATAL:
 ;   claim vba (ES_H_VBA_CH): 512 B of pattern A -> ES_V_TARG_A

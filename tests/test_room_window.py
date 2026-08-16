@@ -476,7 +476,7 @@ def test_lantern_follows_the_player_in_every_direction(
     # released frames so the final tick lands and OAM commits. The movement
     # and centring assertions below depend on this precondition, so it must
     # not be a wall-clock sleep that host load can shrink to zero emulated
-    # frames (that class — the friction log "C1 close-out"). The scene
+    # frames (a documented flake class here). The scene
     # is static after the release, so the free-running OAM read and
     # screenshot below stay sound.
     with runner.frame_stepping():
@@ -764,8 +764,7 @@ def test_idle_frame_skips_the_rebuild(runner):
     # before the breakpoint arms — under any host load. The wall-clock
     # predecessor (set_input(0) + run_frames(6)) let a loaded CI runner lag
     # the sleep, and the breakpoint legitimately caught the released walk's
-    # final rebuild (the friction log "C1 close-out — the
-    # CI #169 flake").
+    # final rebuild (a documented CI flake).
     runner.debug_break()
     runner.frame_step(6)                      # 6 emulated idle frames, exact
     try:

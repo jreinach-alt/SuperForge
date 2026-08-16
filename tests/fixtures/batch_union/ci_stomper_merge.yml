@@ -25,5 +25,5 @@ jobs:
           make stomper
           size=$(stat -c%s build/stomper.sfc)
           echo "build/stomper.sfc = $size bytes"
->>>>>>> claude/sweep-stomper
+>>>>>>> topic/sweep-stomper
           test "$size" -eq 524288 || { echo "::error::expected 524288 bytes, got $size"; exit 1; }

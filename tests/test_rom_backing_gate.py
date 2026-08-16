@@ -392,7 +392,7 @@ def test_asserts_before_the_incbin_are_accepted():
      "tools/setup.sh's bring-up proof on a fresh clone"),
 ])
 def test_rom_unbacked_is_wired_where_toy_bad_is(path, needle, what):
-    """docs/37 §4, AGENTS.md and the route brief all present this gate as toy-bad's
+    """docs/37 §4 and AGENTS.md both present this gate as toy-bad's
     presence-side twin. It landed wired into `make gates` and into `make test`
     only — so the surfaces a human and a fresh clone actually go through did
     not run it. A doc calling two gates twins while one of them

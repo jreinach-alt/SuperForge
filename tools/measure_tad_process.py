@@ -39,8 +39,9 @@ header's FastROM byte + MEMSEL=1 accelerate only banks $80-$BF/$C0-$FF
 (Mesen2 SnesMemoryManager.cpp: bank-0 quadrant page>=$80 -> 8, vs the
 MEMSEL-gated 6/8 for the mirror quadrants). WRAM/DP are 8 mc; I/O and
 internal cycles are 6 mc, so /8 slightly undercounts true cycles (the true
-count sits in [mc/8, mc/6]); /8 is the repo's slow-bus convention (HANDOFF
-§2) and the honest headline for a bank-$00 ROM.
+count sits in [mc/8, mc/6]); /8 is the repo's slow-bus convention (divide
+master clocks by 8, per docs/01's budget table) and the honest headline for
+a bank-$00 ROM.
 
 Usage:  python3 tools/measure_tad_process.py    (after `make room`)
 """

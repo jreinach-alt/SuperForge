@@ -114,7 +114,7 @@ def test_screenshot_exact_structure_no_uninit_pixels(booted, runner, tmp_path):
     allowed = {(255, 255, 255), (0, 0, 198), (0, 0, 0)}
     stray = {p for p in img.getdata() if p not in allowed}
     assert not stray, f"uninitialized display pixels leaked: {sorted(stray)[:8]}"
-    # keep a copy for the close-out render evidence
+    # keep a copy as render evidence for review
     keep = SUPERFORGE / "build" / "toy_render.png"
     shutil.copy(shot, keep)
 

@@ -1304,14 +1304,11 @@ def _bind_global_functions(lib: ctypes.CDLL) -> None:
 # a silent-corruption class — the harness masking it (zero-init) is the worst
 # state, because the suite goes green while the cart is broken on metal.
 #
-# The motivating uninitialized-display flapper was the a later scene standalone town
-# ROM (tests/phase13/rpg_town_13_13.asm): it rendered an uninitialized OBJ-CHR
-# block (the Child-NPC tiles) that varies across power-ons, which is exactly the
-# bug class tools/render_determinism_check.py (G6) was built to catch. NOTE: the
-# CURRENT RPG-slice S2 town is CLEAN — it initializes the memory it displays and
-# is deterministic across power-ons. The S2-corruption project decision that
-# launched this workstream traces to that a town scene flapper, not to a bug in
-# the S2 slice itself. (Earlier wording here mis-attributed the flapper to S2.)
+# The motivating uninitialized-display flapper was a town-scene ROM that
+# rendered an uninitialized OBJ-CHR block (its NPC tiles), varying across
+# power-ons. The ROM was at fault — and a zero-filling harness would have
+# certified it clean, which is why the default here is hardware-faithful
+# randomness.
 #
 # Mesen2's RamState enum (Core/Shared/SettingTypes.h):
 #     Random   = 0   <- true per-power-cycle randomness (mt19937 seeded from
@@ -1637,10 +1634,8 @@ class MesenRunner:
                 full speed) and tighten the screenshot poll cadence
                 from 5 ms × 40 to 1 ms × 200 (same 200 ms cap, finer
                 detection). Default False to preserve existing test
-                semantics. Used by the SuperForge MCP preview panel
-                to hit 60 fps end-to-end. See S-3-perf-1 paper-cut +
-                ``screenshot_pump/THROUGHPUT_REPORT.md`` for the
-                measured attribution.
+                semantics. Interactive preview consumers use it to
+                hit 60 fps end-to-end.
         """
         self._core_path = core_path
         self._home_dir = home_dir

@@ -7,8 +7,8 @@ never compiles Rust, and regeneration is a documented one-command local step
 
 ## Provenance — every sample is procedurally generated
 
-**No external or reference sample material is used anywhere in here** (owner
-directive, 2026-07-30). All four wavs under `samples/` are synthesised,
+**No external or reference sample material is used anywhere in here** — a
+hard provenance rule for this tree. All four wavs under `samples/` are synthesised,
 deterministically, by [`tools/gen_audio_samples.py`](../../tools/gen_audio_samples.py)
 — fixed-seed Karplus-Strong pluck, single-cycle triangle and 25 % pulse,
 and a filtered-noise footstep. Re-running the tool reproduces the wavs

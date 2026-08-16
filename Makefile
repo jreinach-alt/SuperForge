@@ -627,7 +627,7 @@ probes: $(BUILD)/probe_vblank.sfc $(BUILD)/probe_cpu.sfc \
 # WHY THE TARGET IS NOT ITSELF INVERTED ANY MORE. When it failed on every path,
 # its exit status carried no information: with the collision DELETED from
 # engine/toy_bad/pin_b, `make toy-bad` still exited 2, so `if make toy-bad;
-# then error; fi` in CI, `test $? -ne 0` in HANDOFF §1, and the `if make
+# then error; fi` in CI, the documented `test $? -ne 0` check, and the `if make
 # toy-bad; then fail; fi` in tools/setup.sh all reported "refused as designed"
 # against an allocator with no teeth at all. Seven consumers, all blind.
 #
@@ -2546,7 +2546,7 @@ rom-unbacked:
 #
 # What that check actually covers, stated narrowly because it was documented
 # far wider than it reached (measured at 5 of 30 demand rows): in
-# docs/09 and HANDOFF.md, a TABLE ROW that resolves to an existing dir — via
+# docs/09, a TABLE ROW that resolves to an existing dir — via
 # its subject cell or its `supplied by` column — may not also say not built /
 # not started / unimplemented / TODO / pending / ❌; no live row in §5 may
 # resolve to an existing dir at all; and a `engine/features/X` citation must
@@ -2613,8 +2613,8 @@ rail-registered:
 push: register width-check time-check toy-bad rom-unbacked
 	git push -u origin HEAD
 
-# ---- gates: the whole HANDOFF §1 sequence as one target -------------------
-# Runs every gate in HANDOFF §1's order — toy, toy-bad, width-check, register,
+# ---- gates: the whole documented gate block as one target -----------------
+# Runs every gate in AGENTS.md's documented order — toy, toy-bad, width-check, register,
 # measure, microzero, room, test — each PLAINLY (no pipes anywhere: a
 # pipeline returns tail's status, which has pushed a red suite here; this
 # target exists so nobody hand-rolls the sequence and reinvents that bug),
@@ -2693,7 +2693,7 @@ gates: | $(BUILD)
 	if [ -z "$$blocking" ]; then run test; else \
 	  printf '  %-12s %-8s (earlier gate failed: %s)\n' test skipped "$$blocking" \
 	    >> $(BUILD)/gates_summary.txt; fi; \
-	printf '\n---- make gates summary (the HANDOFF section-1 gate block) ----\n'; \
+	printf '\n---- make gates summary (the documented gate block) ----\n'; \
 	cat $(BUILD)/gates_summary.txt; \
 	for rom in microzero room breaker shmup platformer split_v_fight m7_dungeon \
 	           split_h_2p_demo mode7_explore platformer_stream hud_game \

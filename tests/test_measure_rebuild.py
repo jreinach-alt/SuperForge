@@ -20,8 +20,8 @@ That is a stronger surface than a cycle budget with margin: it cannot pass
 while the engine is quietly dropping a frame, and it needs no in-ROM
 instrumentation, so the ROM measured here is the ROM that ships.
 
-The envelope is the DECLARED one (the route brief §3.1 — measure from the declared
-max, not from whatever debug input can produce):
+The envelope is the DECLARED one — measure from the declared
+max, not from whatever debug input can produce:
   * velocity at MZ_VEL_MAX ($3000, 48 px/frame), reached by holding
     B and then held there for the whole window;
   * a steer input every frame, i.e. the declared max turn of one pose step
