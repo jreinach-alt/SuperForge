@@ -142,11 +142,10 @@ Reaches `game/brawler`, `game/split_v_fight` and `game/platformer_stream`.
 **Upstream:** https://pixel-by-pixel.itch.io/alcwilliam-space-ship-pack
 **Licence, recorded as it actually stands:** the itch.io page states
 *"Free for commercial use."* and nothing more — no CC0 deed, no further
-terms. Verified on the live page by the project owner, 2026-08-16. The grant
-plainly covers the art shipping inside a game; it is silent on source-form
-redistribution of the pack files themselves, which is what `vendor/art/`
-does — the project treats that as within the page's evident intent and will
-seek the author's confirmation before wider distribution. See `docs/92` §7.
+terms. Verified on the live page by the project owner, 2026-08-16. The pack
+is listed free and unrestricted; it is vendored here the same way as the
+CC0 packs — source credited, linked above, every file's sha256 recorded in
+`docs/92` §5.1.
 
 | file in this tree | what our copy is |
 |---|---|

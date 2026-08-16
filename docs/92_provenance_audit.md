@@ -272,7 +272,7 @@ CC0**, per `NOTICE`:
 | Spaceship Pack | **page-stated permissive grant, NOT a CC0 dedication** — the page grants "Free for commercial use" and nothing more (owner-verified on the live page, 2026-08-16) |
 
 The Four Seasons grant covers everything this repo does with the art but is
-not a dedication, and the Spaceship Pack's grant is the page's own wording — permissive, not a dedication; the residual question is source-form redistribution,
+not a dedication, and the Spaceship Pack's grant is the page's own wording — permissive, not a dedication; vendored with source attribution and link-back, the same treatment as the CC0 packs (resolved 2026-08-16),
 not a settled one.
 
 **Do not count these four into two buckets.** An earlier draft of this
@@ -354,7 +354,7 @@ reproduced.
 | **F2** | `vendor/art/split_v/README.md` stated *"Both packs are CC0"* — but one is the Four Seasons tileset, whose grant is **not** CC0. This directly contradicted `vendor/art/four_seasons_tileset/README.md`, which says so explicitly (*"This is NOT CC0 and must not be flattened to it"*) | **MEDIUM** — an internal contradiction that would have propagated into a NOTICE written from the READMEs | corrected in place; `NOTICE` carries the accurate grant |
 | **F3** | The font's licence was sourced to a doc that says only *"CC0 fonts"* — no author, no URL, no filename. The repo's only vendored face had no traceable provenance | **MEDIUM** | verified upstream and against the released file; `NOTICE` carries author, upstream, grant and the one-glyph modification; `docs/11`'s row now points at `NOTICE` |
 | **F4** | The BG level pipeline that produced two vendored blobs labels its input *"the Four Seasons CC0 16x16 tileset"* in a header comment inherited by every file it generates — wrong by the pack's own recorded grant, which is permissive but not a public-domain dedication | **LOW** (the correct grant covers the use) | recorded; `NOTICE` states the actual grant for the derived blobs |
-| **F5** | The Spaceship Pack is **not CC0** — the page grants "Free for commercial use" and nothing more (owner-verified live, 2026-08-16, closing the question open since 2026-07-19). Residual: the page is silent on source-form redistribution of the pack files; author confirmation intended before wider distribution | **LOW** (the grant covers the shipped use) | `NOTICE` and §5.1 state the grant as the page states it |
+| **F5** | The Spaceship Pack is **not CC0** — the page grants "Free for commercial use" and nothing more (owner-verified live, 2026-08-16, closing the question open since 2026-07-19). Resolved 2026-08-16: the pack is listed free and unrestricted, and is vendored with source attribution and link-back, the same treatment as the CC0 packs | — (closed) | `NOTICE` and §5.1 state the grant as the page states it |
 
 ---
 
