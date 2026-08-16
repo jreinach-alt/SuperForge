@@ -49,7 +49,8 @@ if str(ROOT) not in sys.path:
 from tools.record_gallery_clip import record_clip, DURATION_MS  # noqa: E402
 
 RAILS = ("mode7_flight", "m7_oshoot", "microzero", "split_v_fight",
-         "mode7_explore", "meteor_event", "boss_saucer", "railshooter")
+         "mode7_explore", "meteor_event", "boss_saucer", "railshooter",
+         "racer")
 
 
 def _stats(path):

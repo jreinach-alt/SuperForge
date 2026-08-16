@@ -94,11 +94,16 @@ kart_pal_bin:
 .assert ^kart_pal_bin = ES_R_KART_PAL_ROM_BANK, error, "kart_pal bank drifted from allocator claim"
 .assert .loword(kart_pal_bin) = ES_R_KART_PAL_ROM_ADDR, error, "kart_pal addr drifted from allocator claim"
 
-; world map: bank-tiled chunks, 64 rows x 512 B each
+; world map: bank-tiled chunks, 64 rows x 512 B each. THE BYTES ARE THIS
+; RAIL'S OWN CIRCUIT (tools/gen_racer_assets.course_map) behind world_rom's
+; claim — which world backs the claim is the game's binding, the same way
+; race.asm binds WHICH world the streaming kernels read. The tile vocabulary
+; is gen_m7_assets', so the shared floor CHR/palette and the DERIVED
+; col_flags table serve this map unchanged.
 .repeat ES_R_WORLD_MAP_CHUNKS, WI
 .segment .sprintf("BANK%d", WI + 2)
 .ident(.sprintf("world_map_t%d", WI)):
-    .incbin "world_map.bin", WI * 32768, 32768
+    .incbin "racer_world_map.bin", WI * 32768, 32768
 .assert ^.ident(.sprintf("world_map_t%d", WI)) = .ident(.sprintf("ES_R_WORLD_MAP_T%d_BANK", WI)), error, "world chunk bank drifted"
 .assert .loword(.ident(.sprintf("world_map_t%d", WI))) = .ident(.sprintf("ES_R_WORLD_MAP_T%d_ADDR", WI)), error, "world chunk addr drifted"
 ; Both halves of the chunk obligation mode7_stream.asm and col_map.asm name in

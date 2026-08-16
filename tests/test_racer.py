@@ -299,9 +299,9 @@ def test_holding_b_lights_the_speed_bar_and_releasing_puts_it_out():
     m = _boot()
     try:
         assert _bar_tiles(m) == [TICK_DIM] * BAR_TICKS
-        # 60 frames, not 90: the spawn is on a straight, and a longer run at
-        # this cap leaves the track and the off-road drag pulls the bar back
-        # down — which is R5 working, not R3 failing.
+        # 60 frames is the whole ramp: RC_SPEED_CAP / RC_ACCEL = 60, so this
+        # drive ends exactly at the cap with every tick lit, and the start
+        # straight holds ~1,470 px of road ahead — the run stays on-track.
         m.advance(60, pad1={"b": True})
         lit = _bar_tiles(m)
         assert lit.count(TICK_LIT) >= 4, f"holding B lit {lit}"
@@ -404,11 +404,13 @@ def test_grass_slows_the_kart_to_a_crawl_without_stopping_it():
     wired to a constant; the whole question is whether the map reaches the
     physics.
 
-    WHY NOT SCREEN PIXELS: the first version of this case compared near-field
-    screen repaint and `make falsify` reported it TEST-BLIND — off the track
-    the picture is uniform grass, which repaints heavily whether the camera
-    crawls or changes (42.1% vs 39.8% measured, no separation at all). The
-    tilemap separates cleanly: 0.46 shipped vs 1.03 with the drag branch
+    WHY NOT SCREEN PIXELS: screen repaint SATURATES — the perspective floor
+    repaints most of the band at any moving speed, so crawl and full speed do
+    not separate there (a `make falsify` pass reported the screen-repaint
+    form of this case TEST-BLIND). The tilemap is a true odometer instead:
+    the world's tuft scatter is aperiodic on the streamed window's 128-tile
+    wrap (gen_racer_assets' TUFT_MOD note), so rewritten bytes track tiles
+    crossed. Measured ratios: 0.57 shipped vs 2.25 with the drag branch
     removed.
     """
     on_track = _churn([(30, {"b": True})])
@@ -492,15 +494,15 @@ def test_the_rumble_strips_show_both_red_and_white(tmp_path):
 
     Read as pixels rather than as CGRAM words, because CGRAM says the palette
     uploaded and this says the strips reached the screen through it. Measured
-    on the shipped ROM at this frame: 858 red-dominant and 11,825 near-white
-    pixels in the floor band; the thresholds sit far below both.
+    on the shipped ROM at this frame: 295 red-dominant and 435 near-white
+    pixels in the counted region; the thresholds sit well below both.
     """
     img = _shot(tmp_path, "kerb")
     px = img.load()
     # The white census stops at y=125: below that sits the start-line chequer,
-    # which contributed 93.6% of a whole-band white count and would keep this
-    # case green with the kerb white deleted (the counted
-    # population must be attributable to the feature under test).
+    # which holds 11,067 near-white pixels at this frame — 96% of a whole-band
+    # count — and would keep this case green with the kerb white deleted (the
+    # counted population must be attributable to the feature under test).
     red = white = 0
     for y in range(SEAM, 224):
         for x in range(img.width):

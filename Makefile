@@ -1536,7 +1536,8 @@ RC        := game/racer
 RC_MAP    := $(BUILD)/rc
 RC_ASM    := $(RC)/main.asm $(wildcard $(RC)/scenes/*.asm) \
              $(wildcard engine/features/*/*.asm)
-RC_ASSETS := $(BUILD)/assets/racer_kart_chr.bin \
+RC_ASSETS := $(BUILD)/assets/racer_world_map.bin \
+             $(BUILD)/assets/racer_kart_chr.bin \
              $(BUILD)/assets/racer_kart_pal.bin \
              $(BUILD)/assets/racer_sky_keys.bin \
              $(RC_MAP)/racer_move.inc
@@ -1583,7 +1584,7 @@ RC_INC := -I $(RC_MAP) -I $(VROM) -I $(RC) \
 # exited 0 — make believed a stale racer.sfc was up to date.
 $(BUILD)/racer.sfc: $(RC_ASM) $(RC)/world.inc \
 		$(RC_MAP)/engine_state_globals.inc $(RC_ASSETS) \
-		$(BUILD)/assets/world_map.bin $(BUILD)/assets/poses_ab.bin \
+		$(BUILD)/assets/poses_ab.bin \
 		$(BUILD)/assets/col_flags.bin $(BUILD)/assets/floor_tiles.bin \
 		$(BUILD)/assets/sky_chr.bin \
 		$(BUILD)/rc_tad_wrapper.o $(BUILD)/rc_tad_data.o \

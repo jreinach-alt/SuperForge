@@ -1,22 +1,25 @@
 ; racer world geometry — assemble-time constants matching the generated assets
-; (tools/gen_m7_assets.py for the world, tools/gen_racer_assets.py for this
-; rail's own). Values are sizes/coordinates, not addresses; addresses come
-; from the allocator map.
+; (tools/gen_racer_assets.py paints this rail's world; gen_m7_assets.py owns
+; the tile vocabulary and the floor art). Values are sizes/coordinates, not
+; addresses; addresses come from the allocator map.
 ;
-; THE WORLD IS microzero's, deliberately. It is a closed circuit on a 4096 px
-; torus with kerbs, a start line and a DERIVED collision flag table — which is
-; exactly what this rail needs, since the map is its collision ground truth.
-; Authoring a second 128x128 track blob would add 32 KB of ROM to render a
-; circuit this repo already has, and would need a second flag table kept in
-; sync with it. The rail is the composition, not the bitmap.
+; THE WORLD IS THIS RAIL'S OWN CIRCUIT: a closed 16-corner octilinear loop on
+; a 4096 px torus — twelve lefts, four rights, kerbs, a start/finish chequer
+; — painted in gen_m7_assets' tile vocabulary. Sharing the vocabulary is what
+; keeps the composition cheap: the floor CHR/palette blobs and the DERIVED
+; col_flags table (the map is this rail's collision ground truth) serve the
+; circuit unchanged, so the rail's own bytes are one 256 KB map behind
+; world_rom's claim and nothing else. Geometry, corner list and the torus
+; wrap limit live in the generator's COURSE block — one source of truth.
 WORLD_T_TILES       = 512   ; world is 512x512 tiles = 4096x4096 px
 WORLD_PX_MASK       = 4095  ; the torus wrap (rc_logic's RCL_WORLD_MASK)
 WORLD_ROWS_PER_BANK = 64    ; 64 rows x 512 B = one 32 KB ROM window
 WORLD_COLS_BYTES    = 512
 
-; Start: mid-road on the start/finish spoke (due east), on the octagon's east
-; straight at the centre-line apothem — tools/gen_m7_assets.start_tile().
-CAM0_TX = 456               ; tile coords (256 + OCT_MID 200)
+; Start: mid-road on the start/finish chequer, on the circuit's east straight,
+; heading north — tools/gen_racer_assets START_TX/START_TY (the generator
+; asserts the tile under this camera is the chequer).
+CAM0_TX = 456               ; tile coords (gen_racer_assets.START_TX)
 CAM0_TY = 256
 CAM0_PX = 3652              ; pixel coords (tile*8 + 4)
 CAM0_PY = 2052

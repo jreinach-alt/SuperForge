@@ -12,12 +12,11 @@ is only described is not reproducible (batch-5 audit L-1).
     steer   frame 100 + 10 held Left       the floor rotated, the kart leaning
     night   frame 300                      the NIGHT hold, same camera
 
-The drives are SHORT on purpose, and `steer` carries no throttle at all. The
-turn rate is one pose step per frame over 64 headings, and at RC_SPEED_CAP a
-long run leaves the circuit — which is R5 working (the grass drags the kart)
-and a bad photograph of R3/R4, because the picture is then all grass.
-Steering from the standstill rotates the world under a camera that stays on
-the start line, which is the picture the claim is about.
+The drives are SHORT on purpose, and `steer` carries no throttle at all:
+steering from the standstill rotates the world under a camera that stays on
+the start line, which is the picture the claim is about — under way, the
+same frames of turn also translate the camera, and the rotation photographs
+as a curve through the world instead of as the floor turning.
 
 Run:  make racer && python3 tools/shot_racer.py docs/img
 """
