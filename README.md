@@ -107,6 +107,54 @@ and runs the whole gate block there, so the build sees only committed content
 and none of your working tree's stale artifacts. What that does and does not
 buy: [`docs/44`](docs/44_bare_check_migration.md).
 
+## Try it
+
+```bash
+git clone https://github.com/jreinach-alt/SuperForge.git && cd SuperForge
+```
+
+Open the clone in your coding agent and walk through these prompts in order;
+prompt 2 is where your own idea enters.
+
+1. > Set up this repo (`bash tools/setup.sh`), then build the `mode7_flight`
+   > game and capture screenshots of it running (`tools/shot_mode7_flight.py`).
+   > Show me the pictures and tell me what I'm looking at.
+
+2. > My game idea: *\<a few sentences — genre, camera, the core mechanic, one
+   > signature moment\>*. Read this repo's docs and its game library, then
+   > tell me honestly: (a) which parts of my idea this engine already proves —
+   > name the game in `game/` that demonstrates each part; (b) which parts are
+   > near — existing features composed in a new way; (c) which parts would be
+   > new engine work, and what resources they would have to claim; (d)
+   > anything that fights this hardware itself, and the design adjustment that
+   > would fit it. Don't sell me — if a piece doesn't fit, say so and show me
+   > the nearest thing that works.
+
+3. > Take the library game nearest my idea and make a small visible change: a
+   > palette, the backdrop gradient, a piece of HUD text. Rebuild it and show
+   > me before/after screenshots. Tell me which files you touched and what the
+   > allocator had to say about it.
+
+4. > Scaffold a new game under `game/` for my idea: a `game.toml` composing
+   > the features it needs, a first scene that boots and renders its world
+   > (static is fine), my game's own state declared through the allocator, and
+   > a test that boots the ROM and reads the rendered output back. Build it,
+   > run the test, screenshot it. If a feature my idea needs doesn't exist
+   > yet, stub the scene so the composition still allocates, and name the gap.
+
+5. > Implement the first playable slice of my core mechanic: the one
+   > interaction that makes it your game. Wire input, motion, and one
+   > collision-or-feedback response. Hold 60 fps — prove it the way the
+   > library games do, by measuring, not estimating — and show me screenshots
+   > of the mechanic working.
+
+Each prompt has a matching lesson in [`docs/lessons/`](docs/lessons/), and the
+two companion docs carry the map:
+[`docs/capability_envelope.md`](docs/capability_envelope.md) for what the
+library already proves,
+[`docs/hardware_for_your_idea.md`](docs/hardware_for_your_idea.md) for what
+the machine itself will and will not do.
+
 ## How it is tested
 
 These are rules the tree is held to by a gate, not intentions.

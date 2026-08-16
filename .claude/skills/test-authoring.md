@@ -197,3 +197,34 @@ strips", the counted population has to be the rumble strips.
 the assertion surface must match the claim. Single-axis, single-state,
 single-layer, spec-mirror and self-referential assertions are silent-corruption
 traps when the claim is broader.
+
+## Capture facts (the three numbers every screenshot assertion needs)
+
+Each is stated by the harness code, at the cited site — re-verify there when a
+capture surprises you.
+
+1. **A screenshot costs ONE emulated frame.** The composite holds the
+   *previous* completed frame, so bringing the caller's frame in costs an
+   advance — paid unconditionally, in both execution modes
+   (`vendor/mesen_runner.py` `take_screenshot`: "EXACTLY ONE emulated frame";
+   pinned by `tests/test_wait_primitives.py::
+   test_a_capture_spends_exactly_one_emulated_frame`). `Machine.take_screenshot`
+   keeps the same contract and latches **both pads RELEASED** for that frame
+   (`vendor/machine.py`, the stated-state discipline). So count the shot in
+   your frame arithmetic — a picture pair meant to sit N frames apart is N−1
+   advances plus the shot — and know that a held button is not held through a
+   capture.
+2. **The PNG carries overscan.** Mesen hands back **256×239**, and the active
+   224 picture lines start at **PNG row 7**. The convention is
+   `tests/frame_geometry.py`: `PICTURE_TOP = 7`, `png_row(picture_row)`, and
+   `REAL_Y_BIAS = 1` (Mesen's `_scanline` is picture row + 1 — measured; the
+   module docstring holds the sweep). Sampling `getpixel((x, y))` with a
+   picture row for `y` reads seven rows high; go through `png_row()`.
+3. **5-bit → 8-bit is BIT REPLICATION: `(c << 3) | (c >> 2)`.** Not `c << 3`
+   (up to 7 low per channel — full-scale 31 must map to 255, not 248), and not
+   `round(c * 255/31)` (one off at low values: 3 → 24, not 25). Four modules
+   define and use it — `tests/test_breaker.py` `_snes8` (whose docstring
+   records the arithmetic version failing against the picture),
+   `tests/test_platformer.py` `bgr555_to_rgb`, `tests/test_rpg.py`
+   `_cgram_rgb`, `tests/test_mode7_flight.py` `_mesen_rgb`. A
+   CGRAM-word-vs-pixel comparison through any other expansion is a false red.

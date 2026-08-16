@@ -9,6 +9,30 @@ driver:** what to run, how the allocator changes the way you write code, which
 patterns are already established, and which mistakes this project has already
 paid for. Read both.
 
+## Arriving solo (a fresh agent's first hour)
+
+The read order, when nobody is briefing you:
+
+1. [`CLAUDE.md`](CLAUDE.md) — the seven rules. Everything else assumes them.
+2. **This file's "The one idea"** (next section) — you declare resources and
+   the build proves the declaration. It changes what "add a feature" means.
+3. [`docs/01_substrate_reference.md`](docs/01_substrate_reference.md) — the
+   budget a frame, VBlank and the DMA path actually afford.
+4. [`docs/capability_envelope.md`](docs/capability_envelope.md) — what already
+   exists, proven game by game. Check it before designing anything new.
+
+Then build something before reading more — `make toy && make microzero` — and
+before running the full suite, build every rail first (the `make` block in the
+build-and-test section below is the list). **The gates teach:** run
+`make rail-registered` or `make toy-bad` and read what they print rather than
+memorizing their rules — every refusal names the site, the file or the
+collision, and following the printed list is the intended workflow.
+
+Walking a game idea in from zero? [`docs/lessons/`](docs/lessons/) is the
+five-step arc — see it run → idea vs envelope → small change → scaffold →
+prove the mechanic — and the README's "Try it" section is the same arc as
+prompts.
+
 ---
 
 ## The one idea that changes how you work
