@@ -477,28 +477,56 @@ def test_the_autodemo_walks_the_WHOLE_cycle(runner, tmp_path):
 
 
 def test_walking_into_a_wall_STOPS(runner, tmp_path):
-    """The arena clamp, asserted as the picture going still.
+    """The arena clamp, asserted as the world stopping — not as the pose.
 
     Adversarial input — holding a direction into a wall forever — must stop the
     fighters, not wrap them. Reading the clamped DP word would be the proxy;
     what a player sees is that the world stops moving. So: hold LEFT on both
-    pads well past the arena width and require two frames a second apart to be
-    identical.
+    pads well past the arena width and require two stills a second apart to
+    agree about where everything IS.
+
+    THE INTERVAL IS THE IDLE CYCLE, AND IT IS DERIVED, not chosen. This case
+    was written as whole-frame pixel equality across a flat 60 frames, while
+    the fighters had exactly one pose to stand in. They now breathe, so two
+    stills 60 apart differ by ~120 pixels of *animation* over a world that is
+    frozen solid — a true statement about the rail, failing a case whose name
+    is about the clamp.
+
+    The fix is not to weaken the assertion but to land it where the poses
+    coincide: an idle cycle is `len * rate` frames, and both of those ship in
+    `sv_anim_meta.bin` beside the frames they bound. Reading them keeps the
+    strongest possible claim — every pixel identical — and keeps it correct if
+    the animation is ever retimed. Loosening it to "the columns their colour
+    occupies are identical" was tried first and is measurably weaker: the two
+    idle poses differ in silhouette by one column, so the loose form has to
+    tolerate exactly the kind of one-pixel drift a clamp bug produces.
     """
+    meta = (BUILD / "assets" / "sv_anim_meta.bin").read_bytes()
+    idle_len, idle_rate = meta[0], meta[1]          # table 0 = idle
+    period = idle_len * idle_rate
+    assert period > 1, ("the idle table is a single held pose, so this case is "
+                        "no longer landing on a cycle — re-derive the interval")
+
     runner.boot_to_frame(str(ROM), 120)
     # P2's pad is latched once and PERSISTS: `frame_step` re-latches only the
     # port it is given, so pad 1 keeps holding LEFT for every step below.
     runner.set_input(1, left=True)
-    # 240 EMULATED frames of held LEFT, then 60 more between the two stills.
-    # `frame_step` carries the pad state per frame, so the hold is exact and
-    # "a second apart" means 60 frames apart rather than however many the
-    # host managed. Under the run_frames(240) this replaces, a loaded box
-    # could deliver far fewer than the (232-24)/2 frames the clamp needs and
-    # the two stills would differ because the fighters were STILL WALKING.
+    # 240 EMULATED frames of held LEFT, then one idle cycle between the two
+    # stills. `frame_step` carries the pad state per frame, so the hold is
+    # exact and the interval is the animation's own period rather than however
+    # many frames the host managed. Under the run_frames(240) this replaces, a
+    # loaded box could deliver far fewer than the (232-24)/2 frames the clamp
+    # needs and the two stills would differ because the fighters were STILL
+    # WALKING.
     runner.frame_step(240, left=True)
     a = tmp_path / "wall_a.png"
     runner.take_screenshot(str(a))
-    runner.frame_step(60, left=True)
+    # ...AND THE SHOT ITSELF COSTS ONE EMULATED FRAME. A picture pair meant to
+    # sit N frames apart is N-1 advances plus the shot (the harness states it,
+    # and tests/test_wait_primitives.py pins it). Stepping the full period puts
+    # the two stills 49 frames apart on a 48-frame cycle, which lands them on
+    # different idle steps — a one-frame error that reads as a clamp failure.
+    runner.frame_step(period - 1, left=True)
     b = tmp_path / "wall_b.png"
     runner.take_screenshot(str(b))
     runner.set_input(1)
@@ -506,8 +534,17 @@ def test_walking_into_a_wall_STOPS(runner, tmp_path):
     diff = [(x, y) for y in range(ia.height) for x in range(ia.width)
             if ia.getpixel((x, y)) != ib.getpixel((x, y))]
     assert not diff, (
-        f"{len(diff)} pixel(s) still changing after 240 frames of held LEFT — "
-        "the arena clamp is not holding")
+        f"{len(diff)} pixel(s) still changing after 240 frames of held LEFT, "
+        f"across a whole {period}-frame idle cycle — the arena clamp is not "
+        f"holding; first at {diff[:5]}")
+
+    # ...and the case is not passing over an empty stage: a fighter must be
+    # in the picture for its stillness to mean anything.
+    band = range(KNIGHT_Y - 4, KNIGHT_Y + 36)
+    assert any(ia.getpixel((x, y)) == RED_TEAM
+               for x in range(SCREEN_W) for y in band), \
+        "no fighter pixels in the sprite band at all — this case is " \
+        "asserting over nothing"
 
 
 # ---------------------------------------------------------------------------
@@ -559,3 +596,419 @@ def test_the_divider_tones_match_the_SOURCE_RAILS_published_render(runner, tmp_p
         assert tone in got, (
             f"the divider is missing the reference's {tone}; ours renders {sorted(got)}"
             " — the bevel is using the wrong palette or the wrong tones")
+
+
+# ---------------------------------------------------------------------------
+# THE FIGHT — the round, the swing, the jump and the bars, driven end to end
+# ---------------------------------------------------------------------------
+# These use the LOCKSTEP `Machine` rather than the module's MesenRunner, for
+# one reason: a two-player fight needs BOTH pads, and `Machine.advance` latches
+# both by construction while `set_input` on a parked runner is silently
+# ineffective (mesen_runner.set_input's own second trap). Mixing the two
+# harnesses in one module is the shape test_seam_irq_trial already ships.
+from machine import Machine  # noqa: E402
+from frame_geometry import PICTURE_TOP, png_row  # noqa: E402
+
+# The rail's declared fight shape, restated as an ORACLE — deliberately
+# independent of the ROM, exactly like the geometry block at the top.
+HP_MAX = 4
+COUNT_STEP, COUNT_BEATS = 32, 4
+COUNT_LEN = COUNT_STEP * COUNT_BEATS
+R_COUNT, R_LIVE, R_KO = 0, 1, 2
+ST_IDLE, ST_WALK, ST_JUMP, ST_ATK, ST_HIT, ST_KO = range(6)
+SWING_LEN, SWING_FIRST, SWING_LAST = 20, 7, 14
+
+O_LIFE = _sym("ES_O_LIFE", "fight")["start"]
+O_COUNT = _sym("ES_O_COUNT", "fight")["start"]
+O_BLADE = _sym("ES_O_BLADE", "fight")["start"]
+
+
+def _dp(name):
+    """A scene DP word's WorkRam offset. Asked for, never hardcoded."""
+    return _sym(name, "fight")["start"]
+
+
+def _u16(m, name, pair=0):
+    b = m.read_bytes(W, _dp(name) + pair, 2)
+    return b[0] | (b[1] << 8)
+
+
+def _oam_tiles(m, first, count):
+    """The TILE byte of `count` OAM entries from slot `first`.
+
+    OAM is the region the PPU reads to build the picture, so a tile byte here
+    is the sprite the hardware will fetch — not a program variable that ought
+    to imply it.
+    """
+    raw = m.read_bytes(O, first * 4, count * 4)
+    return [raw[i * 4 + 2] for i in range(count)]
+
+
+def _oam_y(m, slot):
+    return m.read_bytes(O, slot * 4 + 1, 1)[0]
+
+
+def _hud_tile(slot_index):
+    """HUD sheet slot -> its first tile, mirroring the generator's layout."""
+    return (slot_index // 8) * 32 + (slot_index % 8) * 2
+
+
+T_LIFE_FULL, T_LIFE_EMPTY = _hud_tile(0), _hud_tile(1)
+T_D3, T_D2, T_D1 = _hud_tile(2), _hud_tile(3), _hud_tile(4)
+T_FIGHT = [_hud_tile(i) for i in range(5, 10)]      # F I G H T
+
+
+def _anim_tile(state, step=0):
+    """The tile the anim blob names for a state's step, from the SHIPPED blob.
+
+    Read out of `sv_anim.bin` rather than recomputed: the test then asserts
+    that the PPU is fetching the frame the animation table names, which is the
+    claim, instead of asserting the table against a second copy of itself.
+    """
+    blob = (BUILD / "assets" / "sv_anim.bin").read_bytes()
+    return blob[state * 4 + step]
+
+
+def test_the_round_counts_3_2_1_FIGHT_and_only_then_goes_live():
+    """The whole countdown cycle, out of OAM and off the screen.
+
+    DRIVEN AS A CYCLE, NOT SAMPLED. A snapshot at one beat passes on a ROM
+    whose count sticks on "3" forever, or one that goes live while the banner
+    is still up. This walks every frame of the count, records which glyph the
+    PPU was pointed at, and requires the four beats IN ORDER followed by a
+    live round with nothing left on the count's slots.
+
+    The digits are read as OAM tile bytes (the sprite the hardware fetches)
+    and the FIGHT beat is confirmed in the rendered PICTURE too, because five
+    correctly-addressed sprites parked off-screen would satisfy OAM alone.
+    """
+    seen, live_at = [], None
+    with Machine(str(ROM)) as m:
+        m.advance(20)                       # past the fade, into the count
+        for frame in range(COUNT_LEN + 40):
+            m.advance(1)
+            tiles = _oam_tiles(m, O_COUNT, 5)
+            ys = [_oam_y(m, O_COUNT + i) for i in range(5)]
+            shown = [t for t, y in zip(tiles, ys) if y < SCREEN_H]
+            if shown and (not seen or seen[-1] != shown):
+                seen.append(list(shown))
+            if _u16(m, "US_RSTATE") == R_LIVE and live_at is None:
+                live_at = frame
+                break
+        assert live_at is not None, "the round never went live"
+        # ...and the banner comes down with it. TWO settle frames, because the
+        # tick STAGES the OAM shadow and the next VBlank commits it: on the
+        # frame the round word flips, hardware OAM still holds the count
+        # (Machine.advance's stated one-frame presentation lag). Asserting on
+        # the flip frame reads the previous picture, which is a harness fact,
+        # not a defect.
+        m.advance(2)
+        assert all(_oam_y(m, O_COUNT + i) >= SCREEN_H for i in range(5)), \
+            "the count's sprites are still on screen after the round went live"
+
+    assert seen == [[T_D3], [T_D2], [T_D1], T_FIGHT], (
+        f"the count did not run 3, 2, 1, FIGHT in order: {seen}")
+
+
+def test_the_FIGHT_banner_is_actually_ON_SCREEN(tmp_path):
+    """The other half of the case above: the banner is drawn, not just addressed.
+
+    Five sprites can carry the right tiles, the right palette and the right
+    name-table bit and still be invisible — parked, behind a layer, or clipped
+    by the window this whole rail is built out of. So this reads PIXELS: the
+    banner's own bright glyph colour has to appear across the width the five
+    letters span, and NOT appear once the round is live.
+    """
+    glyph = (247, 214, 206)                 # OBJ palette 0's brightest entry
+    band = range(png_row(84), png_row(84) + 16)   # the banner's own 16 rows
+    x0, x1 = CENTRE - 40, CENTRE + 40
+    with Machine(str(ROM)) as m:
+        m.advance(20)
+        m.run_until(lambda mm: _oam_tiles(mm, O_COUNT, 5) == T_FIGHT,
+                    max_frames=COUNT_LEN + 60, what="the FIGHT beat")
+        m.advance(2)                        # the OAM presentation lag
+        m.screenshot(str(tmp_path / "fight.png"))
+        during = Image.open(tmp_path / "fight.png").convert("RGB")
+        m.run_until(lambda mm: _u16(mm, "US_RSTATE") == R_LIVE,
+                    max_frames=COUNT_LEN + 60, what="the round going live")
+        m.advance(2)
+        m.screenshot(str(tmp_path / "live.png"))
+        after = Image.open(tmp_path / "live.png").convert("RGB")
+
+    hits = [(x, y) for y in band for x in range(x0, x1)
+            if during.getpixel((x, y)) == glyph]
+    assert len(hits) > 60, (
+        f"only {len(hits)} banner pixels in the picture at the FIGHT beat — "
+        "the letters are addressed but not drawn")
+    spread = max(x for x, _ in hits) - min(x for x, _ in hits)
+    assert spread > 56, (
+        f"the banner's lit pixels span only {spread}px — one letter is "
+        "drawing over the others rather than five sitting side by side")
+    assert not [(x, y) for y in band for x in range(x0, x1)
+                if after.getpixel((x, y)) == glyph], \
+        "the banner is still on screen after the round went live"
+
+
+def test_a_swing_runs_startup_active_recovery_and_lands_exactly_one_hit():
+    """The swing's whole cycle, and the latch that makes it one strike.
+
+    Every frame of one swing is walked, and three things are required in
+    order: the attacker's OAM tile is the ATTACK table's frame while the swing
+    runs; the defender's tile becomes the pack's own `hit` frame on exactly
+    one frame boundary; and the defender's life falls by EXACTLY ONE across
+    the whole swing — the active window is eight frames long, so a missing
+    latch would take eight segments and there are only four.
+    """
+    with Machine(str(ROM)) as m:
+        m.run_until(lambda mm: _u16(mm, "US_RSTATE") == R_LIVE,
+                    max_frames=COUNT_LEN + 90, what="the round going live")
+        m.advance(14, pad1={"right": True})     # close to inside reach
+        before = _u16(m, "US_HP", 2)
+        assert before == HP_MAX, "the defender did not start on a full bar"
+
+        atk_frames, hit_frames = 0, 0
+        m.advance(1, pad1={"a": True})
+        for _ in range(30):
+            m.advance(1)
+            if _oam_tiles(m, O_F1, 1)[0] == _anim_tile(ST_ATK):
+                atk_frames += 1
+            if _oam_tiles(m, O_F2, 1)[0] == _anim_tile(ST_HIT):
+                hit_frames += 1
+        after = _u16(m, "US_HP", 2)
+
+    assert atk_frames >= 4, (
+        f"the attacker held the attack pose for only {atk_frames} frames — "
+        "the swing has no startup/active/recovery to speak of")
+    assert hit_frames >= 4, (
+        f"the defender showed the pack's hit frame for only {hit_frames} "
+        "frames — the reaction is not being played")
+    assert after == before - 1, (
+        f"one swing took {before - after} life segments, not 1 — the "
+        "one-hit-per-swing latch is not holding across the active window")
+
+
+def test_a_jump_rises_peaks_falls_lands_and_comes_to_REST():
+    """Ascent, apex, descent, landing, rest — read as the sprite's OAM y.
+
+    An apex-only assertion is the house's own recorded trap: it ships a broken
+    landing, because the apex depends only on the launch speed while the
+    landing depends on the integration ever reaching exactly zero. So this
+    requires the whole arc AND that the fighter comes to rest on the floor
+    line it left — and on the same COLUMN, which is the rail's own promise
+    that a hop is a commitment rather than a free reposition.
+    """
+    with Machine(str(ROM)) as m:
+        m.run_until(lambda mm: _u16(mm, "US_RSTATE") == R_LIVE,
+                    max_frames=COUNT_LEN + 90, what="the round going live")
+        ground_y = _oam_y(m, O_F1)
+        ground_x = m.read_bytes(O, O_F1 * 4, 1)[0]
+        ys = []
+        m.advance(1, pad1={"b": True})
+        for _ in range(60):
+            m.advance(1)
+            ys.append(_oam_y(m, O_F1))
+        rest_y = _oam_y(m, O_F1)
+        rest_x = m.read_bytes(O, O_F1 * 4, 1)[0]
+        airborne_tile = None
+        m.advance(1, pad1={"b": True})
+        m.advance(6)
+        airborne_tile = _oam_tiles(m, O_F1, 1)[0]
+
+    apex = min(ys)                                   # smaller y = higher up
+    assert apex < ground_y - 24, (
+        f"the jump's apex reached OAM y {apex} against a floor line of "
+        f"{ground_y} — that is not a jump, it is a step")
+    top = ys.index(apex)
+    assert all(ys[i] <= ys[i - 1] for i in range(1, top + 1)), \
+        f"the ascent is not monotonic: {ys[:top + 1]}"
+    assert all(ys[i] >= ys[i - 1] for i in range(top + 1, ys.index(ground_y, top))), \
+        f"the descent is not monotonic: {ys[top:]}"
+    assert rest_y == ground_y, (
+        f"the fighter came to rest at OAM y {rest_y}, not the floor line "
+        f"{ground_y} — the landing does not reach zero height")
+    assert ys[-5:] == [ground_y] * 5, \
+        f"the fighter is still moving vertically at rest: {ys[-8:]}"
+    assert rest_x == ground_x, (
+        f"the fighter landed at screen x {rest_x} having left from "
+        f"{ground_x} — a jump is not supposed to reposition it")
+    assert airborne_tile == _anim_tile(ST_JUMP), (
+        "the airborne fighter is not drawn with the jump frame")
+
+
+def test_jumping_over_a_swing_takes_no_damage():
+    """The vertical gate — the thing that makes the jump a DEFENCE.
+
+    Both directions, because a gate that refuses everything and one that
+    refuses nothing are both constants: the same swing at the same distance
+    must MISS a fighter in the air and LAND on the same fighter standing.
+    Asserted on the defender's life, which is what the player reads off the
+    bar.
+    """
+    def one_round(dodge):
+        with Machine(str(ROM)) as m:
+            m.run_until(lambda mm: _u16(mm, "US_RSTATE") == R_LIVE,
+                        max_frames=COUNT_LEN + 90, what="the round going live")
+            m.advance(14, pad1={"right": True})
+            before = _u16(m, "US_HP", 2)
+            if dodge:
+                # P2 leaves the ground first, then P1 swings into the space
+                # where P2 was. Both pads, latched together.
+                m.advance(1, pad2={"b": True})
+                m.advance(8)
+            m.advance(1, pad1={"a": True})
+            m.advance(24)
+            return before, _u16(m, "US_HP", 2)
+
+    grounded_before, grounded_after = one_round(dodge=False)
+    assert grounded_after == grounded_before - 1, (
+        "the control arm did not connect, so the dodge arm below proves "
+        "nothing about the gate")
+    dodged_before, dodged_after = one_round(dodge=True)
+    assert dodged_after == dodged_before, (
+        f"the swing took {dodged_before - dodged_after} segment(s) off a "
+        "fighter that was in the air — the vertical gate is not gating")
+
+
+def test_the_life_bar_empties_a_segment_at_a_time_and_the_round_resets():
+    """Full bar -> damage -> KO -> a fresh round, read off the BAR itself.
+
+    The output region is the eight life sprites' tile bytes: which of them
+    the PPU fetches as the full segment and which as the spent one IS the bar
+    the player reads. A test on the HP word would pass with the bar frozen.
+
+    THE RESET IS PART OF THE CYCLE. A rail that empties a bar and stops has
+    shipped half a fighting game — and the clip loops on the round start, so
+    the second round has to be the first round.
+    """
+    p2_bar = lambda mm: _oam_tiles(mm, O_LIFE + HP_MAX, HP_MAX)
+    full = [T_LIFE_FULL] * HP_MAX
+    with Machine(str(ROM)) as m:
+        m.run_until(lambda mm: _u16(mm, "US_RSTATE") == R_LIVE,
+                    max_frames=COUNT_LEN + 90, what="the round going live")
+        assert p2_bar(m) == full, f"P2's bar did not open full: {p2_bar(m)}"
+        assert _oam_tiles(m, O_LIFE, HP_MAX) == full, "P1's bar did not open full"
+
+        # DRIVEN LIKE A PLAYER, NOT ON A SCHEDULE. Each landed hit knocks the
+        # defender back, so a fixed "walk 14, swing" cadence closes the gap on
+        # the first three and misses the fourth — which it did, and which is
+        # the rail working rather than the test. So: close, swing, and if the
+        # BAR did not move, close again. The loop condition is read off the
+        # bar itself, which is also the assertion surface.
+        spent = lambda bar: sum(1 for t in bar if t == T_LIFE_EMPTY)
+        states = [list(p2_bar(m))]
+        for want in range(1, HP_MAX + 1):
+            for _ in range(12):
+                m.advance(6, pad1={"right": True})
+                m.advance(1, pad1={"a": True})
+                m.advance(30)
+                if spent(p2_bar(m)) >= want:
+                    break
+            else:
+                raise AssertionError(
+                    f"could not land hit {want} of {HP_MAX} in 12 attempts; "
+                    f"the bar reads {p2_bar(m)}")
+            states.append(list(p2_bar(m)))
+
+        assert states == [
+            [T_LIFE_FULL] * 4,
+            [T_LIFE_FULL] * 3 + [T_LIFE_EMPTY],
+            [T_LIFE_FULL] * 2 + [T_LIFE_EMPTY] * 2,
+            [T_LIFE_FULL] + [T_LIFE_EMPTY] * 3,
+            [T_LIFE_EMPTY] * 4,
+        ], f"the bar did not empty one segment at a time: {states}"
+
+        assert _u16(m, "US_RSTATE") == R_KO, "an empty bar did not end the round"
+        assert _oam_tiles(m, O_F2, 1)[0] == _anim_tile(ST_KO), \
+            "the KO'd fighter is not drawn with the pack's death frame"
+
+        # ...and round two is round one again.
+        m.run_until(lambda mm: _u16(mm, "US_RSTATE") == R_COUNT,
+                    max_frames=300, what="the next round's countdown")
+        m.advance(2)                    # the OAM presentation lag, again: on
+                                        # the flip frame the shadow the PPU is
+                                        # showing was staged before the reset
+        assert p2_bar(m) == full, "the new round did not restore P2's bar"
+        assert _oam_tiles(m, O_LIFE, HP_MAX) == full, \
+            "the new round did not restore P1's bar"
+        assert _oam_tiles(m, O_COUNT, 5)[0] == T_D3, \
+            "the new round's count did not start at 3"
+
+
+def test_the_blade_sweeps_and_is_the_PACKS_OWN_STEEL(tmp_path):
+    """The weapon: its frames advance, it is drawn, and it is the pack's art.
+
+    THE ATTACK IS A BODY POSE PLUS A BLADE. The camelot character sheets carry
+    no attack row — the pack's design is that the WEAPON carries the swing, and
+    excalibur_.png ships it as its own 32x32 frames. So there are three
+    separate things to prove and a tile byte alone proves only the first:
+
+      * the blade ADVANCES through its frames across one swing, rather than
+        holding the frame the first tile happened to be;
+      * its steel is ON SCREEN during the active window, in pixels, and gone
+        again once the swing ends;
+      * those pixels are the PACK'S colours — read out of excalibur_.png
+        itself, converted the way CGRAM would hold them, so an "it renders
+        something" pass cannot come from the knight's palette or from noise.
+    """
+    from PIL import Image as _Image
+    sheet = _Image.open(SUPERFORGE / "vendor" / "art" / "camelot" /
+                        "excalibur_.png").convert("RGBA")
+    raw = sheet.tobytes()
+    pack = {tuple(raw[i:i + 3]) for i in range(0, len(raw), 4)
+            if raw[i + 3] >= 128}
+    # 5-bit quantisation is what CGRAM stores; the expansion back is BIT
+    # REPLICATION, not a shift (tests/test_breaker.py's recorded arithmetic).
+    snes = {tuple(((c >> 3) << 3) | (c >> 5) for c in rgb) for rgb in pack}
+
+    with Machine(str(ROM)) as m:
+        m.run_until(lambda mm: _u16(mm, "US_RSTATE") == R_LIVE,
+                    max_frames=COUNT_LEN + 90, what="the round going live")
+        m.advance(1, pad1={"a": True})
+        tiles = []
+        for _ in range(10):
+            m.advance(2)
+            tiles.append(_oam_tiles(m, O_BLADE, 1)[0])
+        # ...and the PICTURE is taken inside the ACTIVE window, which is where
+        # the arc frame is and where a player reads the swing. Taken after the
+        # tile sweep above it lands past the end of the swing, on a blade that
+        # has correctly already been put away.
+        m.advance(1, pad1={"a": True})
+        m.run_until(lambda mm: _u16(mm, "US_SWG") <= SWING_LAST,
+                    max_frames=30, what="the swing's active window")
+        m.advance(2)
+        m.screenshot(str(tmp_path / "mid.png"))
+        during = Image.open(tmp_path / "mid.png").convert("RGB")
+        m.run_until(lambda mm: _u16(mm, "US_SWG") == 0,
+                    max_frames=60, what="the swing ending")
+        m.advance(3)
+        m.screenshot(str(tmp_path / "after.png"))
+        after = Image.open(tmp_path / "after.png").convert("RGB")
+        parked = _oam_y(m, O_BLADE)
+
+    assert len(set(tiles)) >= 3, (
+        f"the blade held {len(set(tiles))} distinct frame(s) across a whole "
+        f"swing: {tiles} — it is a static sprite, not a sweep")
+    assert parked >= SCREEN_H, (
+        f"the blade is still at y {parked} after the swing ended — it should "
+        "be parked off the display")
+
+    band = range(png_row(120), png_row(180))
+    lit = [(x, y) for y in band for x in range(SCREEN_W)
+           if during.getpixel((x, y)) in snes]
+    assert len(lit) > 120, (
+        f"only {len(lit)} pixels of the pack's own blade palette are on screen "
+        "mid-swing — the weapon is addressed but not drawn")
+    # THE WHOLE PICTURE, not the fighters' band, and that width is the point.
+    # OAM y wraps mod 256, so a 32-tall sprite parked at the 16-tall constant
+    # (240) pokes sixteen of its rows back onto scanlines 0..15 — two swords
+    # sitting at the TOP of the screen for the entire clip, with an OAM entry
+    # that is exactly what the code intended and a band-restricted sweep that
+    # passes. It shipped that way for one recording and was caught by looking
+    # at the render.
+    still = [(x, y) for y in range(during.height) for x in range(SCREEN_W)
+             if after.getpixel((x, y)) in snes]
+    assert not still, (
+        f"{len(still)} blade pixels survive after the swing ended (against "
+        f"{len(lit)} during, in the fighters' band alone), at rows "
+        f"{sorted({y for _, y in still})[:6]} — the blade is not being put "
+        f"away, or is parked where OAM's mod-256 y wraps it back on screen")

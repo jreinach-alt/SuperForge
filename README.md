@@ -97,12 +97,14 @@ never reads the matrix.
 
 ### `split_v_fight`
 
-![split_v_fight — two cameras onto one stage](docs/img/gif_split_v_fight.gif)
+![split_v_fight — a two-player fight whose camera splits with the fighters](docs/img/gif_split_v_fight.gif)
 
-Two cameras onto one stage, clipped to opposite screen halves by PPU window 1
-and diverging with the fighters' distance. One VRAM copy, two cameras: at zero
-separation the halves are pixel-identical and the ever-present seam is
-invisible.
+A two-player fight on a shared stage, where the camera splits because the
+fighters do. Two pads, life bars, a 3-2-1-FIGHT round start, a swing with
+active frames, and a jump that clears one. Two cameras onto **one** VRAM copy
+of the stage, clipped to opposite screen halves by PPU window 1 and diverging
+with the fighters' distance: at zero separation the halves are pixel-identical
+and the ever-present seam is invisible.
 
 ### `mode7_explore`
 

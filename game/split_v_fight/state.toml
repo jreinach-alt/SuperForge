@@ -13,3 +13,52 @@ spreadf = "u16@dp"       # the spread EASE accumulator, 8.8. The integer part
                          # than stepping a pixel at a time.
 crossed = "u16@dp"       # 0 = red left, 1 = the fighters have swapped sides.
                          # Latched so a crossover is an EDGE, not a state.
+
+# --- the two fighters, as PAIRS ---------------------------------------------
+# Every word below is `u16[2]@dp`: ONE claim holding fighter 1's word and
+# fighter 2's, adjacent and in that order because the allocator places an array
+# contiguously. That is what lets one routine serve both fighters indexed by
+# X = 0 or 2 -- the shape fx1/fx2 already use, but declared rather than
+# asserted after the fact. (fx1/fx2 stay two scalars: their symbol names are
+# read by tests and by the gallery drive, and renaming them would move a
+# published surface for no gain.)
+hp = "u16[2]@dp"         # life segments left, SV_HP_MAX..0. 0 = KO'd
+ast = "u16[2]@dp"        # anim state — ALSO the sv_anim table stride index
+atk = "u16[2]@dp"        # anim clock (the frame-rate divider)
+afr = "u16[2]@dp"        # anim step within the current table
+swg = "u16[2]@dp"        # frames left in the swing; 0 = not attacking
+swh = "u16[2]@dp"        # 1 = this swing already landed. The one-hit-per-swing
+                         # latch that makes the active window a combat pattern
+                         # rather than a per-frame damage tick
+jmp = "u16[2]@dp"        # height above the floor, 8.8. 0 = grounded, and the
+                         # fraction is what makes the arc smooth rather than
+                         # stepping a pixel a frame
+jvel = "u16[2]@dp"       # vertical velocity, 8.8 SIGNED (up is positive)
+hitt = "u16[2]@dp"       # frames left in the hit reaction; 0 = in control
+
+# --- the round --------------------------------------------------------------
+rstate = "u16@dp"        # SV_R_COUNT / SV_R_LIVE / SV_R_KO
+rtimer = "u16@dp"        # frames left in the current round phase. The
+                         # countdown DERIVES its glyph from this rather than
+                         # keeping a second word that could disagree with it
+
+# --- the pad the fighter step is reading (write-before-read per call) -------
+# ONE step routine serves both fighters, indexed by X, but the two pads are
+# input's and input2's separate words and cannot be indexed as a pair. So the
+# caller stages them: two stores per fighter per frame, against a second copy
+# of the whole control block.
+pcur = "u16@dp"          # this fighter's held buttons
+ppress = "u16@dp"        # ...and the ones that went down THIS frame
+fx0 = "u16@dp"           # where this fighter stood when the frame began. The
+                         # walk animation is chosen from whether it MOVED, not
+                         # from whether a direction is held: a fighter pinned
+                         # against an arena wall would otherwise run on the
+                         # spot forever
+
+# --- draw scratch (write-before-read per call) ------------------------------
+tile = "u16@dp"          # the OAM tile byte being assembled
+attr = "u16@dp"          # ...and its attribute byte
+oy = "u16@dp"            # the sprite's screen y for this placement
+slot = "u16@dp"          # ...and the OAM slot it is going into, while the
+                         # index registers are busy carrying x and the
+                         # fighter's pair index

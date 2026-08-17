@@ -37,11 +37,34 @@ bytes = 2
 name = "obj_chr"
 kind = "chr"
 obj = true
-words = 1024            # 64 tiles = FOUR rows of the 16-wide OBJ name table.
-                        # A 32x32 sprite reads {N..N+3, N+16..N+19, N+32..,
-                        # N+48..} -- the row stride is hardware-fixed, so one
-                        # frame spans four grid rows and the gaps are the
-                        # alignment, not waste.
+words = 0x1000          # 256 tiles = SIXTEEN 32x32 frames, i.e. one whole OBJ
+                        # name table: the body's twelve and the blade's four,
+                        # with nothing spare. A 32x32 sprite reads
+                        # {N..N+3, N+16..N+19, N+32.., N+48..} -- the row stride
+                        # is hardware-fixed -- so four frames fill one 64-tile
+                        # group exactly and the gaps around one frame are where
+                        # the next three live.
+
+# --- the SECOND OBJ name table: the HUD ------------------------------------
+# THE HUD CANNOT BE TEXT ON THIS RAIL. bg_text claims BG3SC/BG34NBA and BG3 IS
+# the divider (split_v_bg's header says so), so the life bars and the
+# round-start count are sprites. They are 16x16 -- the small half of the OBSEL
+# size pair whose large half makes the fighters 32x32 -- and they do not fit
+# beside twelve 32x32 frames in one 256-tile name table, so they get their own.
+#
+# WHAT THE ALLOCATOR CAN AND CANNOT SAY, and it is brawler_obj's finding
+# unchanged: `VramClaim.obj` is a bare bool. It aligns the claim to 8 K words
+# and emits an `_OBSEL_BASE` for it, and NOTHING in the claim vocabulary says
+# "this one is name table 0 and that one is name table 1" or checks that the
+# pair lands a legal name-select gap apart. So both bases come from the
+# allocator, the RELATIONSHIP is re-derived from the two emitted symbols in
+# split_v_obj.asm, and the build REFUSES rather than drawing garbage if a
+# future packing separates them by a distance OBSEL cannot express.
+[[claims.vram]]
+name = "hud_chr"
+kind = "chr"
+obj = true
+words = 0x400           # 64 tiles = 4 grid rows = 16 frames of 16x16
 
 [[claims.cgram]]
 name = "knight_pal_r"
@@ -52,6 +75,13 @@ at = 128                # hardware contract: OBJ palette 0 = CGRAM 128..143
 name = "knight_pal_b"
 words = 16
 at = 144                # OBJ palette 1
+
+[[claims.cgram]]
+name = "blade_pal"
+words = 16
+at = 160                # OBJ palette 2 — the blade keeps the pack's own steel
+                        # and gold on BOTH teams, rather than being recoloured
+                        # into either one
 
 # Pinned, not packed: OAM index order IS sprite-vs-sprite priority, and both
 # fighters must sit at a known index so a test can read entry 0 and entry 1
@@ -66,13 +96,50 @@ name = "fighter2"
 sprites = 1
 at = 1
 
-# The rest of the hi-table byte. Each hi-table byte covers FOUR sprites (2 bits
-# each: X9 + size), so slots 2 and 3 share a byte with the fighters and the
-# byte can only be rebuilt whole by one owner. Parked at y = $F0 offscreen.
+# The two blades, filling the rest of the fighters' hi-table byte. Each byte
+# covers FOUR sprites (2 bits each: X9 + size) and can only be rebuilt whole by
+# one owner, so this claim was two parked pads; giving them to the weapon costs
+# nothing and keeps the byte's ownership exactly as it was.
+#
+# BEHIND THE BODIES, and deliberately. OAM index order IS sprite-vs-sprite
+# priority and nothing else is (the attribute's priority bits are OBJ-vs-BG),
+# so a blade at a higher index draws behind its fighter -- which is what a
+# sword held in a hand does. The arc frames sweep well outside the 20px body,
+# so what the blade loses to the body is the grip.
 [[claims.oam]]
-name = "hi_pad"
+name = "blade"
 sprites = 2
 at = 2
+
+# --- the HUD's sprites ------------------------------------------------------
+# PINNED, like the fighters, and for the same reason: OAM index order IS
+# sprite-vs-sprite priority, and a test that reads "the left bar's third
+# segment" needs that segment to be at a known index rather than wherever a
+# clear-then-emit draw put it this frame.
+#
+# EIGHT LIFE SEGMENTS: SV_HP_MAX per fighter, both bars drawn every frame with
+# spent segments switching TILE rather than disappearing -- a bar that loses
+# cells reads as a shorter bar, not as damage.
+[[claims.oam]]
+name = "life"
+sprites = 8
+at = 4                  # fills hi-table bytes 1 and 2 exactly
+
+# The round-start count: one digit, or the five letters of FIGHT. Five sprites
+# claimed because the widest phase needs five; the digit phases park the rest.
+[[claims.oam]]
+name = "count"
+sprites = 5
+at = 12
+
+# ...and the three slots that share `count`'s second hi-table byte. Claimed for
+# the same reason hi_pad is: a byte covering four sprites can only be rebuilt
+# whole by ONE owner, and the draw rebuilds it (stomper_obj / scroller_obj's
+# argument). Parked at y = $F0 offscreen.
+[[claims.oam]]
+name = "count_pad"
+sprites = 3
+at = 17
 
 [[claims.reg]]
 name = "obj_obsel"

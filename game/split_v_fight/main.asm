@@ -74,6 +74,10 @@ sv_knight_chr_bin:
     .incbin "sv_knight_chr.bin"
 .assert ^sv_knight_chr_bin = ES_R_SV_KNIGHT_CHR_BANK, error, "sv_knight_chr bank drifted from allocator claim"
 .assert .loword(sv_knight_chr_bin) = ES_R_SV_KNIGHT_CHR_ADDR, error, "sv_knight_chr addr drifted from allocator claim"
+sv_hud_chr_bin:
+    .incbin "sv_hud_chr.bin"
+.assert ^sv_hud_chr_bin = ES_R_SV_HUD_CHR_BANK, error, "sv_hud_chr bank drifted from allocator claim"
+.assert .loword(sv_hud_chr_bin) = ES_R_SV_HUD_CHR_ADDR, error, "sv_hud_chr addr drifted from allocator claim"
 sv_stage_map_bin:
     .incbin "sv_stage_map.bin"
 .assert ^sv_stage_map_bin = ES_R_SV_STAGE_MAP_BANK, error, "sv_stage_map bank drifted from allocator claim"
@@ -90,6 +94,10 @@ sv_bevel_pal_bin:
     .incbin "sv_bevel_pal.bin"
 .assert ^sv_bevel_pal_bin = ES_R_SV_BEVEL_PAL_BANK, error, "sv_bevel_pal bank drifted from allocator claim"
 .assert .loword(sv_bevel_pal_bin) = ES_R_SV_BEVEL_PAL_ADDR, error, "sv_bevel_pal addr drifted from allocator claim"
+sv_blade_pal_bin:
+    .incbin "sv_blade_pal.bin"
+.assert ^sv_blade_pal_bin = ES_R_SV_BLADE_PAL_BANK, error, "sv_blade_pal bank drifted from allocator claim"
+.assert .loword(sv_blade_pal_bin) = ES_R_SV_BLADE_PAL_ADDR, error, "sv_blade_pal addr drifted from allocator claim"
 sv_knight_pal_b_bin:
     .incbin "sv_knight_pal_b.bin"
 .assert ^sv_knight_pal_b_bin = ES_R_SV_KNIGHT_PAL_B_BANK, error, "sv_knight_pal_b bank drifted from allocator claim"
@@ -102,6 +110,14 @@ sv_stage_pal_bin:
     .incbin "sv_stage_pal.bin"
 .assert ^sv_stage_pal_bin = ES_R_SV_STAGE_PAL_BANK, error, "sv_stage_pal bank drifted from allocator claim"
 .assert .loword(sv_stage_pal_bin) = ES_R_SV_STAGE_PAL_ADDR, error, "sv_stage_pal addr drifted from allocator claim"
+sv_anim_bin:
+    .incbin "sv_anim.bin"
+.assert ^sv_anim_bin = ES_R_SV_ANIM_BANK, error, "sv_anim bank drifted from allocator claim"
+.assert .loword(sv_anim_bin) = ES_R_SV_ANIM_ADDR, error, "sv_anim addr drifted from allocator claim"
+sv_anim_meta_bin:
+    .incbin "sv_anim_meta.bin"
+.assert ^sv_anim_meta_bin = ES_R_SV_ANIM_META_BANK, error, "sv_anim_meta bank drifted from allocator claim"
+.assert .loword(sv_anim_meta_bin) = ES_R_SV_ANIM_META_ADDR, error, "sv_anim_meta addr drifted from allocator claim"
 .segment "CODE"
 
 ; --- the scene-scoped features (after the blobs their uploads read) --------

@@ -692,9 +692,12 @@ $(SV_MAP)/engine_state_globals.inc $(SV_MAP)/symbol_map.json: \
 SV_ASSETS := $(BUILD)/assets/sv_stage_chr.bin $(BUILD)/assets/sv_stage_map.bin \
              $(BUILD)/assets/sv_stage_pal.bin $(BUILD)/assets/sv_bevel_chr.bin \
              $(BUILD)/assets/sv_bevel_pal.bin $(BUILD)/assets/sv_knight_chr.bin \
-             $(BUILD)/assets/sv_knight_pal_r.bin $(BUILD)/assets/sv_knight_pal_b.bin
+             $(BUILD)/assets/sv_knight_pal_r.bin $(BUILD)/assets/sv_knight_pal_b.bin \
+             $(BUILD)/assets/sv_hud_chr.bin $(BUILD)/assets/sv_anim.bin \
+             $(BUILD)/assets/sv_anim_meta.bin
 
 $(SV_ASSETS): tools/gen_split_v_assets.py $(wildcard vendor/art/split_v/*.bin) \
+		vendor/art/camelot/arthurPendragon_.png vendor/fonts/unscii-8.hex \
 		| $(BUILD)
 	$(PY) tools/gen_split_v_assets.py $(BUILD)/assets
 
@@ -2940,7 +2943,7 @@ MODULE  ?= tests/test_split_h_2p_sprites.py
 FALSIFY ?=
 determinism: split_h_2p_demo sh2-variants microzero hud_game scroller \
 	camera_follow maze jumper patrol sprite_game stomper scroll_run \
-	brawler split_h_matrix_demo split_h_persp3_demo \
+	brawler split_v_fight split_h_matrix_demo split_h_persp3_demo \
 	split_v_demo svd-nowin split_v_seamtrial split_h_demo shd-autodemo \
 	split_h_persp_demo shp-autodemo racer mode7_chamber railshooter \
 	m7_oshoot rpg boss boss_saucer meteor_event mode7_flight seam_irq_trial \

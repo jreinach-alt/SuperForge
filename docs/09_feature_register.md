@@ -803,8 +803,8 @@ Generated from the tree by `tools/gen_register.py`; `make register` fails when t
 | `sky_band` | **feature** | scene | `vram`&times;2, `cgram`, `rom`&times;3, `dma_init`, `reg` | &mdash; |
 | `split_band` | **feature** | scene | `hdma`&times;2, `reg` | &mdash; |
 | `split_v_bg` | **feature** | unused | `vram`&times;4, `cgram`&times;2, `dp`&times;2, `dma_init`, `reg` | `split_v_rom` |
-| `split_v_obj` | **feature** | unused | `vram`, `cgram`&times;2, `oam`&times;3, `dp`, `dma_init`, `reg` | `split_v_rom` |
-| `split_v_rom` | **blob** | unused | `rom`&times;8 | &mdash; |
+| `split_v_obj` | **feature** | unused | `vram`&times;2, `cgram`&times;3, `oam`&times;6, `dp`, `dma_init`, `reg` | `split_v_rom` |
+| `split_v_rom` | **blob** | unused | `rom`&times;12 | &mdash; |
 | `sprg_obj` | **consumer** | unused | `vram`, `cgram`, `oam`&times;3, `dma_init`, `reg` | `oam_sprites`, `sprg_rom` |
 | `sprg_rom` | **blob** | unused | `rom`&times;2 | &mdash; |
 | `sr_bg` | **feature** | unused | `vram`&times;2, `cgram`, `dp`, `dma_init`, `reg` | `sr_rom` |

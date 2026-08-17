@@ -18,7 +18,7 @@ on every recording.
 |---|---|---:|---:|---:|---:|---:|
 | `mode7_flight` | a closed circuit — a full 256 units of heading returns the world position, flown at the day/night step whose 12-step span costs least | 4.22 | 5.8% | 101.2 | 104.4 | 1,330,530 |
 | `m7_oshoot` | out and back — the pad is exactly reversible, so the take closes on the opening heading and both position words | 1.25 | 1.3% | 62.9 | 63.7 | 381,232 |
-| `split_v_fight` | the cycle itself — apart, through, apart swapped, back through, cut on the merge | 5.40 | 9.5% | 117.8 | 118.6 | 512,763 |
+| `split_v_fight` | **the round start** — the count's FIGHT beat, where `round_arm` has put both fighters back on their marks and the spread has eased to zero | 0.00 | 0.0% | 117.7 | 117.7 | 92,646 |
 | `mode7_explore` | the spawn tile — an idle capture at (258,258) facing Down, walked back to exactly | 0.00 | 0.0% | 84.0 | 84.0 | 746,911 |
 | `meteor_event` | the restored level — the event hands back a walkable Mode-1 level with the player at a fixed screen x | 3.22 | 3.3% | 23.0 | 23.0 | 60,649 |
 | `boss_saucer` | **the fade** — `su_result` runs `fade_start_out`, and the scene re-arms the same ramp behind the black | 0.00 | 0.0% | 0.0 | 0.0 | 1,045,923 |
@@ -52,14 +52,28 @@ inside the 2 MB budget rather than a loose cut:
 - **`meteor_event`** — the walk is one-way and the camera does not return, so a
   couple of platforms sit a few tiles left of where they opened. It stays small
   because the event freezes the level for most of the clip.
-- **`split_v_fight`** — the fighters cross twice per circuit and the pair's
-  midpoint drifts as they do. Measured: the take opens at
-  (spread 0, FX1 108, FX2 148) and comes back through (spread 4, 88, 136) and
-  (spread 0, 148, 46) — separation and spread return, the midpoint has walked
-  16 px left, and no capture holds all three at once. Driving for an exact
-  close ran the take to its ceiling and parked 41% of its transitions at the
-  walls, which is worse on both counts, so the clip is cut on the cycle its
-  beats already form.
+- **`split_v_fight`** — **no residual: 5.40 → 0.00, and the rail is why.** The
+  entry above used to describe one that could not be closed: the clip was a
+  camera demo whose fighters crossed twice per circuit while the pair's
+  MIDPOINT drifted, so separation and spread came round and the midpoint did
+  not, and no capture held all three at once. What changed is not the drive but
+  the ROM — the rail is a fighting game now, and a fighting game has a round.
+  `round_arm` puts both fighters back on their marks and refills both bars, so
+  a round start settles all three words at once, by construction. The cut is
+  the count's **FIGHT** beat rather than its "3": at the start of a countdown
+  the spread is whatever the KO left it at, and 96 frames later it has eased to
+  exactly zero from any value inside `SV_SPREAD_MAX`, so the two ends agree
+  about the cameras as well as the fighters.
+
+  Three things had to be true and none of them was, at first — the seam is what
+  found each one. **(1)** The blades are 32 tall and were parked at the 16-tall
+  constant; OAM y wraps mod 256, so sixteen of their rows sat at the top of the
+  screen for the whole clip (2.03 → 1.18). **(2)** The whole round has to be a
+  multiple of three frames long, because the clip samples every third one —
+  `SV_KO_LEN` carries the odd value that makes it so. **(3)** Round ONE opened
+  on marks the scene set itself (±20) while every later round used `round_arm`'s
+  (±30), so the two ends stood 10 px apart (1.18 → 0.00). All three are
+  invisible in play and none is visible to a byte assertion.
 
 ## How a take lands on its loop point
 
