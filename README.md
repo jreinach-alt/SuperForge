@@ -139,18 +139,26 @@ Depth from a decoupled pinhole (1/z) projection, explicitly *not* the Mode 7
 matrix inverse: pre-drawn size tiers and a depth-sorted OAM emit that never
 sorts.
 
-### `microzero`
+### `racer`
 
-![microzero — title, race, results, title](docs/img/gif_microzero.gif)
+![racer — a kart flat out on a streamed Mode 7 circuit](docs/img/gif_racer.gif)
 
-The smallest complete game, and the gate the whole architecture was bet on:
-title → a single-track time-trial race → results → title, one 524,288-byte ROM,
-globals surviving the scene edges and scene bytes reused across them.
+A kart on a Mode 7 perspective floor, flat out around a sixteen-corner circuit
+sixteen times the size of the VRAM window it streams through. Course and
+handling are one design: a 153 px full-speed turning circle against 232 px of
+drivable road, so every corner is takeable at the cap and none of them is free.
+The map is the collision ground truth — off the road the kart drags down to a
+crawl — and a day-night wash walks the sky and the floor. It is also the
+**channel-pressure** rail: seven of the eight HDMA channels live in one frame,
+two of those numbers shared with claims that run in VBlank.
 
 ---
 
-The other 29 games are in `game/`, and the `gates:` block of the
-[`Makefile`](Makefile) is the working inventory — every one is built and
+The other 29 games are in `game/` — among them `microzero`, the smallest
+complete game and the gate the whole architecture was bet on: title → a
+single-track time-trial race → results → title, one 524,288-byte ROM, globals
+surviving the scene edges and scene bytes reused across them. The `gates:` block
+of the [`Makefile`](Makefile) is the working inventory — every one is built and
 checked there. `make rail-registered` fails the build if a game is missing from
 any of the places it has to be named.
 

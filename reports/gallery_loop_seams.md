@@ -23,7 +23,7 @@ on every recording.
 | `meteor_event` | the restored level — the event hands back a walkable Mode-1 level with the player at a fixed screen x | 3.22 | 3.3% | 23.0 | 23.0 | 60,649 |
 | `boss_saucer` | **the fade** — `su_result` runs `fade_start_out`, and the scene re-arms the same ramp behind the black | 0.00 | 0.0% | 0.0 | 0.0 | 1,045,923 |
 | `railshooter` | the rail's own period — `rs_path` repeats every 256 frames, and a 3-frame capture grid realigns at three of them | 4.15 | 3.9% | 69.6 | 70.4 | 913,654 |
-| `microzero` | the title card — title → race → results → title, closed on purpose | 6.11 | 1.5% | 28.5 | 34.4 | 820,884 |
+| `racer` | a mark on the home straight — a flying lap comes back to it at the cap, and the grid is held until the clock puts both ends of the lap on one day-night keyframe | 2.48 | 3.0% | 92.8 | 92.7 | 524,810 |
 
 ## Where the residuals come from
 
@@ -38,9 +38,17 @@ inside the 2 MB budget rather than a loose cut:
 - **`railshooter`** — the hazard ring (`RS_OBS_GAP` = 40 frames) shares no
   useful period with the path's 256, and the two HUD counters are monotone by
   design: score climbs, lives spend down.
-- **`microzero`** — the residual *is* the claim. The clip opens on
-  `SCORE 0000 LIVES 3` and closes on `SCORE 012C LIVES 2`: globals surviving
-  the scene edges, which is what the rail exists to prove.
+- **`racer`** — the racing line is a TWO-lap limit cycle: successive arrivals
+  at the mark land 8 px apart along the track and every second one lands on the
+  same pixel, so a one-lap take cannot register the floor exactly against a
+  45 px capture lattice. What those 8 px move is the textured part of the
+  floor — the grass checker beyond the kerbs and the centre-line dashes, in the
+  far and middle bands. The sky band contributes ZERO pixels to the seam (the
+  day-night wash closes on one keyframe) and so does the near road, which is
+  why the mark sits 320 px north of the chequer rather than on it: the near
+  rows magnify about 3.3 screen px per world px, and closing on the chequer —
+  the one high-frequency thing on this circuit — measures 97.64 for the same
+  8 px of error.
 - **`meteor_event`** — the walk is one-way and the camera does not return, so a
   couple of platforms sit a few tiles left of where they opened. It stays small
   because the event freezes the level for most of the clip.
@@ -68,4 +76,6 @@ Dropping is a prefix only, so kept captures stay contiguous and `EVERY` frames
 apart, and the 1:1 real-time assertion counts every frame the take consumed,
 dropped ones included. A dropped capture pays the screenshot's frame without
 taking its picture, which is what makes a long lead-in affordable —
-`mode7_flight` waits out 577 of them for its hour.
+`mode7_flight` waits out 577 of them for its hour, and `racer` 344: the wait
+for its hour is spent stationary on the grid, and the out lap that follows is
+the ramp to the cap the loop has no way to hold.

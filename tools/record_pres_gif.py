@@ -49,7 +49,10 @@ if str(ROOT) not in sys.path:
 from tools.record_gallery_clip import record_clip, DURATION_MS  # noqa: E402
 from tools.gif_seam import seam  # noqa: E402
 
-RAILS = ("mode7_flight", "m7_oshoot", "microzero", "split_v_fight",
+# --all records the SHOWCASE. A scenario module that is not on this list is
+# still a rail and still records — `record_pres_gif.py <name>` goes straight to
+# it — it just does not ship a clip, so --all does not write one nothing cites.
+RAILS = ("mode7_flight", "m7_oshoot", "split_v_fight",
          "mode7_explore", "meteor_event", "boss_saucer", "railshooter",
          "racer")
 
