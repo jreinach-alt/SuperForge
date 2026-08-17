@@ -1426,8 +1426,11 @@ SVS_ASSETS := $(BUILD)/assets/svs_stage_chr.bin \
               $(BUILD)/assets/svs_stage_pal.bin \
               $(BUILD)/assets/svs_bevel_chr.bin \
               $(BUILD)/assets/svs_bevel_pal.bin \
+              $(BUILD)/assets/svs_pad8192.bin \
               $(BUILD)/assets/svs_pad2048.bin \
-              $(BUILD)/assets/svs_pad32.bin
+              $(BUILD)/assets/svs_pad32.bin \
+              $(BUILD)/assets/svs_pad24.bin \
+              $(BUILD)/assets/svs_pad12.bin
 
 $(SVS_ASSETS): tools/gen_seamtrial_assets.py | $(BUILD)
 	$(PY) tools/gen_seamtrial_assets.py $(BUILD)/assets

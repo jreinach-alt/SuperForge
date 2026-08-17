@@ -8,8 +8,11 @@ Emits into $(BUILD)/assets:
     svs_stage_pal.bin   16 words               BG palette 0 (only 0..7 used)
     svs_bevel_chr.bin   2 tiles x 32 B, 4bpp   the divider bar (BG3, read 2bpp)
     svs_bevel_pal.bin   16 words               BG3 2bpp palette 2 (CGRAM 8..11)
+    svs_pad8192.bin     8192 B of zero         see PADDING, below
     svs_pad2048.bin     2048 B of zero         see PADDING, below
     svs_pad32.bin       32 B of zero           see PADDING, below
+    svs_pad24.bin       24 B of zero           see PADDING, below
+    svs_pad12.bin       12 B of zero           see PADDING, below
 
 PROVENANCE. Everything here is AUTHORED from the numbers stated in this file --
 the terrain height map, the four terrain colours, and the tile-selection ladder
@@ -38,15 +41,28 @@ SPREAD_MAX is ever raised. Verified for hw = 1, 2 and 3: the rendered 3, 5 and
 7 px bars are pixel-for-pixel the source's.
 
 PADDING, and why a blob of zeroes is the honest thing here. `split_v_bg`
-declares `depends = ["split_v_rom"]`, and `split_v_rom` carries the
-`split_v_fight` FIGHTERS' three claims (`sv_knight_chr`, `sv_knight_pal_r`,
-`sv_knight_pal_b`) alongside the five stage/bevel claims `split_v_bg` actually
+declares `depends = ["split_v_rom"]`, and `split_v_rom` carries SEVEN claims
+belonging to `split_v_fight`'s fighters and HUD (`sv_knight_chr`,
+`sv_hud_chr`, `sv_knight_pal_r`, `sv_knight_pal_b`, `sv_blade_pal`, `sv_anim`,
+`sv_anim_meta`) alongside the five stage/bevel claims `split_v_bg` actually
 resolves. The dependency is coarser than the use, so composing the seam
-mechanism drags in 2112 B of fighter art this rail never uploads -- and
-`make rom-unbacked` (docs/37) correctly refuses a rom claim with no `.incbin`.
-Backing those three with ZEROES says "this rail does not use them" in the
-artifact itself; backing them with the fighter blobs would hide the coupling
-behind art that looks intentional.
+mechanism drags in 10372 B of art and animation tables this rail never uploads
+-- and `make rom-unbacked` (docs/37) correctly refuses a rom claim with no
+`.incbin`. Backing those seven with ZEROES says "this rail does not use them"
+in the artifact itself; backing them with the fighters' blobs would hide the
+coupling behind art that looks intentional.
+
+ONE PAD PER DISTINCT CLAIM SIZE, and the SIZE is the load-bearing half. The
+backing gate checks PRESENCE, not fill (allocator/no_literals.py's stated
+limit 2: it proves an `.incbin` exists and is tied to the claim, not that the
+file is the size the claim declared), so a pad SHORTER than its claim passes
+the gate and leaves the rest of a reserved window holding whatever the linker
+put there -- the exact residue that gate exists to refuse, arriving through
+the one door it cannot see. It happened: `sv_knight_chr` grew from 2048 to
+8192 B and this rail's site went on backing it with the 2048 B pad, leaving
+6144 B unwritten inside the claim. So the pad set below is keyed by SIZE, and
+claims that share a size share a blob (`sv_knight_pal_r`, `sv_knight_pal_b`
+and `sv_blade_pal` are all 32 B); claims that do not, do not.
 """
 from __future__ import annotations
 
@@ -94,6 +110,16 @@ MAP_W = MAP_H = 32
 # Tile ids in the authored CHR page.
 T_BLANK, T_SKY, T_GRASS, T_MTN, T_DIRT = 0, 1, 2, 3, 4
 T_GRASS_X, T_MTN_X, T_DIRT_X, T_SURF = 5, 6, 7, 8
+
+# --- the zero pads, keyed by the size of the claim each one backs ------------
+# See PADDING in the docstring. The set is the distinct sizes of the seven
+# claims this rail does not upload:
+#   8192  sv_knight_chr
+#   2048  sv_hud_chr
+#     32  sv_knight_pal_r, sv_knight_pal_b, sv_blade_pal
+#     24  sv_anim
+#     12  sv_anim_meta
+PAD_SIZES = (8192, 2048, 32, 24, 12)
 
 
 def solid(v):
@@ -183,9 +209,11 @@ def main():
         encode_tile_4bpp(bevel) * 2)
     (out / "svs_bevel_pal.bin").write_bytes(pal16(BEVEL_PAL))
 
-    (out / "svs_pad2048.bin").write_bytes(bytes(2048))
-    (out / "svs_pad32.bin").write_bytes(bytes(32))
-    print(f"gen_seamtrial_assets: wrote 7 blobs into {out}")
+    for n in PAD_SIZES:
+        (out / f"svs_pad{n}.bin").write_bytes(bytes(n))
+    print(f"gen_seamtrial_assets: wrote {5 + len(PAD_SIZES)} blobs into {out} "
+          f"({len(PAD_SIZES)} zero pads: "
+          + ", ".join(f"{n} B" for n in PAD_SIZES) + ")")
 
 
 if __name__ == "__main__":

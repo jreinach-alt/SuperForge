@@ -62,22 +62,43 @@ NMI:
 ; emitted claim, so a drift between the map and the tree stops the build; the
 ; PRESENCE side is `make rom-unbacked` (docs/37).
 ;
-; EIGHT CLAIMS, FIVE OF THEM THIS RAIL'S. `split_v_bg` declares
+; TWELVE CLAIMS, FIVE OF THEM THIS RAIL'S. `split_v_bg` declares
 ; `depends = ["split_v_rom"]`, and that blob carries `split_v_fight`'s FIGHTER
-; art next to the stage and bevel this rail uploads. The dependency is coarser
-; than the use. The three fighter claims are therefore backed by ZERO blobs --
-; `svs_pad2048.bin` / `svs_pad32.bin`, generated as zeroes on purpose. Backing
-; them with the fighters' real art would have satisfied the gate while hiding
-; the coupling behind bytes that look intentional; zeroes say what is true,
-; which is that this rail never reads them.
+; art, its HUD sheet and its animation tables next to the stage and bevel this
+; rail uploads. The dependency is coarser than the use. The seven claims this
+; rail never reads are therefore backed by ZERO blobs -- the `svs_pad*.bin`
+; set, generated as zeroes on purpose. Backing them with the fighters' real
+; art would have satisfied the gate while hiding the coupling behind bytes that
+; look intentional; zeroes say what is true, which is that this rail never
+; reads them.
+;
+; EACH PAD IS THE SIZE OF THE CLAIM IT BACKS, and that is not cosmetic. The
+; backing gate checks PRESENCE, not fill (docs/37 §5's second limit), so a pad
+; SHORTER than its claim satisfies it while the rest of a reserved window holds
+; whatever the linker left -- the residue that gate exists to refuse, arriving
+; through the one door it cannot see. It happened: `sv_knight_chr` grew
+; 2048 -> 8192 B and this site went on backing it with the 2048 B pad.
+;
+; What catches a short pad is the NEXT site's addr `.assert`, not the short
+; site's own -- everything after it slides early. MEASURED, by re-shortening
+; this first pad on the finished file: `ld65: Error: main.asm(93): sv_hud_chr
+; addr drifted from allocator claim`, while the same run's backing pass still
+; reported all twelve claims backed. So the two checks are complementary and
+; neither is redundant: presence comes from the gate, extent from the chain of
+; asserts -- and the chain only holds while every claim in the packing has a
+; site here.
 ;
 ; Order follows the allocator's own packing (largest-first from window 1), so
 ; the .asserts below are a check rather than a coincidence.
 .segment "BANK1"
 sv_knight_chr_bin:
-    .incbin "svs_pad2048.bin"
+    .incbin "svs_pad8192.bin"
 .assert ^sv_knight_chr_bin = ES_R_SV_KNIGHT_CHR_BANK, error, "sv_knight_chr bank drifted from allocator claim"
 .assert .loword(sv_knight_chr_bin) = ES_R_SV_KNIGHT_CHR_ADDR, error, "sv_knight_chr addr drifted from allocator claim"
+sv_hud_chr_bin:
+    .incbin "svs_pad2048.bin"
+.assert ^sv_hud_chr_bin = ES_R_SV_HUD_CHR_BANK, error, "sv_hud_chr bank drifted from allocator claim"
+.assert .loword(sv_hud_chr_bin) = ES_R_SV_HUD_CHR_ADDR, error, "sv_hud_chr addr drifted from allocator claim"
 sv_stage_map_bin:
     .incbin "svs_stage_map.bin"
 .assert ^sv_stage_map_bin = ES_R_SV_STAGE_MAP_BANK, error, "sv_stage_map bank drifted from allocator claim"
@@ -94,6 +115,10 @@ sv_bevel_pal_bin:
     .incbin "svs_bevel_pal.bin"
 .assert ^sv_bevel_pal_bin = ES_R_SV_BEVEL_PAL_BANK, error, "sv_bevel_pal bank drifted from allocator claim"
 .assert .loword(sv_bevel_pal_bin) = ES_R_SV_BEVEL_PAL_ADDR, error, "sv_bevel_pal addr drifted from allocator claim"
+sv_blade_pal_bin:
+    .incbin "svs_pad32.bin"
+.assert ^sv_blade_pal_bin = ES_R_SV_BLADE_PAL_BANK, error, "sv_blade_pal bank drifted from allocator claim"
+.assert .loword(sv_blade_pal_bin) = ES_R_SV_BLADE_PAL_ADDR, error, "sv_blade_pal addr drifted from allocator claim"
 sv_knight_pal_b_bin:
     .incbin "svs_pad32.bin"
 .assert ^sv_knight_pal_b_bin = ES_R_SV_KNIGHT_PAL_B_BANK, error, "sv_knight_pal_b bank drifted from allocator claim"
@@ -106,6 +131,14 @@ sv_stage_pal_bin:
     .incbin "svs_stage_pal.bin"
 .assert ^sv_stage_pal_bin = ES_R_SV_STAGE_PAL_BANK, error, "sv_stage_pal bank drifted from allocator claim"
 .assert .loword(sv_stage_pal_bin) = ES_R_SV_STAGE_PAL_ADDR, error, "sv_stage_pal addr drifted from allocator claim"
+sv_anim_bin:
+    .incbin "svs_pad24.bin"
+.assert ^sv_anim_bin = ES_R_SV_ANIM_BANK, error, "sv_anim bank drifted from allocator claim"
+.assert .loword(sv_anim_bin) = ES_R_SV_ANIM_ADDR, error, "sv_anim addr drifted from allocator claim"
+sv_anim_meta_bin:
+    .incbin "svs_pad12.bin"
+.assert ^sv_anim_meta_bin = ES_R_SV_ANIM_META_BANK, error, "sv_anim_meta bank drifted from allocator claim"
+.assert .loword(sv_anim_meta_bin) = ES_R_SV_ANIM_META_ADDR, error, "sv_anim_meta addr drifted from allocator claim"
 .segment "CODE"
 
 ; --- the scene-scoped feature (after the blobs its uploads read) -----------

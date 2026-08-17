@@ -34,9 +34,12 @@
 #   bg_text        -- claims BG3SC/BG34NBA, and BG3 here is the divider.
 #
 # split_v_rom arrives whether or not it is asked for: split_v_bg declares
-# `depends = ["split_v_rom"]`, and that blob carries the FIGHTERS' three claims
-# next to the five the stage and bevel need. Those three are backed by zero
-# blobs here, which is the honest way to say a rail does not use them.
+# `depends = ["split_v_rom"]`, and that blob carries SEVEN claims belonging to
+# the fighters, their HUD and their animation tables -- sv_knight_chr,
+# sv_hud_chr, sv_knight_pal_r, sv_knight_pal_b, sv_blade_pal, sv_anim,
+# sv_anim_meta -- next to the five the stage and bevel need. Those seven are
+# backed by zero blobs here, each one sized to its claim, which is the honest
+# way to say a rail does not use them.
 globals = ["scene_mgr", "fade", "enter_scr", "split_v_rom"]
 
 [[scene]]
