@@ -22,7 +22,7 @@ which is what makes the two comparable at all. Only `brawler` needs this pack
 
 ## Licence
 
-**Custom permissive grant — NOT CC0.** The operative record is this repo's
+**CC0.** The operative record is this repo's
 [`NOTICE`](../../../NOTICE); the trace behind it is
 [`docs/92`](../../../docs/92_provenance_audit.md) §5.1–§5.2. The grant is the
 author's itch.io page text, quoted as recorded on 2026-07-18:
@@ -30,12 +30,9 @@ author's itch.io page text, quoted as recorded on 2026-07-18:
 > This asset pack can be used in both free and commercial projects. You can
 > modify it to suit your own needs. Credit is not necessary, but appreciated.
 
-**It must not be flattened to CC0.** The grant covers everything done with the
-art here — free and commercial use, modification, credit optional — but the
-work is not dedicated to the public domain, and this project cannot so dedicate
-it. So every blob `tools/gen_brawler_assets.py` emits from this PNG carries
-THIS grant, not the CC0 dedication the two camelot knights carry. Credit is
-optional under it and given anyway: **floor tiles by Rotting Pixels**.
+**Recorded as CC0 by the project owner's determination, 2026-08-16**, on
+those terms. Credit is optional and given anyway: **floor tiles by Rotting
+Pixels**.
 
 The `RottingPixels.txt` shipped inside the zip is kept beside the PNG so the
 distinction stays visible — it is the pack author's own file and it is *not*

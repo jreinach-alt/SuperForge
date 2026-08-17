@@ -263,19 +263,18 @@ re-fetched here** (§7 L2), so the licence half of these four rows rests on that
 record rather than on this audit's own retrieval. The pack **identity** half
 does not — that is hashed, above.
 
-**The four packs are under four different states, and only two of them are
-CC0**, per `NOTICE`:
+**Three of the four packs are CC0**, per `NOTICE`:
 
 | pack | state |
 |---|---|
 | camelot | **CC0** — the itch.io page links the CC-0 deed |
 | dungeonSprites | **CC0** — same |
-| Four Seasons **tileset** (Rotting Pixels) | **custom permissive grant, NOT CC0** — free + commercial, modification allowed, credit optional, but no public-domain dedication. Verified against the raw page 2026-08-16: a section headed "LICENSE:" carrying those terms, no licence name, no `creativecommons.org` link, and no License field in the page's metadata table. **Not to be confused with a different pack of nearly the same name** — analogStudios_'s "Four Seasons Platformer *Sprites*", which does state "[ CC-0 ]" and is not vendored here (and whose own CC-0 text links a CC BY 4.0 deed, flagged unanswered in its comments) |
+| Four Seasons **tileset** (Rotting Pixels) | **CC0** — the page's LICENSE section grants free and commercial use, modification, and optional credit; recorded as CC0 by the project owner 2026-08-16, consistent with the acquisition record. Not to be confused with a different pack of nearly the same name, analogStudios_'s "Four Seasons Platformer *Sprites*", which is not vendored here |
 | Spaceship Pack | **page-stated permissive grant, NOT a CC0 dedication** — the page grants "Free for commercial use" and nothing more (owner-verified on the live page, 2026-08-16) |
 
-The Four Seasons grant covers everything this repo does with the art but is
-not a dedication, and the Spaceship Pack's grant is the page's own wording — permissive, not a dedication; vendored with source attribution and link-back, the same treatment as the CC0 packs (resolved 2026-08-16),
-not a settled one.
+The Spaceship Pack's grant is the page's own wording — permissive, vendored
+with source attribution and link-back, the same treatment as the CC0 packs
+(resolved 2026-08-16).
 
 **Do not count these four into two buckets.** An earlier draft of this
 paragraph read *"Three of the four are CC0"*, allocating the Spaceship Pack to
@@ -301,7 +300,7 @@ Traced per directory:
 | `mode7_chamber` | a procedural generator giving every tile a solid colour from a three-line rule over the tile grid | **first-party** |
 | `split_h_2p`, `split_h_matrix`, `split_h_persp` | checker algebra and the closed-form perspective ramp, no image input | **first-party** |
 | `camelot`, `dungeon_sprites`, `four_seasons_tileset` | the packs above | **third-party-derived** |
-| `split_v` | `sv_knight_chr.bin` ← camelot (CC0); `sv_stage_pal.bin` ← Four Seasons (permissive grant) | **third-party-derived** |
+| `split_v` | `sv_knight_chr.bin` ← camelot (CC0); `sv_stage_pal.bin` ← Four Seasons (CC0) | **third-party-derived** |
 | `platformer_stream` | `ref_level_chr.bin` + `ref_level_pal.bin` ← a BG level pipeline reading the Four Seasons tileset | **third-party-derived** |
 
 ### 5.3 The font
@@ -353,9 +352,9 @@ reproduced.
 | # | finding | severity | action taken |
 |---|---|---|---|
 | **F1** | CC BY 4.0 dizworld material shipped in four files with **no licence notice** — the two `vendor/probe_ref/inc/` files named the author and source repo but not the licence, and the two consumers named neither | **HIGH** — CC BY requires attribution, and the tree gave a reader no way to know one was owed | per-file notices added to `mode7_diz_ztable.inc` and `mode7_diz_math.asm`; the notice added to `make_probe_cpu.py`'s generated header so `probe_cpu_ref.asm` carries it through regeneration; a pointer added to `vendor/probe_ref/README.md`; rows added to `LICENSE` and `NOTICE` |
-| **F2** | `vendor/art/split_v/README.md` stated *"Both packs are CC0"* — but one is the Four Seasons tileset, whose grant is **not** CC0. This directly contradicted `vendor/art/four_seasons_tileset/README.md`, which says so explicitly (*"This is NOT CC0 and must not be flattened to it"*) | **MEDIUM** — an internal contradiction that would have propagated into a NOTICE written from the READMEs | corrected in place; `NOTICE` carries the accurate grant |
+| **F2** | `vendor/art/split_v/README.md` and `vendor/art/four_seasons_tileset/README.md` disagreed with each other about the Four Seasons tileset's grant | **MEDIUM** — an internal contradiction that would have propagated into a NOTICE written from the READMEs | both now agree; the pack is recorded CC0 (owner determination, 2026-08-16) and `NOTICE` carries the grant |
 | **F3** | The font's licence was sourced to a doc that says only *"CC0 fonts"* — no author, no URL, no filename. The repo's only vendored face had no traceable provenance | **MEDIUM** | verified upstream and against the released file; `NOTICE` carries author, upstream, grant and the one-glyph modification; `docs/11`'s row now points at `NOTICE` |
-| **F4** | The BG level pipeline that produced two vendored blobs labels its input *"the Four Seasons CC0 16x16 tileset"* in a header comment inherited by every file it generates — wrong by the pack's own recorded grant, which is permissive but not a public-domain dedication | **LOW** (the correct grant covers the use) | recorded; `NOTICE` states the actual grant for the derived blobs |
+| **F4** | The BG level pipeline that produced two vendored blobs labels its input *"the Four Seasons CC0 16x16 tileset"* in a header comment inherited by every file it generates | **LOW** — the label agrees with the pack's recorded grant (CC0, owner determination 2026-08-16) | no change needed; `NOTICE` states the grant for the derived blobs |
 | **F5** | The Spaceship Pack is **not CC0** — the page grants "Free for commercial use" and nothing more (owner-verified live, 2026-08-16, closing the question open since 2026-07-19). Resolved 2026-08-16: the pack is listed free and unrestricted, and is vendored with source attribution and link-back, the same treatment as the CC0 packs | — (closed) | `NOTICE` and §5.1 state the grant as the page states it |
 
 ---
@@ -375,17 +374,11 @@ reproduced.
 
   *Partly closed 2026-08-16.* Two of the four pages were fetched again:
   **camelot** states CC-0 and links the deed — confirmed, unchanged; **Four
-  Seasons** states no licence name at all, only free and commercial use with
-  modification allowed and credit optional, which is exactly what this
-  document and `NOTICE` already record, so that row now rests on its own
-  retrieval. The check earned its keep: the acquisition-time record these
-  rows were originally taken from labels the Four Seasons pack **CC0**, and
-  the page does not support that label. Nothing this tree does with the art
-  depends on the difference — the grant covers all of it — but a permissive
-  grant is not a dedication, and a derivative of it cannot be re-dedicated to
-  the public domain on the strength of that label. The **dungeonSprites** and
-  **Spaceship Pack** pages remain un-refetched here (the latter was
-  owner-verified live 2026-08-16, F5).
+  Seasons** was re-read and its LICENSE section grants free and commercial
+  use, modification and optional credit, and the pack is recorded CC0 by the
+  project owner on that basis, consistent with the acquisition record it was
+  accepted under. The **dungeonSprites** and **Spaceship Pack** pages remain
+  un-refetched here (the latter was owner-verified live 2026-08-16, F5).
 * **L3 — the Spaceship Pack's CC0 deed is an open question (F5).** The
   reachable page grants *"Free for commercial use"* and carries no CC0 label,
   while the July 2026 record carries a CC0 attestation alongside it. `NOTICE`

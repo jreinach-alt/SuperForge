@@ -205,9 +205,8 @@ characters" (`tools/gen_platformer_assets.py`, in its own header).
 3. **The grant, read at its primary source** and recorded in `NOTICE` — a
    licence file sitting beside an asset is a claim, not evidence (NOTICE's
    own header), so no row rests on one alone. The recorded grants are exact,
-   never flattened: camelot and dungeonSprites are CC0; the Four Seasons
-   tileset is a custom permissive grant that is **not** CC0 and must not be
-   called CC0; the Spaceship Pack is a page-stated "free for commercial
+   never flattened: camelot, dungeonSprites and the Four Seasons tileset
+   are CC0; the Spaceship Pack is a page-stated "free for commercial
    use"; dizworld is CC BY 4.0 with attribution required — and reaches only
    the CPU-probe ROMs, never a game.
 4. **A per-pack README** stating what each file is and what the generator
