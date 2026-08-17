@@ -18,7 +18,7 @@ on every recording.
 |---|---|---:|---:|---:|---:|---:|
 | `mode7_flight` | a closed circuit — a full 256 units of heading returns the world position, flown at the day/night step whose 12-step span costs least | 4.22 | 5.8% | 101.2 | 104.4 | 1,330,530 |
 | `m7_oshoot` | out and back — the pad is exactly reversible, so the take closes on the opening heading and both position words | 1.25 | 1.3% | 62.9 | 63.7 | 381,232 |
-| `split_v_fight` | **the round start** — the count's FIGHT beat, where `round_arm` has put both fighters back on their marks and the spread has eased to zero | 0.00 | 0.0% | 117.7 | 117.7 | 92,646 |
+| `split_v_fight` | **the round start** — the count's FIGHT beat, where `round_arm` has put both fighters back on their marks and the spread has eased to zero | 0.00 | 0.0% | 104.3 | 104.3 | 258,718 |
 | `mode7_explore` | the spawn tile — an idle capture at (258,258) facing Down, walked back to exactly | 0.00 | 0.0% | 84.0 | 84.0 | 746,911 |
 | `meteor_event` | the restored level — the event hands back a walkable Mode-1 level with the player at a fixed screen x | 3.22 | 3.3% | 23.0 | 23.0 | 60,649 |
 | `boss_saucer` | **the fade** — `su_result` runs `fade_start_out`, and the scene re-arms the same ramp behind the black | 0.00 | 0.0% | 0.0 | 0.0 | 1,045,923 |
@@ -74,6 +74,15 @@ inside the 2 MB budget rather than a loose cut:
   on marks the scene set itself (±20) while every later round used `round_arm`'s
   (±30), so the two ends stood 10 px apart (1.18 → 0.00). All three are
   invisible in play and none is visible to a byte assertion.
+
+  The take has since grown a break-apart and a close-in beat — the fighters
+  back off to the arena walls until the ROM reports the spread eased to its
+  plateau, then walk back in — which is what makes the divider open and shut
+  on camera instead of sitting at zero width for the whole clip. It roughly
+  tripled the file (92,646 → 258,718 B, still an eighth of the budget) and did
+  **not** move the seam: point (2) above is why it could not, since every beat
+  the drive adds is a whole number of 3-frame captures and the round's own
+  length is unchanged.
 
 ## How a take lands on its loop point
 

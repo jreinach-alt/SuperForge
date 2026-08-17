@@ -141,6 +141,36 @@ def _dominant(img, x0, x1, y0, y1, n=6):
     ).most_common(n)]
 
 
+def _bevel_tones():
+    """The divider's rendered tones, DERIVED from the blob the ROM ships.
+
+    Restating them here as three literals would be a second source of truth
+    for a value the bevel has already been shipped wrong twice (see
+    test_the_divider_tones_match_the_SOURCE_RAILS_published_render), so they
+    are read out of `sv_bevel_pal.bin` instead. CGRAM stores 5 bits per
+    channel and the expansion back to 8 is BIT REPLICATION, not a shift —
+    tests/test_breaker.py's recorded arithmetic.
+
+    Index 0 is dropped: for a layer it means transparent, so it is never a
+    tone the divider draws. The remaining three are NEUTRAL GREYS, and no
+    entry of the stage ramp, either team palette or the blade's is neutral —
+    which is what makes "a bevel tone is on screen" a sound detector for the
+    divider rather than a proxy for it.
+    """
+    blob = (BUILD / "assets" / "sv_bevel_pal.bin").read_bytes()
+    tones = set()
+    for i in range(1, 4):
+        w = blob[i * 2] | (blob[i * 2 + 1] << 8)
+        tones.add(tuple((c << 3) | (c >> 2)
+                        for c in (w & 31, (w >> 5) & 31, (w >> 10) & 31)))
+    return tones
+
+
+#: The seam band, wide enough to hold the divider at its widest (hw = 3, so
+#: x 125..131) with a pixel of margin either side.
+SEAM_BAND = range(CENTRE - 4, CENTRE + 5)
+
+
 # ---------------------------------------------------------------------------
 # THE HEADLINE CLAIM: a merged split view IS a no-split view
 # ---------------------------------------------------------------------------
@@ -217,13 +247,40 @@ def test_the_divider_is_ABSENT_at_merge(runner, tmp_path):
     right 0) so the PPU treats window 2 as inactive. Get that wrong — clamp hw
     to a minimum of 1, say — and the divider becomes a permanent 3px scar down
     the middle of a merged view. This is the assertion that catches it.
+
+    IT ASKS ABOUT THE BEVEL'S OWN TONES, not about the seam column matching a
+    neighbouring one. The earlier form compared x = 128 against x = 88 and
+    required them equal, which was only ever true because the stage was flat
+    sky down to the floor: it read "the divider is gone" out of "the backdrop
+    is featureless", and a stage with a skyline in it — which is the only kind
+    that can SHOW this rail's divergence — breaks it while the divider is
+    perfectly correct. The three bevel greys appear nowhere else in this ROM's
+    palettes, so scanning the whole band for them is both narrower in what it
+    assumes and wider in what it covers.
+
+    ...WITH THE POSITIVE CONTROL IN THE SAME CASE. "No bevel tone found" also
+    passes when the tone list is wrong, so the identical scan has to FIND the
+    divider on the split build before its silence on the merged one means
+    anything.
     """
+    tones = _bevel_tones()
+    rows = range(40, 160)
+
+    split = _shot(runner, "sv_hold_split", tmp_path / "merge_ctl.png")
+    control = [(x, y) for x in SEAM_BAND for y in rows
+               if split.getpixel((x, y)) in tones]
+    assert len(control) > 200, (
+        f"only {len(control)} bevel-toned pixels in the seam band of the "
+        f"SPLIT build — the tone list {sorted(tones)} does not describe the "
+        "divider, so this case cannot detect one")
+
     merged = _shot(runner, "sv_hold_merge", tmp_path / "merge_bar.png")
-    seam = [merged.getpixel((CENTRE, y)) for y in range(40, 160)]
-    sky = [merged.getpixel((CENTRE - 40, y)) for y in range(40, 160)]
-    assert seam == sky, (
-        "the seam column differs from plain sky in the MERGED view — the "
-        "divider band did not ramp out, so the merge is not seamless")
+    lit = [(x, y) for x in SEAM_BAND for y in rows
+           if merged.getpixel((x, y)) in tones]
+    assert not lit, (
+        f"{len(lit)} bevel-toned pixel(s) in the seam band of the MERGED "
+        f"view, first at {lit[:5]} — the divider band did not ramp out, so "
+        "the merge is not seamless")
 
 
 # ---------------------------------------------------------------------------
@@ -285,45 +342,80 @@ def test_the_fighters_feet_sit_ON_the_grass(runner, tmp_path):
     floating-feet defect, which a y-register assertion cannot see because the
     OAM y would be exactly what the code intended.
 
-    THE SURFACE IS FOUND, NOT COMPUTED. Mesen captures 239 lines (the overscan
-    frame), not the 224-line active area, so a screen row derived from
-    `tilemap_row * 8` is off by the capture's own offset — which is a property
-    of the harness, not of the ROM. Deriving the surface from the frame keeps
-    the assertion about the thing it claims: the feet rest on the ground,
-    wherever the ground turns out to be drawn.
+    THE SURFACE IS FOUND *AND* COMPUTED, and the case requires the two answers
+    to agree. Mesen captures 239 lines (the overscan frame), not the 224-line
+    active area, so a screen row derived from `tilemap_row * 8` is off by the
+    capture's own offset — a property of the harness, not of the ROM. That
+    offset is `tests/frame_geometry.py`'s subject and it is measured there, so
+    the row the rail DECLARES its surface at can be predicted: png_row(176 - 1).
+
+    An earlier form found the surface instead, as "the first row of this
+    column band with no sky left in it", and needed no geometry at all. It was
+    right for a stage that was flat sky all the way down to the floor and is
+    wrong for one with a skyline: the first sky-free row in a fighter's column
+    is now the TREELINE, sixty rows too high. Two shapes before that were also
+    wrong (a full-width tone list picked up the DIVIDER; a tone list sampled
+    deep at the bottom saw only DIRT and reported a 4px gap under a sprite that
+    was resting correctly), which is three finders for one row. The row is
+    declared in game/split_v_fight/split_v.inc; predicting it and then
+    CHECKING the prediction against the picture is both stronger and stable
+    under the art.
     """
     img = _shot(runner, "sv_hold_split", tmp_path / "feet.png")
-    x0, x1 = 56, 80                     # the left fighter's column band
+    black = (0, 0, 0)
+    cols = range(0, SCREEN_W, 4)
 
-    # THE GROUND TOP IS WHERE THE SKY STOPS, not where a known ground tone
-    # starts. Two earlier shapes of this check were wrong in opposite ways: a
-    # tone list sampled across the full screen width picked up the DIVIDER, so
-    # a bevel palette change moved the answer; a tone list sampled deep at the
-    # bottom of the frame saw only DIRT, and so skipped the grass lip and
-    # blades above it and reported a 4px gap under a sprite that was resting
-    # correctly. "No sky in this column" needs no tone list at all.
-    # ...and the scan starts BELOW the first sky row, because Mesen's 239-line
-    # capture has black overscan borders at the top: row 0 contains no sky
-    # either, and a naive first-no-sky scan answers 0.
-    sky = Counter(img.getpixel((x, 60)) for x in range(x0, x1)).most_common(1)[0][0]
-    first_sky = next((y for y in range(img.height)
-                      if any(img.getpixel((x, y)) == sky for x in range(x0, x1))),
-                     None)
-    assert first_sky is not None, "no sky in the column band at all"
-    top = next((y for y in range(first_sky, img.height)
-                if all(img.getpixel((x, y)) != sky for x in range(x0, x1))),
-               None)
-    assert top is not None, "the column band never stops being sky"
+    # frame_geometry's constants are SHARED, not thereby TRUE — its own header
+    # asks every module that uses them to re-assert them from the picture. The
+    # active area starts at PICTURE_TOP: the row above it is the capture's
+    # black overscan border, and the row at it is not.
+    assert all(img.getpixel((x, PICTURE_TOP - 1)) == black for x in cols), \
+        "png row PICTURE_TOP-1 is not black overscan — the frame geometry moved"
+    assert any(img.getpixel((x, PICTURE_TOP)) != black for x in cols), \
+        "png row PICTURE_TOP is still black — the frame geometry moved"
 
-    reds = [y for y in range(img.height)
-            if any(img.getpixel((x, y)) == RED_TEAM for x in range(x0, x1))]
-    assert reds, "no fighter pixels in the left column band"
-    assert reds[-1] < top, (
-        f"fighter pixels reach row {reds[-1]}, at or below the ground top "
-        f"({top}) — the sprite is embedded in the floor")
-    assert top - reds[-1] <= 2, (
-        f"the fighter's lowest pixel is row {reds[-1]} but the ground starts "
-        f"at {top} — a {top - reds[-1] - 1}px gap; the sprite is floating")
+    # ...and the predicted surface row must BE the surface in the picture. The
+    # floor's lip tile draws its top row entirely in the ramp's darkest entry
+    # (grass_tile: `t[0][x] = OUTLINE` for every x) and every column of
+    # FLOOR_ROW is a lip tile, so the top of the ground is a RUN of that tone
+    # right across the picture. The backdrop above it is a 1px checker of the
+    # same tone against a lighter one, so it never produces a run.
+    #
+    # A RUN, NOT A COUNT, and the difference is a bug this case had for one
+    # revision: counting matching samples on a stride-4 grid samples only even
+    # columns, and half of a (x+y)&1 checker is entirely one tone at even x —
+    # so the checker row above the floor scored 57/64 and read as solid.
+    # Adjacent-pair runs cannot alias that way at any stride.
+    def run(y):
+        return sum(1 for x in range(SCREEN_W - 1)
+                   if img.getpixel((x, y)) == lip
+                   and img.getpixel((x + 1, y)) == lip)
+
+    ground = png_row(SURFACE_TOP - REAL_Y_BIAS)
+    lip = (49, 41, 41)                  # the stage ramp's OUTLINE, as rendered
+    assert run(ground) > SCREEN_W * 0.7, (
+        f"the predicted surface row {ground} holds only {run(ground)} adjacent "
+        f"pairs of the top-of-ground tone — the declared floor row and the "
+        f"picture disagree")
+    assert run(ground - 1) < SCREEN_W * 0.1, (
+        f"the row above the predicted surface holds {run(ground - 1)} of them "
+        f"too — this is not an edge, so the prediction landed inside something "
+        f"rather than on the top of the ground")
+
+    # BOTH fighters, because an anchor bug that only hits one side is exactly
+    # what a single-column check cannot see.
+    for name, x0, x1, team in (("left", 32, 108, RED_TEAM),
+                               ("right", 148, 224, BLUE_TEAM)):
+        rows = [y for y in range(img.height)
+                if any(img.getpixel((x, y)) == team for x in range(x0, x1))]
+        assert rows, f"no {name} fighter pixels in its column band"
+        assert rows[-1] < ground, (
+            f"{name} fighter pixels reach row {rows[-1]}, at or below the "
+            f"ground top ({ground}) — the sprite is embedded in the floor")
+        assert ground - rows[-1] <= 2, (
+            f"the {name} fighter's lowest pixel is row {rows[-1]} but the "
+            f"ground starts at {ground} — a {ground - rows[-1] - 1}px gap; "
+            f"the sprite is floating")
 
 
 # ---------------------------------------------------------------------------
@@ -439,6 +531,15 @@ def test_the_autodemo_walks_the_WHOLE_cycle(runner, tmp_path):
 
     Sampling one frame would pass on a ROM whose divider never retracts, or
     whose fighters never cross — both of which look fine in a still.
+
+    MERGED AND SPLIT ARE READ OFF THE DIVIDER'S OWN TONES. They used to be
+    read off "is the seam column the same colour as a point 48px to its left",
+    which answers the question only while the backdrop is featureless: over a
+    stage with a skyline the two columns differ wherever the terrain does, and
+    the verdict then depends on where the demo's camera happened to be at the
+    sampled instant rather than on whether a divider was drawn. It passed that
+    way on the first build of this stage, which is the reason to replace it
+    rather than to leave it green.
     """
     # An absolute start frame plus an exact 12-frame step per sample means
     # this walks the SAME 40 instants of the demo on every host. Under the
@@ -447,6 +548,7 @@ def test_the_autodemo_walks_the_WHOLE_cycle(runner, tmp_path):
     # "the fighters swapped sides") are exactly the shape that passes or
     # fails on which instants were sampled.
     runner.boot_to_frame(str(BUILD / "sv_autodemo.sfc"), 120)
+    tones = _bevel_tones()
     seen_merged = seen_split = False
     orders = set()
     for i in range(40):
@@ -454,12 +556,12 @@ def test_the_autodemo_walks_the_WHOLE_cycle(runner, tmp_path):
         p = tmp_path / f"demo_{i:02d}.png"
         runner.take_screenshot(str(p))
         img = Image.open(p).convert("RGB")
-        sky = img.getpixel((CENTRE - 48, 60))
-        seam = [img.getpixel((CENTRE, y)) for y in range(50, 120)]
-        if all(c == sky for c in seam):
-            seen_merged = True
-        elif any(c != sky for c in seam):
+        bar = [(x, y) for x in SEAM_BAND for y in range(60, 140)
+               if img.getpixel((x, y)) in tones]
+        if bar:
             seen_split = True
+        else:
+            seen_merged = True
         left = _dominant(img, 8, SCREEN_W // 2 - 8, 150, 190, n=8)
         right = _dominant(img, SCREEN_W // 2 + 8, SCREEN_W - 8, 150, 190, n=8)
         if RED_TEAM in left and BLUE_TEAM in right:
@@ -607,7 +709,7 @@ def test_the_divider_tones_match_the_SOURCE_RAILS_published_render(runner, tmp_p
 # ineffective (mesen_runner.set_input's own second trap). Mixing the two
 # harnesses in one module is the shape test_seam_irq_trial already ships.
 from machine import Machine  # noqa: E402
-from frame_geometry import PICTURE_TOP, png_row  # noqa: E402
+from frame_geometry import PICTURE_TOP, REAL_Y_BIAS, png_row  # noqa: E402
 
 # The rail's declared fight shape, restated as an ORACLE — deliberately
 # independent of the ROM, exactly like the geometry block at the top.

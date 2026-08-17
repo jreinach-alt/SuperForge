@@ -11,10 +11,9 @@
 # streaming whatever the linker left there -- and it is now a build refusal.
 #
 # The blobs come from tools/gen_split_v_assets.py. Two of them (sv_stage_pal,
-# sv_knight_chr) are derived from third-party art packs -- under two DIFFERENT
-# grants, only one of which is CC0; see NOTICE -- and vendored under
-# vendor/art/split_v for bare runners; the rest are authored. See that
-# generator's header for provenance.
+# sv_knight_chr) are derived from third-party art packs -- both CC0; see
+# NOTICE -- and vendored under vendor/art/split_v for bare runners; the rest
+# are authored. See that generator's header for provenance.
 name = "split_v_rom"
 role = "blob"
 

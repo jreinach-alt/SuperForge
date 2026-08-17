@@ -1,19 +1,25 @@
 """split_v_fight — a round of the fight, cut on the round start.
 
-THE CLAIM IS STILL THE SPLIT, and it is still a claim about CONTINUITY that a
-still cannot make: the two half-cameras diverge continuously from the fighter
-separation, so at zero separation the halves are pixel-identical and the
-ever-present seam is invisible, and a beveled BG3 bar grows from ZERO width as
-they part. What has changed is that the fighters now have a REASON to separate
-and close, so the clip shows the mechanism being driven by a game rather than
-by a demo walking wall to wall.
+THE CLAIM IS THE SPLIT, and it is a claim about CONTINUITY that a still cannot
+make: the two half-cameras diverge continuously from the fighter separation, so
+at zero separation the halves are pixel-identical and the ever-present seam is
+invisible, and a beveled BG3 bar grows from ZERO width as they part. The round
+below is shaped so that a viewer watches that happen once in each direction,
+before any punch is thrown:
 
     FIGHT       the count's last beat, both fighters on their marks, the view
                 merged and the divider nowhere
-    closing     they walk together — the split at its narrowest
+    breaking    they back away to the arena walls — the divider opens from
+                nothing, and the two halves pull apart onto different stretches
+                of the stage
+    wide        held at full separation, where the ridge and the treeline on
+                one side of the bar plainly do not join the ones on the other
+    closing     they walk back together — the divider narrows to nothing and
+                the two halves re-join into one continuous picture
     trading     swings land, the pack's own blade sweeps, life bars empty a
-                segment at a time; the knockback throws them apart and the
-                divider opens with the distance
+                segment at a time — all of it inside melee range, so the view
+                stays merged and the seam stays invisible, which is the other
+                half of the same claim
     a dodge     one hops a swing, which is the vertical gate the jump exists
                 for
     KO          a bar empties, the loser plays the pack's death frame and the
@@ -21,25 +27,39 @@ by a demo walking wall to wall.
     3 2 1       the next round counts in over a merged view
     FIGHT       ...and the take closes on that beat
 
-THE LOOP POINT IS THE ROUND START, and it is the thing this rail did not have.
-The previous cut measured seam 5.40 / 9.5% of pixels, and it could not do
-better: its fighters crossed twice per circuit and the pair's MIDPOINT drifted
-as they did, so no capture held separation, spread and midpoint at once. A
-round start settles all three at once, by construction — `round_arm` puts both
-fighters back on their marks and refills both bars — which is why the drive
-brackets on it rather than on a pose it has to fly back to.
+THE OPEN AND THE CLOSE ARE THE POINT, and the drive did not used to have them.
+It walked the fighters straight into melee range and kept them there, and
+MEASURED over the whole live round that gap stays between 26 and 44 px — which
+is far inside SV_MERGE_DX (128), so the spread target clamps to exactly ZERO
+and the divider is not merely thin, it is absent. The old clip showed a fight
+on a shared screen and never once showed the mechanism the rail exists for.
+Nor could the knockback rescue it: SV_KNOCKBACK is 12 px against the 84 px the
+pair would have to gain to reach the merge distance at all.
 
-...AND THE BEAT IT CUTS ON IS *FIGHT*, NOT "3". At the start of a countdown the
-spread is whatever the KO left it at, easing down at 0.75 px/frame; by the
-FIGHT beat, 96 frames later, it has reached exactly zero from any starting
-value inside SV_SPREAD_MAX. So the two ends agree about the cameras as well as
-about the fighters, and the fighters' own animation clocks agree too — both
-were zeroed by the same `round_arm`, the same number of frames earlier.
+Backing off to the walls first is what buys the picture. dx reaches 208, the
+spread eases to its plateau of 40 — the arena's real ceiling, below the
+SV_SPREAD_MAX of 48, because the target is (dx - SV_MERGE_DX) / 2 — and since
+split_v_bg puts cam A at mid - spread and cam B at mid + spread, the two halves
+end up 80 px of world apart. Read off the recorded GIF, the divider runs
+0 -> 3 -> 5 -> 3 -> 0 px across the take (5 px is hw = 40 >> 4 = 2, spanning
+x 126..130), and the ridge and treeline plainly do not meet across it.
 
 EVERY BEAT WAITS ON THE ROM. The spread is an EASE, a swing is a countdown, a
 KO is a bar reaching zero: none of those is a number of frames, and a frame
 plan would open the split most of the way and call it open (the lesson this
-drive's first version was written around).
+drive's first version was written around). The break-apart beat is the sharpest
+case of it — SV_SPR_STEP eases at 0.75 px/frame while the fighters separate at
+2 px/frame each, so the picture lags the positions by tens of frames and
+"they have reached the walls" is nowhere near "the split has finished opening".
+What is waited on is both at once: the fighters STOPPED (the arena clamp holds
+them) and the spread STOPPED (the ease reached its target and the ROM's own
+`@settled` branch pins it there).
+
+THE LOOP POINT IS THE ROUND START. The take opens on a FIGHT beat and closes on
+the next one, which is the one moment the fighters are back on their marks with
+the view merged, the bars refilled and both animation clocks zeroed — all by
+the same `round_arm`, the same number of frames earlier. Measured with
+tools/gif_seam.py, not eyeballed.
 """
 import json
 from pathlib import Path
@@ -50,9 +70,19 @@ from vendor.mesen_runner import MemoryType
 ROOT = Path(__file__).resolve().parent.parent.parent
 
 ROM = "split_v_fight"
-CAPTURES = 260                  # a CEILING, not a schedule: `.done` closes the
-                                # take on the round start
+CAPTURES = 420                  # a CEILING, not a schedule: `.done` closes the
+                                # take on the round start. Raised from 260 for
+                                # the break-apart and close-in beats, which are
+                                # ~60 captures of live round the old drive did
+                                # not play.
 SETTLE = 40                     # EMULATED frames — into the opening count
+
+# Captures held at full separation once the ROM says the split has finished
+# opening. This is the ONLY count in the drive and it is not a substitute for
+# an event: the beat it belongs to has already been detected off ES_SV_SPREAD,
+# and this is how long the finished picture stays on screen afterwards so a
+# viewer can read it. 12 captures is 0.6 s of the 20 Hz clip.
+WIDE_HOLD = 12
 
 W = MemoryType.SnesWorkRam
 _J = json.loads((ROOT / "build" / "sv" / "symbol_map.json").read_text())
@@ -85,14 +115,19 @@ class Round:
 
     `started` stays falsy until the opening FIGHT beat, so the boot, the fade
     and the first "3 2 1" are dropped lead-in; `done` closes the take on the
-    NEXT one. Between them the drive plays a round: close, trade, dodge, and
-    let the KO land.
+    NEXT one. Between them the drive plays a round in four beats — break,
+    hold, close, trade — advanced by what the ROM reports, never by a count.
     """
+
+    BREAK, WIDE, CLOSE, TRADE = "break", "wide", "close", "trade"
 
     def __init__(self):
         self.started = False
         self.done = False
         self.fought = False         # a LIVE round has happened since `started`
+        self.beat = None            # None until a round goes live
+        self.last = None            # (fx1, fx2, spread) at the previous capture
+        self.held = 0
         self.n = 0
 
     def _step(self, r, p1=None, p2=None):
@@ -123,16 +158,50 @@ class Round:
             # it opened on and ships a two-frame clip. It did.
             if self.fought and self._fight_beat(r):
                 self.done = True
+            self.beat = None                    # a new round breaks apart again
             return self._step(r)
         self.fought = True
+        if self.beat is None:
+            self.beat, self.last, self.held = self.BREAK, None, 0
 
-        # ---- live: close the distance, then trade ---------------------------
         fx1, fx2 = _u16(r, FX1), _u16(r, FX2)
         gap = abs(fx1 - fx2)
-        toward = ({"right": True}, {"left": True}) if fx1 < fx2 \
-            else ({"left": True}, {"right": True})
+        # Which way is OUT depends on who is on the left, and they cross: a
+        # fixed pad assignment would drive them together after a swap.
+        out = ({"left": True}, {"right": True}) if fx1 < fx2 \
+            else ({"right": True}, {"left": True})
+        into = (out[1], out[0])
+
+        # ---- break: back off until BOTH the walk and the ease have stopped ---
+        if self.beat is self.BREAK:
+            now = (fx1, fx2, _u16(r, SPREAD))
+            stopped = now == self.last
+            self.last = now
+            if stopped:
+                self.beat = self.WIDE
+            return self._step(r, *out)
+
+        # ---- wide: hold the finished picture ---------------------------------
+        if self.beat is self.WIDE:
+            self.held += 1
+            if self.held >= WIDE_HOLD:
+                self.beat = self.CLOSE
+            return self._step(r, *out)
+
+        # ---- close: walk back in, the divider narrowing with the gap ---------
+        if self.beat is self.CLOSE:
+            if gap > REACH - 6:
+                return self._step(r, *into)
+            self.beat = self.TRADE
+
+        # ---- trade: swings and a dodge, at a range the divider never sees ----
+        # A landed hit throws the defender SV_KNOCKBACK px and the pair walk
+        # back in, so the gap breathes — but only between 26 and 44 px, which
+        # is nowhere near SV_MERGE_DX, so the divider stays at zero for every
+        # frame of this beat. The open and the close are the two beats above;
+        # this one is the merged half of the claim.
         if gap > REACH - 6:
-            return self._step(r, *toward)
+            return self._step(r, *into)
 
         # In range. P1 swings whenever its blade is down; P2 answers with a
         # hop every other exchange, which is the vertical gate on screen.

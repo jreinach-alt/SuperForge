@@ -100,11 +100,15 @@ never reads the matrix.
 ![split_v_fight — a two-player fight whose camera splits with the fighters](docs/img/gif_split_v_fight.gif)
 
 A two-player fight on a shared stage, where the camera splits because the
-fighters do. Two pads, life bars, a 3-2-1-FIGHT round start, a swing with
-active frames, and a jump that clears one. Two cameras onto **one** VRAM copy
-of the stage, clipped to opposite screen halves by PPU window 1 and diverging
-with the fighters' distance: at zero separation the halves are pixel-identical
-and the ever-present seam is invisible.
+fighters do. Two cameras onto **one** VRAM copy of the stage, clipped to
+opposite screen halves by PPU window 1 and diverging with the fighters'
+distance. Watch the divider: it grows out of nothing as the pair back off to
+the arena walls, and the ridge and treeline on one side of it stop lining up
+with the ones on the other — the two halves are looking at different stretches
+of the same stage. Walking back in closes it to an invisible seam, where the
+halves are pixel-identical. Then they trade, in close, where the separation is
+small enough that the view stays merged: two pads, life bars, a 3-2-1-FIGHT
+round start, a swing with active frames, and a jump that clears one.
 
 ### `mode7_explore`
 

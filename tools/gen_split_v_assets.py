@@ -5,7 +5,7 @@ Emits into $(BUILD)/assets:
 
     sv_stage_chr.bin    9 tiles x 32 B, 4bpp   BG1/BG2 stage (shared by both cameras)
     sv_stage_pal.bin    16 words              BG palette 0
-    sv_stage_map.bin    32x32 tilemap         the flat grass-topped dirt floor
+    sv_stage_map.bin    32x32 tilemap         floor, treeline and rock ridge
     sv_bevel_chr.bin    2 tiles x 32 B, 4bpp  the divider bar (BG3)
     sv_bevel_pal.bin    16 words              BG palette 2 (CGRAM 8..11)
     sv_knight_chr.bin   8192 B, 4bpp          the fighter's TWELVE 32x32 frames
@@ -22,17 +22,16 @@ Emits into $(BUILD)/assets:
 
 PROVENANCE, and why two of these are traced and one is not.
 
-Two registered art packs feed this rail, and they are NOT under the same grant.
-Per-pack grants are in this repo's NOTICE (camelot is CC0; the Four Seasons
-tileset carries Rotting Pixels' own permissive grant, which is not CC0).
+Two registered art packs feed this rail. Both are CC0; the per-pack grants are
+in this repo's NOTICE.
 
   * "Four Seasons Platformer Tileset [16x16][FREE]" (Rotting Pixels) — the
-    STAGE, and only its PALETTE is taken from the pack. The 9 stage tiles are
-    AUTHORED procedurally against that palette (seeded, deterministic). The
-    pack's own pixels are never traced into stage CHR, so "ground-truth the
-    converter against a hardware render" reduces here to "the palette matches
-    and the authored tiles reproduce" — both checked in
-    tests/test_split_v_fight.py.
+    STAGE, and only its PALETTE is taken from the pack. The 9 stage tiles and
+    the whole tilemap are AUTHORED here (seeded speckle for the fills, literal
+    crest lines for the silhouette — see THE STAGE, below). The pack's own
+    pixels are never traced into stage CHR, so "ground-truth the converter
+    against a hardware render" reduces here to "the palette matches and the
+    authored tiles reproduce" — both checked in tests/test_split_v_fight.py.
 
   * "camelot [version 1.0]" (analogStudios_) — the FIGHTER and the BLADE, and
     these ARE pixel traces: twelve 32x32 cells of arthurPendragon_.png and four
@@ -115,6 +114,84 @@ BV_OUTLINE, BV_MID, BV_HILITE = 1, 2, 3
 
 FLOOR_ROW = 22          # tilemap row of the grass surface (px 176)
 MAP_W = MAP_H = 32
+
+# ---------------------------------------------------------------------------
+# THE STAGE, and why it is a skyline rather than a floor.
+#
+# A FLAT COLOUR IS INVISIBLE UNDER A HORIZONTAL CAMERA SHIFT. This rail's whole
+# claim is that two cameras onto ONE copy of the stage diverge with the
+# fighters' distance, and the only way a viewer can SEE that is a discontinuity
+# at the seam — the left half showing one stretch of the world and the right
+# half another. A stage that is flat sky over a flat grass line over speckled
+# dirt cannot produce one: both halves render the same three bands, so the
+# fully-open divider sits between two pictures that are identical by
+# construction. That is what the stage was, and the recorded gallery clip could
+# not show the mechanism because of it.
+#
+# THE SHIFT IS 80 PX — TEN TILEMAP COLUMNS — and both halves of that number
+# were got wrong on the way here, so both are measured. split_v_bg sets
+# cam A = mid - spread and cam B = mid + spread, so the two halves are TWICE
+# the spread apart, not one spread; and the spread the arena can actually
+# reach is 40, not the SV_SPREAD_MAX of 48, because the walls cap dx at 208
+# and the target is (dx - SV_MERGE_DX) / 2. Both confirmed off the picture
+# rather than off the source: cross-correlating each half of a rendered
+# sv_hold_split (dx pinned to 200, so spread 36) against the no-split
+# reference's skyline matches at exactly -36 and +36 with zero error.
+#
+# So a landmark has to be legible at a ten-column pitch. An 8 px speckle is
+# not: it is the same texture on both sides of the seam and reads as one
+# picture. The divergence has to be carried by SILHOUETTE — a crest line whose
+# shape changes over 8-to-16-column features — which is what the two height
+# maps below are. tools/gen_seamtrial_assets.py reached the same conclusion
+# for the seam trial and states it in its own header; this is that lesson
+# applied to the rail the trial graduated into.
+#
+# ...AND THE FIGHTERS HAVE TO STAY READABLE, which is the constraint the trial
+# does not have (it draws no sprites). Two things buy that here:
+#
+#   * the backdrop is DARK — rock in DIRT_SHADOW/OUTLINE and forest in
+#     GRASS_DARK/OUTLINE — while both knights are saturated (team-coloured
+#     outline, bright body, gold trim). The busy part of the picture is the
+#     two crest lines, and both sit ABOVE the fighters: the treeline's lowest
+#     crest is row 17 (px 136) and a fighter's top pixel is y 148.
+#   * the band the fighters actually stand in front of (rows 18..21) is plain
+#     forest body with no crest running through it, so nothing competes with a
+#     32x32 silhouette at the fighting line.
+#
+# It also fixes the composition. The old stage was ~80% empty sky with two
+# small figures along the bottom edge; this fills the frame the way a fighting
+# game's does — sky, a far ridge, a treeline, then the floor.
+# ---------------------------------------------------------------------------
+
+# The far rocky ridge's crest row per tilemap column, and the near treeline's.
+# Authored (not sampled from anything) and deliberately SMOOTH: a noise field
+# of the same amplitude would look different on the two sides of the seam
+# without looking like anywhere, and the eye reads "these are two different
+# places" off landmarks, not off variance.
+#
+# A column whose RIDGE sits at or below its TREE has NO rock — the treeline
+# takes the cell first (see stage_tile_at), so the ridge does not clear the
+# forest there and the sky comes straight down to the canopy. That is what
+# makes this two mountains rather than a wall, and two mountains of different
+# height and width are two landmarks rather than one repeated.
+#
+# Both wrap at 32 because the stage map does, which is what keeps split_v_bg's
+# mod-256 camera arithmetic correct.
+RIDGE = [21, 20, 18, 15, 12, 10,  8,  8,  9, 11, 14, 17, 20, 21, 21, 21,
+         21, 19, 16, 13, 10,  7,  6,  7,  9, 12, 15, 18, 21, 21, 21, 21]
+TREE = [17, 16, 15, 14, 14, 15, 16, 17, 17, 16, 15, 14, 13, 13, 14, 15,
+        16, 17, 17, 16, 15, 15, 16, 17, 17, 16, 15, 14, 14, 15, 16, 17]
+
+# Buried stones in the floor: the SECOND divergence cue, and the one that lands
+# in the lower third of the picture where the fighters are. Each entry is the
+# top-left column/row of a 2x2 block of ridge rock in the dirt field. The
+# pitch is irregular on purpose — an even one could land on the ten-column
+# shift and mismatch invisibly.
+STONE_BLOCKS = [(2, 24), (8, 25), (13, 24), (18, 26), (23, 24), (28, 25)]
+
+# Tile ids in the authored CHR page. Nine, which is the claim.
+T_SKY, T_LIP_A, T_LIP_B, T_DIRT_A, T_DIRT_B = 0, 1, 2, 3, 4
+T_ROCK, T_ROCK_CAP, T_WOOD, T_WOOD_CAP = 5, 6, 7, 8
 
 # The knight's drawn content bottom inside its 32x32 cell: the author frames
 # every camelot cell with four transparent rows under the feet. It is what the
@@ -646,19 +723,29 @@ def hud_sheet():
 # authored tiles — deterministic, seeded, no pack pixels involved
 # ---------------------------------------------------------------------------
 
-def dirt_tile(seed):
-    """8x8 speckled dirt that tiles in BOTH directions: a filled idx4 field
-    with scattered specks touches no edge structurally, so it wraps cleanly.
-    Two seeds give the column-parity pair, breaking repeat banding."""
+def speckle(base, dark, light, seed, n_dark, n_light):
+    """A filled 8x8 field of `base` with scattered specks.
+
+    Structurally edge-free, so it wraps cleanly in both directions and a block
+    of it does not band at the 8px tile pitch. The shuffle is seeded, so the
+    same tile comes out of every run on every host — this generator has no
+    randomness a build can observe.
+    """
     rng = random.Random(seed)
-    t = [[DIRT_MID] * 8 for _ in range(8)]
+    t = [[base] * 8 for _ in range(8)]
     cells = [(x, y) for y in range(8) for x in range(8)]
     rng.shuffle(cells)
-    for x, y in cells[:7]:
-        t[y][x] = DIRT_SHADOW
-    for x, y in cells[7:13]:
-        t[y][x] = DIRT_LIGHT
+    for x, y in cells[:n_dark]:
+        t[y][x] = dark
+    for x, y in cells[n_dark:n_dark + n_light]:
+        t[y][x] = light
     return t
+
+
+def dirt_tile(seed):
+    """8x8 speckled dirt. Two seeds give the column-parity pair, breaking the
+    repeat banding a single tile would show across the width of the floor."""
+    return speckle(DIRT_MID, DIRT_SHADOW, DIRT_LIGHT, seed, 7, 6)
 
 
 def grass_tile(seed):
@@ -684,30 +771,134 @@ def bevel_tiles():
     return [tile, tile]
 
 
+def checker(a, b):
+    """A 1px checkerboard of two indices.
+
+    SEAMLESS BY PARITY, not by luck: the pattern is (x + y) & 1 in TILE space
+    and every tile starts on an even world pixel, so the phase carries across
+    a tile boundary and a field of these reads as one flat mid-tone rather
+    than as a grid.
+    """
+    return [[a if (x + y) & 1 == 0 else b for x in range(8)] for y in range(8)]
+
+
+# A SPECKLE IS THE WRONG TEXTURE FOR A BACKDROP FILL, and the first pass shipped
+# one. `speckle` scatters ~15 dark cells per tile, which is invisible over the
+# floor's five visible rows and reads as WALLPAPER over the sixty rows of ridge
+# and forest above it: the same blob cluster repeating every 8 px, loud enough
+# to compete with a 32x32 fighter standing in front of it. A checker is what the
+# seam trial uses for the same job and for the same reason — at a 1 px pitch the
+# eye integrates it to a flat tone, so the fill stays quiet and the SILHOUETTE
+# keeps the whole job of carrying the divergence.
+
+def rock_tile():
+    """The far ridge's body: dark rock, DIRT_SHADOW woven with OUTLINE.
+
+    Dark on purpose — see THE STAGE. This is what a red or a blue knight has
+    to stay legible against, and the pack's ramp has no darker pair than these
+    two.
+    """
+    return checker(DIRT_SHADOW, OUTLINE)
+
+
+def rock_cap_tile():
+    """...with a LIT RIM on its top two rows.
+
+    The rim is what makes the crest a line the eye can follow, and following
+    it across the seam is how a viewer reads the two cameras as two cameras.
+    A one-pixel rim is thinned by the gallery clip's palette quantisation;
+    two rows survives it, the second dithered so the lit edge has a falloff
+    rather than a hard band.
+    """
+    t = rock_tile()
+    for x in range(8):
+        t[0][x] = DIRT_MID
+        t[1][x] = DIRT_MID if x & 1 else DIRT_SHADOW
+    return t
+
+
+def wood_tile():
+    """The near treeline's body: dark forest green woven with OUTLINE."""
+    return checker(GRASS_DARK, OUTLINE)
+
+
+def wood_cap_tile():
+    """...with a lit canopy on its top two rows.
+
+    SOLID, not notched. Punching index-0 holes in the canopy to ragged the
+    edge was tried and is wrong here: index 0 shows the BACKDROP, and the tile
+    directly above a canopy is always rock (TREE > RIDGE everywhere), so every
+    notch rendered as a sky-blue dot in the middle of the picture instead of
+    as a gap in foliage.
+    """
+    t = wood_tile()
+    for x in range(8):
+        t[0][x] = GRASS_BRIGHT
+        t[1][x] = GRASS_BRIGHT if x & 1 else GRASS_DARK
+    return t
+
+
 def stage_tiles():
-    """9 tiles: 0 = transparent sky, 1-2 grass parity pair, 3-8 dirt body."""
+    """The nine authored tiles, in the T_* order the tilemap indexes.
+
+    0 sky is fully TRANSPARENT rather than a solid colour: for a 4bpp layer
+    index 0 means "show what is behind", and behind both cameras is CGRAM word
+    0 — the sky backdrop (see SKY_BGR15). That buys the whole sky for no tile.
+    """
     sky = [[0] * 8 for _ in range(8)]
-    tiles = [sky, grass_tile(0xA11CE), grass_tile(0xB0B)]
-    for i in range(6):
-        tiles.append(dirt_tile(0xD1E7 + i))
-    return tiles
+    return [sky,
+            grass_tile(0xA11CE), grass_tile(0xB0B),        # the floor's lip
+            dirt_tile(0xD1E7), dirt_tile(0xD1E8),          # its body
+            rock_tile(), rock_cap_tile(),                  # the far ridge
+            wood_tile(), wood_cap_tile()]                  # the near treeline
+
+
+def stage_tile_at(col, row):
+    """The tile at one map cell — the selection ladder, top to bottom.
+
+    Read downward, the stage is: sky, the rock ridge from its crest to where
+    the treeline takes over, the treeline from its crest to the floor, the
+    grass lip, then dirt. The treeline is tested FIRST, so a column whose ridge
+    does not clear the canopy simply has no rock in it. Nothing can leave a gap
+    of sky floating above the floor: the treeline runs to FLOOR_ROW in every
+    column (checked in stage_map).
+    """
+    if row > FLOOR_ROW:
+        for sc, sr in STONE_BLOCKS:
+            if sc <= col < sc + 2 and sr <= row < sr + 2:
+                return T_ROCK
+        return T_DIRT_A + ((col + row) & 1)
+    if row == FLOOR_ROW:
+        return T_LIP_A + (col & 1)
+    if row >= TREE[col]:
+        return T_WOOD_CAP if row == TREE[col] else T_WOOD
+    if row >= RIDGE[col]:
+        return T_ROCK_CAP if row == RIDGE[col] else T_ROCK
+    return T_SKY
 
 
 def stage_map():
-    """32x32 tilemap words: sky above FLOOR_ROW, one grass row, dirt below.
-    Column parity picks the tile of each authored pair, so the floor does not
-    visibly repeat at an 8px pitch."""
-    words = []
-    for row in range(MAP_H):
-        for col in range(MAP_W):
-            if row < FLOOR_ROW:
-                t = 0
-            elif row == FLOOR_ROW:
-                t = 1 + (col & 1)
-            else:
-                t = 3 + ((col + row) % 6)
-            words.append(t)
-    return words
+    """32x32 tilemap words, from the ladder above.
+
+    Bare tile ids: a plain tilemap entry selects palette 0, priority 0 and no
+    flip, which is what both cameras read.
+    """
+    if len(RIDGE) != MAP_W or len(TREE) != MAP_W:
+        raise SystemExit("gen_split_v_assets: a crest line is not MAP_W long")
+    if max(TREE) >= FLOOR_ROW:
+        raise SystemExit(
+            f"gen_split_v_assets: the treeline reaches row {max(TREE)}, which "
+            f"is at or below the floor at row {FLOOR_ROW} — the forest would "
+            f"grow through the grass")
+    # The fighters stand at rows 18..22 (y 148..176 against a surface at
+    # y 176), so a crest that dipped into that band would run a busy edge
+    # straight through a 32x32 silhouette. Both crests stay above it.
+    if max(TREE) > 17:
+        raise SystemExit(
+            f"gen_split_v_assets: the treeline dips to row {max(TREE)}, into "
+            f"the band the fighters are drawn in — see THE STAGE")
+    return [stage_tile_at(col, row)
+            for row in range(MAP_H) for col in range(MAP_W)]
 
 
 # ---------------------------------------------------------------------------
