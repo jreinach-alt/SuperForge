@@ -28,6 +28,21 @@ pressing buttons at a cutscene. What makes it state-driven rather than
 scheduled is that Right is held only while the ROM reports PLAY — so if the
 trigger moves, the walk moves with it instead of the clip photographing an
 empty stretch of level.
+
+THE LOOP POINT IS THE RESTORED LEVEL, which the event hands back on its own.
+The clip opens on the walking Mode-1 level and closes on the walking Mode-1
+level, and level.asm draws the player at a FIXED screen x, so the figure and
+the ground band are in the same place at both ends and the backdrop is black
+either side. What does not come round is the platform scroll — the walk is
+one-way and the camera does not return — so the residual across the join is a
+couple of platforms sitting a few tiles left of where they opened. It is
+small because the event FREEZES the level for most of its length: the picture
+spends the middle of the clip not scrolling at all.
+
+There is no fade to close on here, and that is the rail's own claim rather
+than a gap: the whole point is that the Mode-1 -> Mode-7 handover is a
+ONE-FRAME CUT with no visible seam. A fade at that edge would hide exactly
+what the clip exists to show.
 """
 import json
 from pathlib import Path

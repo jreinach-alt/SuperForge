@@ -29,6 +29,20 @@ this drive and the reason it is shaped this way.
 THE DOOR IS EDGE-TAPPED, not held. The grid step is atomic and re-triggers off
 a held direction, so holding Down in the interior walks past the door; the tap
 is one frame of Down and the rest of the capture released.
+
+THE LOOP POINT IS THE SPAWN TILE, because the wipe this rail is built around
+does not reach black — it is a MOSAIC dissolve, which blocks the picture up
+rather than darkening it, and the two scenes either side of it are lit. What
+the rail does have is a grid: the avatar is tile-locked, every step is atomic,
+and the pose is four numbers that can be walked back to exactly. So the take
+opens on an idle capture at the spawn — measured on this binary, US_CAM_PX and
+US_CAM_PY both 2064, tile (258,258), US_FACING 0 which is Down — and closes
+when all four read that again with no slide in flight and no wipe running.
+
+THE LAST LEG IS EAST THEN SOUTH, and the order is the facing. Arriving on the
+spawn tile from the north leaves the avatar facing Down, which is the way she
+was facing when the clip opened; coming in from the west would land the same
+tile wearing a different sprite, and the join would blink.
 """
 import json
 from pathlib import Path
@@ -39,7 +53,7 @@ from vendor.mesen_runner import MemoryType
 ROOT = Path(__file__).resolve().parent.parent.parent
 
 ROM = "mode7_explore"
-CAPTURES = 200                  # 10.0 s at 1:1
+CAPTURES = 320                  # a CEILING: the spawn pose closes the take
 SETTLE = 60                     # EMULATED frames — the picture has dawned in
 
 W = MemoryType.SnesWorkRam
@@ -55,9 +69,12 @@ def _sym(n):
 
 PX, PY, MOS, SM = (_sym(n) for n in
                    ("US_CAM_PX", "US_CAM_PY", "ES_MOS_CTL", "ES_SM_CTL"))
+FACING, STEP_ACTIVE = (_sym(n) for n in ("US_FACING", "US_STEP_ACTIVE"))
 HOUSE = (254, 254)              # the one enterable door, in world tiles
-WEST_EDGE = 246                 # 12 tiles west of the spawn at (258, 258)
+SPAWN = (258, 258)              # ...and where she starts, which is where she ends
+WEST_EDGE = 246                 # 12 tiles west of the spawn
 OVERWORLD = 0                   # ES_SM_CTL's scene id
+FACE_DOWN = 0                   # US_FACING: 0 down, 1 up, 2 left, 3 right
 
 
 def _tile(r):
@@ -72,6 +89,16 @@ def _scene(r):
     return r.read_bytes(W, SM, 1)[0]
 
 
+def _at_spawn(r):
+    """The whole pose, and nothing in flight — the clip's own first frame."""
+    return (r.read_u16(W, PX) == SPAWN[0] * 8
+            and r.read_u16(W, PY) == SPAWN[1] * 8
+            and r.read_u16(W, FACING) == FACE_DOWN
+            and r.read_u16(W, STEP_ACTIVE) == 0
+            and not _wiping(r)
+            and _scene(r) == OVERWORLD)
+
+
 class Explore:
     """One capture per call; every beat waits on the ROM, never on a count."""
 
@@ -80,6 +107,7 @@ class Explore:
         self.n = 0
         self.taps = 0
         self.seen_wipe = False
+        self.done = False
 
     def _next(self):
         self.phase += 1
@@ -87,6 +115,9 @@ class Explore:
 
     def __call__(self, r, i):
         p, self.n = self.phase, self.n + 1
+
+        if i == 0:                                  # the pose the clip opens on
+            return r.frame_step(STEP)
 
         if p == 0:                                  # the long streaming walk
             if _tile(r)[0] > WEST_EDGE:
@@ -136,9 +167,16 @@ class Explore:
                 self._next()
             return r.frame_step(STEP)
 
-        # ...back outside, at the spot she left. Walk on.
-        return r.frame_step(STEP, right=self.n % 40 < 20,
-                            down=self.n % 40 >= 20)
+        # ...back outside, at the spot she left — and on home to the spawn
+        # tile, EAST FIRST so the last step in is from the north and she ends
+        # facing the way she began.
+        if _tile(r)[0] < SPAWN[0]:
+            return r.frame_step(STEP, right=True)
+        if _tile(r)[1] < SPAWN[1]:
+            return r.frame_step(STEP, down=True)
+        r.frame_step(STEP)
+        if _at_spawn(r):
+            self.done = True
 
 
 def make_drive():

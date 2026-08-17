@@ -29,6 +29,25 @@ fact, and SV_DWELL exists in the rail precisely because the ease has not caught
 up when the fighters reach the walls. So the drive walks until ES_SV_SPREAD
 reports the cap and until US_FX1 has genuinely passed US_FX2. A frame plan
 would open the split most of the way and call it open.
+
+THE LOOP POINT IS THE CYCLE ITSELF, and this rail reaches it by being written
+as one rather than by closing on a pose. There is no scene edge here and
+nothing that fades — one stage, two cameras, lit throughout — so the honest
+alternative would be a pose the clip could be flown back to, and that is the
+one thing this rail cannot offer: the fighters cross each other twice per
+circuit, and the PAIR'S MIDPOINT DRIFTS as they do. Measured on this binary,
+the take opens at (spread 0, FX1 108, FX2 148) and comes back round through
+(spread 4, 88, 136) and (spread 0, 148, 46) — the separation returns and the
+spread returns, but the midpoint has walked 16 px left, so no capture holds
+all three words at once and a close on the pose simply never fires. Driven
+that way the take ran to its ceiling and parked 41% of its transitions at the
+walls, which is worse on both counts.
+
+So the beats cycle and the clip is cut on the cycle. The seam it leaves is
+small and it is the separation coming round rather than the picture: the
+divider is back at zero width and the halves are back to pixel-identical,
+which is the frame this rail exists to produce, with the two fighters a few
+px off the marks they started on.
 """
 import json
 from pathlib import Path

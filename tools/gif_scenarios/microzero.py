@@ -30,6 +30,13 @@ things make it the right choice here rather than a canned input script:
 START IS AN EDGE, pressed every other capture on the two cards, and it stops
 once the loop has closed — otherwise the clip's last captures would start a
 second race and the ending would read as a glitch rather than as a return.
+
+THE LOOP POINT IS THE TITLE CARD, and it needs no help: the take already opens
+and closes on it, so the file rejoins itself on the same screen. What is left
+across the join is the one line that SHOULD have changed — the clip opens on
+`SCORE 0000 LIVES 3` and closes on `SCORE 012C LIVES 2`, which is the globals
+surviving the scene edges, which is the claim. The seam that remains is the
+proof, not a defect in the cut.
 """
 import json
 import sys

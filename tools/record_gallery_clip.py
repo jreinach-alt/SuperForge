@@ -147,7 +147,7 @@ def densest_window(frames, length):
 
 def record_clip(rom, out_path, drive=None, captures=160, window=None,
                 window_start=None, settle_frames=60, hold2=None, runner=None):
-    """Record `captures` samples (EVERY frames apart) from `rom` into a gif.
+    """Record up to `captures` samples (EVERY frames apart) from `rom` into a gif.
 
     `drive(runner, i)` is called once per capture and must advance STEP
     emulated frames — take_screenshot pays the remaining SHOT_FRAMES, so a
@@ -155,6 +155,23 @@ def record_clip(rom, out_path, drive=None, captures=160, window=None,
     idle hold()). `hold2` is a dict of pad-2 buttons held for the whole take
     (set_input persists across steps). Returns (path, n_frames, size_bytes);
     asserts the size budget AND the real-time guarantee.
+
+    THE DRIVE MAY BRACKET THE TAKE ON THE ROM'S OWN EVENTS. A drive object
+    that leaves `.started` falsy has its leading captures DROPPED until it goes
+    truthy; one that sets `.done` closes the take after that capture, making
+    `captures` a ceiling rather than a schedule. Both ends are the rule the
+    beats already follow — read the ROM's state, do not count frames to an
+    event — applied to the two beats it had never covered: the FIRST and the
+    LAST. A gallery clip loops forever, so its final frame is glued back onto
+    its first, and that join is invisible only when both land on a specific
+    instant of the ROM: a fade that has reached black, a pose that has come
+    back round. Counting frames to those instants drifts against the ROM's own
+    tick exactly the way counting to a scene change did.
+
+    Dropping is a PREFIX only, so the kept captures stay contiguous and EVERY
+    frames apart, and the 1:1 guarantee below is asserted over every frame the
+    take consumed, dropped ones included. A drive that sets neither attribute
+    is unaffected and runs the full count.
     """
     drive = drive or hold()
     own = runner is None
@@ -167,15 +184,31 @@ def record_clip(rom, out_path, drive=None, captures=160, window=None,
         if hold2:
             runner.set_input(1, **hold2)
         frames = []
+        dropped = 0
         with runner.frame_stepping():
             with tempfile.TemporaryDirectory() as td:
                 shot = str(Path(td) / "cap.png")
                 first = runner.ppu_frame_count()
                 for i in range(captures):
                     drive(runner, i)
+                    if not getattr(drive, "started", True):
+                        # Pay the shot's frame WITHOUT taking it: a lead-in can
+                        # be hundreds of captures long (a rail waiting on a
+                        # free-running clock), and a screenshot that is going
+                        # to be discarded is the expensive part of one. The
+                        # frame count is what the arithmetic below cares about
+                        # and it is identical either way.
+                        runner.frame_step(SHOT_FRAMES)
+                        dropped += 1
+                        continue
                     runner.take_screenshot(shot)
                     frames.append(Image.open(shot).convert("RGB").copy())
+                    if getattr(drive, "done", False):
+                        break
                 consumed = runner.ppu_frame_count() - first
+        if dropped:
+            print(f"  bracket: {dropped} lead-in captures dropped, "
+                  f"{len(frames)} kept")
     finally:
         if own:
             runner.stop()
@@ -185,10 +218,10 @@ def record_clip(rom, out_path, drive=None, captures=160, window=None,
     # every time; a drive that advances the wrong count produces a clip that
     # looks fine and is silently in slow motion or sped up, which is the one
     # thing this format promises it is not. So the PPU's own counter says.
-    want = captures * EVERY
+    want = (len(frames) + dropped) * EVERY
     assert consumed == want, (
         f"the take consumed {consumed} emulated frames, not {want} "
-        f"({captures} captures x {EVERY}): playback would be "
+        f"({len(frames) + dropped} captures x {EVERY}): playback would be "
         f"{consumed / want:.3f}x gameplay speed, not 1:1. A drive advances "
         f"STEP ({STEP}) frames per call — take_screenshot pays the other "
         f"{SHOT_FRAMES}.")

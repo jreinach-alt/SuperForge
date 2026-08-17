@@ -61,27 +61,93 @@ three of them are in `game/` and `engine/features/` because of it.
 
 ## The showcase
 
+Eight of the library's games, and what each one proves. Every clip is recorded
+from the committed ROM at full gameplay speed, one GIF second to one gameplay
+second, and cut so it rejoins itself — the loop points and their measured seams
+are in [`reports/gallery_loop_seams.md`](reports/gallery_loop_seams.md).
+
+### `mode7_flight` — "SKY RUNNER"
+
+The clip at the top of this page is this game.
+
+Free flight over a Mode 7 perspective floor with **player-driven altitude**.
+The exact pose table for 256 headings × 81 altitudes is 12.7 MB against a
+512 KB ROM ceiling, so the pose is baked as the two factors it decomposes into
+(~28 KB, exact on both axes) and joined per frame by one hardware multiply per
+coefficient per scanline. 60 fps with **zero dropped ticks over 240 frames of
+worst-case input**, and the whole join measured at well under half the frame —
+both asserted live off the shipping binary in `tests/test_mode7_flight.py`.
+
 | | | |
 |---|---|---|
 | ![spawn](docs/img/m7f_01_spawn.png) | ![at the ceiling](docs/img/m7f_02_ceiling.png) | ![the same world at night](docs/img/m7f_07_night.png) |
 | the spawn | climbing to the ceiling | the free-running day/night clock |
 
-| game | what it is, and what it proves |
-|---|---|
-| **`mode7_flight`** — "SKY RUNNER" | Free flight over a Mode 7 perspective floor with **player-driven altitude**. The exact pose table for 256 headings × 81 altitudes is 12.7 MB against a 512 KB ROM ceiling, so the pose is baked as the two factors it decomposes into (~28 KB, exact on both axes) and joined per frame by one hardware multiply per coefficient per scanline. 60 fps with **zero dropped ticks over 240 frames of worst-case input**, and the whole join measured at well under half the frame — both asserted live off the shipping binary in `tests/test_mode7_flight.py`. |
-| **`m7_oshoot`** | A run-and-gun on a spinning Mode 7 arena. The pivot re-pins to the player every frame; everything but the hero is projected onto the turning floor through the render matrix's **transpose**, and the gameplay runs entirely in world space and never reads the matrix. |
-| **`split_v_fight`** | Two cameras onto one stage, clipped to opposite screen halves by PPU window 1 and diverging with the fighters' distance. One VRAM copy, two cameras: at zero separation the halves are pixel-identical and the ever-present seam is invisible. |
-| **`mode7_explore`** | A streamed Mode 7 overworld far larger than VRAM, a Mode 7 ⇄ Mode 1 swap into a town interior, and a mosaic transition between them — three subsystems that have to share the frame, VRAM and the DMA budget without a single hand-placed address between them. |
-| **`meteor_event`** | A mid-level Mode 1 ⇄ Mode 7 cutscene. The walking level freezes, its BG platforms are **captured into sprites** so they survive the mode swap, and the meteor grows on the affine plane behind them. The handover is a declared 40-slot OAM claim, not an unbounded trick. |
-| **`boss_saucer`** | The saucer *is* the Mode 7 background — it lunges from a far speck to a screen-filling disc, then fires a beam down the column you were standing in. It reuses the scale-track feature the `boss` game declares, with **zero edits to that feature**: composition, which is the whole point. |
-| **`railshooter`** | Depth from a decoupled pinhole (1/z) projection, explicitly *not* the Mode 7 matrix inverse: pre-drawn size tiers and a depth-sorted OAM emit that never sorts. |
-| **`microzero`** | The smallest complete game, and the gate the whole architecture was bet on: title → a single-track time-trial race → results → title, one 524,288-byte ROM, globals surviving the scene edges and scene bytes reused across them. |
+The clock is the one axis the clip cannot hold: a full cycle is 2,048 frames,
+34 s at 1:1, so the stills carry the poles the loop has no room for.
 
-![m7_oshoot](docs/img/gif_m7_oshoot.gif)
+### `m7_oshoot`
 
-![split_v_fight](docs/img/gif_split_v_fight.gif)
+![m7_oshoot — a run-and-gun on a spinning Mode 7 arena](docs/img/gif_m7_oshoot.gif)
 
-![mode7_explore](docs/img/gif_mode7_explore.gif)
+A run-and-gun on a spinning Mode 7 arena. The pivot re-pins to the player every
+frame; everything but the hero is projected onto the turning floor through the
+render matrix's **transpose**, and the gameplay runs entirely in world space and
+never reads the matrix.
+
+### `split_v_fight`
+
+![split_v_fight — two cameras onto one stage](docs/img/gif_split_v_fight.gif)
+
+Two cameras onto one stage, clipped to opposite screen halves by PPU window 1
+and diverging with the fighters' distance. One VRAM copy, two cameras: at zero
+separation the halves are pixel-identical and the ever-present seam is
+invisible.
+
+### `mode7_explore`
+
+![mode7_explore — a streamed Mode 7 overworld and a town interior](docs/img/gif_mode7_explore.gif)
+
+A streamed Mode 7 overworld far larger than VRAM, a Mode 7 ⇄ Mode 1 swap into a
+town interior, and a mosaic transition between them — three subsystems that
+have to share the frame, VRAM and the DMA budget without a single hand-placed
+address between them.
+
+### `meteor_event`
+
+![meteor_event — a mid-level Mode 1 to Mode 7 cutscene](docs/img/gif_meteor_event.gif)
+
+A mid-level Mode 1 ⇄ Mode 7 cutscene. The walking level freezes, its BG
+platforms are **captured into sprites** so they survive the mode swap, and the
+meteor grows on the affine plane behind them. The handover is a declared
+40-slot OAM claim, not an unbounded trick.
+
+### `boss_saucer`
+
+![boss_saucer — the saucer is the Mode 7 background](docs/img/gif_boss_saucer.gif)
+
+The saucer *is* the Mode 7 background — it lunges from a far speck to a
+screen-filling disc, then fires a beam down the column you were standing in. It
+reuses the scale-track feature the `boss` game declares, with **zero edits to
+that feature**: composition, which is the whole point.
+
+### `railshooter`
+
+![railshooter — depth from a decoupled pinhole projection](docs/img/gif_railshooter.gif)
+
+Depth from a decoupled pinhole (1/z) projection, explicitly *not* the Mode 7
+matrix inverse: pre-drawn size tiers and a depth-sorted OAM emit that never
+sorts.
+
+### `microzero`
+
+![microzero — title, race, results, title](docs/img/gif_microzero.gif)
+
+The smallest complete game, and the gate the whole architecture was bet on:
+title → a single-track time-trial race → results → title, one 524,288-byte ROM,
+globals surviving the scene edges and scene bytes reused across them.
+
+---
 
 The other 29 games are in `game/`, and the `gates:` block of the
 [`Makefile`](Makefile) is the working inventory — every one is built and

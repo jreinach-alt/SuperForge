@@ -47,6 +47,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.record_gallery_clip import record_clip, DURATION_MS  # noqa: E402
+from tools.gif_seam import seam  # noqa: E402
 
 RAILS = ("mode7_flight", "m7_oshoot", "microzero", "split_v_fight",
          "mode7_explore", "meteor_event", "boss_saucer", "railshooter",
@@ -122,6 +123,14 @@ def record(rail, out_dir, proof_dir):
     print(f"  {rail}: {raw} raw captures -> {stored} stored, "
           f"{100 * static:.0f}% fully-static raw transitions, "
           f"gif md5 {hashlib.md5(path.read_bytes()).hexdigest()}")
+    # THE LOOP SEAM, MEASURED ON THE WRITTEN FILE. The clip loops forever, so
+    # the join from its last frame back to its first is the one cut a viewer
+    # actually sees, and it is the one no other number here covers. Reported
+    # every time rather than checked once: a choreography edit that reopens the
+    # seam is otherwise invisible until someone watches the gallery.
+    mad, pct, lum0, lum1, _ = seam(path)
+    print(f"  {rail}: loop seam mad {mad:.2f}/255, {pct:.1f}% of pixels "
+          f"past 16 — ends at luma {lum0:.1f} (first) / {lum1:.1f} (last)")
     if proof_dir:
         for idx, p in _proofs(path, proof_dir, rail):
             print(f"  {rail}: proof stored-frame {idx:3d} -> {p}")
