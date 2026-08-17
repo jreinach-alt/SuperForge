@@ -131,6 +131,20 @@ everything this repository does with the pack (free and commercial use,
 modification, credit optional), but the work is not dedicated to the public
 domain and this project cannot so dedicate it.
 
+**Two different asset packs are called "Four Seasons Platformer" and only one
+of them is this one.** The pack vendored here is Rotting Pixels' **tileset**,
+whose page carries a section headed "LICENSE:" containing the terms quoted
+above and no licence name — verified against the raw page 2026-08-16, where
+the only occurrence of the string "CC0" is an unanswered question in the
+comment thread and the page's own metadata table has no License field. A
+*different* pack — analogStudios_ / Kevin's Mom's House, "Four Seasons
+Platformer **Sprites**" — does state "[ CC-0 ]" in its description, and is not
+vendored here. Anyone checking this row against a memory of a CC-0 "Four
+Seasons" page is looking at that other pack. (That page is itself ambiguous:
+its "[ CC-0 ]" text hyperlinks a CC BY 4.0 deed, and a commenter raised
+exactly that contradiction without an author reply — a second reason not to
+read it onto this row.)
+
 | file in this tree | what our copy is |
 |---|---|
 | `vendor/art/four_seasons_tileset/four-seasons-tileset.png`, `RottingPixels.txt` | **verbatim pack files** — sha256-matched against the pack zip; digests in `docs/92` §5.1 |

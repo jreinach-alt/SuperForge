@@ -270,7 +270,7 @@ CC0**, per `NOTICE`:
 |---|---|
 | camelot | **CC0** — the itch.io page links the CC-0 deed |
 | dungeonSprites | **CC0** — same |
-| Four Seasons tileset | **custom permissive grant, NOT CC0** — free + commercial, modification allowed, credit optional, but no public-domain dedication |
+| Four Seasons **tileset** (Rotting Pixels) | **custom permissive grant, NOT CC0** — free + commercial, modification allowed, credit optional, but no public-domain dedication. Verified against the raw page 2026-08-16: a section headed "LICENSE:" carrying those terms, no licence name, no `creativecommons.org` link, and no License field in the page's metadata table. **Not to be confused with a different pack of nearly the same name** — analogStudios_'s "Four Seasons Platformer *Sprites*", which does state "[ CC-0 ]" and is not vendored here (and whose own CC-0 text links a CC BY 4.0 deed, flagged unanswered in its comments) |
 | Spaceship Pack | **page-stated permissive grant, NOT a CC0 dedication** — the page grants "Free for commercial use" and nothing more (owner-verified on the live page, 2026-08-16) |
 
 The Four Seasons grant covers everything this repo does with the art but is
