@@ -236,6 +236,8 @@ it is byte-identical to.
 | `camelot/READ ME.txt` | `118da1130a6675ca260d5d9f6533466e29326708b3abe0d26d41e7a9233761be` | `camelot_ [version 1.0]/- READ ME -.txt` |
 | `camelot/arthurPendragon_.png` | `f1c160ab44df45cdbc482d4de365c8dc231672b8a11e18a604ebbd95d5dd4664` | `camelot_ [version 1.0]/arthurPendragon_.png` |
 | `camelot/mordred_.png` | `346ae55ff10a11e9e1aed4cf2b05d507790c6d11e7e1a7c61b32e2586ddacd3e` | `camelot_ [version 1.0]/mordred_.png` |
+| `camelot/excalibur_.png` | `36bb50b7bcc15ff29006b416d309b5cc2dc123fe1c42438396a5d203694f3435` | `camelot_ [version 1.0]/excalibur_.png` |
+| `camelot/dust_.png` | `5c47c9dc710cb96fc3cb91958f504ccd7ba400f6a9af9ac258031c7ba412efa5` | `camelot_ [version 1.0]/dust_.png` |
 | `dungeon_sprites/fHero_idle_rIdle_0.png` | `aa0de91aaf7efea3b7ffcd833631d7ef2be03d2a97913a98318dcfed3223f453` | `dungeonSprites_v1.0/fHero_/idle_/rIdle_0.png` |
 | `dungeon_sprites/fHero_idle_rIdle_1.png` | `f8166e70aef4873f88bef767400f1abf467ed605ac02d2e51afffacbba5b9103` | `dungeonSprites_v1.0/fHero_/idle_/rIdle_1.png` |
 | `dungeon_sprites/fHero_idle_rIdle_2.png` | `ce4e9ec20fd8ccc93436e2472f41e1556433b9373eb28c19a35e79e3f98b8d70` | `dungeonSprites_v1.0/fHero_/idle_/rIdle_2.png` |
@@ -370,6 +372,20 @@ reproduced.
   the grant text quoted verbatim, reproduced in `NOTICE`. The pack **identity**
   is hashed here (§5.1) and does not depend on that record; the **licence**
   half does. Re-verifying the four pages at the next release would close this.
+
+  *Partly closed 2026-08-16.* Two of the four pages were fetched again:
+  **camelot** states CC-0 and links the deed — confirmed, unchanged; **Four
+  Seasons** states no licence name at all, only free and commercial use with
+  modification allowed and credit optional, which is exactly what this
+  document and `NOTICE` already record, so that row now rests on its own
+  retrieval. The check earned its keep: the corpus's `LICENSES.md` labels the
+  Four Seasons pack **CC0** and files it in a CC0-only directory, and the
+  page does not support that label. Nothing this tree does with the art
+  depends on the difference — the grant covers all of it — but a permissive
+  grant is not a dedication, and a derivative of it cannot be re-dedicated to
+  the public domain on the strength of that label. The **dungeonSprites** and
+  **Spaceship Pack** pages remain un-refetched here (the latter was
+  owner-verified live 2026-08-16, F5).
 * **L3 — the Spaceship Pack's CC0 deed is an open question (F5).** The
   reachable page grants *"Free for commercial use"* and carries no CC0 label,
   while the July 2026 record carries a CC0 attestation alongside it. `NOTICE`

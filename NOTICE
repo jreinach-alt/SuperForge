@@ -88,13 +88,13 @@ Consumed by `tools/gen_font.py` and `tools/gen_vwf_font.py`; the derived
 
 **Upstream:** https://analogstudios.itch.io/camelot →
 https://kevins-moms-house.itch.io/camelot
-**Licence:** CC0 — the itch.io page links the CC-0 deed. The grant was read
-from that page and recorded on 2026-07-18; it was **not re-fetched for this
-audit** (`docs/92` §7 L2).
+**Licence:** CC0 — the itch.io page states CC-0 and links the deed
+(https://creativecommons.org/publicdomain/zero/1.0/). Recorded from that page
+2026-07-18 and **re-verified live against it 2026-08-16**.
 
 | file in this tree | what our copy is |
 |---|---|
-| `vendor/art/camelot/arthurPendragon_.png`, `mordred_.png`, `READ ME.txt` | **verbatim pack files** — sha256-matched against the contents of the upstream archive `camelot_ [version 1.0].zip`; every digest is recorded in `docs/92` §5.1 (the `READ ME.txt` is renamed only to drop a leading dash) |
+| `vendor/art/camelot/arthurPendragon_.png`, `mordred_.png`, `excalibur_.png`, `dust_.png`, `READ ME.txt` | **verbatim pack files** — sha256-matched against the contents of the upstream archive `camelot_ [version 1.0].zip`; every digest is recorded in `docs/92` §5.1 (the `READ ME.txt` is renamed only to drop a leading dash) |
 | `vendor/art/camelot/ref_arthur.inc`, `ref_mordred.inc` | **reference conversions**, kept as this repo's refusal oracle |
 | `vendor/art/split_v/sv_knight_chr.bin` | **converted** — a 32×32 trace of `arthurPendragon_.png` frame 0 |
 
@@ -120,7 +120,10 @@ Reaches `game/platformer` and `game/platformer_stream`.
 **Licence:** the itch.io page, quoted as recorded on 2026-07-18: *"This asset
 pack can be used in both free and commercial projects. You can modify it to
 suit your own needs. Credit is not necessary, but appreciated."* The in-zip
-`RottingPixels.txt` is a follow-us note, **not** a licence. **Not re-fetched
+`RottingPixels.txt` is a follow-us note, **not** a licence. **Re-verified live
+2026-08-16: the page states no licence name at all** — the terms above are the
+whole grant, which is why this pack is recorded as permissive rather than as a
+public-domain dedication. **Previously not re-fetched
 for this audit** (`docs/92` §7 L2).
 
 **This grant is not CC0 and must not be flattened to it.** It covers

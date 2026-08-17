@@ -14,6 +14,8 @@ palette + animation blobs the `brawler` rail links.
 |---|---|---|---|
 | `arthurPendragon_.png` | 256×256 (8×8 grid of 32×32) | `camelot_ [version 1.0]/arthurPendragon_.png` | the player: 4-frame idle, 8-frame run, 4-frame hit (right-facing; walking left is an OBJ HFLIP) |
 | `mordred_.png` | 256×352 (8×11 grid of 32×32) | `camelot_ [version 1.0]/mordred_.png` | the enemy: 4-frame idle, 8-frame run |
+| `excalibur_.png` | 128×128 (4×4 grid of 32×32) | `camelot_ [version 1.0]/excalibur_.png` | the weapon, and the only attack motion the pack ships: idle (column 0 only), swing right, swing left, stab — 4 frames each. The character sheets carry no attack pose; an attack is a character frame with a weapon frame beside it, which is how the pack is built |
+| `dust_.png` | 48×8 (6 frames of 8×8) | `camelot_ [version 1.0]/dust_.png` | the pack's impact / landing particles |
 | `READ ME.txt` | — | `camelot_ [version 1.0]/- READ ME -.txt` | the pack's own row map, quoted below. Renamed only to drop the leading dash (a leading `-` is an option to half the tools that would ever touch it) |
 
 **32×32 is the pack's cell AND the art's box** — unlike the `dungeon_sprites`
