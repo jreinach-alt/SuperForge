@@ -378,9 +378,9 @@ reproduced.
   Seasons** states no licence name at all, only free and commercial use with
   modification allowed and credit optional, which is exactly what this
   document and `NOTICE` already record, so that row now rests on its own
-  retrieval. The check earned its keep: the corpus's `LICENSES.md` labels the
-  Four Seasons pack **CC0** and files it in a CC0-only directory, and the
-  page does not support that label. Nothing this tree does with the art
+  retrieval. The check earned its keep: the acquisition-time record these
+  rows were originally taken from labels the Four Seasons pack **CC0**, and
+  the page does not support that label. Nothing this tree does with the art
   depends on the difference — the grant covers all of it — but a permissive
   grant is not a dedication, and a derivative of it cannot be re-dedicated to
   the public domain on the strength of that label. The **dungeonSprites** and
