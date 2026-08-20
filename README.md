@@ -132,10 +132,15 @@ meteor grows on the affine plane behind them. The handover is a declared
 
 ![boss_saucer — the saucer is the Mode 7 background](docs/img/gif_boss_saucer.gif)
 
-The saucer *is* the Mode 7 background — it lunges from a far speck to a
-screen-filling disc, then fires a beam down the column you were standing in. It
-reuses the scale-track feature the `boss` game declares, with **zero edits to
-that feature**: composition, which is the whole point.
+The saucer *is* the Mode 7 background — it grows in out of the star field,
+then dives at you, the matrix zooming it from a 71-pixel disc to a 141-pixel
+one and back, four times a fight. At the top of each dive it aims a sight line
+out of the glowing emitter at its own belly, straight down at the lane you are
+standing in, and a beat later fires a lance along it: strafe out of the line
+during the telegraph, and get back under the saucer, because your shots only
+land from underneath. It reuses the scale-track feature the `boss` game
+declares, with **zero edits to that feature**: composition, which is the whole
+point.
 
 ### `railshooter`
 

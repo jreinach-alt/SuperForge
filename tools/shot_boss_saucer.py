@@ -4,17 +4,17 @@ Usage:  python3 tools/shot_boss_saucer.py [outdir]
 
 Boots build/boss_saucer.sfc and photographs the WHOLE state cycle on ABSOLUTE
 frames: the far pre-reveal pose over the star field, the mid-ramp grow-in with
-the boot title, the rest-size hold, the lunge at rest and at its screen-filling
-apex, the beam's sparse telegraph and its solid firing column, the death
-recede, the VICTORY card over a still-lit arena, and the DEFEAT card the
-no-input path reaches. No assertions — this exists so a human can LOOK at the
+the boot title, the rest-size hold, the lunge at rest and at its apex, the
+beam's sight line and its firing lance, the death recede, the VICTORY card
+over a still-lit arena, and the DEFEAT card the no-input path reaches. No assertions — this exists so a human can LOOK at the
 ROM the suite just called green, beat by beat.
 
 THE LUNGE PAIR IS THE POINT. The subject is a scale axis m7_affine
 does not have, and this rail runs it four times per cycle; `lunge_far` and
 `lunge_apex` are the two ends of one dive, rendered from two baked blobs. The
-beam pair after them is the attack that scale buys: the column is latched onto
-the player's lane at the apex, so the telegraph frame is the dodge window and
+beam pair after them is the attack that scale buys: the lance leaves the
+saucer's own emitter and lands on the column latched onto the player's lane,
+so the telegraph frame is a sight line already aimed at the dodge window and
 the fire frame is what ignoring it costs.
 
 LOCKSTEP, so the renders are a pure function of (rom md5, seed, input script):
@@ -46,6 +46,8 @@ def _dp(name):
 
 _ST, _LG, _BM, _HP = (_dp(n) for n in ("US_B_STATE", "US_LUNGE_STATE",
                                        "US_BEAM_STATE", "US_B_HP"))
+_PX, _BX = (_dp(n) for n in ("US_P_X", "US_BEAM_X"))
+_SPAWN = 120                       # saucer.inc's SAU_PLAYER_X0
 REVEAL, HOLD, FIGHT, DEATH, RESULT = 1, 2, 3, 4, 6
 LG_FAR, LG_APPR, LG_NEAR = 0, 1, 2
 BM_TELE, BM_FIRE = 1, 2
@@ -62,6 +64,53 @@ def _until(m, off, want, pad=None, limit=4000):
         if _rd(m, off) == want:
             return
     raise SystemExit(f"{off:#x} never reached {want}")
+
+
+class _Fight:
+    """The drive that actually WINS: hold A, dodge each latched column once,
+    then come back under the saucer.
+
+    Standing on the spawn lane and holding A is no longer a kill — measured on
+    this binary it ends at boss hp 35 with the gunship dead, because the
+    saucer's hitbox is its rendered disc now and every beam that lands costs a
+    heart. So the drive strafes clear while the beam is up and steers back to
+    the lane when it is down, which is also how a player has to hold this
+    fight.
+
+    THE DIRECTION IS LATCHED ON THE BEAM'S RISING EDGE, not recomputed per
+    frame: a per-frame "move away from the column" rule oscillates about it at
+    3 px/frame and never leaves (measured — the ship jittered 120..123 through
+    three whole beams and died with the saucer on 35 hp).
+    """
+
+    def __init__(self):
+        self.dodge = None
+        self.prev = 0
+
+    def pad(self, m):
+        bm, px, bx = _rd(m, _BM), _rd(m, _PX), _rd(m, _BX)
+        if bm and not self.prev:
+            self.dodge = "right" if bx < 128 else "left"
+        self.prev = bm
+        if bm:
+            if abs(px + 4 - bx) < 28:            # still in the column's reach
+                return {"a": True, self.dodge: True}
+            return {"a": True}
+        self.dodge = None
+        if px < _SPAWN - 2:
+            return {"a": True, "right": True}
+        if px > _SPAWN + 2:
+            return {"a": True, "left": True}
+        return {"a": True}
+
+
+def _fight_until(m, off, want, limit=6000):
+    f = _Fight()
+    for _ in range(limit):
+        m.advance(1, pad1=f.pad(m))
+        if _rd(m, off) == want:
+            return
+    raise SystemExit(f"{off:#x} never reached {want} under the fight drive")
 
 
 def main(outdir):
@@ -88,12 +137,11 @@ def main(outdir):
         _until(m, _LG, LG_FAR)
         m.advance(2)
         shot(m, "lunge_far")             # the dive's rest end
-        # ...and its screen-filling end, photographed on the dive's LAST frame
-        # rather than at NEAR: the apex and the telegraph's first frame are the
-        # same instant by construction, so a shot at NEAR would duplicate the
-        # beam frame below instead of showing the scale axis alone.
+        # ...and its near end, photographed on the last frame BEFORE the
+        # telegraph arms: from there on the beam is on screen, so this is the
+        # last instant that shows the scale axis alone.
         _until(m, _LG, LG_APPR)
-        m.advance(42)
+        m.advance(19)
         shot(m, "lunge_apex")
 
         # the beam, from the apex: sparse telegraph, then the solid column
@@ -104,9 +152,8 @@ def main(outdir):
         m.advance(4)
         shot(m, "beam_fire")
 
-        # drive the kill: hold A in the left lane until the saucer breaks off
-        pad = {"a": True, "left": True}
-        _until(m, _ST, DEATH, pad=pad)
+        # drive the kill: hold A under the saucer, dodging each beam
+        _fight_until(m, _ST, DEATH)
         m.advance(6)
         shot(m, "recede_early")
         m.advance(38)

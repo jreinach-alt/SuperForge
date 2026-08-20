@@ -25,7 +25,7 @@ bytes = 32768
 dma_source = true
 
 # --- the matrix tracks (format = m7_track's header) ------------------------
-# THE RING: 256 headings at the rest scale (1.5, i.e. $0180). On THIS rail
+# THE RING: 256 headings at the rest scale (900 — a 100 px disc). On THIS rail
 # only HOLD indexes it, because the fight does not rotate (`stz b_angle` at
 # the HOLD exit); it also supplies the reference entry the generator's four
 # seam asserts compare against. 2 + 256*4 bytes.
@@ -33,39 +33,40 @@ dma_source = true
 name = "sau_ring"
 bytes = 1026
 
-# THE REVEAL ramp: entry 0 = the pre-reveal pose (angle 0, scale 5.0 — the
+# THE REVEAL ramp: entry 0 = the pre-reveal pose (angle 0, scale 1260 — the
 # matrix battle_init shows before the fade lifts), entries 1..60 = the grow-in,
-# angle f, scale lerped 5.0 -> 1.5 endpoint-exact. Entry 60 == ring[60], the
+# angle f, scale lerped 1260 -> 900 endpoint-exact. Entry 60 == ring[60], the
 # reveal->hold seam. 2 + 61*4 bytes.
 [[claims.rom]]
 name = "sau_reveal"
 bytes = 246
 
 # THE LUNGE, approach half: entry 0 = the FAR/rest pose (== ring[0]), entries
-# 1..45 = the dive, angle 0, scale $0180 -> $00A0 at -5/frame, terminal clamp
-# on the 45th. The ramp ends by COMPARISON against the target scale, not by
-# counting frames, so 45 — not the nominal 40 — is the realized length; the
-# generator DERIVES that rather than trusting the nominal figure. 2 + 46*4
+# 1..44 = the dive, angle 0, scale 900 -> 637 at -6/frame, terminal clamp
+# on the 44th. The ramp ends by COMPARISON against the target scale, not by
+# counting frames, so 44 — not the nominal 40 — is the realized length; the
+# generator DERIVES that rather than trusting the nominal figure. 2 + 45*4
 # bytes.
 [[claims.rom]]
 name = "sau_appr"
-bytes = 186
+bytes = 182
 
-# THE LUNGE, retreat half: entry 0 = the apex pose (== appr[45]), entries 1..45
-# = the climb back, +5/frame, terminal clamp onto ring[0]. A SEPARATE blob
+# THE LUNGE, retreat half: entry 0 = the apex pose (== appr[44]), entries 1..44
+# = the climb back, +6/frame, terminal clamp onto ring[0]. A SEPARATE blob
 # because the two ramps are NOT each other's reverse — the truncation lands on
-# different frames (reversed-approach frame 1 is 164, retreat frame 1 is 165),
+# different frames (reversed-approach frame 1 is 642, retreat frame 1 is 643),
 # and the generator asserts they differ so a "just walk one blob backwards"
-# simplification cannot land silently. 2 + 46*4 bytes.
+# simplification cannot land silently. 2 + 45*4 bytes.
 [[claims.rom]]
 name = "sau_retr"
-bytes = 186
+bytes = 182
 
 # THE DEATH ramp: entry 0 = ring[0] (the fight->death seam — EXACT here, not
 # captured, because the fight holds angle 0), entries 1..60 = the recede, angle
-# 3f, scale $0180 + 14f. The recede adds a TRUNCATED step each frame and never
-# quite reaches the nominal end scale, so the bake reproduces the sequence that
-# actually renders rather than the one the constant names. 2 + 61*4 bytes.
+# 3f, scale 900 + 6f. It LANDS on the reveal's own start scale at f=60
+# (900 + 360 = 1260), so the saucer recedes to exactly the distance it arrived
+# from and the loop closes on one size — asserted in the generator. 2 + 61*4
+# bytes.
 [[claims.rom]]
 name = "sau_death"
 bytes = 246
@@ -83,8 +84,9 @@ bytes = 32
 # The OBJ sheet: 48 tiles x 32 B (three 16-tile VRAM rows) — bs_rom's 32 plus
 # one row, because this rail composes its title and result cards out of GLYPH
 # sprites. Player 16x16 x2 frames at {0,1,16,17}/{2,3,18,19}; the 8x8 cast in
-# row 0's tail (shot 5, pip lit 6, pip dim 7, beam 8) plus the exhaust and
-# banner cells; the eighteen glyph faces from tile 20.
+# row 0's tail (shot 5, pip lit 6, pip dim 7, beam body 8, beam telegraph 12,
+# muzzle flare 13) plus the exhaust and banner cells; the eighteen glyph faces
+# from tile 20.
 [[claims.rom]]
 name = "sau_sprite_chr"
 bytes = 1536

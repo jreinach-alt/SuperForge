@@ -33,35 +33,63 @@ SAU_ST_RESET  = 7               ; masked re-init -> REVEAL (the loop)
 ; The saucer dives at the camera by ramping the matrix scale DOWN (a smaller
 ; value samples fewer texels per pixel, so the plane looks BIGGER).
 SAU_LG_FAR      = 0             ; dwell at rest scale, then APPROACH
-SAU_LG_APPROACH = 1             ; ramp down to the apex; at apex lock the beam
+SAU_LG_APPROACH = 1             ; ramp down to the apex; lock the beam and
+                                ;   telegraph with TELE_F of the dive left
 SAU_LG_NEAR     = 2             ; hold the apex while the beam runs
 SAU_LG_RETREAT  = 3             ; ramp back up to rest, then FAR
 ; The realized ramp length. A scale ramp driven by COMPARISON rather than by
-; counting (subtract a step, clamp at the near scale) runs 45 frames with a
+; counting (subtract a step, clamp at the near scale) runs 44 frames with a
 ; terminal clamp even though its nominal step count is 40. This constant is
-; the length the track blobs were BAKED with; the generator derives the same 45
+; the length the track blobs were BAKED with; the generator derives the same 44
 ; from the same arithmetic, and a disagreement would break its seam asserts.
-SAU_LUNGE_FRAMES = 45
+SAU_LUNGE_FRAMES = 44
 ; the FAR dwell, shortened by phase: faster lunges as HP drops
 SAU_FAR_P0 = 40                 ; the full dwell
 SAU_FAR_P1 = 28                 ; full - 12
 SAU_FAR_P2 = 16                 ; full - 24
 
 ; --- the BEAM --------------------------------------------------------------
-; A vertical energy column fired at the lunge apex, its X LOCKED to the
-; player's body centre at the approach's last frame — so the telegraph is the
-; player's window to strafe out of the column.
+; A LANCE from the saucer's ventral emitter to the column locked onto the
+; player's body centre — not a free-floating column. The emitter is the Mode 7
+; PIVOT (gen_saucer_assets' predicate paints the white-hot emitter disc at
+; r <= 2.3 tiles of the plane's centre) and `m7a_set_center` shows the pivot at
+; the screen centre, so the emitter renders at (SAU_EMIT_CX, SAU_EMIT_CY) at
+; EVERY scale. That is what welds this end of the beam to the saucer: the
+; matrix changes how BIG the emitter is, never where it is, so an origin
+; pinned to the screen centre tracks it exactly and needs no divide by the
+; live scale.
+;
+; The far end is the latched column, so the beam POINTS AT WHERE IT WILL LAND
+; for the whole telegraph — a far better dodge cue than a bar standing
+; somewhere else on the screen.
 SAU_BM_OFF  = 0
-SAU_BM_TELE = 1                 ; dim (every other segment), no damage
-SAU_BM_FIRE = 2                 ; solid, damaging
-SAU_BEAM_SEGS   = 16            ; 16 x 8 px = 128 px of column
-SAU_BEAM_Y0     = 56            ; the saucer's ventral emitter row
-SAU_BEAM_PITCH  = 8             ; segment stride (the tile butts seamlessly)
-SAU_BEAM_W      = 8
-SAU_BEAM_TELE_F = 24            ; telegraph frames (the dodge window)
+SAU_BM_TELE = 1                 ; the thin sight line (every other segment)
+SAU_BM_FIRE = 2                 ; the solid lance, damaging
+SAU_BEAM_SEGS   = 16            ; the OAM band's width, and the walk's length
+SAU_EMIT_CX     = 128           ; the pivot's screen column (256/2)
+SAU_EMIT_CY     = 112           ; ...and its row (224/2)
+SAU_BEAM_X0     = SAU_EMIT_CX - 4    ; an 8x8 cell's top-left for that centre
+SAU_BEAM_Y0     = SAU_EMIT_CY - 4
+SAU_BEAM_PITCH  = 5             ; the walk's Y stride: fifteen steps of 5 put
+                                ;   the last cell over the gunship's upper hull
+                                ;   (108 + 75 = 183, hull top 184), and 5 < 8
+                                ;   means consecutive cells OVERLAP, so the
+                                ;   lance is seamless at any slope
+SAU_BEAM_MUL    = 17            ; the X walk's 8.8 step is delta * 17, i.e.
+                                ;   delta * 17/256 = delta/15.06 — so fifteen
+                                ;   steps land on 255/256 of the span. A divide
+                                ;   by 15 in four shifts and one add; the 0.4%
+                                ;   shortfall is a quarter-pixel at the widest
+                                ;   lane
+SAU_BEAM_W      = 8             ; the column's hit width (beam_x is its LEFT
+                                ;   edge, so the box IS the tip cell)
+SAU_BEAM_TELE_F = 24            ; telegraph frames (the dodge window). Armed
+                                ;   with SAU_BEAM_TELE_F of the dive still to
+                                ;   run, so the sight line tracks the emitter
+                                ;   through a CHANGING scale and the beam
+                                ;   fires the moment the saucer reaches its
+                                ;   apex
 SAU_BEAM_FIRE_F = 30            ; active frames
-SAU_BEAM_HIT_Y  = SAU_BEAM_Y0
-SAU_BEAM_HIT_H  = 160           ; reaches well past SAU_PLAYER_Y (184)
 
 ; --- the player ------------------------------------------------------------
 SAU_PLAYER_Y     = 184          ; fixed row; the player only strafes on X
@@ -83,12 +111,30 @@ SAU_SHOT_DMG    = 5             ; ~48 hits to kill
 SAU_FIRE_GAP    = 8             ; min frames between player shots (held A)
 SAU_SHOT_CULL_Y = 16            ; a shot above this row is culled
 
-; the saucer hitbox: WIDE (a shot from any lane connects); the BEAM, by
-; contrast, is a NARROW locked column the player strafes out of
-SAU_BOSS_HIT_X = 16
-SAU_BOSS_HIT_Y = 40
-SAU_BOSS_HIT_W = 224
-SAU_BOSS_HIT_H = 96
+; the saucer hitbox: INSIDE THE RENDERED DISC, not the screen. The debut's box
+; was 224 x 96 because the debut's saucer FILLED the screen — every lane sat
+; over the hull, so a shot from any lane legitimately connected. The re-pitched
+; envelope renders a 100 px disc at rest (centred on the screen, so rows
+; 62..162) and 141 px at the apex, and the same box would now delete bolts in
+; open star field: a bolt vanishing where there is no saucer reads as a bug,
+; and it is one.
+;
+; The box is deliberately SHALLOW as well as narrow, and the bottom edge is
+; what sets it. A box reaching the disc's lower rim (row 162) kills a bolt
+; 14 px into its flight — the gunship is at row 184 — so the bolts would blink
+; out almost as they spawned; measured on that first cut, the rendered bolt
+; centroid never climbed at all. Ending the box at row 119 instead lets a bolt
+; cross the gap AND the saucer's lower half, 60 px in ten frames, and pop near
+; the canopy: it reads as a hit rather than as a disappearance.
+;
+; The WIDTH is then set by where that kill happens. A bolt dies on the frame
+; its top row reaches 116, i.e. with its body centred eight rows above the
+; saucer's own centre, where the disc is 49 px of half-width; the box puts the
+; extreme bolt centre 48 px out, so EVERY kill lands inside the rendered disc.
+SAU_BOSS_HIT_X = 84
+SAU_BOSS_HIT_Y = 64
+SAU_BOSS_HIT_W = 88
+SAU_BOSS_HIT_H = 56
 
 ; --- the shot pool (offsets into the sau_actors claim) ---------------------
 ; ONE pool: the boss rail's 8-slot orb rain has no analogue here — this saucer
@@ -122,10 +168,13 @@ SAU_T_PLAYER1 = 2               ; the iframe flash frame, quad {2,3,18,19}
 SAU_T_SHOT    = 5               ; 8x8 player bolt
 SAU_T_PIP_LIT = 6               ; 8x8 HP segment, lit
 SAU_T_PIP_DIM = 7               ; 8x8 HP segment, spent
-SAU_T_BEAM    = 8               ; 8x8 beam segment
+SAU_T_BEAM    = 8               ; 8x8 lance body, full-width so consecutive
+                                ;   cells touch at every slope the walk takes
 SAU_T_EXH_LO  = 9               ; thruster flame, short phase
 SAU_T_EXH_HI  = 10              ; thruster flame, tall phase
 SAU_T_CARDBG  = 11              ; the result banner's cell
+SAU_T_BEAM_TELE  = 12           ; the telegraph's thin sight cell
+SAU_T_BEAM_FLARE = 13           ; the emitter burst / the impact burst
 SAU_FLASH_MASK = 4              ; frame & this picks the iframe blink phase
 SAU_EXH_MASK   = 8              ; frame & this picks the flame phase
 

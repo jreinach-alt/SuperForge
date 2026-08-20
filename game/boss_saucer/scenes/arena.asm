@@ -417,13 +417,17 @@ fight_update:
 ; generator).
 ;
 ; THE MIRROR CURSOR. Aborting mid-approach, the retreat resumes at the pose
-; just drawn: approach index a maps to retreat index 45 - a, i.e.
+; just drawn: approach index a maps to retreat index 44 - a, i.e.
 ; timer_retreat = SAU_LUNGE_FRAMES + 1 - timer_approach. The two ramps'
-; truncations land on different frames, so the mapping is not exact — measured,
-; it is off by at most ONE unit of 384 (appr[1] = 379 vs retr[44] = 380)
-; against a normal frame step of five. Strictly smaller than one frame's own
-; motion, i.e. invisible by construction — the boss rail's capture argument,
-; transposed from the heading axis to the scale axis. Bounded at 46 frames.
+; truncations land on different frames, so the mapping is not exact — measured
+; over every T, it is off by exactly ONE unit of 1216 (retr[T] = 787 + 10T
+; against appr[44-T] = 786 + 10T) versus a normal frame step of ten. That
+; residue IS the dive's terminal clamp step, and NEAR_SCALE was chosen to keep
+; it at one: the generator's header carries the derivation, and an exact
+; multiple of the step would zero it at the price of making the two ramps each
+; other's reverse. Strictly smaller than one frame's own motion, i.e. invisible
+; by construction — the boss rail's capture argument, transposed from the
+; heading axis to the scale axis. Bounded at 45 frames.
 ;
 ; In/out: A16/I16, DB=0. Clobbers A.
 break_off:
@@ -608,10 +612,11 @@ shots_update:
 ; saucer_lunge — THE HEADLINE: four sub-states, four track applies
 ; =============================================================================
 ;   FAR      hold the rest pose, dwell, then APPROACH
-;   APPROACH play sau_appr 1..45 (the saucer GROWS); at the apex LOCK the beam
-;            column to the player's body centre and start the telegraph
+;   APPROACH play sau_appr 1..44 (the saucer GROWS); with TELE_F - 1 frames
+;            of ramp left, LOCK the beam column to the player's body centre
+;            and start the telegraph, so the charge runs DURING the dive
 ;   NEAR     hold the apex (sau_appr's last entry) while beam_update runs
-;   RETREAT  play sau_retr 1..45 back to rest, then FAR with a phase dwell
+;   RETREAT  play sau_retr 1..44 back to rest, then FAR with a phase dwell
 ; WIDTH-RISK: A16/I16 entry/exit (no toggles); m7t_apply is A16/I16 both sides.
 saucer_lunge:
     .a16
@@ -645,21 +650,31 @@ lg_far:
     .a16
     rts
 
-; --- APPROACH: the dive. At the apex, lock the column and telegraph. ------
+; --- APPROACH: the dive. Mid-dive, lock the column and telegraph. --------
+; THE TELEGRAPH RUNS DURING THE DIVE, not after it. Armed with
+; SAU_BEAM_TELE_F - 1 frames of ramp left, its countdown and the ramp's reach
+; zero on the SAME frame, so the beam ignites exactly as the saucer reaches its
+; apex — the charge is the dive and the shot is the arrival. It also means the
+; sight line is drawn against a CHANGING scale (appr[21] -> appr[44], a 1.29x
+; span), which is the whole point of anchoring it to the emitter rather than
+; to a fixed row: a beam that only ever appeared at one pose could be nailed to
+; that pose and nobody would see the difference.
 lg_approach:
     .a16
     lda #SAU_LUNGE_FRAMES + 1
     sec
     sbc z:US_LUNGE_TIMER
-    sta z:US_SCR                    ; idx, 1..45
+    sta z:US_SCR                    ; idx, 1..44
     M7T_BIND ::sau_appr_bin
     lda z:US_SCR
     jsr ::m7t_apply
     lda z:US_LUNGE_TIMER
     dec a
     sta z:US_LUNGE_TIMER
+    beq @apex
+    cmp #SAU_BEAM_TELE_F - 1
     bne @done
-    ; ---- the apex: LOCK the beam column to the player's body centre ------
+    ; ---- LOCK the beam column to the player's body centre ----------------
     ; The player must then strafe out of this column during the telegraph.
     lda z:US_P_X
     clc
@@ -669,6 +684,9 @@ lg_approach:
     sta z:US_BEAM_STATE
     lda #SAU_BEAM_TELE_F
     sta z:US_BEAM_TIMER
+    rts
+@apex:
+    .a16
     lda #SAU_LG_NEAR
     sta z:US_LUNGE_STATE
 @done:
@@ -697,7 +715,7 @@ lg_retreat:
     lda #SAU_LUNGE_FRAMES + 1
     sec
     sbc z:US_LUNGE_TIMER
-    sta z:US_SCR                    ; idx, 1..45 (0..45 after a break_off)
+    sta z:US_SCR                    ; idx, 1..44 (0..44 after a break_off)
     M7T_BIND ::sau_retr_bin
     lda z:US_SCR
     jsr ::m7t_apply
@@ -828,7 +846,7 @@ saucer_phase:
 ; =============================================================================
 ; draw_frame — the stable slot map, every slot every frame
 ; =============================================================================
-; 0 gunship · 1-16 beam · 17-24 HP HUD · 25-28 shots · 29 thruster ·
+; 0 gunship · 1-16 the beam lance · 17-24 HP HUD · 25-28 shots · 29 thruster ·
 ; 30-53 card cells. Dead or unused slots park at SAU_PARK_Y so slot identity
 ; is stable; the fourteen hi-table bytes are cleared first
 ; and rebuilt whole by the sau_put calls.
@@ -884,49 +902,110 @@ draw_player:
     jsr sau_park_slot
     rts
 
-; --- draw_beam: slots 1-16, the stacked column ----------------------------
-; OFF parks all sixteen. TELEGRAPH draws only the EVEN segments — the sparse
-; "charging" read that is the player's cue to leave the column. FIRE draws all
-; sixteen, and the segment art is edge-lit on left and right only, so at an
-; 8 px pitch they butt into one continuous descending beam.
-; US_DI = the segment index, US_HUD_X = the running Y cursor.
+; --- draw_beam: slots 1-16, the LANCE from the emitter to the column ------
+; OFF parks all sixteen. Otherwise the sixteen cells WALK the straight line
+; from the saucer's ventral emitter to the latched column.
+;
+; WHY THE ORIGIN IS A CONSTANT AND STILL TRACKS THE SAUCER. The emitter is the
+; plane's PIVOT (the generator paints its white-hot disc at r <= 2.3 tiles of
+; the map centre) and `m7a_set_center` shows the pivot at the screen centre, so
+; the matrix changes how BIG the emitter renders and never WHERE. Starting the
+; walk at (SAU_BEAM_X0, SAU_BEAM_Y0) therefore lands it inside the emitter at
+; every pose the lunge reaches — no divide by the live scale, and nothing to
+; drift. The debut's column started at row 56 and stood at the player's x, so
+; it touched the saucer only by coincidence and read as a bar someone had left
+; on the screen.
+;
+; TELEGRAPH draws the EVEN cells with the thin sight tile: a dotted line
+; already aimed at where the beam will land, which is what makes the dodge
+; window legible. FIRE draws all sixteen with the full-width body and puts the
+; burst tile on the FIRST and LAST, so the lance visibly leaves the emitter and
+; lands on the ship.
+;
+; THE WALK. US_HUD_X is the X accumulator in 8.8 and US_SCR its step
+; (delta * SAU_BEAM_MUL — four shifts and an add, no divide); Y is a plain
+; integer cursor in US_HUD_THR stepping SAU_BEAM_PITCH, because that axis'
+; span is a compile-time constant. US_DI is the cell index. All four are
+; per-frame scratch, written before read inside this one pass.
+; WIDTH-RISK: A16/I16 entry AND exit, and NO sep/rep in this body at all —
+; sau_put, sau_park_slot and beam_slot_x are each A16/I16 both sides.
 draw_beam:
     .a16
     .i16
     stz z:US_DI
     lda #SAU_BEAM_Y0
+    sta z:US_HUD_THR                ; the Y cursor, whole pixels
+    lda #SAU_BEAM_X0
+    xba                             ; << 8 into the 8.8 accumulator's high half
     sta z:US_HUD_X
+    ; ---- the X step: (beam_x - X0) * 17 == (d << 4) + d, signed ----------
+    lda z:US_BEAM_X
+    sec
+    sbc #SAU_BEAM_X0
+    sta z:US_SCR
+    asl
+    asl
+    asl
+    asl
+    clc
+    adc z:US_SCR
+    sta z:US_SCR
 @loop:
     .a16
     .i16
     lda z:US_BEAM_STATE
     beq @park
     cmp #SAU_BM_FIRE
-    beq @draw
+    beq @fire
     lda z:US_DI
     and #1
-    bne @park                       ; odd segment in the telegraph -> a gap
+    bne @park                       ; the odd cell is the sight line's gap
+    lda #SAU_T_BEAM_TELE | (SAU_PRIO << 8)
+    bra @draw
+@fire:
+    .a16
+    .i16
+    lda z:US_DI
+    beq @burst                      ; the muzzle, on the emitter
+    cmp #SAU_BEAM_SEGS - 1
+    beq @burst                      ; ...and the impact, on the ship
+    lda #SAU_T_BEAM | (SAU_PRIO << 8)
+    bra @draw
+@burst:
+    .a16
+    .i16
+    lda #SAU_T_BEAM_FLARE | (SAU_PRIO << 8)
 @draw:
     .a16
-    lda z:US_BEAM_X
-    sta z:ES_SAU_DRAW + SAU_D_X
+    .i16
+    sta z:ES_SAU_DRAW + SAU_D_TILE
     lda z:US_HUD_X
+    xba
+    and #255                        ; the accumulator's whole-pixel half
+    sta z:ES_SAU_DRAW + SAU_D_X
+    lda z:US_HUD_THR
     sta z:ES_SAU_DRAW + SAU_D_Y
     stz z:ES_SAU_DRAW + SAU_D_SIZE
     jsr beam_slot_x
-    lda #SAU_T_BEAM | (SAU_PRIO << 8)
+    lda z:ES_SAU_DRAW + SAU_D_TILE
     jsr sau_put
     bra @next
 @park:
     .a16
+    .i16
     jsr beam_slot_x
     jsr sau_park_slot
 @next:
     .a16
+    .i16
     lda z:US_HUD_X
     clc
-    adc #SAU_BEAM_PITCH
+    adc z:US_SCR
     sta z:US_HUD_X
+    lda z:US_HUD_THR
+    clc
+    adc #SAU_BEAM_PITCH
+    sta z:US_HUD_THR
     lda z:US_DI
     inc a
     sta z:US_DI
@@ -934,7 +1013,7 @@ draw_beam:
     bcc @loop
     rts
 
-; --- beam_slot_x: X = the shadow byte offset of beam segment US_DI --------
+; --- beam_slot_x: X = the shadow byte offset of beam cell US_DI ----------
 ; In/out: A16/I16, DB=0. Clobbers A.
 beam_slot_x:
     .a16

@@ -281,9 +281,33 @@ PIP_DIM = [                         # 8x8 HP segment, depleted (hollow)
     ".BBBBBB.",
 ]
 
-# The beam segment: EVERY row identical, so a column of these at an 8 px
-# pitch butts into one seamless descending beam.
-BEAM = ["..6556.."] * 8
+# THE BEAM, three cells. The lance walks a straight line from the saucer's
+# emitter to the latched column, so the body cell is FULL WIDTH and every row
+# is identical: consecutive placements step at most 7.4 px across and 5 px down
+# (saucer.inc's SAU_BEAM_PITCH / SAU_BEAM_MUL), and an 8 px cell touches its
+# neighbour at either extreme. The debut's 4 px core was authored for a
+# strictly vertical column and leaves 2 px gaps the moment the walk slopes.
+BEAM = ["66555566"] * 8
+# The telegraph's sight cell: a 4 px core with the cyan edge, drawn on the EVEN
+# segments only, so the charge reads as a dotted line already aimed at where the
+# beam will land. MEASURED at 2 px first: 128 lit pixels across the whole sight
+# line, and more than half of them fall on the saucer's own pale hull, where a
+# white-only core has almost no contrast. The cyan edge is what makes the dashes
+# read there — this is the debut's beam cell, kept as the THIN half of a
+# thin/solid pair rather than as the beam itself.
+BEAM_TELE = ["..6556.."] * 8
+# The burst: the emitter's muzzle flash, and the same cell again at the far end
+# where the lance lands.
+BEAM_FLARE = [
+    "..6..6..",
+    ".6.55.6.",
+    "..5555..",
+    "66555566",
+    "66555566",
+    "..5555..",
+    ".6.55.6.",
+    "..6..6..",
+]
 
 EXH_LO = [                          # thruster flame, short phase
     "........",
@@ -353,6 +377,7 @@ GLYPHS = {
 T_PLAYER0, T_PLAYER1 = 0, 2
 T_SHOT, T_PIP_LIT, T_PIP_DIM, T_BEAM = 5, 6, 7, 8
 T_EXH_LO, T_EXH_HI, T_CARDBG = 9, 10, 11
+T_BEAM_TELE, T_BEAM_FLARE = 12, 13      # row 0's remaining free cells
 GLYPH_BASE = 20                     # row 1's tail, past the player's quads
 GLYPH_ORDER = "ACDEFIMNORSTUVWY<>"  # the union the four strings spell
 GLYPH_TILE = {ch: GLYPH_BASE + i for i, ch in enumerate(GLYPH_ORDER)}
@@ -394,7 +419,8 @@ def sprite_chr() -> bytes:
     for slot, art in ((T_SHOT, SHOT), (T_PIP_LIT, PIP_LIT),
                       (T_PIP_DIM, PIP_DIM), (T_BEAM, BEAM),
                       (T_EXH_LO, EXH_LO), (T_EXH_HI, EXH_HI),
-                      (T_CARDBG, CARDBG)):
+                      (T_CARDBG, CARDBG), (T_BEAM_TELE, BEAM_TELE),
+                      (T_BEAM_FLARE, BEAM_FLARE)):
         assert len(art) == 8 and all(len(r) == 8 for r in art), art
         tiles[slot] = encode_tile_4bpp(art, 0, 0)
     for ch, slot in GLYPH_TILE.items():
