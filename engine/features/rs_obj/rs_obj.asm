@@ -579,6 +579,18 @@ rs_digit_tab:
     .word RS_T_DIGIT_R0 + 12, RS_T_DIGIT_R0 + 14
     .word RS_T_DIGIT_R1 + 0, RS_T_DIGIT_R1 + 2
 
+; The ship's poses in BANK ORDER — index 0 is wings level and index
+; RS_BANK_STEPS is hard over. A table and not base + 4*step because the sheet
+; could not hold five 32x32 lanes contiguously: the first four fill grid rows
+; 0..3 and the fifth lives in the block rows 12..15
+; (gen_railshooter_assets.py's layout note, and rs_obj/feature.toml's).
+rs_ship_frame_tab:
+    .word RS_T_SHIP_F0, RS_T_SHIP_F1, RS_T_SHIP_F2
+    .word RS_T_SHIP_F3, RS_T_SHIP_F4
+.assert RS_BANK_STEPS = 4, error, "rs_ship_frame_tab has one entry per bank step plus level"
+.assert RS_LEAN_HARD_R - RS_LEAN_HARD_L = 2 * RS_BANK_STEPS, error, "the lean range and the bank-step count disagree"
+.assert RS_LEAN_LEVEL - RS_LEAN_HARD_L = RS_BANK_STEPS, error, "RS_LEAN_LEVEL is not the middle of the lean range"
+
 ; The powers of ten the score is decomposed by, most significant first.
 rs_pow10_tab:
     .word 1000, 100, 10, 1
@@ -786,9 +798,21 @@ rs_draw:
 
 ; --- rs_draw_ship: the ship, FIXED on screen, banking with the curve --------
 ; It does not respond to the pad at all and its screen x never changes — only
-; the CHR frame does, so the bank reads as a lean rather than a slide. The lean
-; frame is drawn leaning LEFT, so the right lean is the same CHR H-flipped: two
-; directions for one frame of art.
+; the CHR frame does, so the bank reads as a lean rather than a slide.
+;
+; THE LEAN IS A POSE NUMBER, NOT A DIRECTION. `US_LEAN` is RS_LEAN_LEVEL plus a
+; signed bank step, stored BIASED so this unsigned `cmp` orders the nine states
+; — below the level is a left bank, above it a right one. The magnitude indexes
+; `rs_ship_frame_tab`; the sign chooses whether the frame is H-flipped. That is
+; the whole of the H-flip economy: FOUR bank steps cost four CHR lanes rather
+; than eight, because the art is authored rolling LEFT and the light that
+; shades it has no sideways component (gen_railshooter_assets.py, LIGHT_DIR),
+; so the mirror is exact.
+;
+; The RAMP is not here. `rs_path_step` grades the path's slope and walks the
+; stored pose one step per frame; this routine only ever renders the pose it
+; is handed, which is why a test can read the tile index per frame and see the
+; intermediate poses.
 ;
 ; During the fail state it BLINKS, which is what tells a pilot the run ended
 ; rather than the emulator stalling. WIDTH-RISK: A16/I16 entry and exit; no
@@ -803,22 +827,36 @@ rs_draw_ship:
 @alive:
     .a16
     .i16
-    lda #RS_T_SHIP_F0
-    sta RSD_PTILE
     lda #(RS_ATTR_PRI | RS_ATTR_PAL0 | RS_SIZE_LARGE)
     sta RSD_PATTR
     lda f:US_LEAN_LONG
-    beq @place
-    lda #RS_T_SHIP_F1
-    sta RSD_PTILE
-    lda f:US_LEAN_LONG
-    cmp #RS_LEAN_RIGHT
-    bne @place
+    cmp #RS_LEAN_LEVEL
+    bcc @left
+    beq @level
     lda #(RS_ATTR_PRI | RS_ATTR_PAL0 | RS_ATTR_HFLIP | RS_SIZE_LARGE)
-    sta RSD_PATTR
-@place:
+    sta RSD_PATTR                   ; a right bank is the left frame, mirrored
+    lda f:US_LEAN_LONG
+    sec
+    sbc #RS_LEAN_LEVEL
+    bra @frame
+@level:
     .a16
     .i16
+    lda #0
+    bra @frame
+@left:
+    .a16
+    .i16
+    lda #RS_LEAN_LEVEL
+    sec
+    sbc f:US_LEAN_LONG
+@frame:
+    .a16
+    .i16
+    asl a                           ; a word table
+    tax
+    lda f:rs_ship_frame_tab, x
+    sta RSD_PTILE
     lda #RS_SHIP_X
     sta RSD_SX
     lda #RS_SHIP_Y

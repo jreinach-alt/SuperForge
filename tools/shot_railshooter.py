@@ -41,10 +41,10 @@ HAZ_SLOT0, HAZ_N = 3, 4
 SCORE_SLOT0, SCORE_DIGITS = 10, 4
 LIFE_SLOT0, LIFE_N = 14, 5
 PYL_SLOT0, PYL_SLOTS = 22, 6 # behind the HUD, after the OAM reorder
-T_LIFE_FULL, T_LIFE_EMPTY = 192, 194
-T_HAZ = (8, 12, 164, 166)
+T_LIFE_FULL, T_LIFE_EMPTY = 204, 206
+T_HAZ = (192, 196, 164, 166)
 T_PYL_NEAR = (64, 68)
-LARGE = (8, 12)
+LARGE = (192, 196)              # the two hazard tiers the PPU draws at 32x32
 
 
 def hold(runner, frames, **buttons):

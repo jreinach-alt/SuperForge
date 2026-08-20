@@ -110,13 +110,39 @@ RS_ADV_FRAC_MASK = $00FF            ; the accumulator's fractional part
 ; flown around the curve.
 RS_SHIP_X      = 128 - 16           ; a centred 32x32 sprite's screen X
 RS_SHIP_Y      = 150                ; planted low, well below the horizon
-RS_LEAN_NONE   = 0
-RS_LEAN_LEFT   = 1
-RS_LEAN_RIGHT  = 2
-; |slope| under this reads as straight, as a fraction of the path amplitude —
-; 18/64 is the same 0.28 the shipped 40/144 was, so the ship banks over the
-; same part of each bend.
-RS_BANK_DEAD   = 18
+
+; --- the bank RAMP, and why the state is BIASED -------------------------------
+; The bank used to be three states — level, banked-left, banked-right — read
+; off ONE threshold on the path's slope, so the ship snapped from wings-level
+; to hard-over in a single frame. It is now a graded pose: nine states, four
+; bank steps a side, with the SAME dead zone at the bottom of the ladder.
+;
+; THE SIGNAL WAS NEVER INSTANTANEOUS — the quantiser was. `rs_path_step` banks
+; on `rs_path[dist + QUARTER]`, which is the path sine's own derivative: a
+; smooth 64-frame sweep from hard-over to level across each half-bend. Grading
+; the same signal into four steps therefore buys the ramp with NO new state and
+; no tween: each step just holds for the frames the slope spends inside its
+; band (23 / 11 / 9 / 9 over a quarter period, MEASURED off the baked table).
+;
+; US_LEAN IS STORED BIASED so that a 65816 `cmp` — which is unsigned — orders
+; the poses. RS_LEAN_LEVEL is the zero; below it is left bank, above it right,
+; and the whole range is 0..2*RS_BANK_STEPS. The rate limiter walks it ONE step
+; per frame toward the target, which is what makes "the ship never jumps a
+; pose" true by construction rather than by the sine's good manners — the
+; scene enter and the fail-state restart both set dist = 0, where the slope is
+; already at its maximum.
+RS_BANK_STEPS  = 4                  ; bank poses per side (CHR: RS_T_SHIP_F1..4)
+RS_LEAN_LEVEL  = RS_BANK_STEPS      ; the biased zero: wings level
+RS_LEAN_HARD_L = 0                  ; hard over to the left
+RS_LEAN_HARD_R = 2 * RS_BANK_STEPS  ; ...and to the right
+; The ladder, in |slope| out of the path's 64-px amplitude. T1 is the three-
+; state version's dead zone at its shipped value (18), so the ship still leaves
+; level over the same part of each bend; the three rungs above it split the
+; rest of the sweep into steps that each hold for about ten frames.
+RS_BANK_T1     = 18
+RS_BANK_T2     = 31
+RS_BANK_T3     = 43
+RS_BANK_T4     = 54
 
 ; --- the depth axis ----------------------------------------------------------
 ; Each actor carries a forward depth z ahead of the camera, decremented by a
@@ -345,22 +371,25 @@ RS_OAM_N        = 28
 ; columns; a 16x16 frame reads {N, N+1, N+16, N+17} — two rows. That is why the
 ; ten digits are a TABLE and not base + 2*v: the ninth would want base 144,
 ; whose N+16 row is already the eighth frame's bottom half.
-RS_T_SHIP_F0  = 0                   ; 32x32
-RS_T_SHIP_F1  = 4
-RS_T_HAZ_T0   = 8
-RS_T_HAZ_T1   = 12
-RS_T_PYL_T0   = 64
+RS_T_SHIP_F0  = 0                   ; rows 0..3, 32x32: level, then the
+RS_T_SHIP_F1  = 4                   ;   first three bank steps
+RS_T_SHIP_F2  = 8
+RS_T_SHIP_F3  = 12
+RS_T_PYL_T0   = 64                  ; rows 4..7, 32x32
 RS_T_PYL_T1   = 68
 RS_T_BURST_A  = 72
 RS_T_BURST_B  = 76
-RS_T_HAZ_T2   = 164                 ; 16x16
+RS_T_HAZ_T2   = 164                 ; rows 10..11, 16x16
 RS_T_HAZ_T3   = 166
 RS_T_PYL_T2   = 168
 RS_T_PYL_T3   = 170
 RS_T_RETICLE  = 172
 RS_T_BULLET   = 174
-RS_T_LIFE_FULL  = 192
-RS_T_LIFE_EMPTY = 194
+RS_T_HAZ_T0   = 192                 ; rows 12..15, 32x32 — the block the sheet
+RS_T_HAZ_T1   = 196                 ;   grew to hold the fifth ship pose
+RS_T_SHIP_F4  = 200                 ;   ...which is this one, hard over
+RS_T_LIFE_FULL  = 204               ;              16x16
+RS_T_LIFE_EMPTY = 206
 
 ; --- the OAM attribute byte, and the size flag that is NOT in it -------------
 ; The attribute byte is bit 7 = V-flip, bit 6 = H-flip, bits 5:4 = priority,

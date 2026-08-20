@@ -116,14 +116,28 @@ PLAY_SLOTS = tuple(range(0, SCORE_SLOT0)) + \
     tuple(range(PYL_SLOT0, PYL_SLOT0 + PYL_SLOTS))
 
 SHIP_X, SHIP_Y = 112, 150
-T_SHIP_F0, T_SHIP_F1 = 0, 4
-T_HAZ = (8, 12, 164, 166)            # tier 0 (nearest) .. tier 3 (farthest)
+# The ship's five poses IN BANK ORDER: level, then four steps of roll. The
+# fifth lane is not contiguous with the first four — the sheet grew to 256
+# tiles for the ramp and rows 12..15 are where the extra 32x32 lanes are, so
+# this is a TABLE (rs_ship_frame_tab holds the same one in ROM).
+T_SHIP = (0, 4, 8, 12, 200)
+BANK_STEPS = len(T_SHIP) - 1
+T_SHIP_F0 = T_SHIP[0]
+T_HAZ = (192, 196, 164, 166)         # tier 0 (nearest) .. tier 3 (farthest)
 T_PYL = (64, 68, 168, 170)
 T_BURST = (72, 76)
 T_BULLET = 174
-T_LIFE_FULL, T_LIFE_EMPTY = 192, 194
+T_LIFE_FULL, T_LIFE_EMPTY = 204, 206
 T_DIGIT = (128, 130, 132, 134, 136, 138, 140, 142, 160, 162)
 ATTR_SHIP, ATTR_SHIP_FLIP = 0x30, 0x70
+ATTR_HFLIP_BIT = 1 << 6
+# The ship's own OBJ palette (CGRAM 128..143, gen_railshooter_assets.py's
+# SHIP_PAL). Entry 0 is transparent; 1..6 are the HULL FORM RAMP, in order.
+SHIP_PAL_BASE = 128
+HULL_RAMP_IDX = (1, 2, 3, 4, 5, 6)
+# Where the ship is on a captured frame. OAM y is the sprite's top row and
+# Mesen's capture starts ROW0 rows above scanline 0.
+SHIP_BOX = (SHIP_X, SHIP_Y + 7, SHIP_X + 32, SHIP_Y + 32 + 7)
 
 # The S-curve's shape, from railshooter.inc. One bend is half a period.
 PATH_PERIOD = 256
@@ -274,6 +288,69 @@ def _life_full(oam):
     return sum(1 for t in _life_tiles(oam) if t == T_LIFE_FULL)
 
 
+def _ship_pose(oam):
+    """The ship's bank pose as a SIGNED step read off the RENDERED OAM entry —
+    negative is a left bank, positive a right one, 0 is wings level.
+
+    Read from the tile number and the H-flip bit, which is where the pose
+    actually reaches the PPU. The two halves are both needed: the right bank is
+    the left bank's CHR mirrored, so the tile alone cannot tell the sides
+    apart. `None` while the fail-state blink has the slot parked.
+    """
+    _, _, tile, attr, _, _ = _entry(oam, SHIP_SLOT)
+    if tile not in T_SHIP:
+        return None
+    k = T_SHIP.index(tile)
+    return k if attr & ATTR_HFLIP_BIT else -k
+
+
+def _pal_rgb(m, first, count):
+    """`count` CGRAM words from `first`, expanded the way the PPU expands
+    them — read off the hardware, not recomputed from the generator."""
+    raw = m.read_bytes(C, first * 2, count * 2)
+    out = []
+    for i in range(count):
+        w = raw[2 * i] | (raw[2 * i + 1] << 8)
+        r, g, b = w & 31, (w >> 5) & 31, (w >> 10) & 31
+        out.append(((r << 3) | (r >> 2), (g << 3) | (g >> 2),
+                    (b << 3) | (b >> 2)))
+    return tuple(out)
+
+
+def _ship_pixels(img, ramp):
+    """Every pixel in the ship's 32x32 box painted with one of the SHIP's own
+    hull ramp colours, as (x, y, ramp step).
+
+    Colour-keyed rather than box-cropped, and that is what makes the counts
+    below mean something: the case asserts first that the ship's palette is
+    disjoint from every other palette on screen, so nothing the floor, the sky
+    or the hazards paint can enter this set. A backdrop that changed between
+    two captures cannot move a single one of these numbers.
+    """
+    x0, y0, x1, y1 = SHIP_BOX
+    step = {c: i for i, c in enumerate(ramp)}
+    px = img.load()
+    return [(x, y, step[px[x, y]]) for y in range(y0, y1)
+            for x in range(x0, x1) if px[x, y] in step]
+
+
+def _mean(vals):
+    return sum(vals) / len(vals) if vals else 0.0
+
+
+def _lit_split(pix):
+    """(mean ramp step left of the ship's centre line, mean right of it).
+
+    A rear-view roll shows up here and almost nowhere else: the wing that goes
+    DOWN turns its skin away from an overhead light and the wing that comes UP
+    turns toward it, so the two halves of the sprite part company. A bank drawn
+    as a sheared silhouette leaves them equal.
+    """
+    mid = (SHIP_BOX[0] + SHIP_BOX[2]) / 2
+    return (_mean([t for x, _, t in pix if x < mid]),
+            _mean([t for x, _, t in pix if x >= mid]))
+
+
 def _live(m, sym):
     """One of the rail's published pool counts, addressed through the EMITTED
     map rather than a literal — the test-side of the rule
@@ -382,9 +459,12 @@ PROJ_SCAN = (BUILD / "assets" / "rs_proj_scan.bin").read_bytes()
 PROJ_SCALE = (BUILD / "assets" / "rs_proj_scale.bin").read_bytes()
 WORLD_PX, WORLD_MASK = 1024, 1023
 Z_FAR, Q_LOG2 = 640, 3
-CENTRE_OFF = {8: 16, 12: 16, 164: 8, 166: 8}
 SCREEN_W, CENTRE_32, CENTRE_16 = 256, 16, 8
-LARGE_TILES = (8, 12)
+# DERIVED from T_HAZ, not repeated beside it: the two near tiers are the 32x32
+# frames and the two far ones 16x16, and a sheet re-layout that moved a tier
+# number used to need the same edit in four places here.
+LARGE_TILES = T_HAZ[:2]
+CENTRE_OFF = {t: (CENTRE_32 if t in LARGE_TILES else CENTRE_16) for t in T_HAZ}
 POOL_STRIDE = 16                 # 8 slots x 2 B per field (railshooter.inc)
 OBS_BASE, PYL_BASE = 0, 4 * POOL_STRIDE
 
@@ -744,24 +824,208 @@ def test_the_pose_transport_is_untouched_for_a_whole_s_period(rail):
         "— the half of the transport the index table cannot see")
 
 
-def test_the_ship_banks_into_each_bend_and_the_floor_does_not_rotate(rail, tmp_path):
-    """The ship's lean is the curve made legible ON THE SHIP.
+def test_the_ship_rolls_through_every_bank_pose_and_never_skips_one(rail):
+    """The ship's lean is the curve made legible ON THE SHIP, and it RAMPS.
 
-    It is driven by the PATH's slope, not by input, so across a period it must
-    show BOTH lean frames — and the straight frame between them. Read as the
-    ship's OAM tile and attribute, which is where the frame and the H-flip
-    actually live."""
+    Read as the rendered OAM tile + H-flip every frame of a whole S period,
+    which is where the pose actually reaches the PPU. Three claims, and the
+    second is the one the shipped rail failed:
+
+      1. the whole ladder renders — four bank steps a side AND the level frame
+         between them, so the bank has a neutral and is not a permanent tilt;
+      2. NO FRAME MOVES MORE THAN ONE STEP. That is the rate limiter's
+         invariant and it is what "the ship does not flip from forward to an
+         angle" means as an assertion. The shipped rail moved 0 -> hard over in
+         one frame, which this would have caught on the first bend;
+      3. every intermediate is HELD, not flicked through. A ramp that visited
+         each pose for one frame would satisfy (1) and (2) and still read as a
+         snap at 60 Hz.
+
+    Frames only — no wall clock, no screenshot: this is the SEQUENCE case. The
+    case below it proves the poses are different PICTURES, which a tile index
+    cannot say.
+    """
     m = rail(BOOT)
-    seen = set()
+    seq = []
     for _ in range(PATH_PERIOD + 8):
-        e = _entry(_oam(m), SHIP_SLOT)
-        seen.add((e[2], e[3]))
+        seq.append(_ship_pose(_oam(m)))
         m.advance(1)
-    assert (T_SHIP_F1, ATTR_SHIP) in seen, "the ship never banked one way"
-    assert (T_SHIP_F1, ATTR_SHIP_FLIP) in seen, "the ship never banked the other"
-    assert (T_SHIP_F0, ATTR_SHIP) in seen, (
-        "the ship never flew straight — the bank has no neutral, so it reads "
-        "as a permanent tilt rather than as banking into a bend")
+
+    assert None not in seq, (
+        f"the ship's slot held a tile that is not one of its five poses on "
+        f"{seq.count(None)} frames — the frame table and the CHR sheet "
+        f"disagree")
+    want = set(range(-BANK_STEPS, BANK_STEPS + 1))
+    assert set(seq) == want, (
+        f"over a whole S period the ship rendered poses {sorted(set(seq))}; "
+        f"the ramp is {sorted(want)}. A missing step is a pose the curve "
+        f"never reaches; an extra one is a frame table that has drifted from "
+        f"the sheet")
+    jumps = [(i, a, b) for i, (a, b) in enumerate(zip(seq, seq[1:]))
+             if abs(b - a) > 1]
+    assert not jumps, (
+        f"the ship jumped {len(jumps)} time(s) — frame {jumps[0][0]} went "
+        f"from pose {jumps[0][1]} to {jumps[0][2]}. The roll is supposed to "
+        f"walk one step per frame; a jump IS the snap this ramp exists to "
+        f"remove")
+
+    runs = []
+    for v in seq:
+        if runs and runs[-1][0] == v:
+            runs[-1][1] += 1
+        else:
+            runs.append([v, 1])
+    # The first and last runs are clipped by the window, so they are not
+    # evidence about how long a pose is held.
+    short = [(v, n) for v, n in runs[1:-1] if n < 6]
+    assert not short, (
+        f"pose {short[0][0]} was held for only {short[0][1]} frame(s) — the "
+        f"intermediates are being flicked through rather than ramped, which "
+        f"reads as a snap however many poses exist")
+
+
+def test_the_ship_rolls_in_from_level_at_scene_enter_rather_than_snapping(rail):
+    """The transition the RATE LIMITER is actually load-bearing for.
+
+    Inside a bend the path's slope moves slowly enough that grading it can
+    never skip a rung on its own — MEASURED: with the limiter removed and the
+    ladder kept, a whole S period still shows no jump. So the period case above
+    does not, by itself, prove the limiter does anything.
+
+    Scene enter is where it bites. `rs_logic_arm` sets the odometer to 0 and
+    the pose to level, and the slope at dist 0 is the sine's MAXIMUM — the
+    target on the very next frame is hard over. Without the limiter the ship's
+    first rendered bank is the last one; with it the ship rolls in through
+    every intermediate, one step a frame.
+
+    This is also the fail-state restart, which calls the same routine on a
+    running frame — so it is a state cycle the pilot sees, not just a boot
+    artefact. Read as the rendered OAM pose from the scene's first frames.
+    """
+    m = rail(1)
+    seq = []
+    for _ in range(2 * BANK_STEPS + 4):
+        seq.append(_ship_pose(_oam(m)))
+        m.advance(1)
+    assert seq[0] == 0, (
+        f"the first frame of the scene renders pose {seq[0]}; the enter sets "
+        f"the wings level and the roll is supposed to start from there")
+    assert abs(seq[-1]) == BANK_STEPS, (
+        f"{len(seq)} frames after enter the ship is at pose {seq[-1]}; the "
+        f"slope at odometer 0 is the curve's maximum, so it should have "
+        f"reached hard over ({BANK_STEPS}) by now")
+    jumps = [(i, a, b) for i, (a, b) in enumerate(zip(seq, seq[1:]))
+             if abs(b - a) > 1]
+    assert not jumps, (
+        f"frame {jumps[0][0]} after enter went from pose {jumps[0][1]} to "
+        f"{jumps[0][2]} — the ship SNAPPED to its bank instead of rolling "
+        f"into it. This is the exact transition the one-step-per-frame limit "
+        f"exists for")
+    assert sorted(set(seq[:BANK_STEPS + 1])) == list(range(BANK_STEPS + 1)) \
+        or sorted(set(seq[:BANK_STEPS + 1])) == \
+        list(range(-BANK_STEPS, 1)), (
+        f"the roll-in visited {sorted(set(seq[:BANK_STEPS + 1]))} in its "
+        f"first {BANK_STEPS + 1} frames; it must pass through every step")
+
+
+def test_the_ship_is_form_shaded_and_the_shading_ROLLS_WITH_THE_HULL(
+        rail, tmp_path):
+    """The ship must read as a SOLID seen from behind, and its shading must
+    change as it banks. Both halves are read off the rendered frame.
+
+    WHY THE COLOUR KEY IS ASSERTED FIRST. Every number below counts pixels
+    painted from the ship's own OBJ palette. That is only a measurement of the
+    SHIP if no other palette on screen can paint the same colour — so the case
+    opens by reading all four palettes out of CGRAM and refusing an overlap.
+    Without it this is a case that could be moved by the backdrop, which is the
+    failure mode a rendered-pixel case is most prone to.
+
+    THE THREE CLAIMS:
+
+      1. FORM. At every pose the hull shows at least five of its six ramp
+         steps. Flat art — the shipped ship was two fill tones and a four-pixel
+         shadow — cannot reach that however it is banked.
+      2. THE ROLL CHANGES THE SHADING. The light does not roll with the ship,
+         so the half of the sprite holding the DROPPED wing turns away from it
+         and darkens while the raised half brightens. Measured as the mean ramp
+         step either side of the ship's centre line: near zero when level, and
+         parting decisively when hard over, with the SIGN following the bank
+         direction. A bank drawn as a sheared silhouette — which is what
+         shipped — leaves the two halves equal at every angle and fails here
+         while passing every tile-index case in this file.
+      3. AND THE WHOLE HULL DARKENS as it rolls, because a rolled hull presents
+         more of its underside.
+    """
+    m = rail(BOOT)
+    ship = _pal_rgb(m, SHIP_PAL_BASE, 16)
+    drawable = set(ship[1:])
+    for name, other in (("the Mode 7 floor", _pal_rgb(m, 0, 4)),
+                        ("the sky ramp", _pal_rgb(m, 65, 4)),
+                        ("the hazard palette", _pal_rgb(m, 144, 16)[1:])):
+        clash = drawable & set(other)
+        assert not clash, (
+            f"the ship's palette shares {sorted(clash)} with {name}, so a "
+            f"pixel of that colour is not evidence of the ship and every "
+            f"count in this case is unsound")
+    ramp = tuple(ship[i] for i in HULL_RAMP_IDX)
+    assert len(set(ramp)) == len(ramp), (
+        f"the hull ramp has duplicate entries {ramp} — it cannot express six "
+        f"steps of form")
+
+    shot = {}
+    for _ in range(2 * PATH_PERIOD):
+        pose = _ship_pose(_oam(m))
+        if pose is not None and pose not in shot:
+            img = _img(m, tmp_path, f"ship_pose_{pose}")
+            shot[pose] = _ship_pixels(img, ramp)
+        if len(shot) == 2 * BANK_STEPS + 1:
+            break
+        m.advance(1)
+    missing = set(range(-BANK_STEPS, BANK_STEPS + 1)) - set(shot)
+    assert not missing, f"never photographed pose(s) {sorted(missing)}"
+
+    for pose, pix in sorted(shot.items()):
+        assert len(pix) >= 90, (
+            f"pose {pose:+d} shows only {len(pix)} hull pixels — the ship is "
+            f"occluded or absent, so its shading cannot be read from this "
+            f"frame")
+        tones = {t for _, _, t in pix}
+        assert len(tones) >= 5, (
+            f"pose {pose:+d} paints only {len(tones)} of the hull's six ramp "
+            f"steps ({sorted(tones)}) — that is a fill, not a form. A ship "
+            f"seen from behind needs a lit crown, flanks and a shadowed "
+            f"underside")
+
+    lo, hi = _lit_split(shot[0])
+    assert abs(lo - hi) <= 0.25, (
+        f"wings LEVEL, the two halves of the ship differ by {lo - hi:+.3f} "
+        f"ramp steps — a level ship is lit symmetrically by construction "
+        f"(the light has no sideways component so the H-flip is exact), so "
+        f"this is a broken mirror, not a bank")
+
+    for pose in range(1, BANK_STEPS + 1):
+        left_lo, left_hi = _lit_split(shot[-pose])
+        right_lo, right_hi = _lit_split(shot[pose])
+        assert left_lo - left_hi <= -0.25, (
+            f"banked LEFT {pose} step(s), the left half of the sprite is not "
+            f"darker than the right (delta {left_lo - left_hi:+.3f}). The "
+            f"dropped wing must turn away from the light; a bank that only "
+            f"shears the silhouette lands here")
+        assert right_hi - right_lo <= -0.25, (
+            f"banked RIGHT {pose} step(s), the right half is not the darker "
+            f"one (delta {right_lo - right_hi:+.3f})")
+
+    hard_lo, hard_hi = _lit_split(shot[BANK_STEPS])
+    assert abs(hard_lo - hard_hi) >= 0.60, (
+        f"hard over, the two halves differ by only "
+        f"{abs(hard_lo - hard_hi):.3f} ramp steps — the roll is barely "
+        f"changing the shading")
+    level_mean = _mean([t for _, _, t in shot[0]])
+    hard_mean = _mean([t for _, _, t in shot[BANK_STEPS]])
+    assert level_mean - hard_mean >= 0.40, (
+        f"the hull is {level_mean:.3f} ramp steps bright when level and "
+        f"{hard_mean:.3f} hard over — a rolled hull shows more of its "
+        f"underside and must read darker overall")
 
 
 def test_the_ship_holds_station_under_every_direction_of_the_pad(rail):

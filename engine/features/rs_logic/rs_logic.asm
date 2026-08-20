@@ -60,7 +60,6 @@ rs_logic_arm:
     lda #0
     sta f:US_DIST_LONG
     sta f:US_ADV_FRAC_LONG
-    sta f:US_LEAN_LONG
     sta f:US_LANE_LONG
     sta f:US_SPAWN_T_LONG
     sta f:US_BURST_T_LONG
@@ -71,6 +70,8 @@ rs_logic_arm:
     sta f:US_FAIL_T_LONG
     sta f:US_SHOTS_LIVE_LONG
     sta f:US_HAZARDS_LIVE_LONG
+    lda #RS_LEAN_LEVEL
+    sta f:US_LEAN_LONG              ; wings level: the BIASED zero, not 0
     lda #RS_CENTRE
     sta z:US_CAM_X                  ; path[0] is 0, so the S starts centred
     sta f:US_CAM_Y_LONG
@@ -141,6 +142,12 @@ rs_path_at:
 ; the same table read a quarter period along, so the ship's lean comes from
 ; `rs_path[dist + QUARTER]` and tips into the turn rather than out of it.
 ;
+; AND IT RAMPS. The lean is a graded pose (RS_LEAN_LEVEL +/- 0..RS_BANK_STEPS,
+; stored biased so an unsigned `cmp` orders it), quantised from |slope| through
+; a four-rung ladder and then walked ONE STEP PER FRAME toward that target.
+; The tween lives HERE and not in the draw because the signal being quantised
+; is already continuous: the draw only ever sees a pose number.
+;
 ; WIDTH-RISK: A16/I16 entry AND exit; no sep/rep. Every label annotated;
 ; rs_path_at and rs_abs16 hold the same contract.
 rs_path_step:
@@ -155,26 +162,67 @@ rs_path_step:
     adc #RS_CENTRE
     and #RS_WORLD_MASK
     sta z:US_CAM_X
-    ; ---- the bank, from the path's own slope ------------------------------
-    lda #RS_LEAN_NONE
-    sta f:US_LEAN_LONG
+    ; ---- the bank, GRADED from the path's own slope -----------------------
+    ; The slope is already smooth — it is the sine read a quarter period along
+    ; — so the snap the shipped rail had was the QUANTISER's, not the signal's.
+    ; The ladder below turns the same |slope| into a magnitude 0..RS_BANK_STEPS
+    ; and the sign picks the side; the rate limiter after it moves the stored
+    ; pose ONE step toward that target per frame, so no frame can skip a pose
+    ; even where the target does (enter and the fail-state restart both put
+    ; dist at 0, where the slope is already hard over).
     lda f:US_DIST_LONG
     clc
     adc #(RS_PATH_QUARTER << RS_PATH_SHIFT)
     jsr rs_path_at
     sta RSL_T0                      ; the signed slope
     jsr rs_abs16
-    cmp #RS_BANK_DEAD
-    bcc @done                       ; near an extreme: flying straight
-    lda RSL_T0
-    bmi @left
-    lda #RS_LEAN_RIGHT
-    sta f:US_LEAN_LONG
-    rts
-@left:
+    ldx #0
+    cmp #RS_BANK_T1
+    bcc @graded                     ; inside the dead zone: flying level
+    inx
+    cmp #RS_BANK_T2
+    bcc @graded
+    inx
+    cmp #RS_BANK_T3
+    bcc @graded
+    inx
+    cmp #RS_BANK_T4
+    bcc @graded
+    inx
+@graded:
     .a16
     .i16
-    lda #RS_LEAN_LEFT
+    txa                             ; the magnitude, 0..RS_BANK_STEPS
+    sta RSL_T1
+    lda RSL_T0
+    bmi @toward_left
+    lda #RS_LEAN_LEVEL
+    clc
+    adc RSL_T1
+    bra @target
+@toward_left:
+    .a16
+    .i16
+    lda #RS_LEAN_LEVEL
+    sec
+    sbc RSL_T1
+@target:
+    .a16
+    .i16
+    sta RSL_T1                      ; the pose the curve is asking for
+    lda f:US_LEAN_LONG
+    cmp RSL_T1
+    beq @done                       ; already there
+    bcs @ease_down
+    inc a
+    bra @ease
+@ease_down:
+    .a16
+    .i16
+    dec a
+@ease:
+    .a16
+    .i16
     sta f:US_LEAN_LONG
 @done:
     .a16

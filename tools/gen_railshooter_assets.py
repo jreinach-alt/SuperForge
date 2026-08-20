@@ -8,7 +8,7 @@ no source image, so there is nothing to fall back to and nothing to fetch:
                                  tilemap in the EVEN bytes, three solid 8bpp
                                  tiles in the ODD bytes
     rs_floor_pal.bin        8 B  4 BGR555 words, ABSOLUTE CGRAM indices at 0
-    rs_obj_chr.bin      7,168 B  224 tiles x 32 B, 4bpp, on the 16-wide OBJ grid
+    rs_obj_chr.bin      8,192 B  256 tiles x 32 B, 4bpp, on the 16-wide OBJ grid
     rs_obj_pal.bin         64 B  2 x 16 BGR555 words (OBJ palettes 0 and 1)
     rs_proj_scan.bin       81 B  screen_y per z bucket
     rs_proj_scale.bin     162 B  FOCAL*256/z per z bucket, u16 LE
@@ -372,16 +372,41 @@ def build_map(probe: bool = False) -> bytes:
 #   0  the ship          dark hull -> lit hull -> canopy -> engine glow
 #   1  the hazards       dark rock -> hot rim -> the bullet's white, the
 #                        reticle's cyan
+def bgr(r: int, g: int, b: int) -> int:
+    """One BGR555 word from 5-bit components. Spelled this way for the SHIP
+    ramp and nowhere else: six of those entries are a monotone FORM ramp and a
+    hex literal hides whether the next one is actually brighter than the last
+    (asserted below)."""
+    assert 0 <= r < 32 and 0 <= g < 32 and 0 <= b < 32, (r, g, b)
+    return (b << 10) | (g << 5) | r
+
+
+# The ship's six-step hull ramp, in order. The rail's plane is deep-space navy
+# with saturated cyan and magenta lines, so the ramp is a WARM-shifted steel
+# that separates from both, and its top two steps are brighter than anything
+# the floor paints.
+HULL_RAMP = ((3, 4, 9), (6, 8, 14), (10, 12, 18),
+             (14, 17, 22), (19, 22, 26), (24, 27, 30))
 SHIP_PAL = (
-    0x0000,                 # 0 transparent
-    0x1084,                 # 1 hull shadow
-    0x2929,                 # 2 hull
-    0x39CE,                 # 3 hull lit
-    0x7FFF,                 # 4 canopy highlight
-    0x7E00,                 # 5 canopy blue
-    0x02FF,                 # 6 engine core (hot yellow-white)
-    0x015F,                 # 7 engine flame (orange)
-) + (0x0000,) * 8
+    bgr(0, 0, 0),           # 0 transparent
+    *(bgr(*c) for c in HULL_RAMP),
+    #                       1..6 the form ramp: underside -> lit crown
+    bgr(31, 30, 28),        # 7 rim light — the up-facing silhouette edge
+    bgr(1, 4, 14),          # 8 canopy glass
+    bgr(22, 31, 31),        # 9 canopy glint
+    bgr(26, 13, 3),         # 10 livery, lit
+    bgr(13, 5, 2),          # 11 livery, shadowed
+    bgr(9, 8, 8),           # 12 nozzle ring
+    bgr(31, 5, 1),          # 13 exhaust, outer
+    bgr(31, 20, 2),         # 14 exhaust, mid
+    bgr(31, 31, 22),        # 15 exhaust, core
+)
+# The ramp must be MONOTONE or it is not a form ramp — a shading step that goes
+# backwards reads as a seam in the hull, and the rendered-output case that
+# counts distinct hull tones cannot tell the two apart.
+assert all(sum(HULL_RAMP[i]) < sum(HULL_RAMP[i + 1])
+           for i in range(len(HULL_RAMP) - 1)), "the hull ramp is not monotone"
+
 # Palette 1 carries the whole non-ship world: hazards, pylons, the tracer, the
 # reticle, the kill flash AND the HUD. Sixteen entries is enough because the
 # redesign adds no new *material*, only new shapes — indices 8..15 were the
@@ -408,22 +433,32 @@ HAZARD_PAL = (
 
 OBJ_TILE_BYTES = 32         # 8x8 4bpp
 OBJ_GRID_W = 16             # the OBJ name grid the {N,N+1,N+16,N+17} rule forces
-OBJ_TILES = 224             # fourteen grid rows
+OBJ_TILES = 256             # SIXTEEN grid rows
 
 # Base tile numbers, OBJ-name-base relative.
 #
 # A 32x32 frame at base N reads {N..N+3, N+16..N+19, N+32..N+35, N+48..N+51} —
-# four rows and four columns — so rows 0..3 hold four of them and rows 4..7 the
-# next four. A 16x16 frame at base N reads {N, N+1, N+16, N+17} — TWO rows — so
-# a row-PAIR holds eight, and the eighth ends at column 15. That is why the ten
-# digits cannot be contiguous: the ninth would want base 144, whose N+16 row is
-# already the eighth frame's bottom half. RS_DIGIT_TAB (railshooter.inc) is the
-# ten-entry table that resolves it, rather than arithmetic that would be wrong.
-T_SHIP_F0 = 0               # rows 0..3: 32x32
+# four rows and four columns — so a four-row BLOCK holds four of them. A 16x16
+# frame at base N reads {N, N+1, N+16, N+17} — TWO rows — so a row-PAIR holds
+# eight, and the eighth ends at column 15. That is why the ten digits cannot be
+# contiguous: the ninth would want base 144, whose N+16 row is already the
+# eighth frame's bottom half. RS_DIGIT_TAB (railshooter.inc) is the ten-entry
+# table that resolves it, rather than arithmetic that would be wrong.
+#
+# THE SHEET GREW 224 -> 256 TILES FOR THE BANK RAMP. Five ship poses instead of
+# two is three more 32x32 lanes, and a 32x32 lane needs FOUR whole rows — the
+# 24 spare tiles the 224-tile sheet had left were six 16x16 slots on rows
+# 12..13 and could not hold one. Rows 12..15 are the new block: the two 32x32
+# hazard tiers moved down into it (out of rows 0..3, which the ship's first
+# four poses now fill end to end), the fifth pose joins them, and the two life
+# segments follow. 4096 words is also exactly the first OBJ name table, so
+# every tile number here still fits in eight bits and no frame needs the
+# name-select gap.
+T_SHIP_F0 = 0               # rows 0..3:   32x32 — level, then banking left
 T_SHIP_F1 = 4
-T_HAZ_T0 = 8
-T_HAZ_T1 = 12
-T_PYL_T0 = 64               # rows 4..7: 32x32
+T_SHIP_F2 = 8
+T_SHIP_F3 = 12
+T_PYL_T0 = 64               # rows 4..7:   32x32
 T_PYL_T1 = 68
 T_BURST_A = 72
 T_BURST_B = 76
@@ -435,8 +470,14 @@ T_PYL_T2 = 168
 T_PYL_T3 = 170
 T_RETICLE = 172
 T_BULLET = 174
-T_LIFE_FULL = 192           # rows 12..13: 16x16
-T_LIFE_EMPTY = 194
+T_HAZ_T0 = 192              # rows 12..15: 32x32
+T_HAZ_T1 = 196
+T_SHIP_F4 = 200
+T_LIFE_FULL = 204           #              16x16
+T_LIFE_EMPTY = 206
+# The ship's poses in bank order, which is the order rs_ship_frame_tab holds
+# them in. Level first, hard-over last.
+T_SHIP = (T_SHIP_F0, T_SHIP_F1, T_SHIP_F2, T_SHIP_F3, T_SHIP_F4)
 
 
 def encode_4bpp(px, ox: int, oy: int) -> bytes:
@@ -462,34 +503,288 @@ def blank(n: int):
     return [[0] * n for _ in range(n)]
 
 
-def draw_ship(lean: int):
-    """A 32x32 delta-wing seen from behind. `lean` shears the hull sideways so
-    the strafe frame reads as a bank rather than a slide."""
-    p = blank(32)
-    for y in range(32):
-        sh = (lean * (31 - y)) // 12          # shear: strongest at the nose
-        for x in range(32):
-            dx = x - 16 + sh
-            # wings: a triangle that opens toward the tail
-            if 14 <= y <= 27 and abs(dx) <= (y - 13) * 1.35:
-                p[y][x] = 2 if abs(dx) > (y - 13) * 0.75 else 3
-            # hull: a narrow column running the whole length
-            if 4 <= y <= 28 and abs(dx) <= 3 - (28 - y) // 12:
-                p[y][x] = 3 if abs(dx) <= 1 else 2
-            # canopy
-            if 8 <= y <= 15 and abs(dx) <= 1:
-                p[y][x] = 5 if y > 9 else 4
-            # wingtip shadow
-            if 24 <= y <= 27 and 5 < abs(dx) <= (y - 13) * 1.35:
-                p[y][x] = 1
-    # engines: two flares at the tail
-    for ex in (-4, 4):
-        for y in range(27, 31):
-            for x in range(-2, 3):
-                xx, yy = 16 + ex + x - (lean * (31 - y)) // 12, y
-                if 0 <= xx < 32:
-                    p[yy][xx] = 6 if abs(x) <= 1 and y < 30 else 7
-    return p
+# =============================================================================
+# THE SHIP IS RENDERED, NOT DRAWN — and that is what makes it BANK
+# =============================================================================
+# The shipped ship was a flat-fill silhouette whose "bank" was a per-row SHEAR
+# of the level frame: the outline slid sideways and not one pixel changed
+# tone. Seen from behind, a bank is a ROLL ABOUT THE LINE OF SIGHT, and the
+# thing that makes it read as a roll rather than as a slide is that the LIGHT
+# DOES NOT ROLL WITH THE SHIP. So this is a tiny renderer instead of a
+# painter:
+#
+#   * the hull is a lofted solid — a height field b = top(a, s) over the body
+#     plane, with its own bottom surface — so the surface NORMAL varies over
+#     the whole skin and the fuselage crown, the wing camber and the underside
+#     each land on a different step of the ramp;
+#   * a roll of phi rotates the body basis (r, u) about the nose axis f, which
+#     rotates every normal while LIGHT stays fixed overhead;
+#   * the wings carry DIHEDRAL, and that is the whole of the effect the owner
+#     asked for: at roll phi the raised wing's skin sits at (phi - DIH) from
+#     the light and the dropped wing's at (phi + DIH), so the raised wing
+#     BRIGHTENS and the dropped wing falls into shadow. At phi = 0 the two are
+#     equal and the frame is symmetric.
+#
+# WHY THE LIGHT HAS NO SIDEWAYS COMPONENT, and it is a hard constraint rather
+# than a taste: the right bank is the left bank's frame H-FLIPPED (one lane of
+# CHR per step instead of two), and an H-flip mirrors the lighting too. A light
+# with a lateral component would therefore light the two directions
+# differently. LIGHT_DIR keeps x = 0 so the mirror is exact, and every
+# asymmetry in a banked frame is one the ROLL put there — which is the
+# asymmetry an H-flip carries correctly.
+SHIP_SIZE = 32
+SHIP_C = (SHIP_SIZE - 1) / 2.0
+SHIP_EL = math.radians(36.0)        # the camera sits above the ship's axis
+LIGHT_DIR = (0.0, 0.82, 0.57)       # x = 0: see above
+BANK_STEPS = 4                      # bank poses per side
+BANK_DEG = 9.0                      # ...and the roll each one adds
+
+S_NOSE, S_TAIL = 14.0, -11.5        # body stations, nose positive
+DIHEDRAL = math.radians(11.0)
+WING_S0, WING_S1 = 8.5, -9.5        # the wing root chord
+WING_SPAN = 13.0
+FIN_H, FIN_S0, FIN_S1 = 6.2, -2.2, -11.2
+# MEASURED over the visible skin, n.L runs 0.13..0.99 with three quarters of it
+# above 0.86 — a top-lit convex body seen from above is mostly lit, and mapping
+# the ramp from 0 therefore put three quarters of the hull on ONE step. That is
+# the flat look, arrived at by a shading model rather than by a flat fill. The
+# window below is fitted to that distribution instead.
+SHADE_LO, SHADE_SPAN, SHADE_GAMMA = 0.70, 0.30, 1.15
+
+SP_HULL_LO, SP_HULL_HI = 1, 6
+SP_RIM, SP_CANOPY, SP_GLINT = 7, 8, 9
+SP_ACC, SP_ACC_DARK, SP_NOZZLE = 10, 11, 12
+SP_FLAME, SP_FLAME_MID, SP_FLAME_CORE = 13, 14, 15
+
+
+def _unit(v):
+    m = math.sqrt(v[0] ** 2 + v[1] ** 2 + v[2] ** 2) or 1.0
+    return (v[0] / m, v[1] / m, v[2] / m)
+
+
+HALF_DIR = _unit((LIGHT_DIR[0], LIGHT_DIR[1], LIGHT_DIR[2] + 1.0))
+
+
+def _clamp(v, lo=0.0, hi=1.0):
+    return lo if v < lo else hi if v > hi else v
+
+
+def _fus_r(s: float) -> float:
+    """Fuselage half-width at station s: a nose that tapers into a tail block
+    wide enough to hold two exhaust ports."""
+    t = _clamp((S_NOSE - s) / (S_NOSE - S_TAIL))
+    return 1.10 + 4.10 * t ** 0.62
+
+
+def _wing_half(s: float) -> float:
+    """Half-span at station s — a straight-edged delta, zero off the root."""
+    if s > WING_S0 or s < WING_S1:
+        return 0.0
+    return WING_SPAN * _clamp((WING_S0 - s) / (WING_S0 - WING_S1)) ** 1.05
+
+
+def _skin_top(a: float, s: float):
+    """The upper skin's height, or None outside the planform."""
+    fr, wh = _fus_r(s), _wing_half(s)
+    aa = abs(a)
+    if s > S_NOSE or s < S_TAIL or aa > max(fr, wh):
+        return None
+    h = None
+    if aa <= fr:
+        h = fr * 0.95 * math.sqrt(max(0.0, 1.0 - (aa / fr) ** 2))
+    if wh > 0.0 and aa <= wh:
+        x = aa / wh
+        w = aa * math.tan(DIHEDRAL) + 1.30 * (1.0 - x ** 1.2) - 1.05 * x ** 2.6
+        h = w if h is None else max(h, w)
+    return h
+
+
+def _skin_bottom(a: float, s: float):
+    fr, wh = _fus_r(s), _wing_half(s)
+    aa = abs(a)
+    if s > S_NOSE or s < S_TAIL or aa > max(fr, wh):
+        return None
+    h = None
+    if aa <= fr:
+        h = -fr * 0.62 * math.sqrt(max(0.0, 1.0 - (aa / fr) ** 2))
+    if wh > 0.0 and aa <= wh:
+        x = aa / wh
+        w = aa * math.tan(DIHEDRAL) - 0.70 * (1.0 - x ** 2) - 1.05 * x ** 2.6
+        h = w if h is None else min(h, w)
+    return h
+
+
+def _ship_basis(phi: float):
+    """(nose, starboard, ship-up) in VIEW coordinates, rolled by phi.
+
+    Positive phi drops the starboard wing (a right bank); the generator only
+    ever authors NEGATIVE phi, because the right bank is the H-flip.
+    """
+    f = (0.0, math.sin(SHIP_EL), -math.cos(SHIP_EL))
+    r0, u0 = (1.0, 0.0, 0.0), (0.0, math.cos(SHIP_EL), math.sin(SHIP_EL))
+    c, sn = math.cos(phi), math.sin(phi)
+    return (f, tuple(c * r0[i] - sn * u0[i] for i in range(3)),
+            tuple(sn * r0[i] + c * u0[i] for i in range(3)))
+
+
+class _ZBuf:
+    """A 32x32 index buffer with a depth test and the per-pixel normal kept,
+    because the rim pass needs to know which edge faces the light."""
+
+    def __init__(self):
+        n = SHIP_SIZE
+        self.z = [[-1e9] * n for _ in range(n)]
+        self.px = [[0] * n for _ in range(n)]
+        self.nrm = [[None] * n for _ in range(n)]
+
+    def put(self, P, idx, nrm):
+        x = int(round(SHIP_C + P[0]))
+        y = int(round(SHIP_C - P[1]))
+        if 0 <= x < SHIP_SIZE and 0 <= y < SHIP_SIZE and P[2] > self.z[y][x]:
+            self.z[y][x] = P[2]
+            self.px[y][x] = idx
+            self.nrm[y][x] = nrm
+
+
+def _tone(n, ao: float = 0.0, spec: float = 0.5) -> int:
+    """One step of the hull ramp for a view-space normal."""
+    d = max(0.0, n[0] * LIGHT_DIR[0] + n[1] * LIGHT_DIR[1]
+            + n[2] * LIGHT_DIR[2])
+    v = _clamp((d - SHADE_LO) / SHADE_SPAN) ** SHADE_GAMMA - ao
+    if spec:
+        sp = max(0.0, n[0] * HALF_DIR[0] + n[1] * HALF_DIR[1]
+                 + n[2] * HALF_DIR[2])
+        v += spec * sp ** 34
+    span = SP_HULL_HI - SP_HULL_LO
+    return SP_HULL_LO + min(span, int(_clamp(v) * (span + 0.999)))
+
+
+def draw_ship(bank: int):
+    """The ship at bank step `bank`: 0 = wings level, BANK_STEPS = hard over.
+
+    Authored rolling LEFT; `rs_draw_ship` H-flips the same CHR for the right.
+    """
+    assert 0 <= bank <= BANK_STEPS, bank
+    phi = math.radians(-BANK_DEG * bank)
+    f, r, u = _ship_basis(phi)
+    buf = _ZBuf()
+
+    def world(a, h, s):
+        return tuple(a * r[i] + h * u[i] + s * f[i] for i in range(3))
+
+    def view(nb):
+        return _unit(tuple(nb[0] * r[i] + nb[1] * u[i] + nb[2] * f[i]
+                           for i in range(3)))
+
+    # ---- the lofted hull, upper skin then lower ---------------------------
+    # The normal is a finite difference of the height field, which is what
+    # makes the crown, the camber and the washed-out tip each shade
+    # differently instead of filling flat.
+    eps = 0.06
+    for skin, sgn in ((_skin_top, 1.0), (_skin_bottom, -1.0)):
+        s = S_TAIL
+        while s <= S_NOSE:
+            a = -WING_SPAN - 1.0
+            while a <= WING_SPAN + 1.0:
+                h = skin(a, s)
+                if h is not None:
+                    ha, hs = skin(a + eps, s), skin(a, s + eps)
+                    da = ((ha if ha is not None else h) - h) / eps
+                    ds = ((hs if hs is not None else h) - h) / eps
+                    n = view(_unit((-da * sgn, sgn, -ds * sgn)))
+                    if n[2] > 0.0:
+                        aa, wh, fr = abs(a), _wing_half(s), _fus_r(s)
+                        ao = 0.0
+                        if wh > 0.0 and fr < aa < fr + 2.4:
+                            ao += 0.26 * (1.0 - (aa - fr) / 2.4)   # wing root
+                        if wh > 0.0 and aa > fr and s - WING_S1 < 2.0:
+                            ao += 0.20 * (1.0 - (s - WING_S1) / 2.0)  # the TE
+                        buf.put(world(a, h, s), _tone(n, ao), n)
+                a += 0.10
+            s += 0.10
+
+    # ---- the dorsal fin: edge-on when level, broadside when banked --------
+    t = 0.0
+    while t <= 1.0:
+        hgt = FIN_H * t
+        s_le, s_te = FIN_S0 - 4.6 * t, FIN_S1 + 1.8 * t
+        for side in (-1.0, 1.0):
+            n = view(_unit((side * 0.96, 0.10, 0.26)))
+            if n[2] <= 0.0:
+                continue
+            ss = s_le
+            while ss >= s_te:
+                buf.put(world(side * 0.62, _fus_r(ss) * 0.88 + hgt, ss),
+                        _tone(n, ao=0.06), n)
+                ss -= 0.08
+        t += 0.012
+
+    # ---- twin exhaust ports, sunk into the tail face ----------------------
+    for side in (-1, 1):
+        q = 0.0
+        while q <= 1.0:
+            ang = 0.0
+            while ang < 2 * math.pi:
+                rr = 1.95 * q
+                idx = (SP_NOZZLE if q > 0.86 else SP_FLAME if q > 0.62
+                       else SP_FLAME_MID if q > 0.32 else SP_FLAME_CORE)
+                buf.put(world(side * 2.75 + rr * math.cos(ang),
+                              -0.55 + rr * math.sin(ang), S_TAIL - 0.05),
+                        idx, (0.0, 0.0, 1.0))
+                ang += 0.08
+            q += 0.04
+
+    # ---- the canopy on the spine ------------------------------------------
+    s = 9.0
+    while s >= 2.2:
+        fr = _fus_r(s)
+        ang = -1.25
+        while ang < 1.25:
+            n = view(_unit((math.sin(ang) * 0.9, math.cos(ang), -0.32)))
+            if n[2] > 0.0:
+                sp = max(0.0, n[0] * HALF_DIR[0] + n[1] * HALF_DIR[1]
+                         + n[2] * HALF_DIR[2])
+                buf.put(world(math.sin(ang) * fr * 0.72,
+                              fr * 0.93 * math.cos(ang) + 0.22, s),
+                        SP_GLINT if sp > 0.990 else SP_CANOPY, n)
+            ang += 0.04
+        s -= 0.08
+
+    # ---- livery: a dash along the outer leading edge -----------------------
+    # It carries the roll differential LOUDLY — the raised wing's dash takes
+    # the lit tone and the dropped wing's the shadowed one — which is the
+    # difference a size-32 sprite can actually show at speed.
+    s = WING_S0
+    while s >= WING_S1:
+        wh = _wing_half(s)
+        if WING_SPAN * 0.50 < wh < WING_SPAN * 0.90:
+            for side in (-1, 1):
+                for k in (0.0, 0.5, 1.0):
+                    aa = wh - k * 0.9
+                    h = _skin_top(side * aa, s)
+                    if h is None or aa <= _fus_r(s) + 0.6:
+                        continue
+                    P = world(side * aa, h, s)
+                    x = int(round(SHIP_C + P[0]))
+                    y = int(round(SHIP_C - P[1]))
+                    if (0 <= x < SHIP_SIZE and 0 <= y < SHIP_SIZE
+                            and SP_HULL_LO <= buf.px[y][x] <= SP_HULL_HI):
+                        buf.px[y][x] = (SP_ACC if buf.px[y][x] >= 4
+                                        else SP_ACC_DARK)
+        s -= 0.08
+
+    # ---- the rim: the up-facing silhouette edge ---------------------------
+    # A one-pixel guarantee of separation from a floor that is sometimes dark
+    # navy and sometimes a bright cyan grid line.
+    out = [row[:] for row in buf.px]
+    for y in range(SHIP_SIZE):
+        for x in range(SHIP_SIZE):
+            i0, n0 = buf.px[y][x], buf.nrm[y][x]
+            if n0 is None or not (SP_HULL_LO <= i0 <= SP_HULL_HI):
+                continue
+            if (y == 0 or buf.px[y - 1][x] == 0) and n0[1] > 0.30:
+                out[y][x] = SP_RIM
+    return out
 
 
 def draw_hazard(size: int, radius: float):
@@ -667,9 +962,9 @@ def place(sheet, art, base_tile: int, claimed: set | None = None) -> None:
 def build_obj_chr() -> bytes:
     sheet = [bytes(OBJ_TILE_BYTES)] * OBJ_TILES
     cl: set[int] = set()
-    place(sheet, draw_ship(0), T_SHIP_F0, cl)
-    place(sheet, draw_ship(8), T_SHIP_F1, cl)       # the bank, H-flipped for
-                                                    #   the other direction
+    assert len(T_SHIP) == BANK_STEPS + 1, "a pose has no CHR lane"
+    for k, base in enumerate(T_SHIP):            # level, then four bank steps
+        place(sheet, draw_ship(k), base, cl)
     place(sheet, draw_hazard(32, 15.0), T_HAZ_T0, cl)  # tier 0 nearest/largest
     place(sheet, draw_hazard(32, 10.5), T_HAZ_T1, cl)  # tier 1
     place(sheet, draw_hazard(16, 7.5), T_HAZ_T2, cl)   # tier 2
@@ -686,11 +981,11 @@ def build_obj_chr() -> bytes:
     place(sheet, draw_life(False), T_LIFE_EMPTY, cl)
     for v in range(10):
         place(sheet, draw_digit(v), T_DIGIT[v], cl)
-    # 8 frames x 16 tiles (32x32) + 18 frames x 4 tiles (16x16) = 200 tiles,
+    # 11 frames x 16 tiles (32x32) + 18 frames x 4 tiles (16x16) = 248 tiles,
     # every one written exactly once (place() raises on a double claim). The
-    # remaining 24 are the spare 16x16 slots on rows 12..13.
+    # remaining 8 are the two spare 16x16 slots at the end of rows 14..15.
     assert len(sheet) == OBJ_TILES
-    assert len(cl) == 8 * 16 + 18 * 4 == 200, len(cl)
+    assert len(cl) == 11 * 16 + 18 * 4 == 248, len(cl)
     out = bytearray()
     for t in sheet:
         out += t
@@ -723,7 +1018,7 @@ def main() -> int:
     (a.outdir / "rs_floor_pal.bin").write_bytes(fpal)
 
     chr_sheet = build_obj_chr()
-    assert len(chr_sheet) == OBJ_TILES * OBJ_TILE_BYTES == 7168, len(chr_sheet)
+    assert len(chr_sheet) == OBJ_TILES * OBJ_TILE_BYTES == 8192, len(chr_sheet)
     (a.outdir / "rs_obj_chr.bin").write_bytes(chr_sheet)
 
     path = build_path()
