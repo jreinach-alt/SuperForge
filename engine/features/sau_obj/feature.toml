@@ -148,8 +148,11 @@ at = 54
 
 # THE STAR FIELD: twenty-four 8x8 sprites, twelve far and twelve near, drawn
 # every frame at OAM priority 0 (under the plane). TWENTY-FOUR is a SPARSITY
-# figure, not a slot-budget one: the plane-painted field it replaces put ~420
-# star tiles on screen at rest scale, and the ask was for a much sparser sky.
+# figure, not a slot-budget one: the plane-painted field it replaces put 366
+# star tiles on screen at rest scale (measured: the old predicate over exactly
+# the texel window the matrix samples there — 50 bright + 316 dim, ~1,895
+# screen px, 3.3% of the picture), and the ask was for a much sparser sky.
+# This field lights 86..135 px, measured across a fight.
 # It is also six whole hi bytes, and it keeps this rail's worst case a long
 # way under the hardware's 32-sprites/34-slivers per scanline: the twelve home
 # rows of each band are spaced >= 16 apart and the whole band shares one
