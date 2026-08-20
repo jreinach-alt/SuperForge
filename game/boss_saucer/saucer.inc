@@ -181,11 +181,18 @@ SAU_EXH_MASK   = 8              ; frame & this picks the flame phase
 ; --- the star field --------------------------------------------------------
 ; TWENTY-FOUR SPRITES, and the count is the whole point of the change: this
 ; field used to be PLANE TEXTURE — a two-density hash scatter baked into the
-; 128x128 world tile grid — which put ~420 star tiles on screen at rest scale
+; 128x128 world tile grid — which put 366 star tiles on screen at rest scale
 ; AND tied every one of them to the affine matrix, so the sky zoomed in
 ; lockstep with the saucer through all four scale ramps. A field at infinity
 ; does not do that. On OBJ the stars are decoupled from the matrix by
 ; construction, and 24 of them is the sparse sky the fight wanted.
+;
+; THE 366 IS MEASURED, not remembered: the OLD generator's own two-density
+; predicate, evaluated over exactly the texel window the matrix samples at
+; the rest scale (900 texels across, 224*900/256 down, centred on the pivot).
+; 50 bright + 316 dim, about 1,895 screen pixels — 3.3% of the picture. The
+; field that replaced it lights 86..135 pixels, measured on 37 frames of a
+; fight: fifteen times fewer objects and fourteen times fewer lit pixels.
 ;
 ; TWO BANDS, and the split is the depth cue the old two-brightness scatter
 ; used to carry: the far twelve are dimmer, smaller, and drift at HALF the

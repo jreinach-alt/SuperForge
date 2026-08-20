@@ -675,7 +675,7 @@ def test_the_star_field_is_sparse_and_sits_under_the_plane(tmp_path):
 
     SPARSE, by a stated measure: 24 sprites, and the whole field lights fewer
     than 200 of the picture's 57,344 pixels — under 0.35%. The field it
-    replaced painted ~420 star TILES into the visible window at rest scale
+    replaced painted 366 star TILES into the visible window at rest scale
     (the generator's old two-density predicate over the ~9,600 sky tiles the
     Mode 7 window sampled), which is why 'much sparser' is a count and not an
     adjective. The floor is there so a field that failed to draw at all cannot
