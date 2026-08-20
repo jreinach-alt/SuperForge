@@ -44,6 +44,18 @@ designer intended, filling the screen.**
 That is the standard deliberately, and it is higher than the jam's literal
 wording. "Boots on both" is already true and is not what this spec asks for.
 
+> **OPEN — the speed clause is contested by measurement, and the decision is
+> the owner's.** `docs/95` recommends striking *"at the speed its designer
+> intended"*. Its evidence: the compensation scheme needs +20% logic work per
+> frame, but PAL returns only **+14.8%..+17.4%** of *usable* per-frame work on
+> the tightest rail — the +19.1% in §1 is cycles per frame, which is not the
+> same thing — and the extra tick arrives in a lump, one tick measurably
+> spanning two frames. The re-tuning surface is **185 named sites**, 30 of them
+> integer countdowns with no correct 5/6. R2 is also the only tier that can
+> break a rail that works today.
+> The other two clauses are unaffected and R1 stands. Until this is decided,
+> R2 is not authorised.*
+
 ## 3. Tiers, and what each must prove
 
 Each tier is independently shippable and strictly ordered — R1 and R2 both
@@ -60,8 +72,15 @@ reads rendered output, per CLAUDE.md rule 2.
   the same file.)*
 
 **R1 — the screen is filled.**
-- On PAL the PPU renders the taller active area; a PAL frame shows no
-  top/bottom border that an NTSC frame does not.
+- On PAL the PPU renders the taller active area, evidenced by the **active
+  line count** read from the rendered frame (224 lines occupy rows 7..230;
+  239 occupy rows 0..238).
+  *Amended after `docs/95` §5.1/§9.2. The original criterion — "shows no
+  top/bottom border" — names something this harness cannot observe: Mesen
+  crops the television's visible field before a pixel reaches the runner, and
+  an overscan-spiked ROM produces a byte-identical PNG. The line count is an
+  honest PROXY for the border, not the border; what a PAL television actually
+  shows stays on the hardware list in `docs/95` §10.*
 - Every per-scanline structure — HDMA tables, IRQ line numbers, Mode 7
   per-line machinery, the split/seam rails — covers the taller area, proven
   per rail rather than assumed.
@@ -79,10 +98,18 @@ criterion is asserted here.
 
 ## 4. Constraints — what must not break
 
-1. **NTSC output is byte-identical.** Every rail's `.sfc` and every rendered
-   frame under `SF_REGION=ntsc` must be unchanged by R0 and R1. This is the
-   safety property that makes the work reversible and reviewable; a change
-   that moves the NTSC picture is out of spec regardless of its merit.
+1. **The NTSC picture is pixel-identical.** Under `SF_REGION=ntsc` every
+   rail's rendered frame must match its pre-change frame, checked per rail
+   with a capture diff. That is the reversibility property.
+   The ROM **image** may change only where the change *is* the correction
+   (the header bytes) or is provably inert on NTSC (a per-scanline table
+   extended past the active area); every image change is enumerated in the
+   landing note with its reason.
+   *Amended after `docs/95` §9.1. As first written this clause required the
+   `.sfc` itself to be unchanged, which forbade R0 entirely — R0 cannot
+   happen without boot code and header bytes. The original conflated "the
+   image does not change" with "the player sees no difference", and only the
+   second was ever the point.*
 2. `microzero.sfc` holds its pinned md5 `e45ddeabac4218cd71709da7b9fcc849`.
 3. All 37 rails keep building. `make bare-check` stays GREEN.
 4. Every gate stays clean: `width-check`, `time-check`, `toy-bad`,
