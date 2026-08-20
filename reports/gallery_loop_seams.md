@@ -14,16 +14,34 @@ on every recording.
 - **first / last** — each end's own mean luma. A clip that ends on black only
   rejoins invisibly if it begins on black too, so both ends are reported.
 
+**WHAT THIS METRIC CANNOT SEE, measured rather than supposed.** The numbers are
+read back through the palette the GIF ships, so on a rail whose sky is DITHERED
+the figure is dominated by how that shared <=128-colour palette quantises the
+dither, not by how the two ends register. Two `racer` takes whose raw endpoint
+screenshots measured identically (mad 4.66, sky 5.62, floor 4.43, on both a
+pre-fix and a post-fix ROM) scored 2.48 and 4.91 here, purely on the colour
+census: removing two thirds of the diagonal centre-line yellow changed which
+colours the palette could afford, and stopped it hiding the sky. An earlier
+edition of this file claimed `racer`'s sky band contributed ZERO pixels to the
+seam; that was a palette result reported as a picture one, and it is withdrawn.
+
+Read a figure on a flat-sky rail (`split_v_fight`, `boss_saucer`,
+`mode7_explore`, all 0.00) as a statement about the join. Read one on a
+dithered-sky rail (`racer`, `railshooter`, `mode7_flight`) as a statement about
+the join AND the quantisation together, and compare it only against another
+take of the SAME rail. Tuning a loop mark against this number across rails is
+tuning against the palette.
+
 | rail | loop point | mad | pct>16 | first | last | bytes |
 |---|---|---:|---:|---:|---:|---:|
-| `mode7_flight` | a closed circuit — a full 256 units of heading returns the world position, flown at the day/night step whose 12-step span costs least | 4.22 | 5.8% | 101.2 | 104.4 | 1,330,530 |
+| `mode7_flight` | a closed circuit — a full 256 units of heading returns the world position, flown at the day/night step whose 12-step span costs least | 4.04 | 5.7% | 101.0 | 104.3 | 1,326,866 |
 | `m7_oshoot` | out and back — the pad is exactly reversible, so the take closes on the opening heading and both position words | 1.25 | 1.3% | 62.9 | 63.7 | 381,232 |
 | `split_v_fight` | **the round start** — the count's FIGHT beat, where `round_arm` has put both fighters back on their marks and the spread has eased to zero | 0.00 | 0.0% | 104.3 | 104.3 | 258,718 |
 | `mode7_explore` | the spawn tile — an idle capture at (258,258) facing Down, walked back to exactly | 0.00 | 0.0% | 84.0 | 84.0 | 746,911 |
 | `meteor_event` | the restored level — the event hands back a walkable Mode-1 level with the player at a fixed screen x | 3.22 | 3.3% | 23.0 | 23.0 | 60,649 |
-| `boss_saucer` | **the fade** — `su_result` runs `fade_start_out`, and the scene re-arms the same ramp behind the black | 0.00 | 0.0% | 0.0 | 0.0 | 1,045,923 |
-| `railshooter` | the rail's own period — `rs_path` repeats every 256 frames, and a 3-frame capture grid realigns at three of them | 4.15 | 3.9% | 69.6 | 70.4 | 913,654 |
-| `racer` | a mark on the home straight — a flying lap comes back to it at the cap, and the grid is held until the clock puts both ends of the lap on one day-night keyframe | 2.48 | 3.0% | 92.8 | 92.7 | 524,810 |
+| `boss_saucer` | **the fade** — `su_result` runs `fade_start_out`, and the scene re-arms the same ramp behind the black | 0.00 | 0.0% | 0.0 | 0.0 | 739,967 |
+| `railshooter` | the rail's own period — `rs_path` repeats every 256 frames, and a 3-frame capture grid realigns at three of them | 2.51 | 2.1% | 90.0 | 90.0 | 854,373 |
+| `racer` | a mark on the home straight — a flying lap comes back to it at the cap, and the grid is held until the clock puts both ends of the lap on one day-night keyframe | 2.48 | 3.0% | 92.8 | 92.7 | 448,539 |
 
 ## Where the residuals come from
 
