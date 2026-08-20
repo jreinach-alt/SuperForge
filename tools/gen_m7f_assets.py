@@ -5,8 +5,8 @@ The sweep's LAST rail. Emits five blobs into an output dir:
 
     m7f_ground.bin   32,768 B  interleaved Mode 7 VRAM image (tilemap | CHR)
     m7f_pal.bin          32 B  16 BGR555 floor colours; index 0 = THE SKY
-    m7f_obj_chr.bin   2,048 B  one 4-row x 16-col OBJ grid: airship frames A/B,
-                               the big ground shadow, the small high shadow
+    m7f_obj_chr.bin   3,072 B  one 6-row x 16-col OBJ grid: airship frames A/B,
+                               a FIVE-STEP shadow ladder, two cloud shapes
     m7f_ship_pal.bin     32 B  16 BGR555 words (OBJ palette 0)
     m7f_shadow_pal.bin   32 B  (OBJ palette 1)
 
@@ -16,8 +16,8 @@ a converter between a source asset and this output triggers the
 asset-import rule (ground-truth the converter against a render it did not produce),
 and the cheapest way to discharge that obligation is not to incur it. What the
 rail DOES fix is its BEHAVIOUR and GEOMETRY — the 128x128 wrapping plane, the
-spawn over a coast cluster, the two shadow sizes and the altitude threshold
-that switches them.
+spawn over a coast cluster, and the shadow ladder whose five drawn diameters
+are the altimeter.
 
 INDEX 0 IS THE SKY, and that is a hardware contract rather than a convention.
 In Mode 7 an 8bpp pixel value IS an absolute CGRAM index, and the rail's sky is
@@ -207,22 +207,42 @@ def build_ground() -> bytes:
 # =============================================================================
 # The SNES reads a 32x32 sprite as a 4x4 block of 8x8 tiles at {N..N+3,
 # N+16..N+19, N+32..N+35, N+48..N+51} — the row stride is 16 TILE SLOTS, fixed
-# in hardware — so the sheet is authored as a 16-wide grid and the four objects
-# sit at columns 0, 4, 8 and 12 of it.
-GRID_W, GRID_H = 16, 4
-OBJ_TILES = GRID_W * GRID_H                      # 64 tiles
+# in hardware — so the sheet is authored as a 16-wide grid, the four 32x32
+# objects sit at columns 0, 4, 8 and 12 of its first four rows, and the 16x16
+# ones fill the two rows below.
+GRID_W, GRID_H = 16, 6
+OBJ_TILES = GRID_W * GRID_H                      # 96 tiles
 OBJ_BYTES = OBJ_TILES * 32                       # 4bpp: 32 B per tile
 
+# ROWS 0-3 ARE THE 32x32 FLOOR, and it is full: a 32x32 object needs four
+# consecutive grid rows, so only four of them fit in the sheet at all and all
+# four are spoken for — the two airship frames and the two 32-box shadow steps.
 SHIP_TILE_A = 0
 SHIP_TILE_B = 4
-SHADOW_TILE_BIG = 8
-SHADOW_TILE_SMALL = 12
-# The two 16x16 cloud shapes, in the slots the 32x32 objects leave behind: the
-# small shadow takes 12,13,28,29 of its column, so 14,15,30,31 are free beside
-# it, and row 2 column 12 (44,45,60,61) is free entirely. Two shapes rather
-# than one so four drawn clouds do not read as four copies.
-CLOUD_TILE_A = 14
-CLOUD_TILE_B = 44
+
+# THE SHADOW LADDER — five steps, biggest first, and the size a player reads is
+# the ART inside the box rather than the box. OBSEL carries ONE size pair for
+# the whole frame and this rail has already spent it on (16, 32): the airship
+# and the largest shadow are 32x32 and the rest are 16x16, so no SIXTH hardware
+# size is buyable at any price. What IS buyable is drawn diameter — a 32-box
+# holding a 20 px ellipse reads as a step between the 26 px one and the 14 px
+# one — so the ladder is two diameters in the 32 box and three in the 16 box,
+# and the step a player sees is the ELLIPSE.
+#
+# Rows 4-5 are the 16x16 floor: eight slots, five used (two clouds + the three
+# small shadow steps) and three left free.
+SHADOW_TILES = (8, 12, 68, 70, 72)
+SHADOW_BOXES = (32, 32, 16, 16, 16)
+# (rx, ry) per step. Step 0 and step 2 reproduce the two diameters this rail
+# shipped with — 32*0.42 x 32*0.20 and 16*0.42 x 16*0.20 — so the ladder EXTENDS
+# the readout rather than redrawing it; the other three are new.
+SHADOW_RADII = ((13.44, 6.40), (10.00, 4.80), (6.72, 3.20),
+                (5.20, 2.60), (3.10, 1.55))
+
+# The two 16x16 cloud shapes, in the first two slots of the 16x16 floor. Two
+# shapes rather than one so four drawn clouds do not read as four copies.
+CLOUD_TILE_A = 64
+CLOUD_TILE_B = 66
 
 SHIP_PAL = [
     (0x00, 0x00, 0x00),          # 0 transparent
@@ -241,43 +261,88 @@ SHADOW_PAL = [
 ] + [(0, 0, 0)] * 13
 
 
+SHIP_CX, SHIP_CY = 15.5, 13.0            # the envelope's centre in its 32 box
+SHIP_RX, SHIP_RY = 13.5, 6.2
+# TWO ENGINES, ONE AT EACH TIP OF THE ENVELOPE, and they are 90 degrees APART
+# rather than in step. The rail shipped with a single propeller disc at the bow
+# and a static wedge fin over the stern, so one end of the ship moved and the
+# other did not. The stern hub is the bow hub mirrored through the envelope's
+# centre — cx +/- rx, the two points where a hull that long has room for a disc
+# — and the fin moves up onto the envelope's back, where a real airship's
+# vertical stabiliser is anyway and where it is not standing in the propeller.
+#
+# THE PHASE IS THE POINT. Two blades on one two-frame clock could be drawn in
+# step, and a pair of engines turning as one reads as a mirrored decal rather
+# than as two engines. Anti-phase costs nothing — no third frame, no extra CHR,
+# the same eight-frame clock — and at any instant one disc shows its blades
+# edge-on while the other shows them flat, which is what two unsynchronised
+# engines look like.
+SHIP_PROP_HUBS = (SHIP_CX - SHIP_RX, SHIP_CX + SHIP_RX)   # bow, stern
+SHIP_PROP_R2 = 30
+
+
 def _ship_pixel(x: int, y: int, frame: int) -> int:
-    """A 32x32 side-on airship: ellipsoid envelope, gondola, tail fin, prop."""
-    cx, cy = 15.5, 13.0
-    ex, ey = (x - cx) / 13.5, (y - cy) / 6.2
+    """A 32x32 side-on airship: envelope, gondola, dorsal fin, TWO props."""
+    ex, ey = (x - SHIP_CX) / SHIP_RX, (y - SHIP_CY) / SHIP_RY
     d = ex * ex + ey * ey
     if d <= 1.0:
         if ey < -0.45:
             return 1
-        if abs(x - cx) < 3.2 and abs(ey) < 0.72:
+        if abs(x - SHIP_CX) < 3.2 and abs(ey) < 0.72:
             return 4                       # the mid stripe
         return 2 if ey < 0.42 else 3
     # gondola, slung under the envelope
     if 12 <= x <= 20 and 20 <= y <= 24:
         return 5 if y < 23 else 6
-    # tail fin at the stern
-    if 26 <= x <= 30 and abs(y - cy) < (x - 24) * 1.4 and y < 22:
+    # dorsal fin, over the stern quarter and clear of the stern propeller
+    if 19 <= x <= 25 and 3 <= y <= 8 and y >= 9 - (x - 18) * 1.1:
         return 4
-    # propeller: a two-blade disc at the bow, flipped between frames
-    px, py = x - 2.0, y - cy
-    if px * px + py * py < 30:
-        if frame == 0 and abs(py) > abs(px) * 0.5:
-            return 7
-        if frame == 1 and abs(px) > abs(py) * 0.5:
-            return 7
+    # the two propeller discs, each a two-blade blur, the pair in anti-phase
+    for i, hub in enumerate(SHIP_PROP_HUBS):
+        px, py = x - hub, y - SHIP_CY
+        if px * px + py * py < SHIP_PROP_R2:
+            if ((frame ^ i) & 1) == 0:
+                if abs(py) > abs(px) * 0.5:
+                    return 7
+            elif abs(px) > abs(py) * 0.5:
+                return 7
     return 0
 
 
-def _shadow_pixel(x: int, y: int, size: int) -> int:
-    """An elliptical ground shadow. size 32 = the BIG (low) one, 16 = small."""
-    c = size / 2.0 - 0.5
-    ex, ey = (x - c) / (size * 0.42), (y - c) / (size * 0.20)
+def _shadow_pixel(x: int, y: int, box: int, rx: float, ry: float) -> int:
+    """One rung of the shadow ladder: an ellipse CENTRED IN ITS BOX.
+
+    `box` is the hardware sprite box (32 or 16) and (rx, ry) the drawn ellipse.
+    Centring in the box is what lets the ASM place a step by its box alone:
+    the ellipse's centre is always box/2 - 0.5 from the box's corner, so a
+    screen x of 128 - box/2 puts every rung's centre on the same column and a
+    screen y of (the centre locus) - box/2 puts every rung on the same row.
+    That is the defect this ladder was built out of — one screen x served a 32
+    box and a 16 box, and the 16 one sat eight pixels left of the ship.
+    """
+    c = box / 2.0 - 0.5
+    ex, ey = (x - c) / rx, (y - c) / ry
     d = ex * ex + ey * ey
     if d <= 0.72:
         return 1
     if d <= 1.0:
         return 2
     return 0
+
+
+def _shadow_step_pixel(step: int):
+    """The pixel function for one rung, bound to its box and radii."""
+    box, (rx, ry) = SHADOW_BOXES[step], SHADOW_RADII[step]
+    return lambda x, y: _shadow_pixel(x, y, box, rx, ry)
+
+
+def shadow_extent(step: int) -> tuple[int, int]:
+    """(width, height) of the rung's drawn ellipse, in pixels."""
+    box = SHADOW_BOXES[step]
+    on = [(x, y) for y in range(box) for x in range(box)
+          if _shadow_step_pixel(step)(x, y)]
+    xs, ys = [p[0] for p in on], [p[1] for p in on]
+    return max(xs) - min(xs) + 1, max(ys) - min(ys) + 1
 
 
 def _put_tile(sheet: bytearray, tile: int, pix) -> None:
@@ -341,8 +406,8 @@ def build_obj() -> bytes:
     _blit(sheet, CLOUD_TILE_B, 16, lambda x, y: _cloud_pixel(x, y, 1))
     _blit(sheet, SHIP_TILE_A, 32, lambda x, y: _ship_pixel(x, y, 0))
     _blit(sheet, SHIP_TILE_B, 32, lambda x, y: _ship_pixel(x, y, 1))
-    _blit(sheet, SHADOW_TILE_BIG, 32, lambda x, y: _shadow_pixel(x, y, 32))
-    _blit(sheet, SHADOW_TILE_SMALL, 16, lambda x, y: _shadow_pixel(x, y, 16))
+    for step, first in enumerate(SHADOW_TILES):
+        _blit(sheet, first, SHADOW_BOXES[step], _shadow_step_pixel(step))
     return bytes(sheet)
 
 
@@ -372,29 +437,62 @@ def main() -> int:
 
     obj = build_obj()
     assert len(obj) == OBJ_BYTES, len(obj)
+    # THE OBJECTS MAY NOT OVERLAP IN THE SHEET. A 32x32 object reads sixteen
+    # tiles at a 16-slot row stride and a 16x16 one reads four, so "these fit"
+    # is arithmetic nobody can do by eye — and two objects sharing a slot is a
+    # picture, not a build error.
+    seen = {}
+    for name, first, box in (
+            [("ship A", SHIP_TILE_A, 32), ("ship B", SHIP_TILE_B, 32),
+             ("cloud A", CLOUD_TILE_A, 16), ("cloud B", CLOUD_TILE_B, 16)]
+            + [(f"shadow {i}", t, SHADOW_BOXES[i])
+               for i, t in enumerate(SHADOW_TILES)]):
+        for ty in range(box // 8):
+            for tx in range(box // 8):
+                slot = first + ty * GRID_W + tx
+                assert slot < OBJ_TILES, (name, slot, OBJ_TILES)
+                assert slot not in seen, (name, slot, seen[slot])
+                seen[slot] = name
     # Every object must cover a real fraction of its box, or "the airship
     # renders" would be a claim about an empty sheet. Counted in PIXELS off the
     # authoring function — a byte count would read the 4bpp planar packing,
     # where a two-colour object legitimately leaves planes 2 and 3 all zero.
     for name, fn, size, floor in (
             ("ship A", lambda x, y: _ship_pixel(x, y, 0), 32, 0.25),
-            ("ship B", lambda x, y: _ship_pixel(x, y, 1), 32, 0.25),
-            ("shadow big", lambda x, y: _shadow_pixel(x, y, 32), 32, 0.15),
-            ("shadow small", lambda x, y: _shadow_pixel(x, y, 16), 16, 0.15)):
+            ("ship B", lambda x, y: _ship_pixel(x, y, 1), 32, 0.25)):
         n = sum(1 for y in range(size) for x in range(size) if fn(x, y))
         assert n > floor * size * size, (name, n, size * size)
     # ...and the two propeller frames must actually DIFFER, or the animation is
-    # a timer driving one picture.
-    assert any(_ship_pixel(x, y, 0) != _ship_pixel(x, y, 1)
-               for y in range(32) for x in range(32)), "prop frames identical"
+    # a timer driving one picture. BOTH ENDS, separately: a single whole-sprite
+    # difference passes on the one-engine ship this replaced, so the halves are
+    # counted apart and each must move.
+    for half, cols in (("bow", range(0, 16)), ("stern", range(16, 32))):
+        moved = sum(1 for y in range(32) for x in cols
+                    if _ship_pixel(x, y, 0) != _ship_pixel(x, y, 1))
+        assert moved >= 20, (
+            f"the {half} half of the airship changes in only {moved} pixels "
+            f"between the two frames — that end is not animated")
+    # THE LADDER MUST READ AS A LADDER. Five rungs are only an altimeter if a
+    # player can tell them apart, so each rung is strictly narrower than the one
+    # below it by a margin no anti-aliasing could blur, and the top rung is
+    # still a visible mark rather than a stray pixel.
+    widths = [shadow_extent(i)[0] for i in range(len(SHADOW_TILES))]
+    for i in range(1, len(widths)):
+        assert widths[i - 1] - widths[i] >= 3, (widths, i)
+    assert widths[-1] >= 5, widths
+    assert widths[0] <= 32 and min(SHADOW_BOXES) == 16, widths
 
     (out / "m7f_ground.bin").write_bytes(ground)
     (out / "m7f_pal.bin").write_bytes(pal_bytes(PALETTE))
     (out / "m7f_obj_chr.bin").write_bytes(obj)
     (out / "m7f_ship_pal.bin").write_bytes(pal_bytes(SHIP_PAL))
     (out / "m7f_shadow_pal.bin").write_bytes(pal_bytes(SHADOW_PAL))
+    ladder = " ".join(f"{w}x{h}" for w, h in
+                      (shadow_extent(i) for i in range(len(SHADOW_TILES))))
     print(f"m7f_ground: {len(ground)} B interleaved  "
-          f"m7f_obj_chr: {len(obj)} B  palettes: 3 x 32 B")
+          f"m7f_obj_chr: {len(obj)} B ({OBJ_TILES} tiles, "
+          f"{OBJ_BYTES // 2} VRAM words)  palettes: 3 x 32 B")
+    print(f"  shadow ladder: {ladder}")
     return 0
 
 

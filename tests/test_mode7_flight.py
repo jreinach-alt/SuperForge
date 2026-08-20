@@ -89,6 +89,17 @@ _gspec = importlib.util.spec_from_file_location(
 GRAD = importlib.util.module_from_spec(_gspec)
 _gspec.loader.exec_module(GRAD)
 
+# The THIRD generator, on the same argument: the OBJ sheet's grid layout and the
+# shadow ladder's five drawn ellipses are a pure function of
+# tools/gen_m7f_assets.py's constants, and the build executes it to make the CHR
+# the ROM uploads. Naming the tiles or the diameters again here would be a
+# second place for them to be wrong; asking the generator is how the PICTURE
+# gets compared to the art it was drawn from.
+_aspec = importlib.util.spec_from_file_location(
+    "gen_m7f_assets", SUPERFORGE / "tools" / "gen_m7f_assets.py")
+ART = importlib.util.module_from_spec(_aspec)
+_aspec.loader.exec_module(ART)
+
 
 def _sym(name, scene="sky"):
     pool = MAP["scenes"][scene]["placements"] if scene else MAP["globals"]
@@ -136,12 +147,23 @@ PROP_PERIOD = 16
 IDENT_GAP = PROP_PERIOD
 
 SHIP_SLOT, SHADOW_SLOT = 0, 1
+SHIP_BOX = 32
 SHIP_X, SHIP_Y = 112, 96
-SHADOW_X, SHADOW_Y_LOW = 112, 168
-SHADOW_THRESH_IDX = 40
 T_SHIP_A, T_SHIP_B = 0, 4
-T_SHADOW_BIG, T_SHADOW_SML = 8, 12
 HI_SHIP_LARGE, HI_SHADOW_LARGE = 1 << 1, 1 << 3
+
+# --- the shadow ladder ------------------------------------------------------
+# FIVE RUNGS out of the two hardware sizes OBSEL carries, so what steps is the
+# drawn ELLIPSE and not the box (m7f_obj.asm's header carries the ruling). The
+# tiles and the boxes come from the generator that drew the sheet; the altitude
+# boundaries are m7f_obj.asm's `m7f_shadow_thr`, named here so a threshold that
+# moved is a mismatch against the picture rather than a silent re-spelling.
+SHADOW_TILES = ART.SHADOW_TILES                      # (8, 12, 68, 70, 72)
+SHADOW_BOXES = ART.SHADOW_BOXES                      # (32, 32, 16, 16, 16)
+SHADOW_THR = (16, 32, 48, 64)                        # rung i starts at THR[i-1]
+SHADOW_STEPS = len(SHADOW_TILES)
+SCREEN_CX = 128                     # the column the airship is centred on, and
+                                    # therefore the one every rung must sit on
 
 FRAME_MC, LINE_MC, DOT_MC = 357368, 1364, 4
 # The cadence budget, stated as the thing that actually matters: the join may
@@ -558,6 +580,21 @@ def _modal_fraction(img, y):
     return row.count(max(set(row), key=row.count)) / len(row)
 
 
+def _modal_colour(img, y):
+    """The colour a rendered row is MOSTLY made of.
+
+    The band's own colour, read without caring what is drawn over it. A single
+    named pixel would do the same job right up until something crosses that
+    column — and in the sky band things do: the airship straddles the horizon
+    at altitude, and a cloud is uncovered down to the last sky scanline by
+    design. The band is 256 px wide and the widest of those is 32, so the mode
+    is the band.
+    """
+    px = img.load()
+    row = [px[x, y] for x in range(img.width)]
+    return max(set(row), key=row.count)
+
+
 def _horizon_row(img):
     """The first rendered row that is not a FLAT band — the horizon, in the
     screenshot's own coordinates. This is the OUTPUT REGION for the whole
@@ -884,40 +921,200 @@ def test_the_picture_holds_still_when_nothing_is_held(tmp_path):
 # ===========================================================================
 # THE SHADOW — this rail's only altimeter
 # ===========================================================================
-def test_the_shadow_reports_the_altitude_in_size_tile_and_screen_y():
-    """M1's readout, in OAM bytes.
+def _authored_rung(step):
+    """(pixels, width, height) of the ellipse the GENERATOR drew for a rung."""
+    box, fn = SHADOW_BOXES[step], ART._shadow_step_pixel(step)
+    n = sum(1 for y in range(box) for x in range(box) if fn(x, y))
+    w, h = ART.shadow_extent(step)
+    return n, w, h
 
-    All THREE properties must move together. A test that read only the tile
-    would pass on a build whose size bit was frozen — and the size bit is the
-    one that is a read-modify-write hazard, because it shares a hi-table byte
-    with the ship's.
+
+def _blob(img, colours):
+    """Extent of every pixel of the frame drawn in `colours`.
+
+    Returns None when the colour set is absent from the picture, which is how
+    "the object did not render at all" arrives as a finding rather than as a
+    divide by zero.
     """
+    px = img.load()
+    pts = [(x, y) for y in range(img.height) for x in range(img.width)
+           if px[x, y] in colours]
+    if not pts:
+        return None
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    return {"n": len(pts), "x0": min(xs), "x1": max(xs), "y0": min(ys),
+            "y1": max(ys), "w": max(xs) - min(xs) + 1,
+            "h": max(ys) - min(ys) + 1, "cx": (min(xs) + max(xs)) / 2.0,
+            "cy": (min(ys) + max(ys)) / 2.0}
+
+
+def _obj_palette(m, first, indices):
+    """The live rendered RGB of chosen entries of one OBJ palette.
+
+    LIVE, because the day/night clock rewrites CGRAM under the picture — the
+    floor's sixteen words AND the clouds' four, every TOD step. A colour set
+    read once at boot and reused thirty seconds later matches nothing, which
+    reads as "the object vanished" and is really "the test went stale".
+    """
+    raw = m.read_bytes(C, first * 2, 16 * 2)
+    return {_mesen_rgb(raw[i * 2] | raw[i * 2 + 1] << 8) for i in indices}
+
+
+# The two OBJ palette entries each object is drawn in. Named by what they ARE
+# so the sets stay honest if the art moves: the airship's ENVELOPE (its three
+# body tones, deliberately NOT the propeller blur, which is asymmetric between
+# the two frames and would drag a centre measurement with it), and the shadow's
+# core + edge.
+SHIP_BODY_IDX = (1, 2, 3)
+SHADOW_IDX = (1, 2)
+SHIP_PAL_AT, SHADOW_PAL_AT = 128, 144
+
+
+def test_every_shadow_rung_is_drawn_centred_under_the_airship(tmp_path):
+    """THE ALTIMETER, read off the rendered frame at every rung of the ladder.
+
+    The defect this was written for: one screen x served a 32 px box and a 16
+    px one, and a sprite's x is its LEFT EDGE — so the small shadow drew at
+    112..127, centred on column 120, eight pixels left of the airship it
+    belongs to. OAM said 112 in both cases and was RIGHT both times; the
+    picture is the only place the error exists, which is why this reads pixels
+    and not OAM bytes.
+
+    THE ANCHOR IS THE SHIP, not a constant. Both centres are measured from the
+    same screenshot in their own palettes, so a test that could pass on a
+    changed backdrop cannot pass here: if the shadow slid, the two measurements
+    disagree; if the whole picture moved, they move together and nothing else
+    in this file would still pass.
+
+    And the rung is identified by its PIXEL COUNT against the generator's own
+    ellipse. That is what stops the centring claim from being vacuous on a
+    build that drew the wrong tile, or no tile: 264 / 152 / 68 / 40 / 16 pixels
+    are the five rungs, they are what tools/gen_m7f_assets.py authored, and a
+    sixth number means the ROM is showing something this sheet does not hold.
+    """
+    seen = {}
     with Machine(str(ROM)) as m:
         m.advance(BOOT)
-        m.advance(ALT_MAX_IDX + 20, pad1={"l": True})       # the floor
+        m.advance(ALT_MAX_IDX + 60, pad1={"l": True})       # down to the floor
         m.advance(2)
-        low = _oam(m, SHADOW_SLOT)
-        m.advance(ALT_MAX_IDX + 20, pad1={"r": True})       # the ceiling
-        m.advance(2)
-        high = _oam(m, SHADOW_SLOT)
-        ship = _oam(m, SHIP_SLOT)
+        for i in range(ALT_MAX_IDX // 4 + 2):
+            ship_cols = _obj_palette(m, SHIP_PAL_AT, SHIP_BODY_IDX)
+            shadow_cols = _obj_palette(m, SHADOW_PAL_AT, SHADOW_IDX)
+            floor = _obj_palette(m, 0, range(FLOOR_PAL_WORDS))
+            alt = _pose(m)[1]
+            img = _shot(m, tmp_path / f"rung_{i}.png")
+            assert not (shadow_cols & floor), (
+                f"at altitude index {alt} the floor palette holds one of the "
+                f"shadow's two colours, so a pixel census cannot tell them "
+                f"apart — this measurement is not measuring the shadow")
+            ship, shadow = _blob(img, ship_cols), _blob(img, shadow_cols)
+            assert ship is not None, f"the airship did not render at index {alt}"
+            assert shadow is not None, f"no shadow at all at index {alt}"
+            seen[alt] = (ship, shadow)
+            m.advance(4, pad1={"r": True})
 
-    assert low["tile"] == T_SHADOW_BIG and low["large"] == 1, (
-        f"at the floor the shadow is tile {low['tile']} large={low['large']}, "
-        f"want tile {T_SHADOW_BIG} large=1")
-    assert high["tile"] == T_SHADOW_SML and high["large"] == 0, (
-        f"at the ceiling the shadow is tile {high['tile']} "
-        f"large={high['large']}, want tile {T_SHADOW_SML} large=0")
-    assert high["y"] > low["y"], (
-        f"the shadow's screen y did not drop toward the horizon on the climb: "
-        f"{low['y']} -> {high['y']}")
-    assert low["y"] == SHADOW_Y_LOW, f"floor shadow y = {low['y']}"
-    assert (low["x"], high["x"]) == (SHADOW_X, SHADOW_X), "the shadow slid sideways"
-    assert ship["large"] == 1, (
-        "the AIRSHIP's size bit was cleared while the shadow's was rebuilt — "
-        "they share one hi-table byte and it must be written whole")
-    assert (ship["x"], ship["y"]) == (SHIP_X, SHIP_Y), (
-        f"the airship left its fixed screen position: {ship['x']}, {ship['y']}")
+    # --- 1. every rung sits on the airship's own column ---------------------
+    for alt, (ship, shadow) in sorted(seen.items()):
+        assert shadow["cx"] == ship["cx"], (
+            f"altitude index {alt}: the shadow's drawn ellipse is centred on "
+            f"column {shadow['cx']} and the airship on {ship['cx']} — the "
+            f"shadow is {abs(shadow['cx'] - ship['cx'])} px off the ship it "
+            f"belongs to")
+        assert ship["cx"] == SCREEN_CX - 0.5, (
+            f"altitude index {alt}: the airship itself is not centred on the "
+            f"screen ({ship['cx']}) — the anchor moved, so the check above is "
+            f"comparing two wrong things to each other")
+
+    # --- 2. the rungs are the generator's, and there are five of them -------
+    authored = {_authored_rung(i)[0]: i for i in range(SHADOW_STEPS)}
+    rungs = {}
+    for alt, (_, shadow) in sorted(seen.items()):
+        assert shadow["n"] in authored, (
+            f"altitude index {alt} renders a shadow of {shadow['n']} pixels, "
+            f"which is none of the ladder's rungs {sorted(authored)} — the ROM "
+            f"is drawing a tile this sheet does not hold")
+        rungs.setdefault(authored[shadow["n"]], []).append(alt)
+    assert sorted(rungs) == list(range(SHADOW_STEPS)), (
+        f"only rungs {sorted(rungs)} of {SHADOW_STEPS} are ever drawn across "
+        f"the whole altitude axis — the ladder has steps the flight cannot "
+        f"reach")
+
+    # --- 3. and they arrive in order, narrowing as the ship climbs ----------
+    order = [authored[shadow["n"]] for _, (_, shadow) in sorted(seen.items())]
+    assert order == sorted(order), (
+        f"the ladder did not step monotonically with altitude: {order}")
+    widths = [seen[min(rungs[i])][1]["w"] for i in sorted(rungs)]
+    for i in range(1, len(widths)):
+        assert widths[i - 1] - widths[i] >= 3, (
+            f"rungs {i - 1} and {i} render {widths[i - 1]} px and {widths[i]} "
+            f"px wide — a step a player cannot see is not a step")
+
+    # --- 4. the ellipse's CENTRE walks one continuous line down the screen --
+    # The rungs are drawn in two different boxes and a sprite's y is its TOP
+    # edge, so a ladder that ignored the box would jump 8 px the moment the
+    # box changed. This is the y half of assertion 1 and it is what the per-
+    # rung y base in m7f_shadow_tab exists for.
+    ys = [shadow["cy"] for _, (_, shadow) in sorted(seen.items())]
+    steps = [b - a for a, b in zip(ys, ys[1:])]
+    assert min(steps) >= 0 and max(steps) <= 3, (
+        f"the shadow's drawn centre moved down the screen in steps of "
+        f"{sorted(set(steps))} px — a jump means the rung's y base does not "
+        f"account for its own box height")
+    assert ys[-1] - ys[0] >= 25, (
+        f"the shadow's centre only travelled {ys[-1] - ys[0]} px across the "
+        f"whole climb — the altimeter is not moving")
+
+
+def test_the_shadow_reports_the_altitude_in_size_tile_and_screen_y():
+    """M1's readout, in OAM bytes — the half the picture cannot show.
+
+    All FOUR properties must move together: tile, hardware size bit, screen x
+    and screen y. A test that read only the tile would pass on a build whose
+    size bit was frozen — and the size bit is the one that is a read-modify-
+    write hazard, because it shares a hi-table byte with the airship's.
+    """
+    raw = []
+    with Machine(str(ROM)) as m:
+        m.advance(BOOT)
+        m.advance(ALT_MAX_IDX + 60, pad1={"l": True})       # the floor
+        m.advance(2)
+        for _ in range(ALT_MAX_IDX + 40):
+            raw.append((_pose(m)[1], _oam(m, SHADOW_SLOT), _oam(m, SHIP_SLOT)))
+            m.advance(1, pad1={"r": True})
+
+    # OAM IS ONE ADVANCE BEHIND WRAM, and that is the harness's stated park
+    # semantics rather than a wobble to average out (vendor/machine.py: "the
+    # WRAM effect of a press is visible in this call's own readback; the OAM
+    # effect one advance later"). So each frame's OAM is paired with the
+    # PREVIOUS frame's altitude — the one the sprite was built from.
+    walk = [(raw[i - 1][0], raw[i][1], raw[i][2]) for i in range(1, len(raw))]
+
+    for alt, shadow, ship in walk:
+        step = sum(1 for t in SHADOW_THR if alt >= t)
+        assert shadow["tile"] == SHADOW_TILES[step], (
+            f"altitude index {alt} is rung {step}, whose tile is "
+            f"{SHADOW_TILES[step]}, but OAM holds {shadow['tile']}")
+        assert shadow["large"] == (1 if SHADOW_BOXES[step] == 32 else 0), (
+            f"altitude index {alt} draws rung {step} (a "
+            f"{SHADOW_BOXES[step]} px box) with size bit {shadow['large']} — "
+            f"the tile and the hardware size disagree, so the ellipse is being "
+            f"read out of the wrong quarter of the sheet")
+        assert shadow["x"] == SCREEN_CX - SHADOW_BOXES[step] // 2, (
+            f"altitude index {alt}: rung {step} sits at x={shadow['x']}, but a "
+            f"{SHADOW_BOXES[step]} px box is centred on the screen at "
+            f"{SCREEN_CX - SHADOW_BOXES[step] // 2}")
+        assert ship["large"] == 1, (
+            "the AIRSHIP's size bit was cleared while the shadow's was rebuilt "
+            "— they share one hi-table byte and it must be written whole")
+        assert (ship["x"], ship["y"]) == (SHIP_X, SHIP_Y), (
+            f"the airship left its fixed screen position: {ship['x']}, "
+            f"{ship['y']}")
+
+    assert walk[0][0] == 0 and walk[-1][0] == ALT_MAX_IDX, (
+        f"the walk did not cover the axis: {walk[0][0]} -> {walk[-1][0]}")
+    assert {s["tile"] for _, s, _ in walk} == set(SHADOW_TILES), (
+        f"the climb showed tiles {sorted({s['tile'] for _, s, _ in walk})}, "
+        f"not the whole ladder {sorted(SHADOW_TILES)}")
 
 
 def test_the_propeller_animates_and_the_ship_never_leaves_its_slot():
@@ -933,6 +1130,98 @@ def test_the_propeller_animates_and_the_ship_never_leaves_its_slot():
     assert tiles == {T_SHIP_A, T_SHIP_B}, (
         f"the propeller showed tiles {sorted(tiles)}, want both "
         f"{T_SHIP_A} and {T_SHIP_B} — the animation clock is dead or stuck")
+
+
+PROP_BLUR_IDX = 7                   # SHIP_PAL's propeller blur, and only that
+
+
+def _blur_halves(img, top, blur):
+    """Propeller-blur pixels in the BOW half and the STERN half of the ship.
+
+    The split is the airship's own box: its 32 columns from its OAM x, cut in
+    two. Anything outside that box in the same rows is returned as the third
+    figure, which is how "some scenery happens to be this colour" arrives as a
+    finding instead of as a silently inflated count.
+    """
+    px = img.load()
+    rows = range(top + SHIP_Y, top + SHIP_Y + SHIP_BOX + 1)
+    bow = sum(1 for y in rows for x in range(SHIP_X, SHIP_X + SHIP_BOX // 2)
+              if px[x, y] == blur)
+    stern = sum(1 for y in rows
+                for x in range(SHIP_X + SHIP_BOX // 2, SHIP_X + SHIP_BOX)
+                if px[x, y] == blur)
+    elsewhere = sum(1 for y in rows for x in range(img.width)
+                    if px[x, y] == blur
+                    and not SHIP_X <= x < SHIP_X + SHIP_BOX)
+    return bow, stern, elsewhere
+
+
+def test_both_engines_turn_and_they_turn_out_of_step(tmp_path):
+    """The playtest observation: one end of the airship moved and the other
+    did not.
+
+    READ OFF THE PICTURE, per half, because "the tile number alternates" is
+    exactly what the one-engine ship this replaced already did — the flip was
+    never the broken part. What was broken was that all of the pixels that
+    changed between the two frames were at the bow. So the blur is counted in
+    the bow half and the stern half SEPARATELY, and each half has to move.
+
+    The counts are checked against the art rather than against each other:
+    tools/gen_m7f_assets.py draws 40 blur pixels on the turning end and 12 on
+    the other, and swaps them between frames. A build that mirrored one disc
+    onto both ends would give two halves that both change and both peak at the
+    SAME time; the anti-phase assertion is what separates two engines from one
+    engine drawn twice.
+
+    Flown at the DECK, where the whole airship is over the ground: the sky
+    ramp saturates toward white at the top of the screen, and the blur is
+    white, so a sample taken with the ship in the sky band would be counting
+    the backdrop. The `elsewhere` figure is the guard that says so.
+    """
+    want = {f: (sum(1 for y in range(32) for x in range(16)
+                    if ART._ship_pixel(x, y, f) == PROP_BLUR_IDX),
+                sum(1 for y in range(32) for x in range(16, 32)
+                    if ART._ship_pixel(x, y, f) == PROP_BLUR_IDX))
+            for f in (0, 1)}
+    assert want[0] == tuple(reversed(want[1])), (
+        f"the sheet itself does not hold two anti-phase discs: {want}")
+
+    seen = []
+    with Machine(str(ROM)) as m:
+        m.advance(BOOT)
+        m.advance(ALT_MAX_IDX + 60, pad1={"l": True})       # down to the deck
+        m.advance(2)
+        blur = _obj_palette(m, SHIP_PAL_AT, (PROP_BLUR_IDX,))
+        for i in range(16):
+            img = _shot(m, tmp_path / f"prop_{i}.png")
+            seen.append(_blur_halves(img, _top_row(img), next(iter(blur))))
+            m.advance(2)
+
+    for i, (bow, stern, elsewhere) in enumerate(seen):
+        assert elsewhere == 0, (
+            f"sample {i}: {elsewhere} blur-coloured pixels outside the "
+            f"airship's own columns — this census is counting scenery, so the "
+            f"per-half figures below prove nothing")
+        assert (bow, stern) in (want[0], want[1]), (
+            f"sample {i} renders {bow} blur pixels at the bow and {stern} at "
+            f"the stern; the sheet holds {want[0]} and {want[1]}")
+
+    bows = {b for b, _, _ in seen}
+    sterns = {s for _, s, _ in seen}
+    assert len(bows) == 2, (
+        f"the BOW half never changed across 16 samples ({bows}) — that engine "
+        f"is not turning")
+    assert len(sterns) == 2, (
+        f"the STERN half never changed across 16 samples ({sterns}) — that is "
+        f"the defect this test exists for: one engine animated, one static")
+    for bow, stern, _ in seen:
+        assert (bow > stern) == (bow == max(bows)), "internally inconsistent"
+        assert bow + stern == sum(want[0]), (
+            f"{bow} + {stern} blur pixels — the two discs are not showing one "
+            f"broad face and one edge-on face at a time")
+    assert any(b > s for b, s, _ in seen) and any(s > b for b, s, _ in seen), (
+        f"one half is always the broader of the two: the discs are turning in "
+        f"LOCKSTEP, which reads as one engine mirrored rather than as two")
 
 
 # ===========================================================================
@@ -1328,7 +1617,7 @@ def test_the_snapshot_swap_does_not_pop_the_horizon(tmp_path):
             m.advance(GRAD.TOD_STEP_FRAMES)
             img = _shot(m, tmp_path / "pop.png")
             top = _top_row(img)
-            seen.append(img.load()[0, top + horizon - 1])   # the haze line
+            seen.append(_modal_colour(img, top + horizon - 1))  # the haze line
             snaps.append(_tod(m)[2])
     assert len(set(snaps)) >= 3, (
         f"only {len(set(snaps))} snapshots came into force across three "
@@ -1485,40 +1774,127 @@ def test_the_clouds_drift_on_the_wind_and_slide_against_both_turns(tmp_path):
         f"the wrong side of this and reads as a sky painted on the canopy")
 
 
-def test_the_clouds_are_culled_against_the_moving_horizon(tmp_path):
-    """The cull, at both ends of the altitude axis — an OAM census.
+CLOUD_PAL_IDX = (1, 2, 3)           # the three drawn tones of cloud_pal
+CLOUD_VARIANT = {ART.CLOUD_TILE_A: 0, ART.CLOUD_TILE_B: 1}
 
-    The horizon travels 40 scanlines, so how much sky there is to put clouds in
-    is f(altitude). Two claims, and the second is what makes the first mean
-    something: NO drawn cloud's box may reach the band's first scanline at
-    either altitude (a cloud sitting on the terrain is the defect), and MORE
-    clouds must be drawn at the ceiling than at the deck (a rail that simply
-    parked all four would satisfy the first claim perfectly).
+
+def _cloud_art_rows(variant):
+    """The rows of a 16x16 cloud shape its art actually fills."""
+    return {y for y in range(16)
+            if any(ART._cloud_pixel(x, y, variant) for x in range(16))}
+
+
+def _cloud_rows_drawn(img, cols, top):
+    """Every screenshot row holding a cloud pixel, in scanline coordinates."""
+    px = img.load()
+    return {y - top for y in range(img.height)
+            if any(px[x, y] in cols for x in range(img.width))}
+
+
+def test_the_clouds_are_uncovered_by_the_horizon_row_by_row(tmp_path):
+    """The playtest observation: the sky sprites POP in and out at the horizon.
+
+    They did. The rail culled a cloud whose 16 px box reached the band's first
+    scanline — parked it at y=$F0 — so a whole cloud arrived in one frame.
+    MEASURED on the build before this change: the cloud-coloured pixel count on
+    the rendered frame stepped 344 -> 458 between altitude index 32 and 36,
+    ten rows appearing at once.
+
+    The cure is the plane itself. The clouds carry OBJ priority 0, which in
+    BGMODE 7 is the one OBJ rank BG1 draws over, and above the horizon
+    m7f_floor's TM split turns BG1 off — so the boundary between "covered" and
+    "not covered" IS the horizon, to the scanline, and a climb uncovers a cloud
+    a row at a time.
+
+    FIVE CLAIMS, and they are chosen so that no ONE of them could pass on a
+    build that had simply gone back to parking:
+
+      1. every cloud's OAM y is CONSTANT for the whole climb, and none is ever
+         at the park row — so whatever the picture does, the SPRITES did not
+         move. Without this, a rail that slid its clouds up out of the ground
+         would satisfy everything below.
+      2. no cloud pixel is ever drawn at or past the rendered horizon.
+      3. at least one cloud is seen PARTLY drawn in at least four different
+         amounts, from nothing to its whole shape. This is the assertion the
+         cull fails: a cull has exactly two states.
+      4. no sample-to-sample step in the total cloud pixel count is as big as
+         half a cloud.
+      5. the ceiling shows substantially more cloud than the deck, so 2-4 are
+         not being satisfied by a sky with no clouds in it.
     """
-    seen = {}
+    art_rows = {t: _cloud_art_rows(v) for t, v in CLOUD_VARIANT.items()}
+    whole_cloud = max(
+        sum(1 for y in range(16) for x in range(16) if ART._cloud_pixel(x, y, v))
+        for v in CLOUD_VARIANT.values())
+
+    samples = []
     with Machine(str(ROM)) as m:
         m.advance(BOOT)
-        m.advance(ALT_MAX_IDX + 20, pad1={"l": True})
-        m.advance(4)
-        seen["deck"] = (_geometry(m)["horizon"], _clouds(m))
-        m.advance(2 * ALT_MAX_IDX + 40, pad1={"r": True})
-        m.advance(4)
-        seen["ceiling"] = (_geometry(m)["horizon"], _clouds(m))
+        m.advance(ALT_MAX_IDX + 60, pad1={"l": True})       # down to the deck
+        m.advance(2)
+        for i in range(ALT_MAX_IDX // 4 + 2):
+            # BEFORE the shot: take_screenshot costs an emulated frame, and the
+            # day/night clock rewrites the cloud palette under the picture, so
+            # a colour set read after it can be the NEXT step's.
+            cols = _obj_palette(m, CLOUD_PAL_AT, CLOUD_PAL_IDX)
+            oam = [(e["y"], e["tile"]) for e in
+                   (_oam(m, CLOUD_SLOT + k) for k in range(CLOUD_N))]
+            img = _shot(m, tmp_path / f"cloud_{i}.png")
+            top = _top_row(img)
+            rows = _cloud_rows_drawn(img, cols, top)
+            px = img.load()
+            total = sum(1 for y in range(img.height) for x in range(img.width)
+                        if px[x, y] in cols)
+            samples.append({"alt": _pose(m)[1], "horizon": _horizon_row(img),
+                            "oam": oam, "rows": rows, "total": total})
+            m.advance(4, pad1={"r": True})
 
-    drawn = {}
-    for tag, (horizon, clouds) in seen.items():
-        live = [(x, y) for x, y in clouds if y != OAM_PARK_Y]
-        drawn[tag] = len(live)
-        for x, y in live:
-            assert y + CLOUD_H <= horizon, (
-                f"{tag}: a cloud is drawn at y={y}, and its {CLOUD_H}px box "
-                f"reaches scanline {y + CLOUD_H} — past the horizon at "
-                f"{horizon}. That is a cloud sitting on the ground")
-    assert seen["ceiling"][0] - seen["deck"][0] >= 30, "the horizon barely moved"
-    assert drawn["ceiling"] > drawn["deck"], (
-        f"the same {drawn['deck']} clouds are drawn at the deck and at the "
-        f"ceiling — the cull is not following the horizon, so the first "
-        f"assertion is passing on a rail that could be parking all four")
-    assert drawn["ceiling"] == CLOUD_N, (
-        f"only {drawn['ceiling']} of {CLOUD_N} clouds survive at the ceiling, "
-        f"where the sky is 104 scanlines deep — the cull is too eager")
+    # --- 1. the sprites did not move ---------------------------------------
+    fixed = samples[0]["oam"]
+    assert all(y != OAM_PARK_Y for y, _ in fixed), (
+        f"a cloud is parked at the deck: {fixed} — the cull is back")
+    for s in samples:
+        assert s["oam"] == fixed, (
+            f"at altitude index {s['alt']} the clouds sit at {s['oam']}, not "
+            f"{fixed} — they MOVED, so whatever the picture shows is not the "
+            f"ground uncovering them")
+
+    # --- 2. the plane is in front of them ----------------------------------
+    for s in samples:
+        if s["rows"]:
+            assert max(s["rows"]) < s["horizon"], (
+                f"altitude index {s['alt']}: a cloud is drawn at scanline "
+                f"{max(s['rows'])}, at or past the horizon at {s['horizon']} — "
+                f"that is a cloud painted over the ground")
+
+    # --- 3. row by row, not on and off --------------------------------------
+    ladder = {}
+    for k, (cy, tile) in enumerate(fixed):
+        counts = [len({cy + r for r in art_rows[tile]} & s["rows"])
+                  for s in samples]
+        ladder[k] = (sorted(set(counts)), len(art_rows[tile]))
+    emerging = [k for k, (seen_counts, full) in ladder.items()
+                if len(seen_counts) >= 4 and seen_counts[0] == 0
+                and seen_counts[-1] == full]
+    assert emerging, (
+        f"no cloud was ever seen PART drawn on its way in. Row counts per "
+        f"cloud across the climb: {ladder}. A cloud that only ever shows none "
+        f"of itself or all of itself is being culled, which is the pop this "
+        f"test exists to refuse")
+
+    # --- 4. no step is a whole cloud arriving -------------------------------
+    steps = [b["total"] - a["total"] for a, b in zip(samples, samples[1:])]
+    assert max(steps) < whole_cloud // 2, (
+        f"the drawn cloud area jumped {max(steps)} pixels between two "
+        f"samples, and a whole cloud is {whole_cloud} — that is a pop, not a "
+        f"reveal. Totals: {[s['total'] for s in samples]}")
+
+    # --- 5. ...and there was something there to reveal ----------------------
+    assert samples[-1]["total"] - samples[0]["total"] >= whole_cloud, (
+        f"the ceiling shows {samples[-1]['total']} cloud pixels and the deck "
+        f"{samples[0]['total']} — less than one cloud's worth of difference "
+        f"across the whole climb, so the four claims above are being satisfied "
+        f"by a sky that never changes")
+    assert samples[-1]["horizon"] - samples[0]["horizon"] >= 30, (
+        f"the horizon only moved {samples[-1]['horizon'] - samples[0]['horizon']} "
+        f"scanlines, so nothing was ever uncovered")

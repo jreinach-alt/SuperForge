@@ -79,14 +79,22 @@ bytes = 32768
 dma_source = true
 
 # --- the cast --------------------------------------------------------------
-# ONE 4-row x 16-col OBJ grid holding all four objects: airship propeller
-# frames A and B (32x32 each), the BIG ground shadow (32x32) and the SMALL high
-# one (16x16). One sheet rather than four because the SNES reads a 32x32 sprite
-# as a 4x4 tile block whose ROW STRIDE IS 16 TILE SLOTS — fixed in hardware —
-# so the objects have to share a 16-wide grid whatever else happens.
+# ONE 6-row x 16-col OBJ grid holding every object: airship propeller frames A
+# and B (32x32 each), the FIVE-STEP shadow ladder (two 32x32 rungs, three
+# 16x16) and the two cloud shapes (16x16). One sheet rather than nine because
+# the SNES reads a 32x32 sprite as a 4x4 tile block whose ROW STRIDE IS 16 TILE
+# SLOTS — fixed in hardware — so the objects have to share a 16-wide grid
+# whatever else happens.
+#
+# GREW FROM FOUR ROWS TO SIX (2,048 -> 3,072 B) to buy the ladder's three new
+# rungs. The size pair OBSEL carries is one per FRAME and this rail had already
+# spent it, so extra steps can only come from drawn diameter, and a drawn
+# diameter costs tiles. m7f_obj is composed by ONE game (mode7_flight), so the
+# resize reaches no other composition; tools/gen_m7f_assets.py asserts the nine
+# objects do not overlap in the grid.
 [[claims.rom]]
 name = "m7f_obj_chr"
-bytes = 2048
+bytes = 3072
 
 # --- palettes --------------------------------------------------------------
 # The floor palette is SIXTEEN words and word 0 is THE SKY. In Mode 7 an 8bpp

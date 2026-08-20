@@ -6,12 +6,22 @@
 # composed and there is no actor array: two slots, drawn from two DP words.
 #
 # THE SHADOW IS THE ALTIMETER, and that is why it is a feature rather than
-# decoration. Its SIZE, its TILE and its screen Y all track the altitude: low
-# and the shadow is a BIG 32x32 close under the ship; high and it is a SMALL
-# 16x16 further down the screen, toward the horizon. It is the one cue that
-# tells a player how high they are without a HUD — and this rail has no HUD to
-# put one in, because BGMODE 7 has exactly one layer and the plane is using it
-# (rs_obj's header reaches the same conclusion for the same reason).
+# decoration. Its DRAWN DIAMETER, its TILE, its hardware size bit and its
+# screen Y all track the altitude down a FIVE-RUNG LADDER: low and the shadow
+# is a 26 px ellipse in a 32x32 box close under the ship; high and it is a 6 px
+# one in a 16x16 box, far down the screen toward the horizon. It is the one cue
+# that tells a player how high they are without a HUD — and this rail has no
+# HUD to put one in, because BGMODE 7 has exactly one layer and the plane is
+# using it (rs_obj's header reaches the same conclusion for the same reason).
+#
+# FIVE RUNGS OUT OF TWO HARDWARE SIZES. OBSEL sets one size pair per frame and
+# this rail spent it on (16, 32), so the ladder's steps are DRAWN DIAMETERS
+# inside those two boxes — two ellipses in the 32 box, three in the 16 one.
+# Each rung's screen x is 128 - box/2 and its screen y is the shadow's centre
+# locus minus box/2, so the ellipse's CENTRE lands on the same column as the
+# airship's and on one continuous locus down the screen, whichever box the rung
+# is drawn in. One shared x served both boxes before the ladder, and the 16 px
+# shadow sat eight pixels left of the ship it belonged to.
 name = "m7f_obj"
 role = "feature"
 depends = ["m7f_rom", "oam_sprites", "m7f_cam"]
@@ -23,12 +33,21 @@ channel = 0
 registers = ["VMDATAL", "VMDATAH"]
 mode = 1
 
-# ONE 4-row x 16-col grid — 64 tiles, 1,024 words. The SNES reads a 32x32
+# ONE 6-row x 16-col grid — 96 tiles, 1,536 words. The SNES reads a 32x32
 # sprite as a 4x4 tile block whose ROW STRIDE IS 16 TILE SLOTS (fixed in
 # hardware, and the reason a 32x32 object cannot be stored as sixteen
-# consecutive tiles), so all four objects share one 16-wide grid: the airship's
-# two propeller frames at columns 0 and 4, the big shadow at 8, the small one
-# at 12.
+# consecutive tiles), so every object shares one 16-wide grid: rows 0-3 hold
+# the four 32x32 objects (the airship's two propeller frames at columns 0 and
+# 4, the two 32-box shadow rungs at 8 and 12) and rows 4-5 hold the 16x16 ones
+# (two cloud shapes, three 16-box shadow rungs, three slots spare).
+#
+# GREW FROM 1,024 WORDS to buy the shadow ladder's three new rungs, and the
+# growth is the only way to buy them: OBSEL carries ONE size pair for the whole
+# frame, this rail spent it on (16, 32) — see obj_arm — so a sixth apparent
+# size can only come from a smaller ellipse drawn inside a box already owned,
+# and that costs tiles. This feature is composed by ONE game (mode7_flight), so
+# the resize reaches no other composition; VRAM above the plane had 15,360
+# words free before it and 14,848 after.
 #
 # The base is not written here and cannot be: the scene's `mode7` claim pins
 # words $0000-$3FFF and the allocator floors every OBJ CHR claim above it
@@ -39,7 +58,7 @@ mode = 1
 name = "obj_chr"
 kind = "chr"
 obj = true
-words = 1024
+words = 1536
 
 [[claims.cgram]]
 name = "ship_pal"
