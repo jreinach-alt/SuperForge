@@ -65,6 +65,7 @@ SUPERFORGE = Path(__file__).resolve().parent.parent.parent
 POOL = SUPERFORGE / "engine" / "features" / "pool" / "pool.asm"
 OBJ = SUPERFORGE / "engine" / "features" / "rs_obj" / "rs_obj.asm"
 LOGIC = SUPERFORGE / "engine" / "features" / "rs_logic" / "rs_logic.asm"
+GEN = SUPERFORGE / "tools" / "gen_railshooter_assets.py"
 RAIL = SUPERFORGE / "game" / "railshooter" / "scenes" / "rail.asm"
 ROM = SUPERFORGE / "build" / "railshooter.sfc"
 T = "tests/test_railshooter.py::"
@@ -537,4 +538,61 @@ PLANTS = [
             "byte-identical at a full period. Only the transport read sees "
             "it — which is the whole reason that case reads ES_PERSP_IDX and, "
             "since F7, ES_SM_HDMA as well"),
+
+    # ---- the bank RAMP, arm 1: the rate limiter ----------------------------
+    Plant(
+        id="rail-bank-snaps-instead-of-rolling",
+        file=LOGIC,
+        old="    lda f:US_LEAN_LONG\n"
+            "    cmp RSL_T1\n"
+            "    beq @done                       ; already there\n"
+            "    bcs @ease_down\n"
+            "    inc a\n"
+            "    bra @ease",
+        new="    ; PLANT: the pose jumps straight to the target — the ship\n"
+            "    ;        flips from level to hard over in ONE frame\n"
+            "    lda RSL_T1\n"
+            "    bra @ease\n"
+            "    nop\n"
+            "    nop",
+        artifact=ROM,
+        build=["railshooter"],
+        tests=[
+            T + "test_the_ship_rolls_in_from_level_at_scene_enter_rather_"
+                "than_snapping",
+        ],
+        why="THE DEFECT THIS RAIL SHIPPED, in its residual form. Grading the "
+            "slope into four steps is most of the ramp, but it is NOT all of "
+            "it, and the difference is measurable: with the limiter gone and "
+            "the ladder kept, a whole S period still shows no skipped pose, "
+            "because the sine's own slope moves slowly inside a bend. Scene "
+            "enter is the transition that bites — the odometer resets to 0 "
+            "where the slope is at its maximum, so the ship's first bank is "
+            "its last. That is why the roll-in case exists separately from "
+            "the period case, and this plant is what makes the separation "
+            "evidence rather than an assertion"),
+
+    # ---- the bank RAMP, arm 2: the ROLL, in the art ------------------------
+    Plant(
+        id="rail-bank-is-a-shear-not-a-roll",
+        file=GEN,
+        old="    phi = math.radians(-BANK_DEG * bank)",
+        new="    phi = math.radians(-BANK_DEG * bank)\n"
+            "    phi = 0.0  # PLANT: every pose renders the LEVEL hull",
+        artifact=ROM,
+        build=["railshooter"],
+        tests=[
+            T + "test_the_ship_is_form_shaded_and_the_shading_ROLLS_WITH_"
+                "THE_HULL",
+        ],
+        why="THE OTHER HALF OF THE SHIPPED DEFECT, and the one every "
+            "tile-index case in the module is blind to. The shipped bank was "
+            "a per-row SHEAR of the level frame: the silhouette slid and not "
+            "one pixel changed tone. Under this plant the five poses still "
+            "occupy five CHR lanes, the OAM tile still advances one step a "
+            "frame and the H-flip still fires — so the ramp cases stay GREEN "
+            "— and only the case that reads the hull's tone either side of "
+            "the ship's centre line sees that the hull is not rolling. It "
+            "patches the GENERATOR rather than ASM because the roll lives in "
+            "the art, which is exactly where a review would forget to look"),
 ]

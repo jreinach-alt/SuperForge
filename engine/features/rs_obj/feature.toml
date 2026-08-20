@@ -75,24 +75,33 @@ channel = 0
 registers = ["VMDATAL", "VMDATAH"]
 mode = 1
 
-# 224 tiles x 16 words. FOURTEEN rows of the 16-wide OBJ tile grid, because
+# 256 tiles x 16 words. SIXTEEN rows of the 16-wide OBJ tile grid, because
 # that is the unit the {N, N+1, N+16, N+17} 16x16 rule and its 32x32 extension
 # force -- a 32x32 frame spans four rows and four columns, a 16x16 frame spans
 # two rows and two columns, so frames come in whole row-groups:
-#  rows 0..3 (tiles 0..63) four 32x32 -- ship straight, ship banked,
-#  hazard tier 0, hazard tier 1
+#  rows 0..3 (tiles 0..63) four 32x32 -- the ship LEVEL and its first
+#  three bank steps
 #  rows 4..7 (tiles 64..127) four 32x32 -- pylon tier 0, pylon tier 1,
 #  burst frame A, burst frame B
 #  rows 8..9 (tiles 128..159) eight 16x16 -- score digits 0..7
 #  rows 10..11 (tiles 160..191) eight 16x16 -- digits 8,9, hazard tiers 2/3,
 #  pylon tiers 2/3, the reticle, the tracer
-#  rows 12..13 (tiles 192..223) eight 16x16 -- life segment full / empty,
-#  six spare
+#  rows 12..15 (tiles 192..255) three 32x32 -- hazard tiers 0/1 and the
+#  ship's hard-over pose -- plus four 16x16: the two life segments and two
+#  spare
+#
+# IT GREW 3584 -> 4096 WORDS FOR THE BANK RAMP, and the shape is the reason
+# rather than the count. The ship went from two frames (level, banked) to
+# five, i.e. three more 32x32 lanes; a 32x32 lane needs FOUR WHOLE ROWS, and
+# the 224-tile sheet's 24 spare tiles were six 16x16 slots spread over two
+# rows -- enough tiles, wrong shape. 4096 words is also exactly the first OBJ
+# name table, so every tile number still fits in eight bits and no frame needs
+# the name-select gap.
 [[claims.vram]]
 name = "rs_chr"
 kind = "chr"
 obj = true
-words = 3584
+words = 4096
 
 [[claims.cgram]]
 name = "rs_ship_pal"
@@ -271,9 +280,9 @@ bytes = 56
 # CHR base for EVERY sprite, so oam_sprites (the OAM transport) does not own it
 # and each rail's OBJ feature declares it -- which is what makes composing
 # rs_obj beside rc_kart or player_car refuse instead of silently fighting. The
-# size pair this rail selects is 16x16 / 32x32: the two near tiers, the ship
-# and its lean frame are large; the two far tiers, the bullet and the reticle
-# are small.
+# size pair this rail selects is 16x16 / 32x32: the two near tiers and all five
+# of the ship's bank poses are large; the two far tiers, the bullet and the
+# reticle are small.
 [[claims.reg]]
 name = "rs_obsel"
 registers = ["OBSEL"]

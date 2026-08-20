@@ -28,9 +28,14 @@ dist       = "u16"       # THE ODOMETER: +1 every frame. The S-path index is
 # floor under a fixed ship reads as the WORLD banking, which is the wrong story.
 # So `persp_set_pose` is called once at enter with heading 0, and there is no
 # heading state left for anything to steer with.
-lean       = "u16"       # the ship's draw frame: 0 straight, 1 banked left,
-                         # 2 banked right. Driven by the PATH's slope, not by
-                         # input -- the ship does not respond to the pad at all
+lean       = "u16"       # the ship's BANK POSE, biased so an unsigned compare
+                         # orders it: RS_LEAN_LEVEL is wings level, below it is
+                         # a left bank and above it a right one, four steps a
+                         # side. Driven by the PATH's slope, not by input --
+                         # the ship does not respond to the pad at all -- and
+                         # walked ONE STEP PER FRAME toward the slope's target,
+                         # which is what makes the roll a ramp rather than the
+                         # single-frame flip the three-state version was
 lane       = "u16"       # the hazard lane cursor, a byte offset into the
                          # four-entry lateral offset table
 

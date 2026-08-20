@@ -66,8 +66,8 @@ OAM = MemoryType.SnesSpriteRam
 W = MemoryType.SnesWorkRam
 RET_SLOT = 0                    # game/railshooter/railshooter.inc, front to back
 HAZ_SLOT0, HAZ_N = 3, 4
-T_HAZ = (8, 12, 164, 166)       # nearest-first tile order
-LARGE = (8, 12)                 # ...the two that are 16x16
+T_HAZ = (192, 196, 164, 166)    # nearest-first tile order
+LARGE = (192, 196)              # ...the two the PPU draws at 32x32
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 _J = json.loads((ROOT / "build" / "rs" / "symbol_map.json").read_text())
