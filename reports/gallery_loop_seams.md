@@ -39,8 +39,8 @@ tuning against the palette.
 | `split_v_fight` | **the round start** — the count's FIGHT beat, where `round_arm` has put both fighters back on their marks and the spread has eased to zero | 0.00 | 0.0% | 104.3 | 104.3 | 258,718 |
 | `mode7_explore` | the spawn tile — an idle capture at (258,258) facing Down, walked back to exactly | 0.00 | 0.0% | 84.0 | 84.0 | 746,911 |
 | `meteor_event` | the restored level — the event hands back a walkable Mode-1 level with the player at a fixed screen x | 3.22 | 3.3% | 23.0 | 23.0 | 60,649 |
-| `boss_saucer` | **the fade** — `su_result` runs `fade_start_out`, and the scene re-arms the same ramp behind the black | 0.00 | 0.0% | 0.0 | 0.0 | 739,967 |
-| `railshooter` | the rail's own period — `rs_path` repeats every 256 frames, and a 3-frame capture grid realigns at three of them | 2.51 | 2.1% | 90.0 | 90.0 | 854,373 |
+| `boss_saucer` | **the fade** — `su_result` runs `fade_start_out`, and the scene re-arms the same ramp behind the black | 0.00 | 0.0% | 0.0 | 0.0 | 412,803 |
+| `railshooter` | the rail's own period — `rs_path` repeats every 256 frames, and a 3-frame capture grid realigns at three of them | 2.51 | 2.1% | 90.3 | 90.3 | 876,805 |
 | `racer` | a mark on the home straight — a flying lap comes back to it at the cap, and the grid is held until the clock puts both ends of the lap on one day-night keyframe | 2.48 | 3.0% | 92.8 | 92.7 | 448,539 |
 
 ## Where the residuals come from
