@@ -365,7 +365,12 @@ def _seg_metrics(seg, x, y):
     same band width as the legs and adjacent legs mitre without a pinch.
     `along` advances 1 per axis step and 2 per diagonal step — the doubling
     keeps dash and kerb-block ARC length equal across families, exactly the
-    octagon painter's scale rule."""
+    octagon painter's scale rule.
+
+    THE DISTANCE IS THE BAND'S, NOT THE CENTRE LINE'S. `d == 0` is not the
+    centre-line test and must not be used as one: on a 45-degree leg this
+    floor is zero for two distinct cross-track offsets. `_on_centre_line`
+    below is the predicate, and its docstring is why."""
     x0, y0, sx, sy, steps = seg
     dx, dy = x - x0, y - y0
     t = sx * dx + sy * dy
@@ -380,6 +385,48 @@ def _seg_metrics(seg, x, y):
     else:
         d = abs(dx) if sx == 0 else abs(dy)
     return d, t
+
+
+def _on_centre_line(seg, x, y) -> bool:
+    """True for the ONE tile per road step that carries the centre-line ink.
+
+    NOT `d == 0`, and that difference is the whole defect this predicate
+    exists to refuse. `_seg_metrics` measures perpendicular distance on a
+    45-degree leg as `(|cross| * 2**14/sqrt(2)) >> 14`, where cells are
+    spaced 1/sqrt(2) apart — so |cross| = 0 AND |cross| = 1 both floor to
+    zero and `d == 0` selects THREE adjacent diagonal chains. Each line tile
+    paints a full corner-to-corner stripe through its own cell, so the three
+    chains render as three parallel dashed lines one tile apart, on every
+    diagonal leg of the COURSE and on none of the straights. Measured on
+    hardware: the streamed Mode-7 tilemap carried three LINE_BACK tiles per
+    row on the long SE diagonal against exactly one LINE_V per row on the
+    home straight.
+
+    gen_m7_assets.on_centre_line refuses the same floor for the octagon
+    ring's 45-degree sides — TWO chains there, because that ring's distance
+    is a one-sided oct_dist rather than a signed cross. This is that refusal
+    stated for a LEG field, which is the geometry this rail paints and the
+    reason the ring's fix did not reach it.
+
+    Selecting the exact anti-diagonal `cross == 0` gives one cell per step,
+    and that chain is corner-adjacent — which is exactly how the diagonal
+    tile art joins, its ink running corner to corner, so the cells make one
+    unbroken line. Axis-aligned legs are unchanged (`d == 0` was already
+    exact there), and so are the corner caps: outside a leg's span the
+    centre cell is the endpoint itself, which lies on BOTH legs' chains, so
+    the line turns the corner without a step.
+    """
+    x0, y0, sx, sy, steps = seg
+    dx, dy = x - x0, y - y0
+    t = sx * dx + sy * dy
+    diag = sx != 0 and sy != 0
+    if t < 0:                                   # before the leg: the cap
+        return dx == 0 and dy == 0
+    if t > steps * (2 if diag else 1):          # past it: the other cap
+        return x == x0 + sx * steps and y == y0 + sy * steps
+    if diag:
+        return dx * sy - dy * sx == 0
+    return (dx if sx == 0 else dy) == 0
 
 
 def _line_tile(seg):
@@ -438,7 +485,7 @@ def course_map() -> bytes:
             scale = 2 if (seg[2] != 0 and seg[3] != 0) else 1
             if d <= ROAD_HALF:
                 t_id = world.TILE_ROAD
-                if d == 0:
+                if _on_centre_line(seg, x, y):
                     period = world.DASH_PERIOD * scale
                     if t % period < period // 2:
                         t_id = _line_tile(seg)
