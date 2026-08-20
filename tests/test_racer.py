@@ -18,6 +18,8 @@ mechanism rather than as an adjective:
     R7  red-and-white rumble strips at the road edges — STATIC
     R8  START pauses to a freeze-frame
     R9  HDMA composition across the channel pool — the rail's headline
+    R10 the centre line is ONE line — on the 45-degree legs as well as the
+        straights
 
 Every one is a named case, and every state claim is driven in BOTH
 directions (AGENTS.md test discipline: "forward *and* reverse *and* idle").
@@ -51,8 +53,10 @@ from PIL import Image
 SUPERFORGE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SUPERFORGE / "vendor"))
 sys.path.insert(0, str(SUPERFORGE / "tests"))
+sys.path.insert(0, str(SUPERFORGE / "tools"))
 
 from machine import Machine, MemoryType                        # noqa: E402
+from gen_racer_assets import COURSE, ROAD_HALF                 # noqa: E402
 
 BUILD = SUPERFORGE / "build"
 ROM = BUILD / "racer.sfc"
@@ -60,6 +64,7 @@ MAP = json.loads((BUILD / "rc" / "symbol_map.json").read_text())
 
 O = MemoryType.SnesSpriteRam
 C = MemoryType.SnesCgRam
+W = MemoryType.SnesWorkRam
 
 # The rail's declared geometry (game/racer/world.inc). Named here so a wrong
 # constant is a mismatch against the picture rather than a silent re-spelling.
@@ -86,6 +91,16 @@ def _chan(name):
         if c["name"] == name:
             return c
     raise KeyError(f"{name} is not an emitted channel of the race scene")
+
+
+def _sym(name):
+    for p in MAP["scenes"]["race"]["placements"]:
+        if p["sym"] == name:
+            return p["start"]
+    raise KeyError(f"{name} is not an emitted placement of the race scene")
+
+
+M7ORG, HEADING = _sym("ES_M7ORG"), _sym("US_HEADING")
 
 
 def _boot(frames=BOOT, drives=()):
@@ -598,5 +613,205 @@ def test_the_sound_driver_is_still_running_inside_the_freeze():
         assert a != b, (
             "SPC RAM is byte-identical across 30 frames of the freeze — the "
             "sound driver stopped with the picture")
+    finally:
+        m.close()
+
+
+# =============================================================================
+# R10 — ONE centre line, on the 45-degree legs as well as the straights
+# =============================================================================
+# THE DEFECT THIS REFUSES, stated as the picture a player sees: on every
+# diagonal leg of the COURSE the road carried THREE parallel yellow dashed
+# lines where the straights carried one. Measured on hardware before the fix —
+# the streamed Mode-7 tilemap held three LINE_BACK tiles per row on the long SE
+# diagonal, against exactly one LINE_V per row on the home straight, and each
+# of those tiles paints a full corner-to-corner stripe through its own cell.
+# Cause: the painter's centre-line test was `d == 0` on `_seg_metrics`'
+# perpendicular distance, which on a diagonal leg floors to zero for
+# cross-track offsets 0 AND +/-1 — three adjacent chains.
+# `gen_racer_assets._on_centre_line` is the exact predicate that replaced it.
+#
+# WHY THE CASE HAS TO DRIVE, and this is the whole point of it. A shot at BOOT
+# is of a STRAIGHT, and on the straights the line was always single — a case
+# parked there would have stayed green for exactly as long as the diagonals
+# stayed broken, which is how this shipped in the first place. So the drive is
+# part of the assertion: it puts the camera on COURSE leg 8, the long SE
+# diagonal, which is the section the gallery clip shows the defect on.
+#
+# WHAT IS READ, AND WHAT IS NOT. The claim is asserted on SCREEN PIXELS —
+# distinct runs of centre-line ink across the floor's scanlines. The
+# camera's world position and heading are read from WRAM to STEER, and to prove
+# the shot is of a diagonal ON the road rather than of a straight or of the
+# grass. Neither is the claim; reading either AS the claim would be the
+# proxy-variable move this module refuses everywhere else.
+
+DIAG_LEG = 8                # COURSE[8] -> COURSE[9]: the long SE diagonal,
+                            # 152 tiles — the streamer's worst case, and the
+                            # leg the gallery clip shows the three lines on
+DIAG_BEARING = 40           # (+1, +1) in pose units, 64 per revolution
+# THE COUNTED BAND IS THE WHOLE FLOOR, less two exclusions, and its height is
+# what makes the case phase-stable. A narrow near-field band BLINKS: a dash
+# period on a 45-degree leg is 4 painted plus 4 blank tile steps ~= 90 px,
+# which the cap covers in six frames, so a 26-row band reads the line and then
+# reads nothing three frames later and a sample lands in a gap by luck.
+# Measured over eight samples two frames apart, a near band alternated
+# (max 3 runs, 26 lit) with (0, 0); over the same eight the full floor never
+# went dark, because it holds several dashes at different depths at once.
+#   - the first four rows below the seam are left out, as `_band_colours`'
+#     floor reads leave them out, so the split's own line cannot be counted;
+#   - rows 184..197 are the KART's, measured (OAM says y=176 and the 16x16
+#     sprite's top rows are transparent). It carries yellow of its own at
+#     194..196, which would read as a second run on those scanlines.
+LINE_ROWS = tuple(range(SEAM + 4, 184)) + tuple(range(198, 224))
+LINE_SAMPLES = (20, 45, 70)  # frames into the leg. Chosen off a MEASURED
+                            # sweep of the whole leg in steps of 3: the defect
+                            # reads THREE runs at every point of it, and the
+                            # fixed ROM reads one from 0 to 105 — past that the
+                            # corner into leg 9 brings a SECOND leg's centre
+                            # line into shot, which is two lines correctly. All
+                            # three samples sit inside that window with 35
+                            # frames of margin
+INK_MIN, INK_GB = 180, 100  # the ink predicate's two thresholds
+LIT_MIN = 40                # scanlines of the band that must carry ink.
+                            # Measured across the whole leg: never below 45
+
+# Leg i runs COURSE[i] -> COURSE[i+1]. Each record is (bearing, midpoint px,
+# half-length in along-projection units): every positional read folds the
+# 4,096 px torus to +/-2,048, and the home straight is 2,368 px — longer than
+# the fold — so deltas are taken from the MIDPOINT, where half a leg plus the
+# turn-in window always fits. Same construction as the clip's drive, and for
+# the same reason: the choreography follows the painted road because it is
+# derived from the generator's own vertex list, not from a copy of it.
+_BEARING = {(0, -1): 0, (-1, -1): 8, (-1, 0): 16, (-1, 1): 24,
+            (0, 1): 32, (1, 1): 40, (1, 0): 48, (1, -1): 56}
+_STEP = {h: d for d, h in _BEARING.items()}
+_ISQ2_Q14 = 11585           # 2**14 / sqrt(2) — gen_m7_assets' constant
+LEGS = []
+for _i, (_x0, _y0) in enumerate(COURSE):
+    _x1, _y1 = COURSE[(_i + 1) % len(COURSE)]
+    _d = ((_x1 > _x0) - (_x1 < _x0), (_y1 > _y0) - (_y1 < _y0))
+    LEGS.append((_BEARING[_d], ((_x0 + _x1) * 4 + 4, (_y0 + _y1) * 4 + 4),
+                 (abs(_x1 - _x0) + abs(_y1 - _y0)) * 4))
+SPAWN_LEG = 15              # world.inc's CAM0 is mid-road on the home straight
+TURN_IN = 72                # along-track px before a vertex the turn starts
+ROAD_HALF_PX = ROAD_HALF * 8
+
+
+def _cam(m):
+    """(world x, world y, heading) — the camera, from the emitted symbols."""
+    return (int.from_bytes(m.read_bytes(W, M7ORG, 2), "little"),
+            int.from_bytes(m.read_bytes(W, M7ORG + 2, 2), "little"),
+            m.read_bytes(W, HEADING, 1)[0])
+
+
+def _leg_metrics(x, y, leg):
+    """(px still to run on this leg, cross-track px) for a camera at (x, y)."""
+    bearing, (mx, my), half = LEGS[leg]
+    sx, sy = _STEP[bearing]
+    dx = ((x - mx + 2048) % 4096) - 2048
+    dy = ((y - my + 2048) % 4096) - 2048
+    rem, cross = half - (sx * dx + sy * dy), dx * sy - dy * sx
+    if sx and sy:
+        rem, cross = (rem * _ISQ2_Q14) >> 14, (cross * _ISQ2_Q14) >> 14
+    return rem, cross
+
+
+def _steer(m, leg):
+    """Advance ONE frame at full throttle, turning toward `leg`'s bearing.
+
+    Cross-track: the held bearing bends one pose step toward the centre line
+    outside a 16 px deadband and two outside 48, so a corner exit's leftover
+    offset closes on the next straight instead of riding it end to end. A
+    displacement toward the travel direction's LEFT is positive, so a positive
+    error steers RIGHT — the heading decrements."""
+    x, y, h = _cam(m)
+    _, cross = _leg_metrics(x, y, leg)
+    bend = (cross > 16) + (cross > 48) - (cross < -16) - (cross < -48)
+    err = (LEGS[leg][0] - bend - h) % 64
+    err = err - 64 if err > 32 else err
+    m.advance(1, pad1={"b": True, "left": err > 0, "right": err < 0})
+
+
+def _drive_onto(m, target):
+    """Race leg to leg from the spawn until the camera enters `target`.
+
+    POSITION-SHAPED, not frame-counted: a leg advances when the ROM's own
+    reported distance to its end vertex is inside the turn-in window, so the
+    drive follows the painted road by construction. Deterministic all the same
+    — every input is a pure function of prior emulated state, so the whole
+    trajectory is a constant of the replay triple (measured: 455 frames)."""
+    leg, driven, spins = SPAWN_LEG, 0, 0
+    while leg != target:
+        spins += 1
+        assert spins < 2000, f"never reached COURSE leg {target}, on {leg}"
+        x, y, _ = _cam(m)
+        rem, _ = _leg_metrics(x, y, leg)
+        if rem <= TURN_IN:
+            leg = (leg + 1) % len(LEGS)
+            continue
+        _steer(m, leg)
+        driven += 1
+    return driven
+
+
+def _ink_runs(img, y):
+    """Distinct runs of centre-line ink across one scanline.
+
+    The ink is the floor palette's (248,248,0), and the predicate takes that
+    core WITHOUT its (120,120,72) shoulder, so two chains cannot merge through
+    a shoulder pixel between them. Nothing else this rail draws passes it: the
+    road is (80,80,96), the kerb (248,0,0) and (248,248,248), and the grass
+    greens all sit at r < 180. The kart's own yellow would pass it, which is
+    why LINE_ROWS cuts the kart's rendered rows out of the band."""
+    px = img.load()
+    runs, inrun = 0, False
+    for x in range(img.width):
+        r, g, b = px[x, y]
+        ink = r >= INK_MIN and g >= INK_MIN and g - b >= INK_GB
+        if ink and not inrun:
+            runs += 1
+        inrun = ink
+    return runs
+
+
+def test_the_centre_line_is_one_line_on_the_long_diagonal(tmp_path):
+    """R10. Three shots along the diagonal, each one run of ink per scanline.
+
+    Measured on the ROM this landed against: three runs on every counted
+    scanline before the fix, one after, at all three sample points.
+    """
+    m = _boot()
+    try:
+        driven, held, seen = _drive_onto(m, DIAG_LEG), 0, []
+        for at in LINE_SAMPLES:
+            while held < at:
+                _steer(m, DIAG_LEG)
+                held += 1
+            x, y, h = _cam(m)
+            rem, cross = _leg_metrics(x, y, DIAG_LEG)
+            # THE NON-VACUITY GUARD, and it is the half that makes the case
+            # mean anything: the shot must be OF the diagonal, ON the road.
+            assert h == DIAG_BEARING, (
+                f"{driven + held} frames in, the camera reads heading {h} and "
+                f"not COURSE leg {DIAG_LEG}'s {DIAG_BEARING} — this shot is "
+                "not of a diagonal, and the straights never showed the defect")
+            assert rem > 0 and abs(cross) <= ROAD_HALF_PX, (
+                f"the camera is {cross} px off the leg's centre with {rem} px "
+                "of it left — this shot is not on the diagonal's road")
+            img = Image.open(
+                m.screenshot(str(tmp_path / f"diag_{at}.png"))).convert("RGB")
+            counts = [_ink_runs(img, s) for s in LINE_ROWS]
+            seen.append((at, max(counts), sum(1 for c in counts if c)))
+        for at, most, lit in seen:
+            assert lit >= LIT_MIN, (
+                f"{at} frames into the diagonal only {lit} of the band's "
+                f"{len(LINE_ROWS)} scanlines carry centre-line ink — the line "
+                "is not in shot, so the count below proves nothing (the "
+                "sample has drifted off the end of the leg)")
+            assert most == 1, (
+                f"{at} frames into the diagonal a scanline of the floor "
+                f"crosses {most} separate runs of centre-line ink — the road "
+                "is showing that many parallel centre lines where it must "
+                f"show one (all three samples: {seen})")
     finally:
         m.close()

@@ -25,8 +25,14 @@ count closes the clock and the two ends of the take carry the same wash only
 if the take opens at the right point in the cycle. The kart holds the grid
 with the engine off until the clock reaches it — a dropped capture costs the
 take nothing and the kart does not move — and the mark is then reached, and
-reached again a lap later, on one keyframe. Measured: the sky band
-contributes ZERO pixels to the seam.
+reached again a lap later, on one keyframe — verified by reading the ROM's
+own `US_GRAD_K` at both crossings, which is 2 at each.
+
+(An earlier note here said the sky band contributes ZERO pixels to the seam.
+That was read off `gif_seam`, and it is a PALETTE result rather than a
+picture one: the RAW screenshots at the two crossings differ across the sky
+by mad 5.62 over 21% of its pixels, because the ramp is dithered and it
+scrolls. Same keyframe, different dither phase. See LOOP_AHEAD.)
 
 THE RESIDUAL IS 8 px OF ALONG-TRACK LATTICE, and it is a property of the
 racing line rather than of the cut. A capture is three emulated frames = 45
@@ -34,8 +40,8 @@ px at the cap, and the drive's own line is a TWO-lap limit cycle: successive
 crossings of the mark land 8 px apart and every second one lands on the
 same pixel. So a one-lap take cannot register the floor exactly, and what
 those 8 px move is the textured part of it — the grass checker beyond the
-kerbs and the centre-line dashes, both in the far and middle bands. The sky
-and the near road come back exactly.
+kerbs and the centre-line dashes, both in the far and middle bands. The near
+road comes back exactly.
 
 THE DRIVE IS THE COURSE, READ FROM THE ROM. Every beat here is
 position-shaped, so per the __init__ rule nothing counts frames to a
@@ -96,10 +102,35 @@ TOD_PH, TOD_T = _sym("US_TOD_PH"), _sym("US_TOD_T")
 LINE_PY = START_TY * 8 + 4      # the start/finish chequer's mid-road pixel row
                                 # — the generator's own START_TY, which is
                                 # world.inc's CAM0_PY by construction
-LOOP_AHEAD = 320                # the mark, north of the chequer. Far enough
+LOOP_AHEAD = 288                # the mark, north of the chequer. Far enough
                                 # that the chequer is out of shot; MEASURED
                                 # against its neighbours on the 45 px capture
-                                # lattice, which read 2.97 (+32) and 3.76 (+64)
+                                # lattice, re-run on the current world: 4.91
+                                # (+32), 4.67 (+64), 7.52 (+96), against 2.48
+                                # here.
+                                #
+                                # AND THE NUMBER IS PALETTE-DOMINATED, WHICH IS
+                                # WHY IT IS RE-MEASURED RATHER THAN INHERITED.
+                                # The RAW endpoints of this take read mad 4.66
+                                # (sky 5.62, floor 4.43) at EVERY mark on the
+                                # lattice and on either side of the centre-line
+                                # fix — identical to three decimals. What moves
+                                # `gif_seam`'s figure is the shared
+                                # <=128-colour palette `quantize_take` builds
+                                # over the take: the sky is a DITHERED ramp,
+                                # the take's colour census decides how many
+                                # entries reach it, and at some marks the
+                                # palette collapses the two ends' dither to
+                                # the same entries and at others it resolves
+                                # them. So the seam here measures the WRITTEN
+                                # FILE's join, which is what a viewer sees and
+                                # what this constant is chosen against — it is
+                                # NOT a measure of how well the two mark
+                                # crossings register, and reading it as one
+                                # would be wrong. (Measured 2026-08-20: the
+                                # centre-line fix changed the census enough to
+                                # move the old mark's figure from 2.48 to 4.91
+                                # with the take's own frames byte-unchanged.)
 LOOP_PY = LINE_PY - LOOP_AHEAD
 
 # Leg bearings in pose units (64 per revolution, LEFT increments): leg i runs
