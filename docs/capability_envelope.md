@@ -52,7 +52,7 @@ All 37 games build to 524,288-byte ROMs and are gated in the `Makefile`'s
 | `mode7_chamber` | Four cooperating per-scanline HDMA effects over one plane: barrel bow (`m7_barrel`, baked ROM matrix columns), perspective recession, a Mode 1 band at scanline 32, and a brightness vignette. |
 | `railshooter` | On-rails forward shooter; `pool` debut; depth from a decoupled 1/z pinhole (explicitly *not* the matrix inverse) with pre-drawn size tiers and a depth-ordered OAM emit that never sorts. |
 | `boss` | "The boss IS the screen": the Mode 7 BG layer scaled and rotated as one rigid image under a frame-indexed matrix track (`m7_track` debut) — reveal 5.0→1.5, free rotation at 1.5, death recede — with sprites and HP pips composited over it. |
-| `boss_saucer` | The first reuse of `m7_track`, unchanged: the saucer lunges from a far speck to a screen-filling disc and fires a beam down your column; TAD audio composed into the fight. |
+| `boss_saucer` | The first reuse of `m7_track`, unchanged: the saucer grows in out of the star field and lunges at the camera — a 71 px disc to a 141 px one, the small end of what the wrap ceiling and the magnification floor leave — and fires a beam LANCED from its own emitter down onto your column; TAD audio composed into the fight. |
 | `meteor_event` | Mid-level Mode 1 ⇄ Mode 7 cutscene: play freezes, BG platforms are captured into a declared 40-slot OAM claim, the meteor grows about a pinned pivot with a tumble, then the level is restored. |
 
 ### The split-screen line (8)
