@@ -29,7 +29,7 @@ LD65    := ld65
 	split_h_demo shd-autodemo shp-assets split_h_persp_demo shp-autodemo \
 	racer rc-assets seam_irq_trial sit-origin sit-mistime \
 	split_h_irq_grad_demo shg-nograd shg-origin \
-	m7c-assets mode7_chamber railshooter rs-assets m7_oshoot mo-assets \
+	m7c-assets mode7_chamber railshooter rs-assets rs-probe m7_oshoot mo-assets \
 	rpg rpg-assets boss bs-assets boss_saucer sau-assets \
 	meteor_event met-assets mode7_flight m7f-assets
 
@@ -1737,6 +1737,15 @@ railshooter: $(BUILD)/railshooter.sfc
 
 rs-assets: $(RS_ASSETS)
 
+# The MEASUREMENT ROM (-DRS_PROBE_MARKER). The generic rule cannot pass -D, so
+# it lives in the variants script — the sit-origin / shg-origin shape. It is
+# not a control: it is the SUBJECT of the ground-lock case, which reads the
+# SURFACE's screen px/frame off its marker pixels and the PYLON's off the same
+# run's OAM, on the same rows, and refuses a divergence. The shipping ROM never
+# contains the marker plane and is byte-identical with or without this target.
+rs-probe: $(RS_ASSETS) $(RS_MAP)/engine_state_globals.inc
+	bash tools/build_rs_probe.sh marker
+
 # ---- m7_oshoot: the rotating Mode-7 arena shooter ----------
 # A top-down run-and-gun on a spinning Mode 7 plane: eight-way aim/move, a
 # pivot re-pinned to the walking player EVERY FRAME, timed waves of chasers and
@@ -2692,7 +2701,7 @@ gates: | $(BUILD)
 	run split_v_demo; run svd-nowin; \
 	run split_v_seamtrial; \
 	run split_h_persp_demo; run shp-autodemo; run racer; \
-	run mode7_chamber; run railshooter; \
+	run mode7_chamber; run railshooter; run rs-probe; \
 	run m7_oshoot; run rpg; run boss; run boss_saucer; run meteor_event; \
 	run mode7_flight; \
 	run seam_irq_trial; run sit-origin; run sit-mistime; \
@@ -2812,7 +2821,7 @@ test: toy microzero room probes breaker shmup platformer split_v_fight \
 	hud_game scroller camera_follow maze jumper patrol sprite_game stomper \
 	scroll_run brawler split_h_matrix_demo split_h_persp3_demo \
 	split_v_demo svd-nowin split_v_seamtrial split_h_demo shd-autodemo \
-	split_h_persp_demo shp-autodemo racer mode7_chamber railshooter \
+	split_h_persp_demo shp-autodemo racer mode7_chamber railshooter rs-probe \
 	m7_oshoot rpg boss boss_saucer meteor_event mode7_flight seam_irq_trial \
 	sit-origin sit-mistime \
 	split_h_irq_grad_demo shg-nograd shg-origin | $(BUILD)
@@ -2948,7 +2957,7 @@ determinism: split_h_2p_demo sh2-variants microzero hud_game scroller \
 	camera_follow maze jumper patrol sprite_game stomper scroll_run \
 	brawler split_v_fight split_h_matrix_demo split_h_persp3_demo \
 	split_v_demo svd-nowin split_v_seamtrial split_h_demo shd-autodemo \
-	split_h_persp_demo shp-autodemo racer mode7_chamber railshooter \
+	split_h_persp_demo shp-autodemo racer mode7_chamber railshooter rs-probe \
 	m7_oshoot rpg boss boss_saucer meteor_event mode7_flight seam_irq_trial \
 	sit-origin sit-mistime \
 	split_h_irq_grad_demo shg-nograd shg-origin

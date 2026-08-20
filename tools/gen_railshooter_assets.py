@@ -45,18 +45,83 @@ at forward depth z projects by 1/z:
     scale(z)    = FOCAL*256/z                  (a .8 perspective factor)
     screen_x    = 128 + ((obj_x - cam_x) * scale) >> 8
 
-It is FULLY DECOUPLED from the Mode 7 affine matrix: the grid is the visual
-backdrop and nothing else. Anchoring hazards to the matrix instead gives only
-~14 world-px of forward depth (the reference rail measured it), which is far too
-shallow for a multi-frame approach; the pinhole z axis is arbitrary, so an
-obstacle descends smoothly over ~50 frames instead of snapping in two or three.
+It is still a LUT and not a live matrix inverse — that part of the headline
+stands. What it is no longer is a DIFFERENT CAMERA from the one the Mode 7
+plane is drawn through, and that is the calibration this file records.
 
-HORIZON_Y = 44, NOT 56. `pose_rom` is
-generated at `--lines 180` (Makefile:95-97), so the Mode 7 floor band is
-scanlines 44..223 and the horizon IS the split_band seam. A LUT keyed to 56
-would put the far tier twelve scanlines below the visible horizon and leave a
-band of sky no obstacle could ever enter. Every other pinhole constant is the
-reference rail's.
+=============================================================================
+THE PINHOLE IS THE PLANE'S OWN CAMERA. MEASURED, THEN SOLVED.
+=============================================================================
+The pose blob (`gen_pose_tables.py --lines 180 --scale-far 436 --scale-near
+77`) is a per-scanline hyperbola S(k) = K/(k + k0) over band rows k = 0..179,
+with k0 = 77*179/(436-77) = 38.39 and K = 436*k0 = 16739. Mode 7 maps band row
+k to texture row `cam_y + S(k)*k/256`, so the ground point at row k lies
+
+    d(k) = (K*k0/256) / (k + k0) = 2511 / (k + 38.39)     texture px ahead
+
+which inverts to `k = 2511/d - 38.39`. THAT IS A PINHOLE TOO — with its
+vanishing point 38.39 rows ABOVE the seam (screen y 5.6, inside the sky band)
+and a lateral focal length of 2511/65.39 = 38.4. The shipped LUT put the
+obstacles' vanishing point AT the seam (HORIZON_Y = 44) with CAM_H = 17 and
+FOCAL = 44. Two different cameras over one picture.
+
+The consequence is not subtle and it is why the pylons read as sliding rather
+than standing. MEASURED on the rendered frame (`rs-probe`, the marker plane;
+tests/test_railshooter.py's calibration case), as shipped:
+
+    screen row      55      65      75      85      95     110     130
+    SURFACE px/f  1.41    2.14    3.08    4.16    4.84    7.50   10.00
+    PYLON   px/f  0.12    0.39    0.92    1.63    2.50    4.00    7.50
+    ratio        11.7x    5.6x    3.4x    2.6x    1.9x    1.9x    1.3x
+
+A surface point crossed rows 50->200 in 29 frames; a pylon took 153. NO SINGLE
+SPEED FIXES THAT — the ratio is a 9x SPREAD across the screen, so any scalar
+on either side can only make the two agree on one row. The shapes have to
+match, and they match iff the two cameras are the same camera:
+
+    k(z) = A/z - k0     with    A = 2511 * RS_OBS_STEP / rail_speed
+
+so    HORIZON_Y = 44 - k0 = 6          the PLANE's vanishing row, not the seam
+      CAM_H*256 = A       -> CAM_H  = 98      at 5 z/frame and 128/256 px/frame
+      FOCAL     = 38.4*A/2511 -> 384          the plane's own lateral focal
+
+`rail_speed` (RS_RAIL_SPEED_88) and RS_OBS_STEP are then locked together: one
+z unit IS 1/9.8 of a texture px, so an actor closing 5 z per frame closes
+exactly the 128/256 texture px the rail advances. The surface and everything
+standing on it move at ONE rate, at every row, by construction.
+
+THE PAIR IS FREE ALONG THAT LINE, and 128/5 is chosen rather than fitted.
+Any (speed, step) with step = 9.8 * speed keeps the same LUT and the same
+lock; what moves is the crossing time (53.8/speed frames) and, less obviously,
+the SMOOTHNESS. `cam_y` is a 13-bit INTEGER — Mode 7 has no fractional scroll —
+so the plane advances in whole texture px, which at the bottom row is 18.8
+screen px however slowly the rail is going. 128/256 emits exactly one such step
+every OTHER frame: a regular 30 Hz cadence rather than the irregular 2-or-3
+frame pattern any non-dyadic speed produces, and irregular is what reads as
+judder (this rail already paid for that once on the lateral axis — see
+PATH_N below). 105/4 would buy a 2.2-second approach at a 41%-duty stutter;
+262/10 would buy a perfectly smooth 0.9 s. 128/5 is 1.8 s at a regular
+half-rate, which is the balance taken.
+
+WHAT THE LOCK COSTS, stated plainly. The plane's visible depth is only
+d(0) - d(179) = 65.4 - 11.6 = 53.8 texture px — that is a fact of the pose
+blob's 436:77 scale ratio, not a tuning choice — so a ground-locked crossing
+takes 53.8/rail_speed frames and NOTHING else. 1.5 px/frame therefore buys a
+36-frame crossing, which is far too short to aim at; the rail speed is what
+sets the approach, and 128/256 = 0.5 px/frame buys 108 frames (1.8 s) of an
+approach that is MOVING AND GROWING the whole way — against the shipped rail's
+76 frames of a near-static speck in the top six scanlines followed by 78 frames
+of real approach. That is the owner's own
+first option — "slow the surface further" — arrived at by solving rather than
+by feel, and the second option ("move the pillars faster") is the same
+equation read the other way: it would buy a 0.6-second approach.
+
+Z_FAR = 640 IS UNDER THE SEAM. A/38.39 = 653, so an actor spawned at RS_Z_FAR
+projects to scanline 45 — one row inside the plane. It rises out of the horizon
+rather than popping in below it, and NO actor is ever projected into the sky
+band, so the change needed no new cull for that. (It did need one for the
+LATERAL axis: see rs_project's nine-bit guard.) The tier thresholds were
+re-solved to keep their SCREEN bands where they were (y = 98 / 71 / 56).
 """
 from __future__ import annotations
 
@@ -87,13 +152,37 @@ from pathlib import Path
 # disappears), and preserves the exact sine — the four phases the tests sample
 # are the same points on the same curve.
 #
-# AMPLITUDE, and why 144. The reticle is a world-anchored ground point at
-# RS_RETICLE_Z = 60, where the pinhole's lateral gain is FOCAL*256/z/256 =
-# 44/60 = 0.73 screen px per world px. An amplitude of 144 therefore drags the
-# reticle +/-105 screen px across a bend — a drag the pilot must actually
-# compensate for, which is the skill dem asks for.
+# AMPLITUDE, and why 64 — the number the LATERAL half of the ground lock moves
+# it to. The reticle is a world-anchored ground point at RS_RET_Z_INIT, and the
+# amplitude that matters is the one the PILOT SEES: amplitude x the lateral
+# gain at that depth. The shipped rail had 144 world px at a gain of
+# 44/60 = 0.73, i.e. a +/-105 SCREEN px drag across a bend. The corrected FOCAL
+# is the plane's own (384/227 = 1.69 at the same point), so 144 would drag the
+# aim +/-243 px — off both edges of a 256-px frame, and MEASURED doing exactly
+# that: the reticle spent whole bends culled and four cases went red on a
+# parked OAM entry.
+#
+# 64 x 1.69 = +/-108 screen px. The drag the pilot compensates for is therefore
+# the SHIPPED drag, to within three pixels; what shrank is the WORLD amplitude,
+# because the projection had been under-reading the plane's lateral gain by
+# 2.3x. The same correction is why the plane's own sideways sweep at the aim's
+# row drops from +/-243 px to +/-108: the GRID was always moving that far, and
+# the aim point standing on it was not.
+# The pose blob the lock is solved against (Makefile: gen_pose_tables.py
+# --lines 180 --scale-far 436 --scale-near 77). Named here because the
+# projection's three constants are DERIVED from them and the derivation is
+# asserted in build_proj() — a pose regenerated at a different scale ratio must
+# fail this file, not ship a plane the actors slide over.
+PERSP_LINES = 180
+SCALE_FAR, SCALE_NEAR = 436, 77
+# The rail's forward speed and the actors' depth step, in the units
+# game/railshooter/railshooter.inc spells them. They are the OTHER half of the
+# lock: A = 2511 * OBS_STEP / (RAIL_SPEED_88/256).
+RAIL_SPEED_88 = 128
+OBS_STEP = 5
+
 PATH_N = 256
-PATH_AMP = 144
+PATH_AMP = 64
 # The largest single-frame lateral step the baked curve may take, in WORLD px.
 # The sine's own peak slope is AMP*2*pi/N = 144*2*pi/256 = 3.53 world px/frame,
 # so 4 is the tightest integer bound the rounded table can satisfy. Asserted in
@@ -126,20 +215,34 @@ FLOOR_TILE_MAJOR = 2
 # =============================================================================
 # the pinhole projection
 # =============================================================================
-HORIZON_Y = 44              # the split_band seam == pose_rom's band top
+# The plane's own camera, solved above. HORIZON_Y is the MODE 7 PLANE's
+# vanishing row (6), not the split_band seam (44) — the seam is where the plane
+# starts being DRAWN, and the two are 38.39 rows apart because the pose blob's
+# hyperbola has k0 = 38.39. A LUT keyed to the seam is a second camera over the
+# same picture, and that is the whole of the sliding defect.
+SEAM_Y = 44                 # the split_band seam == pose_rom's band top
+HORIZON_Y = 6               # the PLANE's vanishing row: SEAM_Y - k0 (38.39)
 Y_BOTTOM = 223              # lowest usable scanline (an obstacle centre clamps)
-CAM_H = 17                  # camera height: how fast things drop
-FOCAL = 44                  # lateral focal length: the lane fan-out
-Z_NEAR = 16                 # recycle/pass threshold, world px
-Z_FAR = 640                 # spawn depth, world px — the far edge of the rail
+CAM_H = 98                  # A/256, A = 2511 * OBS_STEP / rail_speed
+FOCAL = 384                 # 38.4 * A / 2511: the plane's own lateral focal
+Z_NEAR = 16                 # the LUT's low end; actors are freed long before
+Z_FAR = 640                 # spawn depth — A/k0 = 653, so it lands ONE
+                            #   scanline under the seam and never above
 PROJ_Q = 8                  # world px per bucket
 PROJ_Q_LOG2 = 3
 PROJ_N = (Z_FAR // PROJ_Q) + 1          # 81 buckets covering z in [0, 640]
-TIER_T0, TIER_T1, TIER_T2 = 80, 160, 360
+# Re-solved from the new mapping to keep the tier bands on the SAME screen
+# rows they occupied before (y = 98 / 71 / 56). Must equal RS_TIER_T0/T1/T2 in
+# game/railshooter/railshooter.inc — rs_project reads those, this file only
+# asserts the bands stay distinct.
+TIER_T0, TIER_T1, TIER_T2 = 272, 384, 498
 
 
 def screen_y(z: int) -> int:
-    return min(Y_BOTTOM, max(HORIZON_Y, HORIZON_Y + (CAM_H * 256) // z))
+    """The floor is the SEAM, not HORIZON_Y: the plane's vanishing row is above
+    the seam and nothing may be projected into the sky band. At Z_FAR the
+    unclamped value is 44.2, so the clamp is a guard rather than a shaper."""
+    return min(Y_BOTTOM, max(SEAM_Y, HORIZON_Y + (CAM_H * 256) // z))
 
 
 def scale_of(z: int) -> int:
@@ -161,6 +264,25 @@ def build_proj() -> tuple[bytes, bytes]:
     ys = [screen_y(k * PROJ_Q + PROJ_Q // 2) for k in range(1, PROJ_N)]
     assert all(ys[i] >= ys[i + 1] for i in range(len(ys) - 1)), \
         "screen_y(z) is not monotone in z — projection unsound"
+    # The ground lock, asserted where it is DECIDED. `k0` is the pose blob's own
+    # hyperbola constant; a LUT whose vanishing row is not SEAM_Y - k0, or whose
+    # A is not 2511*step/speed, is a second camera and the pylons slide again.
+    k0 = SCALE_NEAR * (PERSP_LINES - 1) / (SCALE_FAR - SCALE_NEAR)
+    assert abs((SEAM_Y - HORIZON_Y) - k0) < 1.0, (
+        f"HORIZON_Y {HORIZON_Y} is not the PLANE's vanishing row "
+        f"(SEAM_Y {SEAM_Y} - k0 {k0:.2f}) — the projection is a second camera")
+    a_lock = 2511 * OBS_STEP / (RAIL_SPEED_88 / 256)
+    assert abs(CAM_H * 256 - a_lock) / a_lock < 0.02, (
+        f"CAM_H*256 = {CAM_H * 256} but the ground lock wants {a_lock:.0f} "
+        f"(= 2511 * {OBS_STEP} / {RAIL_SPEED_88 / 256:.4f}) — an actor closing "
+        f"z at that step would not track the surface")
+    assert abs(FOCAL - 38.4 * CAM_H * 256 / 2511) / FOCAL < 0.02, (
+        f"FOCAL {FOCAL} is not the plane's own lateral focal "
+        f"({38.4 * CAM_H * 256 / 2511:.0f}) — objects would drift sideways "
+        f"against the grid they stand on")
+    assert screen_y(Z_FAR) <= SEAM_Y + 1, (
+        f"z = Z_FAR projects to {screen_y(Z_FAR)}, below the seam — actors "
+        f"would pop in rather than rise out of the horizon")
     assert Z_NEAR < TIER_T0 < TIER_T1 < TIER_T2 < Z_FAR, "tier thresholds"
     # Each tier must occupy a DISTINCT scanline band, or the pre-drawn size
     # tiers would swap without the object appearing to move.
@@ -200,17 +322,32 @@ def build_path() -> bytes:
     return bytes(out)
 
 
-def build_map() -> bytes:
+def build_map(probe: bool = False) -> bytes:
     """The interleaved Mode 7 blob: tilemap in the even bytes, CHR in the odd.
 
     A rail shooter's ground is a streaming reference grid — a dark surface with
     bright lines, so the auto-advance reads as speed. Every 8x8 tile is one
     solid colour, which is why three CHR tiles cover the whole world.
+
+    `probe=True` builds the MEASUREMENT plane instead (`rs_map_probe.bin`,
+    reachable only through the `rs-probe` ROM). It re-spends the magenta index
+    so that colour marks ONE THING: the major lines are demoted to ordinary
+    cyan grid lines and every grid INTERSECTION becomes an 8x8 magenta square.
+    Magenta then appears nowhere else in the frame — not in the sky ramp, not
+    in either OBJ palette — so a rendered marker is found by colour alone, and
+    its lattice period is the grid's own 32 world px, which is under the
+    plane's ~54-px visible depth: one or two marker rows are on screen at every
+    instant, at every rail speed. That is what makes "how fast does the SURFACE
+    move at screen row r" a measurement rather than an estimate.
     """
     tilemap = bytearray(MAP_W * MAP_W)
     for ty in range(MAP_W):
         for tx in range(MAP_W):
-            if tx % MAJOR_STEP == 0 or ty % MAJOR_STEP == 0:
+            if probe:
+                on_x, on_y = tx % GRID_STEP == 0, ty % GRID_STEP == 0
+                t = (FLOOR_TILE_MAJOR if on_x and on_y else
+                     FLOOR_TILE_GRID if on_x or on_y else FLOOR_TILE_GROUND)
+            elif tx % MAJOR_STEP == 0 or ty % MAJOR_STEP == 0:
                 t = FLOOR_TILE_MAJOR
             elif tx % GRID_STEP == 0 or ty % GRID_STEP == 0:
                 t = FLOOR_TILE_GRID
@@ -577,6 +714,10 @@ def main() -> int:
     assert len(plane) == 0x8000, len(plane)
     (a.outdir / "rs_map.bin").write_bytes(plane)
 
+    probe = build_map(probe=True)
+    assert len(probe) == 0x8000, len(probe)
+    (a.outdir / "rs_map_probe.bin").write_bytes(probe)
+
     fpal = pal_bytes(FLOOR_PAL)
     assert len(fpal) == 8, len(fpal)
     (a.outdir / "rs_floor_pal.bin").write_bytes(fpal)
@@ -600,6 +741,8 @@ def main() -> int:
     (a.outdir / "rs_proj_scale.bin").write_bytes(scale)
 
     print(f"rs_map.bin        {len(plane):6d} B  128x128 grid, 3 tiles")
+    print(f"rs_map_probe.bin  {len(probe):6d} B  the MEASUREMENT plane: "
+          f"magenta marks grid intersections and nothing else")
     print(f"rs_floor_pal.bin  {len(fpal):6d} B  "
           + " ".join(f"${w:04X}" for w in FLOOR_PAL))
     print(f"rs_obj_chr.bin    {len(chr_sheet):6d} B  {OBJ_TILES} tiles")

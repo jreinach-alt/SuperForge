@@ -44,7 +44,12 @@ ret_z      = "u16"       # the aim point's forward depth (UP/DOWN)
 
 # --- the spawn schedule ------------------------------------------------------
 spawn_t    = "u16"       # frames since the last hazard spawn
-pyl_t      = "u16"       # frames since the last pylon spawn
+# NO `pyl_t`. The pylon beat is a PHASE TEST on the odometer, not a counter:
+# it fires when `(dist + RS_LEAD) & (RS_PATH_HALF-1) == RS_PATH_QUARTER`, i.e.
+# when the column will ARRIVE at a bend extreme. That fires on exactly the same
+# RS_PATH_HALF cadence a counter did, and it is the only shape under which the
+# pass distance cannot depend on what phase the boot landed on — which it did,
+# and the ship flew through the column.
 
 # --- the kill flash (a kill must not resemble a miss) ------------------------
 burst_t    = "u16"       # frames left on the flash, 0 = idle

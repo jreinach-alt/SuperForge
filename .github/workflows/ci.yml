@@ -290,6 +290,13 @@ jobs:
           echo "build/seam_irq_trial.sfc = $size bytes"
           test "$size" -eq 524288 || { echo "::error::expected 524288 bytes, got $size"; exit 1; }
 
+      - name: make rs-probe
+        run: |
+          make rs-probe
+          size=$(stat -c%s build/rs_probe.sfc)
+          echo "build/rs_probe.sfc = $size bytes"
+          test "$size" -eq 524288 || { echo "::error::expected 524288 bytes, got $size"; exit 1; }
+
       - name: make sit-origin
         run: |
           make sit-origin

@@ -151,7 +151,8 @@ python3 -m pytest tests/ -q -n 3   # parallel, pytest-xdist  (measured 3:08 on 4
                              #        svd-nowin split_v_seamtrial \
                              #        split_h_demo shd-autodemo \
                              #        split_h_persp_demo shp-autodemo \
-                             #        racer mode7_chamber railshooter m7_oshoot rpg \
+                             #        racer mode7_chamber railshooter \
+                             #        rs-probe m7_oshoot rpg \
                              #        mode7_flight \
                              #        seam_irq_trial sit-origin sit-mistime \
                              #        split_h_irq_grad_demo shg-nograd \

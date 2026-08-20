@@ -296,7 +296,12 @@ def _diff_frac(a, b, rows):
 # The Mode 7 plane's own four colours (FLOOR_PAL, after the PPU's 5-bit
 # expansion). A pixel showing one of these is the PLANE; anything else in the
 # floor band is an OBJ drawn over it.
-FLOOR_COLOURS = frozenset({(24, 16, 66), (16, 24, 58),
+# 0x1C62 -> r 2, g 3, b 7 -> (16, 24, 57) under the PPU's (v<<3)|(v>>2)
+# expansion. It read 58 for a long time, which is not a colour the frame ever
+# contains: the plane's DOMINANT colour was silently excluded, so `compared`
+# counted only grid + major + backdrop and the reach guard below was measuring
+# a third of the plane it claims to measure (13,891 px against 42,443).
+FLOOR_COLOURS = frozenset({(24, 16, 66), (16, 24, 57),
                            (66, 206, 239), (239, 99, 206)})
 
 
@@ -378,6 +383,7 @@ PROJ_SCALE = (BUILD / "assets" / "rs_proj_scale.bin").read_bytes()
 WORLD_PX, WORLD_MASK = 1024, 1023
 Z_FAR, Q_LOG2 = 640, 3
 CENTRE_OFF = {8: 16, 12: 16, 164: 8, 166: 8}
+SCREEN_W, CENTRE_32, CENTRE_16 = 256, 16, 8
 LARGE_TILES = (8, 12)
 POOL_STRIDE = 16                 # 8 slots x 2 B per field (railshooter.inc)
 OBS_BASE, PYL_BASE = 0, 4 * POOL_STRIDE
@@ -403,7 +409,13 @@ def _project(wx, z, cam_x):
     term = ((abs(dx) * scale) >> 8) & 0xFFFF       # the word at ACC+1
     if dx < 0:
         term = (-term) & 0xFFFF
-    return (term + SCREEN_CENTRE) & 0xFFFF, sy
+    sx = (term + SCREEN_CENTRE) & 0xFFFF
+    # The nine-bit lateral cull (rs_project). OAM x is signed 9-bit, so a
+    # centre outside [-CENTRE_32, 256 + CENTRE_32 + CENTRE_16) would be stored
+    # modulo 512 and drawn on the other side of the frame.
+    if ((sx + CENTRE_32) & 0xFFFF) >= SCREEN_W + CENTRE_32 + CENTRE_16:
+        return None
+    return sx, sy
 
 
 def _expected_hazards(m):
@@ -424,6 +436,19 @@ def _expected_hazards(m):
             out.append((sx & 0xFF, p[1], tile, (sx >> 8) & 1,
                         1 if tile in LARGE_TILES else 0))
     return out
+
+
+def _hazards_off_screen(m):
+    """Alive hazard slots the projection culls — off the side of the frame.
+
+    Not a proxy for the census: the pool arrays are the ORACLE's input, and the
+    oracle's answer is compared against the RENDERED window. It exists because
+    "alive" and "on screen" stopped being the same thing when rs_project grew
+    its nine-bit lateral cull."""
+    cam_x = m.read_u16(W, _sym("US_CAM_X")["start"])
+    alive, wx, z, _ = (_pool(m, OBS_BASE, i, HAZ_N) for i in range(4))
+    return sum(1 for k in range(HAZ_N)
+               if alive[k] and _project(wx[k], z[k], cam_x) is None)
 
 
 # --- driving the pad the way a pilot does ------------------------------------
@@ -547,9 +572,11 @@ def test_the_camera_translates_across_a_full_s_period_and_the_floor_returns(rail
         f"repeating. All: {xs}")
 
     # --- and so does the floor, to the byte ---------------------------------
-    # A full period is 256 frames at 1.5 px/frame = 384 world px = exactly
-    # TWELVE of the plane's 32-px grid periods, and cam_x returns to the same
-    # value, so the floor must be byte-identical. A pose that had moved, or a
+    # A full period is 256 frames at 0.5 px/frame = 128 world px = exactly
+    # FOUR of the plane's 32-px grid periods, and cam_x returns to the same
+    # value, so the floor must be byte-identical. (It was TWELVE periods at the
+    # shipped 1.5 px/frame; the ground lock changed the count and not the
+    # property — 256 * RS_RAIL_SPEED_88 / 256 must stay a multiple of 32.) A pose that had moved, or a
     # forward advance that had drifted, breaks this. Captured on its own
     # Machine so the captures cannot perturb the sampling above.
     f = rail(BOOT)
@@ -642,7 +669,13 @@ def test_the_curve_moves_the_picture_every_frame_and_never_in_lurches(rail, tmp_
     # An absolute frame by construction, chosen to sit off the sine's extremes
     # so the window is genuinely in motion; the travel guard below refuses to
     # let this case pass by measuring a stationary moment.
-    f = rail(300)
+    # Frame 128 rather than an arbitrary one: the sample window has to contain
+    # a major line AT ROW 200 to have anything to track, and the S-curve's
+    # amplitude is 64 world px against a 128-px major spacing, so a vertical
+    # major line is only inside the visible x window at that row while the
+    # curve is near a crossing. 128 lands there AND is where the sine's slope
+    # is greatest, which is exactly where a held table entry would show.
+    f = rail(128)
     cent = []
     for k in range(16):
         px = _img(f, tmp_path, f"smooth{k:02d}").load()
@@ -883,7 +916,12 @@ def test_a_kill_and_a_miss_are_distinguishable_in_the_rendered_output(rail):
     miss = rail(BOOT)
     # push the aim to the far end of its depth range, where the field is not
     miss.advance(90, pad1={"up": True})
-    miss.advance(60, pad1={"left": True})
+    # 20 frames, not 60: the aim moves 3 world px/frame now and the projection
+    # carries the plane's own lateral gain, so 60 frames put the aim 180 world
+    # px off the rail — and the tracer, which flies up the AIM's lane at the
+    # SHIP's depth, is then 400 screen px off centre and legitimately culled.
+    # MEASURED: at 20 the tracer renders at x = 69 and the run still misses.
+    miss.advance(20, pad1={"left": True})
     miss_score0 = _score_value(_oam(miss))
     _fire_once(miss)
     miss_oam = _oam(miss)
@@ -1287,14 +1325,20 @@ def test_the_published_pool_count_matches_the_actors_on_screen(rail):
     def sample(label):
         shots = _live(m, "US_SHOTS_LIVE")
         hazards = _live(m, "US_HAZARDS_LIVE")
+        # A hazard the projection culls is ALIVE and OFF SCREEN, so the census
+        # and the window legitimately differ by exactly that many. The oracle
+        # (which models the nine-bit lateral cull) supplies the count from the
+        # SAME instant the census was read — read here, before the advance.
+        off = _hazards_off_screen(m)
         m.advance(1)
         oam = _oam(m)
         assert shots == len(_shots_flying(oam)), (
             f"{label}: published shots_live={shots} but "
             f"{len(_shots_flying(oam))} tracers render")
-        assert hazards == len(_emitted(oam, HAZ_SLOT0, HAZ_N)), (
+        assert hazards == len(_emitted(oam, HAZ_SLOT0, HAZ_N)) + off, (
             f"{label}: published hazards_live={hazards} but "
-            f"{len(_emitted(oam, HAZ_SLOT0, HAZ_N))} hazards render")
+            f"{len(_emitted(oam, HAZ_SLOT0, HAZ_N))} hazards render and the "
+            f"oracle culls {off} as off-screen")
 
     sample("idle")
     for i in range(SHOT_N):
@@ -1382,6 +1426,267 @@ def test_the_rail_reads_no_uninitialised_wram(rail):
             f"On real hardware those are DRAM garbage, not zeroes. `m7_oshoot` "
             f"and `racer` both measure 0 over the same window. Ladder so far: "
             f"{seen}")
+
+
+# =============================================================================
+# THE GROUND LOCK — the surface and the things standing on it close at ONE rate
+# =============================================================================
+# Read on the MEASUREMENT ROM (`make rs-probe`), which is this rail built with
+# `-D RS_PROBE_MARKER`: the same 32 KB plane with the magenta index re-spent so
+# it marks the grid INTERSECTIONS and nothing else. The marker is what turns
+# "how fast does the SURFACE move at screen row r" into a measurement instead
+# of an estimate, and it is the owner's own method.
+PROBE_ROM = BUILD / "rs_probe.sfc"
+MARKER = (239, 99, 206)          # floor palette index 3 — the probe's marker
+CAL_LO, CAL_HI = 60, 140         # the row span BOTH features complete
+CAL_FRAMES = 700
+PYL_STEP = {64: 32, 68: 32, 168: 16, 170: 16}    # tile -> stack step
+MIN_BAND = 3                     # rows; below this a "band" is a threshold flap
+
+
+def _marker_bands(px):
+    """The magenta marker rows in one frame, as (top, bottom) screen rows.
+
+    Runs one row apart are MERGED and runs under MIN_BAND rows are dropped: the
+    marker is 8 world px tall, so near the bottom of the plane its band is 150
+    screen rows and the threshold flaps at its edges. An unmerged sliver is a
+    band top that never moves, and it drags the measured rate toward zero.
+    """
+    rows = []
+    for k in range(180):
+        y = ROW0 + SEAM + k
+        if sum(1 for x in range(0, 256, 2) if px[x, y] == MARKER) >= 6:
+            rows.append(SEAM + k)
+    out = []
+    for r in rows:
+        if out and r - out[-1][1] <= 2:
+            out[-1][1] = r
+        else:
+            out.append([r, r])
+    return [b for b in out if b[1] - b[0] + 1 >= MIN_BAND]
+
+
+def _extend(tracks, live, tops, f):
+    """One frame of nearest-neighbour tracking: a feature descends, never
+    climbs, and never jumps more than 40 rows in a frame."""
+    used, nxt = set(), []
+    for tr in live:
+        cand = [(abs(t - tr[-1][1]), i, t) for i, t in enumerate(tops)
+                if i not in used and tr[-1][1] - 1 <= t <= tr[-1][1] + 40]
+        if not cand:
+            tracks.append(tr)
+            continue
+        _, i, t = min(cand)
+        used.add(i)
+        tr.append((f, t))
+        nxt.append(tr)
+    for i, t in enumerate(tops):
+        if i not in used and t < SEAM + 30:      # a new one, out of the horizon
+            nxt.append([(f, t)])
+    return nxt
+
+
+def _crossing(track, row):
+    """Interpolated frame at which a track passes `row`, or None."""
+    for (f0, r0), (f1, r1) in zip(track, track[1:]):
+        if r0 <= row <= r1 and r1 > r0:
+            return f0 + (row - r0) * (f1 - f0) / (r1 - r0)
+    return None
+
+
+def _transits(tracks, lo, hi):
+    out = []
+    for tr in tracks:
+        a, b = _crossing(tr, lo), _crossing(tr, hi)
+        if a is not None and b is not None and b > a:
+            out.append(b - a)
+    return out
+
+
+def _median(vals):
+    """The MEDIAN, not the mean, and it is load-bearing. Every honest crossing
+    of a row span takes the same number of frames, so the population is a spike
+    with the occasional outlier from a track the nearest-neighbour matcher
+    carried across a band merge — MEASURED at 137 frames among eight 25.3s,
+    which pulls a mean 50% off and nothing else does."""
+    v = sorted(vals)
+    n = len(v)
+    return v[n // 2] if n % 2 else (v[n // 2 - 1] + v[n // 2]) / 2
+
+
+def _calibration_run(rom, frames=CAL_FRAMES, shots=True, tmp_path=None):
+    """One run of `rom`: the SURFACE's marker tracks (pixels) and the PYLON's
+    and HAZARD's ground-row tracks (OAM), from the SAME frames.
+
+    `shots=False` skips the capture — used for the shipping ROM, whose OAM
+    trajectory must match the probe's frame for frame.
+    """
+    m = Machine(str(rom)).advance(BOOT)
+    surface, live = [], []
+    pyl, haz = {0: [], 3: []}, {s: [] for s in range(HAZ_SLOT0, HAZ_SLOT0 + HAZ_N)}
+    pyl_cur = {k: [] for k in pyl}
+    haz_cur = {k: [] for k in haz}
+    oam_log = []
+    try:
+        for i in range(frames):
+            f = BOOT + i
+            oam = _oam(m)
+            for k in pyl:                       # the two columns' BASE segments
+                e = _entry(oam, PYL_SLOT0 + k)
+                v = ((e[1] + PYL_STEP[e[2]]) & 0xFF) if e[2] in PYL_STEP else None
+                cur = pyl_cur[k]
+                if v is None or (cur and not (0 <= v - cur[-1][1] <= 40)):
+                    if len(cur) > 5:
+                        pyl[k].append(cur)
+                    pyl_cur[k] = cur = []
+                if v is not None:
+                    cur.append((f, v))
+            for s in haz:
+                e = _entry(oam, s)
+                v = e[1] if e[2] in T_HAZ else None
+                cur = haz_cur[s]
+                if v is None or (cur and not (0 <= v - cur[-1][1] <= 40)):
+                    if len(cur) > 5:
+                        haz[s].append(cur)
+                    haz_cur[s] = cur = []
+                if v is not None:
+                    cur.append((f, v))
+            oam_log.append(tuple((_entry(oam, s)[1], _entry(oam, s)[2])
+                                 for s in range(PYL_SLOT0, PYL_SLOT0 + PYL_SLOTS)))
+            if shots:
+                px = Image.open(m.screenshot(str(tmp_path / "cal.png"))).convert("RGB").load()
+                live = _extend(surface, live, [b[0] for b in _marker_bands(px)], f)
+            else:
+                m.advance(1)
+    finally:
+        m.close()
+    surface += live
+    for d, cur in ((pyl, pyl_cur), (haz, haz_cur)):
+        for k, c in cur.items():
+            if len(c) > 5:
+                d[k].append(c)
+    return (surface,
+            [t for v in pyl.values() for t in v],
+            [t for v in haz.values() for t in v],
+            oam_log)
+
+
+def test_the_surface_and_the_pylons_close_the_camera_at_one_rate(tmp_path):
+    """THE CALIBRATION, and the defect it exists to keep out.
+
+    The owner's report: "the pillars appear to slide over the surface". Two
+    speeds were being compared that are not comparable as written —
+    RS_RAIL_SPEED_88 is world px/frame along the ground, RS_OBS_STEP is z per
+    frame in the actors' own depth units — and what the EYE compares is neither.
+    It compares SCREEN PIXELS PER FRAME at a given screen row, and on a
+    perspective plane that is a curve, not a number: a fixed world speed is a
+    rising screen speed as it nears the camera.
+
+    So both curves are measured, in the same units, on the same rows, from the
+    same run:
+
+      SURFACE  the marker plane's magenta grid-intersection squares, tracked as
+               rendered pixels. The probe ROM exists for this and nothing else.
+      PYLON    the base segment's ground contact, from its OAM y.
+      HAZARD   the same, from the hazard window — a second population riding
+               the same projection.
+
+    MEASURED as shipped (3bc1c87), screen px per frame:
+
+        row            55     65     75     85     95    105    125    145
+        SURFACE      1.45   2.13   2.89   4.09   4.91   6.37   9.75  11.50
+        PYLON        0.13   0.34   0.87   1.56   2.63   3.75   7.50  11.00
+        ratio        11.2x   6.3x   3.3x   2.6x   1.9x   1.7x   1.3x   1.05x
+
+    — a NINE-FOLD spread, which is why no single speed on either side could fix
+    it and why the earlier adjustment did not converge. The fix made the two
+    projections one camera (gen_railshooter_assets.py); this case is what
+    refuses the drift coming back.
+
+    WHY THIS IS NOT A BACKDROP-FLATNESS TEST. Both numbers are the MOTION of an
+    identified feature that this run watched move: if the plane stopped, or the
+    marker were static, or the actors were parked, there would be no tracks to
+    compare and the coverage assertions go red rather than the ratio passing.
+    The ramp assertion adds the same guard on shape — a plane with no
+    perspective would move at one rate at every row, and the shipped defect
+    would have satisfied a "they both move" test perfectly.
+    """
+    # FAIL, not skip, on a missing probe: a skip-if-absent case reports as
+    # not-failing, and this rail's whole calibration would then be covering
+    # nothing while the summary read green (AGENTS.md, "read the skip count as
+    # a defect signal"). `make test` and `make gates` both build it.
+    if not PROBE_ROM.exists():
+        pytest.fail(f"{PROBE_ROM} is missing — run `make rs-probe` first")
+    surface, pyl, haz, probe_oam = _calibration_run(PROBE_ROM, tmp_path=tmp_path)
+
+    st = _transits(surface, CAL_LO, CAL_HI)
+    pt = _transits(pyl, CAL_LO, CAL_HI)
+    ht = _transits(haz, CAL_LO, CAL_HI)
+    # A floor on COVERAGE, deliberately below what the rail delivers (9 / 4 / 2
+    # at HEAD): a slower actor completes fewer crossings in a fixed window, and
+    # a coverage floor set at the current count would turn every ratio defect
+    # into a "not enough samples" red instead of the named one.
+    assert len(st) >= 3 and len(pt) >= 2 and len(ht) >= 1, (
+        f"not enough complete crossings of rows {CAL_LO}..{CAL_HI} in "
+        f"{CAL_FRAMES} frames to compare anything: surface {len(st)}, pylon "
+        f"{len(pt)}, hazard {len(ht)}. Something is not moving")
+    s, p, h = (_median(v) for v in (st, pt, ht))
+
+    # The headline: one rate. A surface point and a pylon standing on it must
+    # take the same number of frames to cross the same screen rows.
+    assert abs(p / s - 1) <= 0.20, (
+        f"the PYLONS and the SURFACE do not close the camera at one rate: a "
+        f"surface marker crosses rows {CAL_LO}..{CAL_HI} in {s:.1f} frames and "
+        f"a pylon's ground contact in {p:.1f} ({p / s:.2f}x). The pillars are "
+        f"sliding over the ground they stand on — the whole defect. "
+        f"surface {sorted(round(v, 1) for v in st)}, "
+        f"pylon {sorted(round(v, 1) for v in pt)}")
+    assert abs(h / s - 1) <= 0.20, (
+        f"the HAZARDS and the SURFACE do not close the camera at one rate: "
+        f"{s:.1f} frames against {h:.1f} ({h / s:.2f}x). They ride the same "
+        f"projection as the pylons, so this is the same defect seen twice")
+
+    # ...and the same at every row, not merely end to end. A projection whose
+    # vanishing point is not the plane's own agrees at ONE row and nowhere else,
+    # which is exactly what the shipped rail did.
+    checked = 0
+    for lo in range(CAL_LO, CAL_HI - 19, 20):
+        sv, pv = _transits(surface, lo, lo + 20), _transits(pyl + haz, lo, lo + 20)
+        if len(sv) < 2 or len(pv) < 2:
+            continue
+        a, b = _median(sv), _median(pv)
+        checked += 1
+        assert abs(b / a - 1) <= 0.20, (
+            f"over rows {lo}..{lo + 20} the surface takes {a:.1f} frames and "
+            f"the actors {b:.1f} ({b / a:.2f}x). The two agree end to end and "
+            f"not in SHAPE, which is what two different cameras over one "
+            f"picture look like")
+    assert checked >= 3, (
+        f"only {checked} row band(s) had enough crossings to compare — this "
+        f"case is not measuring the shape it claims to")
+
+    # NON-VACUITY, on the surface side: the plane is a PERSPECTIVE plane, so
+    # the near band must be crossed far faster than the far band. A flat
+    # backdrop, a frozen plane, or a marker painted on the screen instead of on
+    # the world all fail here while satisfying every ratio above.
+    near = _transits(surface, CAL_HI - 20, CAL_HI)
+    far = _transits(surface, CAL_LO, CAL_LO + 20)
+    assert near and far and _median(far) / _median(near) >= 3.0, (
+        f"the surface crosses its FAR 20 rows in {_median(far):.1f} "
+        f"frames and its NEAR 20 in {_median(near):.1f} — that is not "
+        f"a perspective plane, so the rates above are not measuring one")
+
+    # THE PROBE IS A FAITHFUL STAND-IN, asserted rather than assumed: the
+    # shipping ROM's pylon window must be identical frame for frame. A probe
+    # that had perturbed the rail could not be, and every number above would be
+    # measuring a different game from the one that ships.
+    _, _, _, ship_oam = _calibration_run(ROM, shots=False)
+    assert ship_oam == probe_oam, (
+        "the shipping ROM and the marker probe do not render the same pylon "
+        "window — the probe changes the rail, so its measurement is of a "
+        "different game. First divergence at frame " + str(next(
+            (BOOT + i for i, (a, b) in enumerate(zip(ship_oam, probe_oam))
+             if a != b), "?")))
 
 
 def test_the_hud_is_never_occluded_by_the_play_field(rail, tmp_path):
