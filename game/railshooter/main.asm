@@ -59,9 +59,29 @@ SB_TM_BOT   = $11               ; BG1 (the Mode 7 grid) + OBJ
 .endrepeat
 
 ; The Mode 7 plane is a whole 32 KB window on its own.
+; RS_PROBE_MARKER (-D, tools/build_rs_probe.sh) swaps the plane for the
+; MEASUREMENT one: same 32 KB, same geometry, same everything the rail does
+; with it — only the tile COLOURS differ, so the magenta index marks the grid
+; intersections and nothing else. It is how "how fast does the surface move at
+; screen row r" is read off the picture. The shipping ROM never sees it, and
+; the two builds' OBJ trajectories are asserted identical
+; (tests/test_railshooter.py, the calibration case).
+;
+; THE SWITCH IS ON THE FILENAME, NOT ON THE `.incbin`. `make rom-unbacked`'s
+; backing gate refuses to credit a claim site inside ANY `.if`/`.ifdef` (docs/37
+; §5, limit 4 — deliberately over-strict, because `.if 0` around an `.incbin`
+; with the drift asserts left outside is the exact shape that once shipped a
+; claim reading its neighbour's bytes). One unconditional `.incbin` of a
+; conditionally-defined name keeps the site credited in BOTH builds.
+.ifdef RS_PROBE_MARKER
+.define RS_MAP_BLOB "rs_map_probe.bin"
+.else
+.define RS_MAP_BLOB "rs_map.bin"
+.endif
+
 .segment "BANK5"
 rs_map_bin:
-    .incbin "rs_map.bin"
+    .incbin RS_MAP_BLOB
 .assert ^rs_map_bin = ES_R_RS_MAP_BANK, error, "rs_map bank drifted from allocator claim"
 .assert .loword(rs_map_bin) = ES_R_RS_MAP_ADDR, error, "rs_map addr drifted from allocator claim"
 

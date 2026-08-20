@@ -296,10 +296,22 @@ rs_project:
     .a16
     .i16
     ; ---- the z culls: at the camera, or past the far edge ------------------
+    ; They hop through `@cull_far` rather than branching straight to `@cull`:
+    ; the routine's tail is over 127 bytes away from here, so a direct relative
+    ; branch is a RANGE ERROR — a build refusal, not a silent one, and the
+    ; three-byte trampoline is the whole cost of keeping it that way.
     lda RSD_Z
-    beq @cull
+    beq @cull_far
     cmp #(RS_Z_FAR + 1)
-    bcs @cull                       ; past the far edge OR a wrapped-negative z
+    bcc @z_ok                       ; else past the far edge, or a wrapped-
+                                    ;   negative z, and neither can be drawn
+@cull_far:
+    .a16
+    .i16
+    jmp @cull
+@z_ok:
+    .a16
+    .i16
     ; ---- the raw size tier from z (nearer = bigger) ------------------------
     ldx #0                          ; tier 0 default: nearest / largest
     cmp #RS_TIER_T0
@@ -387,6 +399,30 @@ rs_project:
     clc
     adc #RS_SCREEN_HALF                  ; the screen's centre column
     sta RSD_SX
+    ; ---- the LATERAL cull, and it is not defensive padding ----------------
+    ; OAM x is NINE BITS: a left edge outside [-256, 255] is stored modulo 512
+    ; and the PPU draws the sprite on the OTHER SIDE of the screen. Under the
+    ; shipped projection the lateral gain was low enough that the fold was
+    ; rarely reached; under the GROUND LOCK the gain is the plane's own
+    ; (FOCAL/z = 3.3 screen px per world px at the bottom row, up from 1.8),
+    ; and it IS reached. MEASURED on the first locked build: a pylon projected
+    ; to sx = -350, was stored as +162, and swept back across the frame a
+    ; second time — zero jumps in the same trace after this cull, against four.
+    ; So an actor whose CENTRE is far enough outside the frame that no pixel of
+    ; it could show is culled instead of folded.
+    ;
+    ; ONE unsigned compare does both edges: bias by the widest centre offset,
+    ; and anything below that wraps to a large unsigned word, so it fails the
+    ; same `cmp` the right edge does. The span is the screen plus BOTH centre
+    ; offsets, which is the tightest bound one compare can carry over two
+    ; sprite widths: a 16-px frame keeps its whole legal left range, and the
+    ; only thing given up is a 32-px frame with 8 px or less still showing at
+    ; the extreme right edge — 8 px of one sprite against a sprite drawn on the
+    ; wrong side of the screen.
+    clc
+    adc #RS_CENTRE_32
+    cmp #(RS_SCREEN_W + RS_CENTRE_32 + RS_CENTRE_16)
+    bcs @cull
     stz RSD_CULL                    ; visible
     rts
 @cull:

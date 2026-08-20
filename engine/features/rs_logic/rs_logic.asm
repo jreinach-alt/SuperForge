@@ -63,7 +63,6 @@ rs_logic_arm:
     sta f:US_LEAN_LONG
     sta f:US_LANE_LONG
     sta f:US_SPAWN_T_LONG
-    sta f:US_PYL_T_LONG
     sta f:US_BURST_T_LONG
     sta f:US_BURST_SX_LONG
     sta f:US_BURST_SY_LONG
@@ -367,18 +366,28 @@ rs_spawn:
 @pylon:
     .a16
     .i16
-    lda f:US_PYL_T_LONG
-    inc a
-    cmp #RS_PYL_GAP
-    bcc @pyl_wait
-    lda #0
-    sta f:US_PYL_T_LONG
+    ; THE PYLON BEAT IS A PHASE, NOT A COUNTER, and that is what makes the
+    ; slalom a property instead of a coincidence. The column stands on the
+    ; rail's centre, so the distance the ship passes it at is |path| at the
+    ; frame it ARRIVES — and with a free-running RS_PYL_GAP counter that phase
+    ; is whatever the boot happened to line up. MEASURED after the ground lock
+    ; moved RS_LEAD: arrivals landed near a zero crossing and the ship flew
+    ; STRAIGHT THROUGH the column on 39 frames of a period.
+    ;
+    ; Testing the arrival phase directly fires on exactly the same beat —
+    ; RS_PATH_HALF frames, one per bend, alternating sides — but always at a
+    ; bend EXTREME, so the pass distance is the path's full amplitude every
+    ; time and no boot phase can put the pylon on the ship's nose.
+    lda f:US_DIST_LONG
+    clc
+    adc #RS_LEAD                    ; the phase the camera will be at on arrival
+    and #(RS_PATH_HALF - 1)
+    cmp #RS_PATH_QUARTER
+    bne @pyl_wait
     jsr rs_spawn_pylon
-    rts
 @pyl_wait:
     .a16
     .i16
-    sta f:US_PYL_T_LONG
     rts
 
 ; --- rs_spawn_hazard: one hazard at the far edge, in the next lane ----------
@@ -424,17 +433,18 @@ rs_spawn_hazard:
 ; swinging.
 ;
 ; MEASURED, because the first attempt was over-built. Placing it at `centre -
-; 2*path(arrival)` — the opposite side at twice the swing — put 432 world px
-; between the ship and the pylon at closest approach, which at RS_RETICLE_Z's
-; lateral gain is 315 screen px: the column flew past entirely OFF THE LEFT
-; EDGE and the emulator showed an empty rail with a pylon in OAM at x = -77. On
-; the centre column the pass distance is |path(arrival)| = 102 world px = 74
-; screen px, so the column sweeps from the vanishing point out to one side of
-; the ship and off the edge, alternating sides every bend.
+; 2*path(arrival)` — the opposite side at twice the swing — put the column
+; entirely off the left edge at closest approach, and the emulator showed an
+; empty rail with a pylon in OAM at x = -77. On the centre column the pass
+; distance is |path(arrival)|, so the column sweeps from the vanishing point
+; out to one side of the ship and off the edge, alternating sides every bend.
 ;
-; The spawn phase is what makes that alternation exact rather than lucky:
-; RS_PYL_GAP is half the S period and the flight takes RS_LEAD frames, so
-; consecutive arrivals land a half period apart — one on each bend. WIDTH-RISK:
+; The spawn PHASE is what makes that alternation exact rather than lucky, and
+; since the ground lock it is tested directly rather than counted to (see
+; `rs_spawn`): the beat fires when the ARRIVAL phase is a bend extreme, so
+; |path(arrival)| is the full amplitude — 64 world px, 90 screen px at the top
+; of the near tier and 214 at the bottom — every single time. Consecutive
+; arrivals are half a period apart, so they alternate sides. WIDTH-RISK:
 ; A16/I16 entry AND exit; no sep/rep.
 rs_spawn_pylon:
     .a16
