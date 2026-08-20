@@ -6,7 +6,7 @@ Emits (deterministic; byte-identical on re-run):
     sau_map.bin         32,768 B  interleaved Mode 7 VRAM image (tilemap | CHR)
     sau_pal.bin             32 B  16 BGR555 words, index 0 = the night sky
     sau_sprite_chr.bin   1,536 B  48 OBJ tiles, 4bpp (three 16-tile VRAM rows)
-    sau_sprite_pal.bin      32 B  16 BGR555 words (one OBJ palette, whole cast)
+    sau_sprite_pal.bin      64 B  TWO OBJ palettes: 0 = the cast, 1 = the stars
 
 AUTHORED, NOT IMPORTED, the same route `mo_rom` takes.
 The reference rail's own art is first-party procedural — make_saucer.py draws its
@@ -35,9 +35,24 @@ build-time interleaving makes the upload one DMA; a 16x16 sprite reads tiles
 {N, N+1, N+16, N+17}, so the sheet is 16-tile rows with the 8x8 cast in row
 0's tail and the glyph set in rows 1-2.
 
-CGRAM INDEX 0 IS THE BACKDROP (hardware): the predicate paints world tile
-(0,0) with the night sky, so the row-major dedup lands the backdrop tone at
-index 0 BY CONSTRUCTION — asserted below rather than fixed up after.
+CGRAM INDEX 0 IS THE BACKDROP (hardware): the plane's off-disc region is the
+night sky and world tile (0,0) is off the disc, so the row-major dedup lands
+the backdrop tone at index 0 BY CONSTRUCTION — asserted below rather than
+fixed up after. It is also what lets the STARS sit UNDER the plane: a Mode 7
+pixel of value 0 is transparent (Mesen2 `SnesPpu::RenderTilemapMode7`:
+`if(colorIndex > 0)`), so the whole sky is a hole the backdrop shows through,
+and an OBJ sprite drawn below BG1 shows there and is covered by the hull.
+
+THE STAR FIELD IS NOT IN THE PLANE. It used to be — a two-density scatter
+baked into the world tile grid — and that put it on the one layer the fight
+RAMPS: four scale ramps zoom the plane, so the stars grew and shrank in
+lockstep with a near object, which is backwards for a field at infinity and
+is most of why the old field read as dense noise. The stars are now OBJ
+sprites (sau_obj's `stars` band), on their own OBJ palette so a test can
+count star pixels without them being confusable with any cast or hull tone,
+and drawn at OAM priority 0 — the one OBJ priority Mode 7 puts BELOW BG1
+(Mesen2 `SnesPpu::RenderMode7`: sprite priorities {2,4,6,7} against BG1's 3),
+so the saucer occludes them instead of them freckling its hull.
 """
 from __future__ import annotations
 
@@ -58,9 +73,13 @@ LAMPS = 12                             # running lights (see the header)
 LAMP_R = 16.5                          # lamp ring radius, tiles
 
 # --- the floor palette (RGB; dedup assigns CGRAM indices in scan order) ----
+# THE TWO STAR TONES ARE GONE, NOT REHOMED. They were plane colours because the
+# star field was plane texture; the field is OBJ now and its tones live in the
+# star OBJ palette below, so the floor palette has two fewer AUTHORED colours
+# and `floor_pal` pads the tail with the sky tone exactly as before — the claim,
+# the file and the CGRAM upload are still 16 words. Repurposing the freed
+# indices would have meant inventing a plane colour to justify them.
 SKY_DARK = (6, 8, 18)        # night sky — AND the backdrop, index 0
-STAR_DIM = (44, 50, 72)      # the dense dim star field (depth)
-STAR = (168, 176, 206)       # the sparse bright star field
 HULL_EDGE = (14, 16, 26)     # hull outline / dome seam
 HULL_DK = (44, 50, 66)       # hull, shadowed band
 HULL_MD = (86, 94, 116)      # hull, midtone band
@@ -73,22 +92,9 @@ DOME_MD = (46, 156, 204)     # canopy, midtone
 DOME_LT = (140, 226, 250)    # canopy, glowing highlight
 EMIT_DK = (58, 148, 104)     # ventral emitter, outer glow
 EMIT_LT = (206, 255, 224)    # ventral emitter, hot core
-FLOOR_COLOURS = [SKY_DARK, STAR_DIM, STAR, HULL_EDGE, HULL_DK, HULL_MD,
-                 HULL_LT, RIM_LT, LAMP_ON, LAMP_DIM, DOME_DK, DOME_MD,
-                 DOME_LT, EMIT_DK, EMIT_LT]
-
-
-def _star(tx: int, ty: int) -> int:
-    """A deterministic two-field star scatter: 0 none, 1 dim, 2 bright.
-    An integer hash, so the field is identical on every re-run and on every
-    platform (no `random`, no float rounding)."""
-    h = (tx * 73856093) ^ (ty * 19349663)
-    h = (h ^ (h >> 13)) & 0x7FFFFFFF
-    if h % 211 == 0:
-        return 2
-    if h % 29 == 0:
-        return 1
-    return 0
+FLOOR_COLOURS = [SKY_DARK, HULL_EDGE, HULL_DK, HULL_MD, HULL_LT, RIM_LT,
+                 LAMP_ON, LAMP_DIM, DOME_DK, DOME_MD, DOME_LT, EMIT_DK,
+                 EMIT_LT]
 
 
 def tile_color(tx: int, ty: int) -> tuple[int, int, int]:
@@ -97,13 +103,13 @@ def tile_color(tx: int, ty: int) -> tuple[int, int, int]:
     dx, dy = tx - CENTER, ty - CENTER
     r = math.hypot(dx, dy)
 
-    # ---- off the disc: night sky with two star fields --------------------
+    # ---- off the disc: flat night sky ------------------------------------
+    # ONE tone, and that is the point: value 0 is transparent in Mode 7, so
+    # this whole region is a hole the backdrop fills — which is the layer the
+    # OBJ star field now sits in, under the hull. World tile (0,0) is out here
+    # (r = 89.8), so the row-major dedup still meets the sky first.
     if r > 22.0:
-        # tile (0,0) is forced sky so the dedup lands the backdrop at index 0
-        if tx == 0 and ty == 0:
-            return SKY_DARK
-        s = _star(tx, ty)
-        return STAR if s == 2 else STAR_DIM if s == 1 else SKY_DARK
+        return SKY_DARK
 
     # ---- the hull outline ------------------------------------------------
     if r > 21.0:
@@ -173,8 +179,9 @@ def convert_map() -> tuple[bytes, bytes, list[tuple[int, int, int]]]:
                          f"{PAL_WORDS} words")
     assert palette_rgb[0] == SKY_DARK, (
         "index 0 must be the night sky: it is the Mode 7 backdrop slot, and "
-        "the predicate puts it there by painting tile (0,0) with it — "
-        "recolouring the sky moved it")
+        "the scan meets the sky first because world tile (0,0) is off the "
+        "disc — recolouring the sky, or growing the disc past the corner, "
+        "moved it")
     tile_data.extend(bytes(MAP_BYTES - len(tile_data)))     # pad to 256 tiles
     return bytes(tile_data), bytes(tilemap), palette_rgb
 
@@ -367,6 +374,55 @@ GLYPHS = {
     ">": _g("..#..", "..##.", "..###", "..##.", "..#..", ".....", "....."),
 }
 
+# =============================================================================
+# The star field (OBJ palette 1) — two faces, two depths
+# =============================================================================
+# WHY A SECOND PALETTE for three tones. Every one of palette 0's sixteen
+# entries has an owner, and the rail's tests count POPULATIONS by rendered
+# colour (`test_the_colour_predicates_are_disjoint` is the precondition that
+# makes those counts attributable). Borrowing, say, the glyph white would make
+# "star pixels" and "card pixels" the same population and quietly disarm both
+# counts. A second palette is 16 free CGRAM words — the rail uses 32 of 256 —
+# and it buys an EXACT star population: a star pixel cannot be anything else.
+#
+# Indices 1..3 only; 4..15 are never referenced by a star tile and are padded
+# black. ('.' = 0 = transparent, as everywhere on the sheet.)
+STAR_CORE = (216, 232, 255)     # 1 near-star core
+STAR_HALO = (120, 148, 200)     # 2 near-star arms
+STAR_FAINT = (84, 100, 148)     # 3 the far layer, one tone
+STAR_COLOURS = [(0, 0, 0), STAR_CORE, STAR_HALO, STAR_FAINT] + [(0, 0, 0)] * 12
+
+# A FOUR-POINT TWINKLE, not a dot. A single lit pixel is indistinguishable
+# from sensor noise once the gallery GIF has quantised to <=128 colours; a
+# 5x5 cross with dimmer arm tips reads as a star at 1:1 and survives the
+# quantiser. Nine lit pixels, centred at (3,3) so the 8x8 cell's own
+# top-left is what OAM places.
+STAR_NEAR = [
+    "........",
+    "...2....",
+    "...1....",
+    ".21112..",
+    "...1....",
+    "...2....",
+    "........",
+    "........",
+]
+
+# The far layer: the same centre, one tone, five pixels — smaller and dimmer,
+# which is the DEPTH cue the old two-density plane scatter used to carry. Here
+# it is carried by the drift rate as well (the far band scrolls at half the
+# near band's rate), so the two layers separate in motion, not only in tone.
+STAR_FAR = [
+    "........",
+    "........",
+    "...3....",
+    "..333...",
+    "...3....",
+    "........",
+    "........",
+    "........",
+]
+
 # The sheet's tile numbers. 5/6/7/8 are the REFERENCE's own values for shot / pip
 # lit / pip dim / beam (its assets/README.md load table), kept so a reader
 # cross-checking both sources meets one numbering; tile 4 is its
@@ -378,6 +434,7 @@ T_PLAYER0, T_PLAYER1 = 0, 2
 T_SHOT, T_PIP_LIT, T_PIP_DIM, T_BEAM = 5, 6, 7, 8
 T_EXH_LO, T_EXH_HI, T_CARDBG = 9, 10, 11
 T_BEAM_TELE, T_BEAM_FLARE = 12, 13      # row 0's remaining free cells
+T_STAR_FAR, T_STAR_NEAR = 14, 15        # ...and its last two
 GLYPH_BASE = 20                     # row 1's tail, past the player's quads
 GLYPH_ORDER = "ACDEFIMNORSTUVWY<>"  # the union the four strings spell
 GLYPH_TILE = {ch: GLYPH_BASE + i for i, ch in enumerate(GLYPH_ORDER)}
@@ -420,7 +477,8 @@ def sprite_chr() -> bytes:
                       (T_PIP_DIM, PIP_DIM), (T_BEAM, BEAM),
                       (T_EXH_LO, EXH_LO), (T_EXH_HI, EXH_HI),
                       (T_CARDBG, CARDBG), (T_BEAM_TELE, BEAM_TELE),
-                      (T_BEAM_FLARE, BEAM_FLARE)):
+                      (T_BEAM_FLARE, BEAM_FLARE), (T_STAR_FAR, STAR_FAR),
+                      (T_STAR_NEAR, STAR_NEAR)):
         assert len(art) == 8 and all(len(r) == 8 for r in art), art
         tiles[slot] = encode_tile_4bpp(art, 0, 0)
     for ch, slot in GLYPH_TILE.items():
@@ -431,9 +489,14 @@ def sprite_chr() -> bytes:
 
 
 def sprite_pal() -> bytes:
+    """Both OBJ palettes, back to back — palette 0 (the cast) then palette 1
+    (the stars). They are contiguous CGRAM words 128..159 by claim, which is
+    what lets ONE upload loop carry both; sau_obj.asm asserts that adjacency
+    at build time rather than trusting this comment."""
     assert len(SPRITE_COLOURS) == 16, len(SPRITE_COLOURS)
+    assert len(STAR_COLOURS) == 16, len(STAR_COLOURS)
     out = bytearray()
-    for rgb in SPRITE_COLOURS:
+    for rgb in SPRITE_COLOURS + STAR_COLOURS:
         out += struct.pack("<H", rgb_to_bgr555(*rgb))
     return bytes(out)
 
@@ -453,7 +516,7 @@ def main(argv):
     }
     want = {"sau_map.bin": BLOB_BYTES, "sau_pal.bin": 32,
             "sau_sprite_chr.bin": OBJ_TILES * OBJ_TILE_BYTES,
-            "sau_sprite_pal.bin": 32}
+            "sau_sprite_pal.bin": 64}
     for name, data in blobs.items():
         assert len(data) == want[name], (name, len(data))   # == the rom claim
         (outdir / name).write_bytes(data)

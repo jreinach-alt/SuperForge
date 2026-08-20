@@ -65,8 +65,20 @@ BM_OFF, BM_TELE, BM_FIRE = 0, 1, 2
 T_SHOT, T_PIP_LIT, T_PIP_DIM, T_BEAM = 5, 6, 7, 8
 T_CARDBG = 11
 T_BEAM_TELE, T_BEAM_FLARE = 12, 13
+T_STAR_FAR, T_STAR_NEAR = GA.T_STAR_FAR, GA.T_STAR_NEAR
 PARK_Y = 240
 O_BEAM, O_HUD, O_SHOTS, O_EXH, O_CARDS, O_PAD = 1, 17, 25, 29, 30, 54
+# The star band is read from the EMITTED MAP, not mirrored: the slot numbers
+# above are sequencing constants that a drift would only mis-sequence, but a
+# star test that read the wrong slots would report on the card band and pass.
+O_STARS = _sym("ES_O_STARS")["start"]
+STAR_N = _sym("ES_O_STARS")["size"]
+STAR_FAR_N = STAR_N // 2                       # saucer.inc: the first half
+STAR_PAL = _sym("ES_C_STAR_PAL")["start"]      # CGRAM word 144, OBJ palette 1
+# the OAM attr the draw writes: palette 1, priority 0 — the one OBJ priority
+# Mode 7 puts BELOW BG1 (Mesen2 SnesPpu::RenderMode7 maps 0..3 to 2/4/6/7
+# against BG1's 3), which is what makes the saucer occlude a star
+STAR_ATTR = (1 << 1) | (0 << 4)
 # saucer.inc's beam vocabulary: the walk starts on the emitter (the Mode 7
 # pivot, shown at the screen centre) and steps SEGS times toward the latched
 # column, delta * MUL/256 per step.
@@ -102,7 +114,12 @@ FACE_COLOURS = {_rt(c) for c in (
     GA.HULL_EDGE, GA.HULL_DK, GA.HULL_MD, GA.HULL_LT, GA.RIM_LT,
     GA.LAMP_ON, GA.LAMP_DIM, GA.DOME_DK, GA.DOME_MD, GA.DOME_LT,
     GA.EMIT_DK, GA.EMIT_LT)}
-SKY_COLOURS = {_rt(c) for c in (GA.SKY_DARK, GA.STAR, GA.STAR_DIM)}
+SKY_COLOURS = {_rt(GA.SKY_DARK)}
+# The star field's own tones, and it has its own OBJ PALETTE so that this set
+# can be exact: a pixel of one of these three colours is a star sprite and
+# cannot be anything else on this rail. That is what makes a star pixel COUNT
+# mean something — see `test_the_colour_predicates_are_disjoint`.
+STAR_COLOURS = {_rt(GA.STAR_COLOURS[i]) for i in (1, 2, 3)}
 # The ventral emitter disc at the pivot — a SCALE PROBE. Whole-face pixel
 # counts saturate on the lunge (measured: the apex renders 56,437 face pixels
 # of 57,344 and 20 frames into the climb it is still 56,708, so the total
@@ -158,6 +175,105 @@ def _bbox(img, colours):
     xs = [p[0] for p in pts]
     ys = [p[1] for p in pts]
     return min(xs), min(ys), max(xs), max(ys)
+
+
+# The star faces' AUTHORED lit-pixel counts, read off the generator's own art
+# rather than written out: 9 for the near twinkle, 5 for the far cross. They
+# are the whole non-scaling assertion — a star that grew with the matrix would
+# render more than its cell holds.
+STAR_LIT_FAR = sum(r.count("3") for r in GA.STAR_FAR)
+STAR_LIT_NEAR = sum(r.count("1") + r.count("2") for r in GA.STAR_NEAR)
+
+
+def _star_boxes(oam):
+    """(index, x, y) of every star slot, straight off the OAM shadow."""
+    return [(i, _entry(oam, O_STARS + i)[0], _entry(oam, O_STARS + i)[1])
+            for i in range(STAR_N)]
+
+
+def _sprite_extents(oam, skip):
+    """(x0, x1, rows) of every OAM sprite that renders in the picture, minus
+    one slot. Sizes come from the hi table's SIZE bit, x from its X9 bit — the
+    same two fields the PPU reads."""
+    out = []
+    for s in range(128):
+        if s == skip:
+            continue
+        x, y = oam[s * 4], oam[s * 4 + 1]
+        hi = (oam[512 + (s >> 2)] >> ((s & 3) * 2)) & 3
+        size = 16 if (hi & 2) else 8
+        xx = x | ((hi & 1) << 8)
+        if xx >= 256:
+            xx -= 512
+        rows = {r for r in ((y + i) & 0xFF for i in range(size)) if r < 224}
+        if rows:
+            out.append((xx, xx + size - 1, rows))
+    return out
+
+
+def _sprite_pixels(oam):
+    """Every picture pixel some OAM cell covers, from the same three fields
+    the PPU reads (x + X9, y with its 256-row wrap, the SIZE bit)."""
+    out = set()
+    for (x0, x1, rows) in _sprite_extents(oam, None):
+        for r in rows:
+            for c in range(x0, x1 + 1):
+                if 0 <= c < 256:
+                    out.add((c, r))
+    return out
+
+
+def _clean_star_boxes(oam):
+    """The star slots whose own 8x8 cell nothing else can be inside: wholly
+    within the picture, and touched by no other sprite's box. What is left is
+    a cell whose lit pixels can ONLY be that star's own tile, which is what
+    makes an exact pixel count mean 'this star rendered at its authored size'.
+    Occlusion by the plane is filtered separately, on the pixels."""
+    out = []
+    for (i, x, y) in _star_boxes(oam):
+        if y + 7 >= 224 or x + 7 > 255:
+            continue
+        rows = {(y + r) & 0xFF for r in range(8)}
+        if any(not rows.isdisjoint(r2) and not (x + 7 < x0 or x > x1)
+               for (x0, x1, r2) in _sprite_extents(oam, O_STARS + i)):
+            continue
+        out.append((i, x, y))
+    return out
+
+
+def _picture(img):
+    """The 224 PICTURE rows as flat per-row lists of RGB tuples. Decoded once
+    per frame — the whole-frame predicates below are set arithmetic over this,
+    not per-pixel calls into PIL."""
+    from frame_geometry import png_row
+    data = list(img.getdata())
+    w = img.width
+    return [data[png_row(r) * w:png_row(r) * w + w] for r in range(224)]
+
+
+def _box_count(pic, x, y, colours):
+    return sum(1 for r in range(8) for c in range(8)
+               if 0 <= x + c < 256 and (y + r) & 0xFF < 224
+               and pic[(y + r) & 0xFF][x + c] in colours)
+
+
+def _colour_pixels(pic, colours):
+    """{(col, picture row)} of every pixel in `colours`."""
+    return {(c, r) for r, row in enumerate(pic)
+            for c, p in enumerate(row) if p in colours}
+
+
+def _disc_rows(pic):
+    """Per picture row, the inclusive column span of the RENDERED disc. The
+    plane's only non-backdrop tones are the twelve face colours and the disc
+    is convex, so min..max face column on a row IS the disc on that row — the
+    sprites drawn over it sit inside that span and cannot widen it."""
+    out = {}
+    for r, row in enumerate(pic):
+        cols = [c for c, p in enumerate(row) if p in FACE_COLOURS]
+        if cols:
+            out[r] = (min(cols), max(cols))
+    return out
 
 
 def _rd16(m, off):
@@ -273,7 +389,8 @@ def test_the_colour_predicates_are_disjoint():
     hull, beam or glyph pixels."""
     groups = {"face": FACE_COLOURS, "sky": SKY_COLOURS, "ship": SHIP_COLOURS,
               "beam": BEAM_COLOURS, "bolt": {BOLT_COLOUR},
-              "glyph": {GLYPH_COLOUR}, "flash": {FLASH_COLOUR}}
+              "glyph": {GLYPH_COLOUR}, "flash": {FLASH_COLOUR},
+              "star": STAR_COLOURS}
     names = sorted(groups)
     for i, a in enumerate(names):
         for b in names[i + 1:]:
@@ -542,6 +659,242 @@ def test_the_lunge_matrix_matches_the_baked_ramps_every_frame():
     assert all(v > 0 for v in seen.values()), \
         f"the sweep did not cover every lunge sub-state: {seen}"
     assert seen[LG_APPR] > 30 and seen[LG_RETR] > 30, seen
+
+
+# =============================================================================
+# The STAR FIELD — sparse, on OBJ, and moving with the fight
+# =============================================================================
+# The field used to be PLANE TEXTURE: a hash scatter baked into the Mode 7
+# world tile grid. That put it on the one layer this rail RAMPS, so the sky
+# zoomed with the saucer through all four scale ramps. These four cases assert
+# what moving it to OBJ bought, on the rendered surfaces: it is sparse, it is
+# under the plane, its rendered size is INVARIANT across a lunge, and it moves
+# at a rate the ROM's own state picks.
+def test_the_star_field_is_sparse_and_sits_under_the_plane(tmp_path):
+    """Two properties one frame can carry, and both are about the picture.
+
+    SPARSE, by a stated measure: 24 sprites, and the whole field lights fewer
+    than 200 of the picture's 57,344 pixels — under 0.35%. The field it
+    replaced painted ~420 star TILES into the visible window at rest scale
+    (the generator's old two-density predicate over the ~9,600 sky tiles the
+    Mode 7 window sampled), which is why 'much sparser' is a count and not an
+    adjective. The floor is there so a field that failed to draw at all cannot
+    read as 'sparse'.
+
+    UNDER THE PLANE: no star pixel falls inside the disc's rendered span, on
+    any of the sampled frames. That is the OAM-priority-0 choice made visible
+    — priority 0 is the one OBJ priority Mode 7 puts below BG1 — and it is the
+    difference between a field the saucer eclipses and a field that freckles
+    its hull. It works only because the sky is CGRAM index 0 and a Mode 7
+    pixel of 0 is transparent, so the plane is a hole everywhere but the disc.
+    """
+    with Machine(ROM) as m:
+        _run_until(m, ST, FIGHT, 300)
+        k = _Kill()
+        seen = []
+        for shot in range(6):
+            for _ in range(11):
+                m.advance(1, pad1=k.pad(m))
+            oam = _oam(m)
+            pic = _picture(_pixels(m, tmp_path / f"s{shot}.png"))
+            star_px = _colour_pixels(pic, STAR_COLOURS)
+            spans = _disc_rows(pic)
+            eclipsed = sum(1 for (c, r) in star_px
+                           if r in spans and spans[r][0] <= c <= spans[r][1])
+            # every lit star pixel is inside some star slot's declared cell:
+            # the field is where OAM says it is, not painted anywhere else
+            cells = {(x + c, (y + r) & 0xFF)
+                     for (_, x, y) in _star_boxes(oam)
+                     for r in range(8) for c in range(8)}
+            stray = len(star_px - cells)
+            # ...and the PLANE's sky is one flat tone: every pixel that is
+            # neither inside the disc's span nor inside some sprite's cell is
+            # the backdrop, exactly. This is the clause that fires the day
+            # anyone paints a star field back into the world tile grid — the
+            # field's own tones live in an OBJ palette, so a plane-painted one
+            # would be a new colour that no population here counts.
+            covered = _sprite_pixels(oam)
+            open_sky = set()
+            for r, row in enumerate(pic):
+                lo, hi = spans.get(r, (256, -1))
+                open_sky.update(p for c, p in enumerate(row)
+                                if not (lo <= c <= hi) and (c, r) not in covered)
+            seen.append((len(star_px), eclipsed, stray, open_sky))
+        oam = _oam(m)
+    backdrop = _rt(GA.SKY_DARK)
+    for i, (lit, eclipsed, stray, open_sky) in enumerate(seen):
+        assert open_sky == {backdrop}, \
+            f"frame {i}: the open sky is not one flat tone ({sorted(open_sky)})"
+        assert 60 <= lit < 200, \
+            f"frame {i}: the field lights {lit} px — sparse is 60..199"
+        assert eclipsed == 0, \
+            f"frame {i}: {eclipsed} star px render INSIDE the saucer's disc"
+        assert stray == 0, \
+            f"frame {i}: {stray} star px outside every star's OAM cell"
+    # ...and the slots themselves carry the declared tiles, palette and size
+    for i in range(STAR_N):
+        x, y, tile, attr = _entry(oam, O_STARS + i)
+        want = T_STAR_FAR if i < STAR_FAR_N else T_STAR_NEAR
+        assert tile == want, f"star {i} draws tile {tile}, want {want}"
+        assert attr == STAR_ATTR, \
+            f"star {i} attr {attr:#04x}: want palette 1 + priority 0 " \
+            f"({STAR_ATTR:#04x}) — anything else renders it over the plane"
+        field = (oam[512 + ((O_STARS + i) >> 2)] >> (((O_STARS + i) & 3) * 2)) & 3
+        assert field == 0, f"star {i} hi field {field}: want small, X9 clear"
+
+
+def test_the_star_field_does_not_scale_when_the_matrix_ramps(tmp_path):
+    """THE HEADLINE, and the one assertion a plane-painted field cannot pass.
+
+    Two parks in one lunge — the FAR dwell and the apex — and between them the
+    matrix scale falls 900 -> 637, which the disc's rendered span confirms
+    against the generator's own predicate (`_disc_px`), so this is a claim
+    about a pose that demonstrably changed. Across that ramp every star cell
+    that nothing else touches renders EXACTLY its tile's authored lit-pixel
+    count: 5 for a far cross, 9 for a near twinkle. A star painted into the
+    plane would render 1.41x wider at the apex and blow the count.
+
+    Three lunges, both ends of each, so the case cannot pass on one lucky
+    pose; and a floor on how many cells qualified, so a frame where the disc
+    swallowed the field cannot read as a pass."""
+    with Machine(ROM) as m:
+        _run_until(m, ST, FIGHT, 300)
+        k = _Kill()
+        poses = []
+        for cycle in range(3):
+            for want, tag, settle in ((LG_FAR, "far", 5), (LG_NEAR, "apex", 3)):
+                while _rd16(m, LG_STATE) != want:
+                    m.advance(1, pad1=k.pad(m))
+                for _ in range(settle):
+                    m.advance(1, pad1=k.pad(m))
+                oam = _oam(m)
+                pic = _picture(_pixels(m, tmp_path / f"{tag}{cycle}.png"))
+                spans = _disc_rows(pic)
+                span = max(hi - lo + 1 for lo, hi in spans.values())
+                clean = []
+                for (i, x, y) in _clean_star_boxes(oam):
+                    if _box_count(pic, x, y, FACE_COLOURS):
+                        continue                   # the disc is over this cell
+                    clean.append((i, _box_count(pic, x, y, STAR_COLOURS),
+                                  STAR_LIT_FAR if i < STAR_FAR_N
+                                  else STAR_LIT_NEAR))
+                # the OTHER half of "did not scale": no star pixel anywhere in
+                # the picture is outside a star's 8x8 cell. A star drawn any
+                # bigger — by the matrix, by the SIZE bit, by anything — spills
+                # here even where the count inside the cell is unchanged.
+                cells = {(x + c, (y + r) & 0xFF)
+                         for (_, x, y) in _star_boxes(oam)
+                         for r in range(8) for c in range(8)}
+                spill = len(_colour_pixels(pic, STAR_COLOURS) - cells)
+                poses.append((cycle, tag, _scale(m), span, spill, clean))
+    for (cycle, tag, scale, span, spill, clean) in poses:
+        assert spill == 0, \
+            f"{tag}{cycle} (scale {scale}): {spill} star px outside every " \
+            f"star's own 8x8 cell — the field grew with the matrix"
+        assert abs(span - _disc_px(scale)) <= 3, \
+            f"{tag}{cycle}: the disc renders {span} px at scale {scale}, not " \
+            f"the {_disc_px(scale):.1f} px the matrix calls for"
+        assert len(clean) >= 6, \
+            f"{tag}{cycle}: only {len(clean)} star cells were unobstructed — " \
+            f"too few to prove anything"
+        bad = [(i, lit, want) for (i, lit, want) in clean if lit != want]
+        assert not bad, \
+            f"{tag}{cycle} (scale {scale}): star cells rendered the wrong " \
+            f"number of lit pixels {bad} — a star's footprint tracked the matrix"
+    far = {(c, s) for (c, t, s, _, _, _) in poses if t == "far"}
+    apex = {(c, s) for (c, t, s, _, _, _) in poses if t == "apex"}
+    assert len({s for _, s in far}) == 1 and len({s for _, s in apex}) == 1, \
+        (far, apex)
+    assert next(iter(far))[1] > next(iter(apex))[1], \
+        "the two parks did not straddle a scale change at all"
+
+
+def test_the_star_field_drifts_and_the_fight_sets_its_tempo():
+    """MOTION, read off the OAM y bytes the PPU places the stars by, and keyed
+    to the ROM's own state rather than to a frame counter.
+
+    The near band's drift is CALM outside the fight and quickens once inside
+    it, once per HP third — the same escalation the FAR dwell already encodes
+    (SAU_FAR_P0/P1/P2), made visible in the sky. The far band takes half of
+    whatever the near band gets, which is the parallax that separates the two
+    depths. Measured over 60-frame windows, with the phase asserted unchanged
+    at both ends so a window cannot straddle a step.
+
+    The absolute floor matters as much as the ordering: the calm band must
+    clear 6 px per 60 frames (7.5 px/s) or the drift is invisible in a 20 fps
+    clip, which is the same as not having one."""
+    def travel(m, k, n=60):
+        a = _oam(m)
+        y0 = (_entry(a, O_STARS)[1], _entry(a, O_STARS + STAR_FAR_N)[1])
+        ph0 = _rd16(m, _sym("US_B_PHASE")["start"])
+        for _ in range(n):
+            m.advance(1, pad1=k.pad(m) if k else {})
+        a = _oam(m)
+        y1 = (_entry(a, O_STARS)[1], _entry(a, O_STARS + STAR_FAR_N)[1])
+        return ((y1[0] - y0[0]) & 0xFF, (y1[1] - y0[1]) & 0xFF,
+                ph0, _rd16(m, _sym("US_B_PHASE")["start"]))
+    with Machine(ROM) as m:
+        _run_until(m, ST, HOLD, 200)
+        calm_far, calm_near, _, _ = travel(m, None)
+        assert _rd16(m, ST) in (HOLD, FIGHT)
+        _run_until(m, ST, FIGHT, 300)
+        k = _Kill()
+        rates = {}
+        for want in (0, 1, 2):
+            while _rd16(m, _sym("US_B_PHASE")["start"]) != want:
+                m.advance(1, pad1=k.pad(m))
+            f, n, p0, p1 = travel(m, k)
+            assert p0 == p1 == want, f"the phase-{want} window straddled a step"
+            assert _rd16(m, ST) == FIGHT, "the fight ended inside the window"
+            rates[want] = (f, n)
+    assert calm_near >= 6, \
+        f"the calm sky drifts {calm_near} px per 60 frames — a viewer cannot " \
+        f"see that in a clip"
+    assert calm_near < rates[0][1] < rates[1][1] < rates[2][1], \
+        f"the fight does not quicken the sky (calm {calm_near}, " \
+        f"phases {[rates[p][1] for p in (0, 1, 2)]})"
+    for tag, (f, n) in [("calm", (calm_far, calm_near))] + \
+            [(f"phase{p}", rates[p]) for p in (0, 1, 2)]:
+        assert abs(2 * f - n) <= 2, \
+            f"{tag}: the far band moved {f} px against the near band's {n} — " \
+            f"the two depths are not parallaxed"
+
+
+def test_the_star_field_parallaxes_against_the_strafe_both_ways():
+    """The one honest source of SIDEWAYS motion on a rail whose camera does not
+    travel: the gunship is the viewpoint, so its strafe slides the field the
+    other way. Driven through the whole cycle — left to the wall, right to the
+    far wall, then held still — because a test that only walks one direction
+    locks that direction and ships the other broken.
+
+    Read on the OAM x bytes, and on BOTH bands: the near band's slide is twice
+    the far band's, the same 2:1 the drift has."""
+    def xs(m):
+        a = _oam(m)
+        return (_entry(a, O_STARS)[0], _entry(a, O_STARS + STAR_FAR_N)[0])
+    with Machine(ROM) as m:
+        _run_until(m, ST, FIGHT, 300)
+        m.advance(4)
+        px0 = _rd16(m, PX)
+        home = xs(m)
+        m.advance(60, pad1={"left": True})       # into the left wall
+        left_px, left = _rd16(m, PX), xs(m)
+        m.advance(90, pad1={"right": True})      # ...and across to the right
+        right_px, right = _rd16(m, PX), xs(m)
+        idle = xs(m)
+        m.advance(20)                            # nothing held: no slide
+        idle2 = xs(m)
+    assert left_px < px0 < right_px, (left_px, px0, right_px)
+    assert left[0] > home[0] and left[1] > home[1], \
+        f"strafing LEFT did not slide the field right ({home} -> {left})"
+    assert right[0] < home[0] and right[1] < home[1], \
+        f"strafing RIGHT did not slide the field left ({home} -> {right})"
+    far_swing = left[0] - right[0]
+    near_swing = left[1] - right[1]
+    assert abs(2 * far_swing - near_swing) <= 2, \
+        f"the bands are not parallaxed: far swung {far_swing}, near {near_swing}"
+    assert idle == idle2, \
+        f"the field slid sideways with nothing held ({idle} -> {idle2})"
 
 
 # =============================================================================
@@ -1017,9 +1370,9 @@ def test_oam_slot_identities_hold_mid_fight():
     """The reference's stable-slot contract on the OAM bytes: slot 0 is the
     gunship (16x16 LARGE bit set), 1-16 are beam segments or parked, 17-24 are
     pips, 25-28 are bolts or parked, 29 is the thruster, 30-53 are card cells
-    or parked (no card during the fight), 54-55 parked for the ROM's life; the
-    hi-table SIZE bit is set for exactly slot 0, and all fourteen hi bytes are
-    owned."""
+    or parked (no card during the fight), 54-55 parked for the ROM's life,
+    56-79 are the star field and are NEVER parked; the hi-table SIZE bit is
+    set for exactly slot 0, and all twenty hi bytes are owned."""
     with Machine(ROM) as m:
         _run_until(m, ST, FIGHT, 300)
         m.advance(40, pad1={"a": True})        # bolts live, a lunge under way
@@ -1038,8 +1391,14 @@ def test_oam_slot_identities_hold_mid_fight():
     assert _entry(oam, O_EXH)[2] in (9, 10), "the thruster flame is not drawn"
     for s in range(O_CARDS, O_PAD + 2):
         assert _entry(oam, s)[1] == PARK_Y, f"slot {s} is drawn during the fight"
-    hi = oam[512:512 + 14]
-    for s in range(O_PAD + 2):
+    for i in range(STAR_N):
+        tile, y = _entry(oam, O_STARS + i)[2], _entry(oam, O_STARS + i)[1]
+        assert tile == (T_STAR_FAR if i < STAR_FAR_N else T_STAR_NEAR), \
+            (O_STARS + i, tile)
+        assert y != PARK_Y, f"star slot {O_STARS + i} is parked mid-fight"
+    n_hi = (O_STARS + STAR_N) // 4
+    hi = oam[512:512 + n_hi]
+    for s in range(O_STARS + STAR_N):
         field = (hi[s // 4] >> ((s % 4) * 2)) & 3
         if s == 0:
             assert field == 2, f"the gunship slot is missing the LARGE bit ({field})"
@@ -1048,16 +1407,25 @@ def test_oam_slot_identities_hold_mid_fight():
 
 
 def test_the_palettes_land_where_the_claims_say():
-    """CGRAM words 0..15 == sau_pal.bin and 128..143 == sau_sprite_pal.bin —
+    """CGRAM words 0..15 == sau_pal.bin and 128..159 == sau_sprite_pal.bin —
     the destination region byte-for-byte against the authored source (the
-    asset-upload sub-rule: read the DESTINATION, not a downstream consumer)."""
+    asset-upload sub-rule: read the DESTINATION, not a downstream consumer).
+
+    The sprite blob is 32 words now, not 16: it carries BOTH OBJ palettes, the
+    cast's at 128 and the star field's at 144, and one enter-time loop uploads
+    them because the two claims are pinned contiguous. A read of only the
+    first sixteen would pass on a ROM that never uploaded the star tones —
+    which renders the field in whatever CGRAM 144.. held at power-on."""
     floor = Path("build/assets/sau_pal.bin").read_bytes()
     spr = Path("build/assets/sau_sprite_pal.bin").read_bytes()
+    assert len(spr) == 64, f"the sprite palette blob is {len(spr)} B, not both"
     with Machine(ROM) as m:
         m.advance(6)
         cg = m.read_bytes(MemoryType.SnesCgRam, 0, 512)
     assert bytes(cg[0:32]) == floor, "floor palette not at CGRAM 0"
-    assert bytes(cg[256:288]) == spr, "sprite palette not at OBJ palette 0"
+    assert bytes(cg[256:320]) == spr, \
+        "the two OBJ palettes are not both at CGRAM 128.."
+    assert 2 * STAR_PAL == 288, "the star palette moved off CGRAM word 144"
 
 
 def test_the_track_blobs_hold_their_format_and_their_seams():

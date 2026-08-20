@@ -9,15 +9,28 @@
 # THE MAP: 0 the gunship (16x16) 1-16 the beam column (16 x 8x8) 17-24 the
 # saucer HP HUD (8 pips) 25-28 the player shots (4) 29 the thruster flame
 # (FIGHT only) 30-53 the card cells (24) 54-55 hi-table pad, parked for the
-# ROM's life Text cards are the one band that WANTS to be unbounded, and a
-# claim has to name a bound, so the card band is sized to the widest thing it
-# ever draws: the VICTORY word (7 glyphs) plus its 16-cell banner = 23, and
-# the two-row boot title = 21 drawn cells. 24 covers both.
+# ROM's life 56-79 the STAR FIELD (24) Text cards are the one band that WANTS
+# to be unbounded, and a claim has to name a bound, so the card band is sized
+# to the widest thing it ever draws: the VICTORY word (7 glyphs) plus its
+# 16-cell banner = 23, and the two-row boot title = 21 drawn cells. 24 covers
+# both.
 #
-# FIFTY-SIX SLOTS, FOURTEEN WHOLE HI BYTES. A hi-table byte covers four
-# sprites; 56 is 14 bytes with nothing left mid-byte, so all fourteen can be
-# REBUILT WHOLE every frame — mo_obj's ruling (its header carries the stale-X9
-# failure mode), paid here with two parked pad slots.
+# EIGHTY SLOTS, TWENTY WHOLE HI BYTES. A hi-table byte covers four sprites; 80
+# is 20 bytes with nothing left mid-byte, so all twenty can be REBUILT WHOLE
+# every frame — mo_obj's ruling (its header carries the stale-X9 failure
+# mode), paid here with two parked pad slots that close byte 13 between the
+# card band and the stars.
+#
+# THE STARS ARE LAST ON PURPOSE, TWICE OVER. (1) Sprite-vs-sprite arbitration
+# is by OAM INDEX (Mesen2 `SnesPpu::FetchSpriteData` walks `_spriteIndexes`
+# from the top down, so the LOWEST index is written last and wins), so a star
+# can never punch a hole in the gunship, the lance or a glyph. (2) The
+# range-over rule drops the sprites evaluated LAST when a line holds more than
+# 32, so if this rail ever crowds a scanline it loses a star and keeps the
+# fight. Their LAYER position is not index-driven at all: they are drawn at
+# OAM priority 0, which is the one OBJ priority Mode 7 places BELOW BG1
+# (Mesen2 `SnesPpu::RenderMode7` maps OAM priorities 0..3 to 2/4/6/7 against
+# BG1's 3), so the saucer's hull covers them and the transparent sky does not.
 #
 # OBSEL IS CLAIMED HERE (breaker_obj/m7dg_obj/mo_obj/bs_obj precedent):
 # oam_sprites is the OAM transport, not the sprite size/base authority. Size
@@ -67,12 +80,27 @@ kind = "chr"
 obj = true
 words = 768
 
-# One OBJ palette for the whole cast — one ramp, so a second buys nothing.
-# OBJ palette 0 = CGRAM 128..143, a hardware contract.
+# One OBJ palette for the whole CAST — one ramp, so a second cast palette
+# would buy nothing. OBJ palette 0 = CGRAM 128..143, a hardware contract.
 [[claims.cgram]]
 name = "sprite_pal"
 words = 16
 at = 128
+
+# THE STAR PALETTE, and it is not a cast palette. OBJ palette 1 = CGRAM
+# 144..159 (paletteRamOffset = 128 + (palette << 4) + colour, the hardware's
+# own arithmetic). Three tones are authored and thirteen are padding, and the
+# reason is a TEST property rather than an art one: every entry of palette 0
+# already has an owner, and this rail's pixel counts are attributable only
+# because no rendered tone belongs to two populations. Borrowing a cast tone
+# for the stars would fuse two populations and silently disarm both counts.
+# Sixteen CGRAM words on a rail using 32 of 256 is the cheap side of that
+# trade. Pinned at 144 so it is CONTIGUOUS with sprite_pal — sau_obj.asm
+# asserts the adjacency and uploads both palettes in one loop.
+[[claims.cgram]]
+name = "star_pal"
+words = 16
+at = 144
 
 # THE SLOT MAP IS PINNED, NOT PACKED (OamClaim.at: index order IS priority and
 # a packed layout's priority is an accident of claim names). Priority here is
@@ -117,6 +145,21 @@ at = 30
 name = "hi_pad"
 sprites = 2
 at = 54
+
+# THE STAR FIELD: twenty-four 8x8 sprites, twelve far and twelve near, drawn
+# every frame at OAM priority 0 (under the plane). TWENTY-FOUR is a SPARSITY
+# figure, not a slot-budget one: the plane-painted field it replaces put ~420
+# star tiles on screen at rest scale, and the ask was for a much sparser sky.
+# It is also six whole hi bytes, and it keeps this rail's worst case a long
+# way under the hardware's 32-sprites/34-slivers per scanline: the twelve home
+# rows of each band are spaced >= 16 apart and the whole band shares one
+# scroll offset, so within a band the spacing is invariant and no two stars
+# can ever share a scanline — at most one far + one near, i.e. 2 sprites and
+# 2 slivers of the line's budget, whatever the fight is doing.
+[[claims.oam]]
+name = "stars"
+sprites = 24
+at = 56
 
 [[claims.reg]]
 name = "obj_obsel"

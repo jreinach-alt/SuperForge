@@ -178,6 +178,56 @@ SAU_T_BEAM_FLARE = 13           ; the emitter burst / the impact burst
 SAU_FLASH_MASK = 4              ; frame & this picks the iframe blink phase
 SAU_EXH_MASK   = 8              ; frame & this picks the flame phase
 
+; --- the star field --------------------------------------------------------
+; TWENTY-FOUR SPRITES, and the count is the whole point of the change: this
+; field used to be PLANE TEXTURE — a two-density hash scatter baked into the
+; 128x128 world tile grid — which put ~420 star tiles on screen at rest scale
+; AND tied every one of them to the affine matrix, so the sky zoomed in
+; lockstep with the saucer through all four scale ramps. A field at infinity
+; does not do that. On OBJ the stars are decoupled from the matrix by
+; construction, and 24 of them is the sparse sky the fight wanted.
+;
+; TWO BANDS, and the split is the depth cue the old two-brightness scatter
+; used to carry: the far twelve are dimmer, smaller, and drift at HALF the
+; near twelve's rate, so the layers separate in MOTION as well as in tone.
+SAU_STAR_N      = 24            ; the stars OAM band's width (sau_obj's claim)
+SAU_STAR_FAR_N  = 12            ; ...of which the first twelve are the far band
+SAU_STAR_PRIO   = 0 << 4        ; OAM attr priority 0 — the ONE OBJ priority
+                                ;   Mode 7 puts BELOW BG1, so the hull covers
+                                ;   a star and the transparent sky does not
+SAU_STAR_PALSEL = 1 << 1        ; OAM attr palette 1 = CGRAM 144..159
+SAU_STAR_ATTR   = SAU_STAR_PRIO | SAU_STAR_PALSEL
+SAU_T_STAR_FAR  = 14            ; 8x8 far star, one tone, five pixels
+SAU_T_STAR_NEAR = 15            ; 8x8 near star, a four-point twinkle
+
+; THE DRIFT IS KEYED TO THE FIGHT'S OWN TEMPO, not to a frame counter. The
+; near band's scroll accumulator is 8.8 px/frame; the far band takes half of
+; whatever the near band gets. Out of the fight (REVEAL, HOLD, DEATH, LOSE,
+; RESULT, RESET) the sky is CALM; during FIGHT it quickens, and it quickens
+; again with each HP third — the same escalation the FAR dwell already encodes
+; (SAU_FAR_P0/P1/P2), made visible in the sky instead of only felt in the
+; pacing. Downward, because the gunship is under the saucer and a sky falling
+; past you reads as climbing into the fight.
+;
+; THE RATES ARE SET BY WHAT A 20 fps CLIP CAN SHOW. Calm is 32/256 px/frame =
+; 7.5 px/s on the near band and 3.75 on the far: over the gallery clip's 12.7 s
+; cycle that is 95 px and 48 px of travel, so a star visibly crosses a third to
+; a half of the screen. A drift a viewer cannot see in a clip is not a feature.
+SAU_STAR_CALM   = 32            ; 8.8 px/frame, near band, outside the fight
+SAU_STAR_FIGHT  = 48            ; ...during FIGHT at phase 0
+SAU_STAR_PH_SH  = 4             ; ...+ (1 << this) per HP-third phase, so the
+SAU_STAR_PH     = 1 << SAU_STAR_PH_SH   ;   sky is 48/64/80 across the fight
+
+; THE LATERAL SLIDE IS THE PLAYER'S OWN STRAFE, parallaxed. The camera does
+; not travel on this rail — the saucer approaches, the gunship holds its row —
+; so the one honest source of sideways motion is the ship sliding across the
+; view. Stars counter-slide: near band by centre>>3, far band by centre>>4,
+; both zeroed on the screen centre, so the gunship at its spawn lane leaves the
+; field at its home positions and a full strafe to either wall moves the near
+; band 14 px and the far band 7.
+SAU_STAR_PAR_SH     = 3         ; near band: (hull centre) >> 3
+SAU_STAR_PAR_FAR_SH = 4         ; far band:  (hull centre) >> 4
+
 ; --- the glyph cards -------------------------------------------------------
 ; Text is OBJ glyphs from the rail's own sheet. The strings are LENGTH-PREFIXED
 ; byte runs rather than sentinel-terminated word runs: a sentinel that looks

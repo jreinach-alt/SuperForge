@@ -84,7 +84,11 @@ sau_map_bin:
 .segment "BANK3"
 ; Packing order by (-bytes, name): m7_lut (2,048) leads, then sau_sprite_chr
 ; (1,536), sau_ring (1,026), the two 246 B ramps (death < reveal), the two
-; 186 B lunge halves (appr < retr), the two 32 B palettes (pal < sprite_pal).
+; 186 B lunge halves (appr < retr), then sau_sprite_pal (64 B — TWO OBJ
+; palettes since the star field got its own) and last sau_pal (32 B). The two
+; palettes used to be a 32/32 tie broken by name; they are ordered by SIZE
+; now, and the .asserts below are what turned that into a build failure
+; instead of two blobs quietly swapping places.
 m7_lut_bin:
     .incbin "m7_affine_lut.bin"
 .assert ^m7_lut_bin = ES_R_M7_LUT_BANK, error, "m7_lut bank drifted from allocator claim"
@@ -113,14 +117,14 @@ sau_retr_bin:
     .incbin "sau_retr.bin"
 .assert ^sau_retr_bin = ES_R_SAU_RETR_BANK, error, "sau_retr bank drifted from allocator claim"
 .assert .loword(sau_retr_bin) = ES_R_SAU_RETR_ADDR, error, "sau_retr addr drifted from allocator claim"
-sau_pal_bin:
-    .incbin "sau_pal.bin"
-.assert ^sau_pal_bin = ES_R_SAU_PAL_BANK, error, "sau_pal bank drifted from allocator claim"
-.assert .loword(sau_pal_bin) = ES_R_SAU_PAL_ADDR, error, "sau_pal addr drifted from allocator claim"
 sau_sprite_pal_bin:
     .incbin "sau_sprite_pal.bin"
 .assert ^sau_sprite_pal_bin = ES_R_SAU_SPRITE_PAL_BANK, error, "sau_sprite_pal bank drifted from allocator claim"
 .assert .loword(sau_sprite_pal_bin) = ES_R_SAU_SPRITE_PAL_ADDR, error, "sau_sprite_pal addr drifted from allocator claim"
+sau_pal_bin:
+    .incbin "sau_pal.bin"
+.assert ^sau_pal_bin = ES_R_SAU_PAL_BANK, error, "sau_pal bank drifted from allocator claim"
+.assert .loword(sau_pal_bin) = ES_R_SAU_PAL_ADDR, error, "sau_pal addr drifted from allocator claim"
 .segment "CODE"
 
 ; --- pool (the mechanism; the arrays are sau_obj's claim) -------------------
