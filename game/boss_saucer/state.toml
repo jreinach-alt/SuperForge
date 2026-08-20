@@ -65,6 +65,20 @@ paused = "u16@dp"        # 1 = START froze the fight. The state machine and the
                          #   commit and the audio pump keep running, so the
                          #   held frame shows and the music plays
 
+# --- the star field --------------------------------------------------------
+# The two scroll accumulators, 8.8 px, one per depth band. They wrap on their
+# own 16 bits — 256.0 px — which is exactly the OAM y byte's modulus, so a star
+# needs no wrap test of its own: rows 224..255 are simply off the bottom of the
+# screen and a star slides out there and back in at the top.
+#
+# PERSISTENT, and seeded ONCE in the scene's `enter` beside US_FRAME — NOT in
+# battle_init, which re-runs on every loop RESET. A field that snapped back to
+# its home positions every time the battle re-armed would be a visible jump on
+# the one frame the loop is trying to hide (rule 5: written before read, not
+# zeroed for safety).
+star_far = "u16@dp"      # the far band's scroll, 8.8 px
+star_near = "u16@dp"     # the near band's scroll, 8.8 px — twice the far rate
+
 # --- per-frame cursors and scratch (write-before-read inside one tick) -----
 ui = "u16@dp"            # update-loop pool cursor (byte offset)
 di = "u16@dp"            # draw-loop cursor (pool slots, HUD pips, beam segs)
@@ -78,6 +92,15 @@ scr = "u16@dp"           # one-word scratch (the track index, the tile pick,
 pen_x = "u16@dp"         # glyph pen x (advanced SAU_GTEXT_ADV per cell)
 pen_y = "u16@dp"         # glyph pen y (held across a row)
 card_i = "u16@dp"        # the next free cell in the 24-slot card band
+star_dx = "u16@dp"       # draw_stars: the band's screen x offset (signed —
+                         #   the strafe parallax, zeroed on the screen centre)
+star_dy = "u16@dp"       # draw_stars: the band's screen y offset (its scroll
+                         #   accumulator's whole-pixel half)
+star_t = "u16@dp"        # draw_stars: the band's tile | attr, so the emit loop
+                         #   carries no per-star branch
+star_end = "u16@dp"      # draw_stars: one past the band's last home-table word
+                         #   offset — the loop bound, so ONE loop serves both
+                         #   bands instead of the body being written twice
 frame = "u16@dp"         # free-running frame counter; read ONLY for its parity
                          #   classes (the iframe blink, the thruster flicker).
                          #   Persistent, so the scene's `enter` seeds it ONCE

@@ -64,6 +64,8 @@ enter:
 
     stz z:US_FRAME                  ; the blink/flicker clock (persistent, so
                                     ;   it is seeded HERE, not per battle)
+    stz z:US_STAR_FAR               ; the two star-band scrolls, same reason:
+    stz z:US_STAR_NEAR              ;   the sky must not snap home on the loop
     jsr battle_init                 ; full battle state + reveal[0] + ST_REVEAL
 
     ; ---- the scene's base display (sau_floor's scene_writes) --------------
@@ -168,6 +170,7 @@ tick:
     .a16
     lda z:US_PAUSED
     bne @frozen
+    jsr stars_update
     jsr state_update
 @frozen:
     .a16
@@ -175,6 +178,58 @@ tick:
     lda z:US_FRAME
     inc a
     sta z:US_FRAME                  ; the blink/flicker clock (parity only)
+    rts
+
+; =============================================================================
+; stars_update — advance the two star bands' scroll, at the fight's tempo
+; =============================================================================
+; INSIDE THE PAUSE GATE (tick calls it there): a freeze means nothing moves,
+; and a sky still sliding behind a frozen fight would say the opposite.
+;
+; The rate is read off the ROM's own state, never off a frame counter: CALM
+; everywhere but FIGHT, and inside FIGHT the phase — which is the HP third —
+; adds a step. So the sky is slowest while the saucer is arriving and while it
+; is dying, and fastest in the last third of the fight. The far band takes
+; half of whatever the near band gets, which is what separates the two depths
+; in motion.
+;
+; Both accumulators are 8.8 and wrap on their own sixteen bits (256.0 px),
+; which is the OAM y byte's own modulus — so there is no wrap test here and
+; none in the draw.
+;
+; In/out: A16/I16, DB=0. Clobbers A. No sep/rep in this body.
+stars_update:
+    .a16
+    .i16
+    lda z:US_B_STATE
+    cmp #SAU_ST_FIGHT
+    bne @calm
+    lda z:US_B_PHASE                ; 0..2, the HP thirds
+    ; `::` because ca65 2.18 will not take a .repeat count that is an
+    ; unqualified symbol from OUTSIDE the enclosing .scope — it reports
+    ; "Constant expression expected", which reads as a missing definition
+    ; rather than as a scope lookup. The same shape appears twice in
+    ; draw_stars below.
+    .repeat ::SAU_STAR_PH_SH
+        asl                         ; * SAU_STAR_PH, the per-phase step
+    .endrepeat
+    clc
+    adc #SAU_STAR_FIGHT
+    bra @have
+@calm:
+    .a16
+    lda #SAU_STAR_CALM
+@have:
+    .a16
+    sta z:US_SCR                    ; this frame's NEAR rate, 8.8 px
+    clc
+    adc z:US_STAR_NEAR
+    sta z:US_STAR_NEAR
+    lda z:US_SCR
+    lsr                             ; the far band drifts at HALF the rate
+    clc
+    adc z:US_STAR_FAR
+    sta z:US_STAR_FAR
     rts
 
 ; =============================================================================
@@ -847,13 +902,19 @@ saucer_phase:
 ; draw_frame — the stable slot map, every slot every frame
 ; =============================================================================
 ; 0 gunship · 1-16 the beam lance · 17-24 HP HUD · 25-28 shots · 29 thruster ·
-; 30-53 card cells. Dead or unused slots park at SAU_PARK_Y so slot identity
-; is stable; the fourteen hi-table bytes are cleared first
-; and rebuilt whole by the sau_put calls.
+; 30-53 card cells · 56-79 the star field. Dead or unused slots park at
+; SAU_PARK_Y so slot identity is stable; the twenty hi-table bytes are cleared
+; first and rebuilt whole by the sau_put calls.
+;
+; The stars go FIRST because that is what they are — the layer behind
+; everything, drawn under the plane. Nothing in the order is load-bearing
+; (each routine owns disjoint slots and every scratch word is written before
+; it is read inside one pass); it is written this way to be read this way.
 draw_frame:
     .a16
     .i16
     jsr sau_hi_clear
+    jsr draw_stars
     jsr draw_player
     jsr draw_beam
     jsr draw_hp_hud
@@ -1164,6 +1225,139 @@ draw_exhaust:
     ldx #ES_O_EXHAUST * 4
     jsr sau_park_slot
     rts
+
+; =============================================================================
+; draw_stars — slots 56-79, the sky, on the sprite layer and under the plane
+; =============================================================================
+; TWO BANDS OF TWELVE, each emitted by the same loop with different parameters.
+; A band's screen position is its home table plus two offsets that are computed
+; ONCE per band, so the per-star work is two adds, a mask and a sau_put:
+;
+;   y = (home_y + (scroll >> 8)) & 255   — the drift. The mask is the whole
+;       wrap: OAM y is a byte, rows 224..255 are off the bottom of a 224-line
+;       screen, and the PPU's own (scanline - y) & 255 comparison brings a
+;       sprite back in at the top. So a star slides off the bottom and slides
+;       in at the top with no test and no pop.
+;   x = home_x + (SCREEN_CX >> SH) - (hull_centre >> SH)  — the parallax. The
+;       gunship IS the camera on this rail, so its strafe is the only honest
+;       sideways motion available, and the field counter-slides against it.
+;       Each term is shifted separately (both are positive, so this is a plain
+;       lsr and the difference carries the sign): SH = 3 for the near band and
+;       4 for the far, the same half-rate relationship the drift has.
+;
+; NOTHING HERE READS THE MATRIX, and that is the point of the whole change: a
+; star's rendered size is its 8x8 cell at every pose the four scale ramps
+; reach. The field it replaces was painted into the Mode 7 plane and therefore
+; zoomed with the saucer.
+;
+; WIDTH-RISK: A16/I16 entry AND exit, and no sep/rep in this body or in
+; star_band — sau_put is A16/I16 both sides.
+draw_stars:
+    .a16
+    .i16
+    lda z:US_P_X
+    clc
+    adc #SAU_PLAYER_W / 2
+    sta z:US_SCR                    ; the hull's centre column, both bands' input
+    ; ---- the FAR band: half the drift, half the slide --------------------
+    lda z:US_SCR
+    .repeat ::SAU_STAR_PAR_FAR_SH
+        lsr
+    .endrepeat
+    sta z:US_STAR_DX
+    lda #(SAU_EMIT_CX >> SAU_STAR_PAR_FAR_SH)
+    sec
+    sbc z:US_STAR_DX                ; signed: + when the ship is left of centre
+    sta z:US_STAR_DX
+    lda z:US_STAR_FAR
+    xba
+    and #255                        ; the accumulator's whole-pixel half
+    sta z:US_STAR_DY
+    lda #SAU_T_STAR_FAR | (SAU_STAR_ATTR << 8)
+    sta z:US_STAR_T
+    stz z:US_DI
+    lda #2 * SAU_STAR_FAR_N
+    sta z:US_STAR_END
+    jsr star_band
+    ; ---- the NEAR band: it starts where the far band's table ended -------
+    lda z:US_SCR
+    .repeat ::SAU_STAR_PAR_SH
+        lsr
+    .endrepeat
+    sta z:US_STAR_DX
+    lda #(SAU_EMIT_CX >> SAU_STAR_PAR_SH)
+    sec
+    sbc z:US_STAR_DX
+    sta z:US_STAR_DX
+    lda z:US_STAR_NEAR
+    xba
+    and #255
+    sta z:US_STAR_DY
+    lda #SAU_T_STAR_NEAR | (SAU_STAR_ATTR << 8)
+    sta z:US_STAR_T
+    lda #2 * SAU_STAR_N
+    sta z:US_STAR_END
+    jsr star_band
+    rts
+
+; --- star_band: one depth band, from US_DI to US_STAR_END ------------------
+; In:  A16/I16, DB=0. US_DI = the first star's WORD offset into the home
+;      tables, US_STAR_END = one past the last, US_STAR_DX / US_STAR_DY = the
+;      band's screen offset, US_STAR_T = tile | attr << 8.
+; Out: A16/I16, US_DI = US_STAR_END. Clobbers A, X, Y.
+star_band:
+    .a16
+    .i16
+@loop:
+    .a16
+    .i16
+    ldx z:US_DI
+    lda f:star_home_x, x
+    clc
+    adc z:US_STAR_DX
+    sta z:ES_SAU_DRAW + SAU_D_X
+    lda f:star_home_y, x
+    clc
+    adc z:US_STAR_DY
+    and #255                        ; the OAM y byte IS the wrap (see above)
+    sta z:ES_SAU_DRAW + SAU_D_Y
+    stz z:ES_SAU_DRAW + SAU_D_SIZE  ; every star is 8x8 (OBSEL pair 0, small)
+    txa
+    lsr                             ; word offset -> star index
+    clc
+    adc #ES_O_STARS
+    asl
+    asl                             ; slot * 4 = shadow byte offset
+    tax
+    lda z:US_STAR_T
+    jsr sau_put
+    lda z:US_DI
+    inc a
+    inc a
+    sta z:US_DI
+    cmp z:US_STAR_END
+    bcc @loop
+    rts
+
+; --- the star homes: twelve far (0-11), twelve near (12-23) ---------------
+; THE ROW SPACING IS A HARDWARE BUDGET, not a look. A band shares one scroll
+; offset, so its stars keep their spacing forever; spacing every pair of a
+; band at least 16 rows apart over the y byte's 256 therefore means no two
+; stars of one band can EVER share a scanline (a star is 8 rows tall). At most
+; one far star and one near star can coincide, so this whole field costs any
+; scanline 2 of its 32 sprites and 2 of its 34 tile slivers, whatever the
+; fight is doing — which is why a sparse field on OBJ is affordable where a
+; dense one would drop the gunship.
+;
+; The columns are scattered by hand between 16 and 232 so the widest strafe
+; slide (+/- 14 px) cannot push a star past either screen edge — which keeps
+; every X9 bit 0 without sau_put having to assume it.
+star_home_x:
+    .word 30, 187, 96, 224, 58, 141, 19, 210, 118, 74, 165, 43     ; far
+    .word 152, 66, 231, 108, 25, 196, 84, 172, 47, 129, 218, 93    ; near
+star_home_y:
+    .word 3, 26, 44, 68, 88, 110, 133, 152, 175, 196, 217, 239     ; far
+    .word 14, 35, 57, 79, 99, 121, 142, 163, 186, 206, 228, 248    ; near
 
 ; =============================================================================
 ; The text cards — the boot title and the result word, as OBJ glyphs

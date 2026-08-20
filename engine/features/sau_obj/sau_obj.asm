@@ -5,9 +5,9 @@
 ; palette into CGRAM, OBSEL, the shot pool cleared through `pool_init`.
 ; Emitting (every frame, from the scene's draw): the stable slot map — 0
 ; gunship, 1-16 beam, 17-24 HP HUD, 25-28 shots, 29 thruster, 30-53 card cells,
-; 54-55 pad — every slot emitted every frame, live at its position or parked at
-; SAU_PARK_Y, so slot identity is stable and a test reads an actor by slot
-; rather than by searching OAM for a plausible sprite.
+; 54-55 pad, 56-79 the star field — every slot emitted every frame, live at its
+; position or parked at SAU_PARK_Y, so slot identity is stable and a test reads
+; an actor by slot rather than by searching OAM for a plausible sprite.
 ;
 ; NOTHING HERE PROJECTS. Every actor is SCREEN-space — the gunship strafes in
 ; screen pixels, the beam segments stack at screen pixels and the beam column
@@ -15,10 +15,11 @@
 ; Mode 7 consumer on this rail is the floor, through m7_track/m7_affine.
 ;
 ; THE X9 BIT IS DERIVED EVERY FRAME, NEVER ASSUMED (mo_obj's discipline). On
-; this rail no actor's x can exceed 236, so the bit is always 0 — but derived-
-; not-assumed costs one AND and survives the day a card gets wider. All
-; fourteen hi-table bytes are cleared at the top of the draw and rebuilt whole,
-; which is why the two pad slots are claimed at all.
+; this rail no actor's x can exceed 245 — the widest is a near star at its home
+; 231 plus the +14 the strafe parallax can push it — so the bit is always 0,
+; but derived-not-assumed costs one AND and survives the day a card gets wider
+; or a star home moves. All twenty hi-table bytes are cleared at the top of the
+; draw and rebuilt whole, which is why the two pad slots are claimed at all.
 
 ; The enter-time GP-DMA register file, addressed through the channel the
 ; sau_obj_up dma_init claim names — a declared resource, not a hard-coded 0.
@@ -28,12 +29,24 @@ SAU_OBJ_REGS = $4300 + ES_D_SAU_OBJ_UP_CH * 16
 ; four-byte low entries. Derived from the claim's own SIZE.
 SAU_HI_BASE = ES_OAM_SHADOW + ES_OAM_SHADOW_SIZE - 32
 
-; The hi-table bytes this feature owns: slots 0..55 is exactly 14 bytes, with
+; The last slot this feature owns, +1 — the star band ends the map. Every
+; derivation below (the hi-table width, the enter-time park sweep) keys off
+; this rather than off a written-out 80, so adding or resizing a band moves
+; them together.
+SAU_SLOT_END = ES_O_STARS + ES_O_STARS_SPRITES
+
+; The hi-table bytes this feature owns: slots 0..79 is exactly 20 bytes, with
 ; nothing left mid-byte. Derived from the claim set, so growing the card band
 ; without growing the pad is a build-time contradiction rather than a stale X9
 ; bit at runtime.
-SAU_HI_BYTES = (ES_O_HI_PAD + ES_O_HI_PAD_SPRITES) / 4
-.assert (ES_O_HI_PAD + ES_O_HI_PAD_SPRITES) .mod 4 = 0, error, "the sau_obj slot bands do not tile whole hi-table bytes"
+SAU_HI_BYTES = SAU_SLOT_END / 4
+.assert SAU_SLOT_END .mod 4 = 0, error, "the sau_obj slot bands do not tile whole hi-table bytes"
+
+; The two OBJ palettes are pinned CONTIGUOUS so one enter-time loop uploads
+; both from one blob. Asserted, not assumed: a claim moved to a different
+; CGRAM word would otherwise upload the star tones over somebody else.
+.assert ES_C_STAR_PAL = ES_C_SPRITE_PAL + ES_C_SPRITE_PAL_WORDS, error, "the star OBJ palette is not contiguous with the cast's"
+.assert ES_R_SAU_SPRITE_PAL_SIZE = 2 * (ES_C_SPRITE_PAL_WORDS + ES_C_STAR_PAL_WORDS), error, "the sprite palette blob does not fill both OBJ palettes"
 
 ; --- this feature's DP scratch (the sau_draw claim), named -----------------
 SAU_D_X    = 0                  ; 2 — the OAM x being placed (9-bit space)
@@ -91,9 +104,10 @@ obj_arm:
     lda #(1 << ES_D_SAU_OBJ_UP_CH)
     sta a:$420B                     ; fire (enter-time: the channel regs are free)
 
-    ; ---- the palette: sixteen words at OBJ palette 0 ----------------------
+    ; ---- the palettes: thirty-two words from OBJ palette 0 ----------------
     lda #ES_C_SPRITE_PAL
-    sta a:$2121                     ; CGADD = 128, the claim's contract
+    sta a:$2121                     ; CGADD = 128; the blob runs on into
+                                    ;   palette 1 (the asserted adjacency)
     rep #$20
     .a16
     ldx #0
@@ -164,16 +178,16 @@ obj_park:
     inx
     inx
     inx
-    cpx #((ES_O_HI_PAD + ES_O_HI_PAD_SPRITES) * 4)
+    cpx #(SAU_SLOT_END * 4)
     bcc @slot
     jsr sau_hi_clear
     rts
 
-; --- sau_hi_clear: the fourteen hi-table bytes this feature owns -----------
+; --- sau_hi_clear: the twenty hi-table bytes this feature owns -------------
 ; In/out: A16/I16, DB=0. Clobbers A, X.
 ;
-; Fifty-six slots is exactly fourteen bytes, every one owned whole — the reason
-; the pad slots exist. Clearing before the draw is what lets sau_put OR its two
+; Eighty slots is exactly twenty bytes, every one owned whole — the reason the
+; pad slots exist. Clearing before the draw is what lets sau_put OR its two
 ; bits in without inheriting last frame's X9 or SIZE (mo_hi_clear's
 ; stale-MO_LARGE lesson: the direction that hurts is an 8x8 rendered 16x16,
 ; sampling the three tiles after it).

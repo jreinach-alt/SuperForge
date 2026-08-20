@@ -85,13 +85,18 @@ bytes = 32
 # one row, because this rail composes its title and result cards out of GLYPH
 # sprites. Player 16x16 x2 frames at {0,1,16,17}/{2,3,18,19}; the 8x8 cast in
 # row 0's tail (shot 5, pip lit 6, pip dim 7, beam body 8, beam telegraph 12,
-# muzzle flare 13) plus the exhaust and banner cells; the eighteen glyph faces
-# from tile 20.
+# muzzle flare 13, far star 14, near star 15) plus the exhaust and banner
+# cells; the eighteen glyph faces from tile 20. The two star faces cost the
+# sheet nothing — they took row 0's last two cells, which were already
+# allocated and blank.
 [[claims.rom]]
 name = "sau_sprite_chr"
 bytes = 1536
 
-# One OBJ palette, 16 BGR555 words — one ramp for the whole cast.
+# BOTH OBJ palettes, 32 BGR555 words: palette 0 (the cast, CGRAM 128..143)
+# then palette 1 (the star field, 144..159). One blob because the two cgram
+# claims are pinned contiguous, so one enter-time loop uploads both; sau_obj's
+# feature.toml carries why the stars get a palette of their own.
 [[claims.rom]]
 name = "sau_sprite_pal"
-bytes = 32
+bytes = 64
