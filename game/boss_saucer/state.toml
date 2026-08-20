@@ -45,9 +45,11 @@ beam_timer = "u16@dp"    # telegraph then active countdown. Folding this into
                          #   phases never overlap; a second word is cheaper
                          #   than that argument's maintenance cost, and removes
                          #   a whole class of "the dwell reset the beam" defect
-beam_x = "u16@dp"        # the column, LOCKED to the player's body centre at
-                         #   the approach's last frame — the dodge window is
-                         #   the telegraph that follows
+beam_x = "u16@dp"        # the column the lance aims AT, LOCKED to the
+                         #   player's body centre with TELE_F - 1 frames of the
+                         #   dive still to run — the dodge window is the
+                         #   telegraph that follows, and the sight line points
+                         #   at this column for all of it
 
 # --- the player ------------------------------------------------------------
 p_x = "u16@dp"           # screen x, clamped 8..232; y is the constant PLAYER_Y
@@ -66,9 +68,13 @@ paused = "u16@dp"        # 1 = START froze the fight. The state machine and the
 # --- per-frame cursors and scratch (write-before-read inside one tick) -----
 ui = "u16@dp"            # update-loop pool cursor (byte offset)
 di = "u16@dp"            # draw-loop cursor (pool slots, HUD pips, beam segs)
-hud_x = "u16@dp"         # HUD segment / beam segment x cursor
-hud_thr = "u16@dp"       # HUD segment threshold accumulator
-scr = "u16@dp"           # one-word scratch (the track index, the tile pick)
+hud_x = "u16@dp"         # HUD segment x cursor; during draw_beam the LANCE's
+                         #   x accumulator, in 8.8 (the walk's only fractional
+                         #   axis — see arena.asm's draw_beam)
+hud_thr = "u16@dp"       # HUD segment threshold accumulator; during draw_beam
+                         #   the lance's y cursor, whole pixels
+scr = "u16@dp"           # one-word scratch (the track index, the tile pick,
+                         #   the lance's 8.8 x step)
 pen_x = "u16@dp"         # glyph pen x (advanced SAU_GTEXT_ADV per cell)
 pen_y = "u16@dp"         # glyph pen y (held across a row)
 card_i = "u16@dp"        # the next free cell in the 24-slot card band

@@ -2,9 +2,9 @@
 
 THE WHOLE CYCLE, IN ORDER, and the clip is sized to hold exactly one of it:
 the saucer grows in over the star field, settles at rest size, lunges (which
-is the scale axis m7_affine does not have), telegraphs its beam and fires the
-column, and — because the drive is shooting the entire time — breaks off,
-recedes and dies. The result card holds over the live arena, the screen fades
+is the scale axis m7_affine does not have), aims a sight line down out of its
+own emitter and fires the lance along it, and — because the drive is shooting
+the entire time — breaks off, recedes and dies. The result card holds over the live arena, the screen fades
 out, and the arena re-arms behind the black.
 
 THE LOOP POINT IS THE FADE, AND ON THIS RAIL IT IS THE REAL THING. `su_result`
@@ -23,11 +23,15 @@ Measured on this binary: the first kept capture sits at fade level 1 of 15 —
 the arena at 6% over a star field, which is the black the fade-out closes on.
 The cycle is 254 captures, 12.7 s at 1:1, and CAPTURES is the ceiling over it.
 
-THE DODGE IS THE CHOREOGRAPHY. The beam latches onto the player's lane at the
-lunge apex, so the telegraph is a dodge window and standing in it is what
-ignoring the window costs. This drive flips lanes on the telegraph's RISING
-EDGE — read off US_BEAM_STATE, not counted to — so every beam in the clip is
-a real dodge rather than a light show.
+THE DODGE IS THE CHOREOGRAPHY, AND IT IS NOW ALSO THE ONLY WAY TO WIN. The
+beam is latched onto the gunship's lane with two-thirds of the dive still to
+run, and it is drawn as a lance from the saucer's own ventral emitter to that
+lane — so the telegraph is a sight line the player can read and leave. This
+drive latches a dodge direction on the telegraph's RISING EDGE (read off
+US_BEAM_STATE, not counted to), holds it only until the ship is clear of the
+column, and then steers back under the saucer, because the saucer's hitbox is
+its RENDERED disc: bolts only land from underneath. Measured on this binary,
+a drive that just held a lane died with the saucer on 35 hp.
 
 A IS HELD THROUGHOUT. Full gameplay speed, and it is also what makes the take
 terminate: the HP drain is what turns the window into a whole fight instead of
@@ -56,9 +60,10 @@ def _dp(name, scene="arena"):
 
 
 ST, BM, HP = (_dp(n) for n in ("US_B_STATE", "US_BEAM_STATE", "US_B_HP"))
+PX, BX = (_dp(n) for n in ("US_P_X", "US_BEAM_X"))
 FADE = _dp("ES_FADE_CTL")
-BM_TELEGRAPH = 1                # sau_obj's own enum: 0 idle, 1 telegraph, 2 fire
 SAU_ST_RESULT = 6               # saucer.inc: hold the card, then fade to RESET
+SPAWN_X = 120                   # saucer.inc: SAU_PLAYER_X0
 
 
 def _u16(r, off):
@@ -73,7 +78,7 @@ def _black(r):
 
 
 class Fight:
-    """One capture per call; A held, lanes flipped on the telegraph edge.
+    """One capture per call; A held, each beam dodged once, then back to lane.
 
     The take CLOSES ON THE ROM: once the result card has been up, the next
     capture that finds the ramp finished at brightness 0 is the last one. The
@@ -82,19 +87,31 @@ class Fight:
     """
 
     def __init__(self):
-        self.dir = "left"
+        self.dodge = None
         self.prev_beam = 0
         self.done = False
         self.seen_result = False
 
-    def __call__(self, r, i):
-        beam = _u16(r, BM)
-        if beam == BM_TELEGRAPH and self.prev_beam != BM_TELEGRAPH:
-            self.dir = "right" if self.dir == "left" else "left"
+    def _pad(self, r):
+        beam, px, bx = _u16(r, BM), _u16(r, PX), _u16(r, BX)
+        if beam and not self.prev_beam:
+            self.dodge = "right" if bx < 128 else "left"
         self.prev_beam = beam
+        if beam:
+            # hold the latched direction only until the column cannot reach
+            return {self.dodge: True} if abs(px + 4 - bx) < 28 else {}
+        self.dodge = None
+        if px < SPAWN_X - 2:
+            return {"right": True}
+        if px > SPAWN_X + 2:
+            return {"left": True}
+        return {}
+
+    def __call__(self, r, i):
+        pad = self._pad(r)
         if _u16(r, ST) == SAU_ST_RESULT:
             self.seen_result = True
-        r.frame_step(STEP, a=True, **{self.dir: True})
+        r.frame_step(STEP, a=True, **pad)
         if self.seen_result and _black(r):
             self.done = True
 

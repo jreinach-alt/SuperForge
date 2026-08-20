@@ -44,7 +44,7 @@ PLANTS = [
         old="""    lda #SAU_LUNGE_FRAMES + 1
     sec
     sbc z:US_LUNGE_TIMER
-    sta z:US_SCR                    ; idx, 1..45
+    sta z:US_SCR                    ; idx, 1..44
     M7T_BIND ::sau_appr_bin""",
         new="""    lda #0
     sta z:US_SCR                    ; PLANT: the dive's cursor never advances
@@ -100,9 +100,9 @@ PLANTS = [
     sta z:US_BEAM_X""",
         artifact=ROM,
         build=["boss_saucer"],
-        tests=[T + "test_the_beam_renders_a_seamless_column_locked_to_the_player",
+        tests=[T + "test_the_beam_lances_from_the_saucers_emitter_to_the_locked_column",
                T + "test_strafing_out_of_the_telegraph_dodges_the_beam"],
-        why="the beam's whole design is that the apex LATCHES the column onto "
+        why="the beam's whole design is that the dive LATCHES the column onto "
             "wherever the player is standing, so the telegraph is a real "
             "dodge window. A fixed column looks identical on a stationary "
             "player — the autonomous LOSE path still works, the beam still "
@@ -113,7 +113,7 @@ PLANTS = [
             "column to, and a constant column was the same picture as a "
             "latched one (2 passed against a defect that reached the "
             "artifact). The remediation drives LEFT to the clamp BEFORE the "
-            "latch in both tests, so the lock test's `bx == p_x + 4` is a "
+            "latch in both tests, so the lance test's `bx != SPAWN_X + 4` is a "
             "claim about a column that followed and the dodge test's arms "
             "both depend on the latch; measured planted, 2 failed",
     ),
@@ -130,15 +130,16 @@ PLANTS = [
                                     ;   beam damages from its first frame""",
         artifact=ROM,
         build=["boss_saucer"],
-        tests=[T + "test_the_beam_renders_a_seamless_column_locked_to_the_player",
+        tests=[T + "test_the_beam_lances_from_the_saucers_emitter_to_the_locked_column",
                T + "test_strafing_out_of_the_telegraph_dodges_the_beam"],
         why="collapsing the two beam phases removes the dodge window without "
             "removing the beam: it still renders, still costs hearts, still "
             "drives the LOSE path — the fight is merely unfair. The telegraph "
-            "is the stated design (24 frames of dim, every-other "
-            "segment) and its render is the sparse column the lock test "
-            "asserts slot by slot; the dodge test's strafe arm goes red "
-            "because the damage lands before the player can leave",
+            "is the stated design (24 frames of the thin sight cell on "
+            "every other segment, drawn while the dive is still running) and "
+            "its render is the sparse sight line the lance test asserts cell "
+            "by cell; the dodge test's strafe arm goes red because the damage "
+            "lands before the player can leave",
     ),
     Plant(
         id="kill-skips-the-break-off",

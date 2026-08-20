@@ -64,9 +64,24 @@ BM_OFF, BM_TELE, BM_FIRE = 0, 1, 2
 
 T_SHOT, T_PIP_LIT, T_PIP_DIM, T_BEAM = 5, 6, 7, 8
 T_CARDBG = 11
+T_BEAM_TELE, T_BEAM_FLARE = 12, 13
 PARK_Y = 240
 O_BEAM, O_HUD, O_SHOTS, O_EXH, O_CARDS, O_PAD = 1, 17, 25, 29, 30, 54
-BEAM_SEGS, BEAM_Y0, BEAM_PITCH = 16, 56, 8
+# saucer.inc's beam vocabulary: the walk starts on the emitter (the Mode 7
+# pivot, shown at the screen centre) and steps SEGS times toward the latched
+# column, delta * MUL/256 per step.
+BEAM_SEGS, BEAM_X0, BEAM_Y0, BEAM_PITCH, BEAM_MUL = 16, 124, 108, 5, 17
+SPAWN_X = 120                                  # SAU_PLAYER_X0
+
+# The disc's own geometry, straight out of the generator's predicate
+# (`tile_color`: `r > 22.0` is sky), so the rendered diameter below is an
+# ORACLE over the envelope rather than a remembered number: a Mode 7 scale
+# maps screen->texel, so the disc covers DISC_MAP_PX * 256 / scale screen px.
+DISC_MAP_PX = 2 * 22.0 * 8
+
+
+def _disc_px(scale):
+    return DISC_MAP_PX * 256 / scale
 
 # tad-audio.s at the pin: TadState::PLAYING; the SPC-side songTickCounter is
 # the driver's third zeropage byte (tests/test_slice_b_audio.py's derivation).
@@ -127,9 +142,34 @@ def _centroid(img, colours):
     return (sx / n, sy / n, n) if n else (None, None, 0)
 
 
+def _span(img, colours):
+    """Widest horizontal extent of `colours` anywhere in the frame."""
+    w = img.width
+    xs = [i % w for i, px in enumerate(img.getdata()) if px in colours]
+    return (max(xs) - min(xs) + 1) if xs else 0
+
+
+def _bbox(img, colours):
+    w = img.width
+    pts = [(i % w, i // w) for i, px in enumerate(img.getdata())
+           if px in colours]
+    if not pts:
+        return None
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
 def _rd16(m, off):
     b = m.read_bytes(MemoryType.SnesWorkRam, off, 2)
     return b[0] | (b[1] << 8)
+
+
+def _scale(m):
+    """The live matrix scale, from the readable shadow: M7A/M7B are
+    (cos, sin) * scale >> 8, so their magnitude IS the scale."""
+    a, b, _, _ = _shadow(m)
+    return round((a * a + b * b) ** 0.5)
 
 
 def _shadow(m):
@@ -169,6 +209,56 @@ def _run_until(m, off, want, max_frames, pad=None, step=2):
                          f"frames (at {_rd16(m, off)})")
 
 
+class _Kill:
+    """The drive that WINS the fight: hold A under the saucer, dodge each
+    latched column once, come back to the lane.
+
+    Holding A on the spawn lane is no longer enough on its own, and that is a
+    consequence of the re-pitched envelope rather than a tuning accident: the
+    saucer's hitbox is its RENDERED disc now (a 224 px box would delete bolts
+    in open star field), so a bolt only connects from under the saucer, while
+    a beam that lands still costs a heart. Measured standing still on this
+    binary: the gunship dies with the saucer on 35 hp.
+
+    THE DODGE DIRECTION IS LATCHED ON THE BEAM'S RISING EDGE. A per-frame
+    "move away from the column" rule oscillates about it at 3 px/frame and
+    never leaves — measured, the ship jittered 120..123 through three whole
+    beams and lost.
+    """
+
+    def __init__(self):
+        self.dodge = None
+        self.prev = 0
+
+    def pad(self, m):
+        bm, px, bx = _rd16(m, BM_STATE), _rd16(m, PX), _rd16(m, BEAM_X)
+        if bm and not self.prev:
+            self.dodge = "right" if bx < 128 else "left"
+        self.prev = bm
+        if bm:
+            if abs(px + 4 - bx) < 28:
+                return {"a": True, self.dodge: True}
+            return {"a": True}
+        self.dodge = None
+        if px < SPAWN_X - 2:
+            return {"a": True, "right": True}
+        if px > SPAWN_X + 2:
+            return {"a": True, "left": True}
+        return {"a": True}
+
+
+def _kill_until(m, off, want, max_frames=4000):
+    """Advance under the winning drive until WRAM word `off` reads `want`.
+    Sequencing only."""
+    k = _Kill()
+    for _ in range(max_frames):
+        m.advance(1, pad1=k.pad(m))
+        if _rd16(m, off) == want:
+            return k
+    raise AssertionError(f"{off:#x} never reached {want} under the kill drive "
+                         f"(at {_rd16(m, off)})")
+
+
 @pytest.fixture(scope="module", autouse=True)
 def _built():
     assert Path(ROM).exists(), "run `make boss_saucer` first"
@@ -203,22 +293,36 @@ def test_the_reveal_grows_the_saucer_on_screen(tmp_path):
     from the T=19 park on, and the last in-REVEAL park is T=63 (timer 1).
     Each screenshot costs one emulated frame (machine.py), so the advances
     below park at T=22, 42, 63; the two guards are sequencing, the pixels are
-    the assertion."""
+    the assertion.
+
+    THE SPAN IS AN ORACLE, not a remembered number. The disc's map radius is
+    the generator's own predicate (22.0 tiles) and a Mode 7 scale maps
+    screen->texel, so at the live shadow's scale the rendered diameter must be
+    DISC_MAP_PX * 256 / scale. That ties the picture to the schedule at both
+    ends: move the envelope OR the art and it fires."""
     with Machine(ROM) as m:
         m.advance(22)                         # 3 parks past fade-done
         fade = tuple(m.read_bytes(MemoryType.SnesWorkRam, FADE, 2))
         assert fade == (15, 0), \
             f"early park not at full brightness (fade level/dir {fade})"
-        early = _count(_pixels(m, tmp_path / "e.png"), FACE_COLOURS)
+        img = _pixels(m, tmp_path / "e.png")
+        early, e_span, e_scale = (_count(img, FACE_COLOURS),
+                                  _span(img, FACE_COLOURS), _scale(m))
         m.advance(19)                         # mid ramp
         mid = _count(_pixels(m, tmp_path / "m.png"), FACE_COLOURS)
         m.advance(20)                         # the LAST park still in REVEAL
         st, timer = _rd16(m, ST), _rd16(m, TIMER)
         assert (st, timer) == (REVEAL, 1), \
             f"rest park drifted out of the ramp (state {st}, timer {timer})"
-        rest = _count(_pixels(m, tmp_path / "r.png"), FACE_COLOURS)
+        img = _pixels(m, tmp_path / "r.png")
+        rest, r_span, r_scale = (_count(img, FACE_COLOURS),
+                                 _span(img, FACE_COLOURS), _scale(m))
     assert 0 < early < mid < rest, (early, mid, rest)
-    assert early * 3 < rest, f"far pose {early} not far vs rest {rest}"
+    assert early * 1.4 < rest, f"far pose {early} not far vs rest {rest}"
+    for span, scale, tag in ((e_span, e_scale, "far"), (r_span, r_scale, "rest")):
+        assert abs(span - _disc_px(scale)) <= 3, \
+            f"the {tag} pose renders {span} px of disc, not the "\
+            f"{_disc_px(scale):.1f} px its scale {scale} calls for"
 
 
 def test_the_reveal_matrix_matches_the_baked_track_every_frame():
@@ -271,7 +375,10 @@ def test_the_hold_spins_the_ring_at_rest_scale(tmp_path):
         img2 = _pixels(m, tmp_path / "h1.png")
     assert checked >= 8, f"HOLD ended before the ring was sampled ({checked})"
     n1, n2 = _count(img1, FACE_COLOURS), _count(img2, FACE_COLOURS)
-    assert n1 > 20000, f"the saucer is not at rest size in HOLD ({n1})"
+    span = _span(img1, FACE_COLOURS)
+    assert abs(span - _disc_px(GT.INIT_SCALE)) <= 3, \
+        f"HOLD renders {span} px of disc, not the rest scale's "\
+        f"{_disc_px(GT.INIT_SCALE):.1f}"
     assert abs(n1 - n2) < n1 * 0.10, (n1, n2)
     moved = sum(1 for p, q in zip(img1.getdata(), img2.getdata()) if p != q)
     assert moved > 2000, f"only {moved} pixels changed across the hold spin"
@@ -286,30 +393,42 @@ def test_the_lunge_grows_then_shrinks_the_saucer(tmp_path):
     (it shrinks back) -> FAR (rest again). A test that photographed only the
     approach would lock the dive and ship the climb broken.
 
-    Measured on the emitter probe, not the whole face, for the reason
-    EMITTER_COLOURS records: the face count saturates at the apex and cannot
-    order two poses there. The final `home` check is what makes this a CYCLE
-    rather than two ramps — the pose the dive left from is the pose the climb
-    returns to."""
-    def emit(m, name):
-        n = _count(_pixels(m, tmp_path / name), EMITTER_COLOURS)
-        assert n < 30000, f"the emitter probe saturated at {n} px"
-        return n
+    MEASURED ON THE WHOLE FACE, and the debut's reason for using the emitter
+    instead is now GONE: the emitter probe existed because the face count
+    saturated once the saucer covered the screen (the apex rendered 56,437
+    face pixels of 57,344 and could not order two poses). The re-pitched
+    envelope's largest pose is a 141 px disc — 15k of 57k — so the face is
+    both unsaturated and the far bigger, steadier probe. It is also the
+    probe the emitter can no longer be: the beam now fires FROM the emitter,
+    so a flare cell sits on top of it for every frame of the apex.
+
+    THE RATIO IS TWO-SIDED AND DERIVED. Area goes as 1/scale^2, so the
+    apex/far ratio must land near (INIT/NEAR)^2 = 2.0. A one-sided ">" would
+    pass on a dive that overshot to the debut's screen-filling apex, which is
+    the defect this rail was re-pitched to remove.
+
+    The final `home` check is what makes this a CYCLE rather than two ramps —
+    the pose the dive left from is the pose the climb returns to."""
+    def face(m, name):
+        img = _pixels(m, tmp_path / name)
+        n = _count(img, FACE_COLOURS)
+        assert n < 25000, f"the face probe saturated at {n} px"
+        return n, _span(img, FACE_COLOURS)
 
     with Machine(ROM) as m:
         _run_until(m, ST, FIGHT, 300)
         _run_until(m, LG_STATE, LG_FAR, 200)
         m.advance(1)
-        far = emit(m, "far.png")
+        far, far_span = face(m, "far.png")
         _run_until(m, LG_STATE, LG_APPR, 200)
-        m.advance(20)
-        mid_in = emit(m, "in.png")
+        m.advance(10)
+        mid_in, _ = face(m, "in.png")
         _run_until(m, LG_STATE, LG_NEAR, 200)
         m.advance(2)
-        apex = emit(m, "apex.png")
+        apex, apex_span = face(m, "apex.png")
         _run_until(m, LG_STATE, LG_RETR, 300)
         m.advance(20)
-        mid_out = emit(m, "out.png")
+        mid_out, _ = face(m, "out.png")
         # ...and the climb's LAST frame, which is the only sample that can
         # tell a climb from a second dive. Measured: bind the DIVE blob to the
         # climb (`make falsify`'s lunge-climb-binds-the-dive) and the ordering
@@ -320,17 +439,72 @@ def test_the_lunge_grows_then_shrinks_the_saucer(tmp_path):
             if _rd16(m, LG_STATE) != LG_RETR or _rd16(m, LG_TIMER) <= 2:
                 break
             m.advance(1)
-        climb_end = emit(m, "climb_end.png")
+        climb_end, _ = face(m, "climb_end.png")
         _run_until(m, LG_STATE, LG_FAR, 300)
         m.advance(2)
-        home = emit(m, "home.png")
+        home, _ = face(m, "home.png")
     assert far < mid_in < apex, ("the dive did not grow", far, mid_in, apex)
     assert apex > mid_out > far, ("the climb did not shrink", apex, mid_out, far)
-    assert apex > far * 2, f"the dive barely grew the saucer ({far} -> {apex})"
+    want = (GT.INIT_SCALE / GT.NEAR_SCALE) ** 2
+    assert want * 0.85 < apex / far < want * 1.15, \
+        f"the dive grew the face {apex / far:.2f}x, not the {want:.2f}x its " \
+        f"own scale schedule ({GT.INIT_SCALE} -> {GT.NEAR_SCALE}) calls for"
+    for span, scale, tag in ((far_span, GT.INIT_SCALE, "rest"),
+                             (apex_span, GT.NEAR_SCALE, "apex")):
+        assert abs(span - _disc_px(scale)) <= 3, \
+            f"the {tag} pose renders {span} px of disc, not the " \
+            f"{_disc_px(scale):.1f} px scale {scale} calls for"
     assert abs(climb_end - far) < far * 0.15, \
         f"the climb did not END at the rest pose ({far} vs {climb_end})"
     assert abs(home - far) < far * 0.06, \
         f"the cycle did not return to the rest pose ({far} -> {home})"
+
+
+def test_the_saucer_stays_inside_the_screen_and_never_magnifies(tmp_path):
+    """THE RE-PITCHED ENVELOPE, asserted on the rendered picture across a whole
+    fight. The debut's lunge apex ran the matrix to scale 160 — a 563 px disc
+    on a 256 px screen, magnifying every texel 1.6x, which is what made the
+    apex read as a pixelated square instead of a saucer. Three bounds, each
+    one a thing a viewer can see, sampled every other frame through a complete
+    FAR -> APPROACH -> NEAR -> RETREAT cycle:
+
+      * NEVER MAGNIFIED. scale >= 256 means at most one screen pixel per
+        texel. Read off the matrix shadow, which is what the floor renders
+        with.
+      * NEVER WIDER THAN 144 px. The gunship's hull top is row 184 and the
+        saucer is centred on row 112, so a disc past 144 px swallows it and
+        the beam has nothing to cross.
+      * STILL A ZOOM. The widest sample must be at least 1.3x the narrowest —
+        compressing the range is the point, deleting it is not.
+
+    And the two ends must match the two scales the generator schedules, to
+    within 3 px, so this cannot pass on an envelope that merely stayed inside
+    the bounds by accident."""
+    spans, scales = [], []
+    with Machine(ROM) as m:
+        _run_until(m, ST, FIGHT, 300)
+        _run_until(m, LG_STATE, LG_FAR, 200)
+        for i in range(70):
+            m.advance(2)
+            if _rd16(m, ST) != FIGHT:
+                break
+            img = _pixels(m, tmp_path / f"c{i}.png")
+            spans.append(_span(img, FACE_COLOURS))
+            scales.append(_scale(m))
+    assert len(spans) > 40, f"only {len(spans)} frames sampled"
+    assert min(scales) >= 256, \
+        f"the matrix magnified the plane (scale {min(scales)} < 256): that is " \
+        f"the texel mush the debut's apex rendered"
+    assert max(spans) <= 144, \
+        f"the saucer reached {max(spans)} px of disc — past the gunship's row"
+    assert max(spans) >= min(spans) * 1.3, \
+        f"the lunge stopped reading as a zoom ({min(spans)} -> {max(spans)})"
+    assert abs(min(scales) - GT.NEAR_SCALE) <= 1 and \
+        abs(max(scales) - GT.INIT_SCALE) <= 1, \
+        f"the fight's scale range {min(scales)}..{max(scales)} is not the " \
+        f"schedule's {GT.NEAR_SCALE}..{GT.INIT_SCALE}"
+    for span, scale in ((max(spans), GT.NEAR_SCALE), (min(spans), GT.INIT_SCALE)):
+        assert abs(span - _disc_px(scale)) <= 3, (span, scale, _disc_px(scale))
 
 
 def test_the_lunge_matrix_matches_the_baked_ramps_every_frame():
@@ -373,58 +547,152 @@ def test_the_lunge_matrix_matches_the_baked_ramps_every_frame():
 # =============================================================================
 # The BEAM — the attack that replaced the boss rail's orb rain
 # =============================================================================
-def test_the_beam_renders_a_seamless_column_locked_to_the_player(tmp_path):
-    """OAM slots 1-16 and the screenshot, through the beam's WHOLE cycle.
-    OFF: every segment parked. TELEGRAPH: only the even segments render, at a
-    16 px pitch — the sparse 'charging' read. FIRE: all sixteen render at the
-    8 px pitch from BEAM_Y0, every one at the SAME x, and that x is the
-    player's body centre (p_x + 4) as latched when the dive reached its apex.
+def _walk(beam_x):
+    """The sixteen cell positions the ASM's walk produces, re-derived here from
+    saucer.inc's constants: an 8.8 x accumulator seeded on the emitter and
+    stepped by (beam_x - X0) * MUL, and a whole-pixel y cursor stepped by
+    PITCH. Two's complement, 16 bits, exactly as the 65816 does it."""
+    step = ((beam_x - BEAM_X0) * BEAM_MUL) & 0xFFFF
+    acc = (BEAM_X0 << 8) & 0xFFFF
+    out = []
+    for i in range(BEAM_SEGS):
+        out.append(((acc >> 8) & 0xFF, BEAM_Y0 + i * BEAM_PITCH))
+        acc = (acc + step) & 0xFFFF
+    return out
 
-    THE PLAYER IS DRIVEN OFF THE SPAWN LANE BEFORE THE LATCH, and that is
-    load-bearing rather than incidental: a beam whose column is a FIXED
-    constant is indistinguishable from a latched one while the player has
-    never moved, and `make falsify`'s `beam-column-not-locked` plant proved
-    that against this test's first version (it reached the artifact and this
-    case stayed green). Holding LEFT through the approach puts the latch at
-    the clamp lane, so the assertion below is about a column that FOLLOWED."""
+
+def test_the_beam_lances_from_the_saucers_emitter_to_the_locked_column(tmp_path):
+    """THE OWNER-REPORTED DEFECT, and the invariant that fixes it. The debut
+    stacked sixteen cells straight down from row 56 at the player's x, so the
+    beam touched the saucer only by coincidence and read as a flat line
+    somebody had left on the screen. The beam now WALKS from the saucer's
+    ventral emitter to the latched column.
+
+    THE EMITTER IS THE MODE 7 PIVOT and `m7a_set_center` shows the pivot at
+    the screen centre, so the matrix changes how BIG the emitter renders and
+    never WHERE. This case reads that back off the PICTURE: at every sample the
+    first cell's 8x8 footprint must sit inside the emitter disc as RENDERED —
+    a bbox measured from the screenshot in the emitter's own two tones, which
+    at rest is only 15 px across, so an origin four pixels out fails.
+
+    AND IT IS SAMPLED AT DIFFERENT SCALES, which is why the telegraph was
+    moved into the dive. Four telegraph frames spread across the approach plus
+    a firing frame at the apex give five poses; the case REQUIRES the rendered
+    emitter to have grown across them (the non-vacuity guard), so "the beam
+    coincides with the emitter" cannot pass by both of them standing still.
+
+    The other three claims: the drawn cells are exactly the walk saucer.inc
+    describes (an oracle, not a remembered list); the last one lands on the
+    latched column, which is NOT the spawn lane because the drive strafes to
+    the clamp before the latch (`make falsify`'s `beam-column-not-locked`
+    plant is what proved that necessary); and every rendered beam pixel lies
+    within a cell's width of the straight line between the two ends — the
+    picture-level statement that this is a lance from the saucer to the ship
+    and not a bar somewhere else."""
+    from frame_geometry import png_row
+
+    def sample(m, name):
+        # every WRAM/OAM read happens BEFORE the screenshot: `_pixels` costs
+        # one emulated frame, and the beam's phase can flip inside it — read
+        # after, and the OAM is one state behind the flag it is checked against
+        oam = _oam(m)
+        cells = [(_entry(oam, O_BEAM + i)[0], _entry(oam, O_BEAM + i)[1],
+                  _entry(oam, O_BEAM + i)[2]) for i in range(BEAM_SEGS)]
+        state, bx, scale = _rd16(m, BM_STATE), _rd16(m, BEAM_X), _scale(m)
+        img = _pixels(m, tmp_path / name)
+        return dict(state=state, bx=bx,
+                    scale=scale, cells=cells,
+                    emit=_bbox(img, EMITTER_COLOURS),
+                    beam=[(i % img.width, i // img.width)
+                          for i, px in enumerate(img.getdata())
+                          if px in BEAM_COLOURS])
+
     with Machine(ROM) as m:
         _run_until(m, ST, FIGHT, 300)
         _run_until(m, BM_STATE, BM_OFF, 200)
         oam = _oam(m)
         assert all(_entry(oam, O_BEAM + i)[1] == PARK_Y
-                   for i in range(BEAM_SEGS)), "a beam segment is on screen while OFF"
+                   for i in range(BEAM_SEGS)), \
+            "a beam cell is on screen while OFF"
 
-        # strafe to the left clamp so the apex cannot latch the spawn lane
-        _run_until(m, BM_STATE, BM_TELE, 400, pad={"left": True}, step=1)
-        m.advance(1, pad1={"left": True})
+        # strafe to the left clamp so the latch cannot be the spawn lane
+        _run_until(m, BM_STATE, BM_TELE, 500, pad={"left": True}, step=1)
         assert _rd16(m, PX) < 120, "(sequencing) the ship never left the lane"
-        oam = _oam(m)
-        drawn = [i for i in range(BEAM_SEGS)
-                 if _entry(oam, O_BEAM + i)[1] != PARK_Y]
-        assert drawn == list(range(0, BEAM_SEGS, 2)), \
-            f"the telegraph is not the sparse every-other read: {drawn}"
-        for i in drawn:
-            assert _entry(oam, O_BEAM + i)[1] == BEAM_Y0 + i * BEAM_PITCH
-
+        shots = []
+        for k in range(4):
+            m.advance(1 if k == 0 else 6, pad1={"left": True})
+            if _rd16(m, BM_STATE) != BM_TELE:
+                break
+            shots.append(sample(m, f"tele{k}.png"))
         _run_until(m, BM_STATE, BM_FIRE, 200, step=1)
-        m.advance(1)
-        oam = _oam(m)
-        px, bx = _rd16(m, PX), _rd16(m, BEAM_X)
-        assert bx == px + 4, f"the column is not the body centre ({bx} vs {px})"
-        assert bx != 120 + 4, \
+        m.advance(2)
+        shots.append(sample(m, "fire.png"))
+
+    assert len(shots) >= 4, f"only {len(shots)} beam frames sampled"
+    for k, sh in enumerate(shots):
+        bx, cells = sh["bx"], sh["cells"]
+        assert bx != SPAWN_X + 4, \
             "the column sits on the SPAWN lane after the ship left it — " \
             "a fixed column, not a latched one"
-        for i in range(BEAM_SEGS):
-            x, y, tile, _ = _entry(oam, O_BEAM + i)
-            assert tile == T_BEAM, (i, tile)
-            assert y == BEAM_Y0 + i * BEAM_PITCH, (i, y)
-            assert x == bx & 0xFF, (i, x, bx)
-        img = _pixels(m, tmp_path / "beam.png")
-    w = img.width
-    cols = {j % w for j, p in enumerate(img.getdata()) if p in BEAM_COLOURS}
-    assert cols, "the beam tone never rendered"
-    assert min(cols) >= bx - 1 and max(cols) <= bx + 8, \
-        f"beam pixels outside the locked column {bx}: {sorted(cols)}"
+        want = _walk(bx)
+        drawn = [i for i in range(BEAM_SEGS) if cells[i][1] != PARK_Y]
+        if sh["state"] == BM_TELE:
+            assert drawn == list(range(0, BEAM_SEGS, 2)), \
+                f"frame {k} telegraph is not the sparse every-other read: {drawn}"
+            assert all(cells[i][2] == T_BEAM_TELE for i in drawn), \
+                f"frame {k} telegraph is not drawn with the sight cell"
+        else:
+            assert drawn == list(range(BEAM_SEGS)), \
+                f"frame {k} fire left cells parked: {drawn}"
+            assert cells[0][2] == T_BEAM_FLARE and \
+                cells[BEAM_SEGS - 1][2] == T_BEAM_FLARE, \
+                "the muzzle and impact bursts are missing"
+            assert all(cells[i][2] == T_BEAM for i in range(1, BEAM_SEGS - 1))
+        for i in drawn:
+            assert (cells[i][0], cells[i][1]) == want[i], \
+                f"frame {k} cell {i} at {cells[i][:2]}, the walk says {want[i]}"
+        # the two ends: the emitter, and the latched column
+        assert (cells[0][0], cells[0][1]) == (BEAM_X0, BEAM_Y0)
+        assert abs(want[BEAM_SEGS - 1][0] - bx) <= 2, \
+            f"frame {k} the lance ends at x={want[BEAM_SEGS - 1][0]}, not on " \
+            f"the latched column {bx}"
+        # ...and the first cell is INSIDE the emitter as rendered
+        ex0, ey0, ex1, ey1 = sh["emit"]
+        assert ex0 <= BEAM_X0 and BEAM_X0 + 7 <= ex1, \
+            f"frame {k}: the lance starts at x {BEAM_X0}..{BEAM_X0 + 7}, " \
+            f"outside the rendered emitter's {ex0}..{ex1}"
+        assert ey0 <= png_row(BEAM_Y0) and png_row(BEAM_Y0) + 7 <= ey1, \
+            f"frame {k}: the lance starts at rows {png_row(BEAM_Y0)}.." \
+            f"{png_row(BEAM_Y0) + 7}, outside the rendered emitter's {ey0}..{ey1}"
+        # every rendered beam pixel is on the line between the two ends
+        assert sh["beam"], f"frame {k} rendered no beam pixels at all"
+        ax, ay = BEAM_X0 + 4, png_row(BEAM_Y0) + 4
+        bxx, byy = want[BEAM_SEGS - 1][0] + 4, png_row(want[BEAM_SEGS - 1][1]) + 4
+        dx, dy = bxx - ax, byy - ay
+        norm = (dx * dx + dy * dy) ** 0.5
+        far = max(abs((px - ax) * dy - (py - ay) * dx) / norm
+                  for px, py in sh["beam"])
+        assert far <= 6, \
+            f"frame {k}: a beam pixel sits {far:.1f} px off the emitter->column " \
+            f"line — the lance is not straight between its two ends"
+
+    scales = [sh["scale"] for sh in shots]
+    widths = [sh["emit"][2] - sh["emit"][0] for sh in shots]
+    # the telegraph is armed with TELE_F - 1 frames of the dive left, so by
+    # construction it spans appr[LUNGE_FRAMES + 1 - TELE_F] .. the apex
+    appr_scales = [a for a, _ in GT.build_appr()]
+    designed = appr_scales[GT.LUNGE_FRAMES + 1 - 24] / GT.NEAR_SCALE
+    assert designed > 1.15, \
+        f"the telegraph no longer spans a scale range ({designed:.3f}x): the " \
+        f"multi-scale claim below has nothing to stand on"
+    assert len(set(scales)) >= 4, \
+        f"the beam was photographed at fewer than four poses: {scales}"
+    assert max(scales) >= min(scales) * 1.15, \
+        f"these samples span {max(scales) / min(scales):.3f}x of scale, not " \
+        f"the telegraph's designed {designed:.3f}x: {scales}"
+    assert widths[-1] > widths[0], \
+        f"the rendered emitter never grew across the dive ({widths}) — the " \
+        f"multi-scale claim would be vacuous"
 
 
 def test_strafing_out_of_the_telegraph_dodges_the_beam(tmp_path):
@@ -510,7 +778,7 @@ def test_holding_a_fires_bolts_that_climb_and_cost_the_saucer_hp(tmp_path):
         assert lit0 == 8, f"the fight did not start on a full HUD ({lit0})"
         ys = []
         for i in range(10):
-            m.advance(3, pad1={"a": True, "left": True})
+            m.advance(3, pad1={"a": True})
             _, y, n = _centroid(_pixels(m, tmp_path / f"b{i}.png"),
                                 {BOLT_COLOUR})
             if n >= 6:
@@ -518,7 +786,7 @@ def test_holding_a_fires_bolts_that_climb_and_cost_the_saucer_hp(tmp_path):
         assert len(ys) >= 3, "no bolt ever rendered while A was held"
         assert min(ys) < ys[0], f"bolts never climbed: {ys}"
         for _ in range(40):
-            m.advance(6, pad1={"a": True, "left": True})
+            m.advance(6, pad1={"a": True})
             lit = sum(1 for s in range(8)
                       if _entry(_oam(m), O_HUD + s)[2] == T_PIP_LIT)
             if lit < 8:
@@ -529,16 +797,23 @@ def test_holding_a_fires_bolts_that_climb_and_cost_the_saucer_hp(tmp_path):
 def test_the_hud_pips_dim_exactly_at_the_hp_thresholds():
     """The eight HUD OAM entries (slots 17-24) show lit-vs-dim tiles matching
     count(hp > i * 30) at every sampled fight frame — the rendered HUD is a
-    function of HP, read from the OAM bytes it is drawn through."""
+    function of HP, read from the OAM bytes it is drawn through.
+
+    THE DRIVE IS THE WINNING ONE: the saucer's hitbox is its RENDERED disc
+    now, so a bolt only lands from under it, and a beam that lands costs a
+    heart — standing still under the saucer holding A ends the fight in a LOSE
+    less than four hundred frames in, before the HUD has been sampled."""
     with Machine(ROM) as m:
         _run_until(m, ST, FIGHT, 300)
+        k = _Kill()
         checked = 0
-        for _ in range(80):
-            m.advance(9, pad1={"a": True, "left": True})
+        for _ in range(120):
+            for _ in range(3):
+                m.advance(1, pad1=k.pad(m))
             if _rd16(m, ST) != FIGHT:
                 break
             hp_before = _rd16(m, BHP)
-            m.advance(1, pad1={"left": True})   # settle: OAM lags one advance
+            m.advance(1)                        # settle: OAM lags one advance
             hp = _rd16(m, BHP)
             if hp != hp_before:
                 continue                        # a landing raced the sample
@@ -565,7 +840,7 @@ def test_shot_slots_recycle_between_flights():
         was_live = [False] * 4
         recycled = False
         for _ in range(50):
-            m.advance(2, pad1={"a": True, "left": True})
+            m.advance(2, pad1={"a": True})
             oam = _oam(m)
             for s in range(4):
                 y = _entry(oam, O_SHOTS + s)[1]
@@ -593,17 +868,17 @@ def test_the_kill_climbs_the_lunge_home_before_the_recede(tmp_path):
     by less than one ramp step's worth, so the handover cannot be a pop."""
     ring, death, appr = GT.build_ring(), GT.build_death(), GT.build_appr()
     assert death[0] == ring[0] == appr[0], "the generator's own seam moved"
-    pad = {"a": True, "left": True}
     with Machine(ROM) as m:
         _run_until(m, ST, FIGHT, 300)
-        for _ in range(600):
-            m.advance(1, pad1=pad)
+        k = _Kill()
+        for _ in range(3000):
+            m.advance(1, pad1=k.pad(m))
             if _rd16(m, BHP) == 0:
                 break
         assert _rd16(m, BHP) == 0, "the kill never landed"
         climb = []
         for _ in range(80):
-            m.advance(1, pad1=pad)
+            m.advance(1, pad1=k.pad(m))
             climb.append((_rd16(m, ST), _shadow(m)[0]))
             if climb[-1][0] == DEATH:
                 break
@@ -614,7 +889,7 @@ def test_the_kill_climbs_the_lunge_home_before_the_recede(tmp_path):
         assert all(y >= x for x, y in zip(a_seq, a_seq[1:])), \
             f"M7A did not climb monotonically home: {a_seq}"
         a, b, c, d = _shadow(m)
-        assert (a, b) == tuple(death[0]) == (0x180, 0), (a, b)
+        assert (a, b) == tuple(death[0]) == (GT.INIT_SCALE, 0), (a, b)
         assert d == a and c == -b
         last_fight = _count(_pixels(m, tmp_path / "seam0.png"), FACE_COLOURS)
         m.advance(1)
@@ -629,10 +904,9 @@ def test_the_win_cycle_recede_card_and_loop(tmp_path):
     VICTORY word renders as glyph sprites over a STILL-VISIBLE arena
     (the invariant is dim-not-black, not any one dimming mechanism), and the loop
     re-arms — the saucer small again with full HP."""
-    pad = {"a": True, "left": True}
     with Machine(ROM) as m:
         _run_until(m, ST, FIGHT, 300)
-        _run_until(m, ST, DEATH, 3000, pad=pad, step=4)
+        _kill_until(m, ST, DEATH)
         n_start = _count(_pixels(m, tmp_path / "d0.png"), FACE_COLOURS)
         oam = _oam(m)
         assert all(_entry(oam, O_HUD + s)[2] == T_PIP_DIM for s in range(8)), \
@@ -642,7 +916,13 @@ def test_the_win_cycle_recede_card_and_loop(tmp_path):
         m.advance(28)
         n_end = _count(_pixels(m, tmp_path / "d2.png"), FACE_COLOURS)
         assert n_start > n_mid > n_end > 0, (n_start, n_mid, n_end)
-        assert n_end * 2 < n_start, "the recede barely shrank the saucer"
+        # the recede runs INIT -> INIT + 56 * REVEAL_STEP over these 56 frames,
+        # and area goes as 1/scale^2, so the shrink is derived rather than
+        # remembered
+        want = ((GT.INIT_SCALE + 56 * GT.REVEAL_STEP) / GT.INIT_SCALE) ** 2
+        assert n_start / n_end > want * 0.85, \
+            f"the recede shrank the saucer {n_start / n_end:.2f}x, not the " \
+            f"{want:.2f}x its own schedule calls for"
         _run_until(m, ST, RES_ST, 60)
         assert _rd16(m, RESULT) == 1
         m.advance(2)
@@ -748,7 +1028,8 @@ def test_oam_slot_identities_hold_mid_fight():
     assert _entry(oam, 0)[1] != PARK_Y, "the gunship is parked mid-fight"
     for s in range(O_BEAM, O_BEAM + BEAM_SEGS):
         tile, y = _entry(oam, s)[2], _entry(oam, s)[1]
-        assert tile == T_BEAM or y == PARK_Y, (s, tile, y)
+        assert tile in (T_BEAM, T_BEAM_TELE, T_BEAM_FLARE) or y == PARK_Y, \
+            (s, tile, y)
     for s in range(O_HUD, O_HUD + 8):
         assert _entry(oam, s)[2] in (T_PIP_LIT, T_PIP_DIM), (s, _entry(oam, s))
     for s in range(O_SHOTS, O_SHOTS + 4):
@@ -784,8 +1065,9 @@ def test_the_track_blobs_hold_their_format_and_their_seams():
     the FOUR handovers the state machine performs, and the ring against the
     generator formula. (The emulator half of this contract is the three
     matrix oracles above.)"""
-    want = {"sau_ring": 256, "sau_reveal": 61, "sau_appr": 46,
-            "sau_retr": 46, "sau_death": 61}
+    want = {"sau_ring": 256, "sau_reveal": 61,
+            "sau_appr": GT.LUNGE_FRAMES + 1, "sau_retr": GT.LUNGE_FRAMES + 1,
+            "sau_death": 61}
     ent = {}
     for name, n_want in want.items():
         blob = Path(f"build/assets/{name}.bin").read_bytes()
@@ -797,12 +1079,16 @@ def test_the_track_blobs_hold_their_format_and_their_seams():
     appr, retr, death = ent["sau_appr"], ent["sau_retr"], ent["sau_death"]
     N = GT.LUNGE_FRAMES
     assert reveal[60] == ring[60], "the reveal->hold seam drifted"
-    assert appr[0] == ring[0] == (0x180, 0), "the hold->fight seam drifted"
+    assert appr[0] == ring[0] == (GT.INIT_SCALE, 0), \
+        "the hold->fight seam drifted"
     assert retr[0] == appr[N], "the near->retreat seam drifted"
     assert retr[N] == appr[0], "the retreat->far seam drifted"
     assert death[0] == ring[0], "the fight->death seam drifted"
     assert ring == [tuple(e) for e in GT.build_ring()]
-    assert reveal[0] == (0x500, 0), "the pre-reveal pose is not far+unrotated"
+    assert reveal[0] == (GT.REVEAL_SCALE, 0), \
+        "the pre-reveal pose is not far+unrotated"
+    # ...and the recede lands back on it, so the loop closes on ONE size
+    assert GT.INIT_SCALE + GT.REVEAL_STEP * GT.REVEAL_FRAMES == GT.REVEAL_SCALE
     assert appr[::-1] != retr, \
         "the two lunge ramps became reverses — one blob would do"
 
