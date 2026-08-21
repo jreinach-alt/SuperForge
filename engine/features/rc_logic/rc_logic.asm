@@ -35,6 +35,72 @@ RC_UABS = ES_RC_HOT + 6             ; |speed| (speed is never negative here,
 RC_STEPX = ES_RC_HOT + 8            ; signed 8.8 step, this frame
 RC_STEPY = ES_RC_HOT + 10
 RC_T    = ES_RC_HOT + 12            ; sub-accumulator sum
+RC_TSA_A = ES_RC_HOT + 16           ; the timebase's three (fraction, step)
+RC_TSA   = ES_RC_HOT + 18           ;   pairs: throttle accel, coast decel,
+RC_TSD_A = ES_RC_HOT + 20           ;   and the steering
+RC_TSD   = ES_RC_HOT + 22
+RC_TSH_A = ES_RC_HOT + 24
+RC_TSH   = ES_RC_HOT + 26
+RC_VCAP  = ES_RC_HOT + 28           ; ...and the four region-picked constants
+RC_VGRSS = ES_RC_HOT + 30
+RC_VDRAG = ES_RC_HOT + 32
+RC_VBAR  = ES_RC_HOT + 34
+.assert RC_VBAR + 2 - ES_RC_HOT = ES_RC_HOT_SIZE, error, "the rc_hot field layout does not fill its DP claim"
+
+; =============================================================================
+; THE REGION-CORRECT UNITS — a speed takes r, an ACCELERATION takes r^2
+; =============================================================================
+; A PAL frame must carry r = 1.2018039 of the distance an NTSC frame carries
+; (engine/features/tick_scale carries that derivation and is the only place
+; the ratio lives). This rail's motion is a first-order integration rather
+; than a ballistic arc, but the two-constant rule is the same one and for the
+; same reason: US_SPEED is px per FRAME and scales by r, while RC_ACCEL,
+; RC_DECEL and RC_OFFROAD_DRAG are px per frame SQUARED and scale by r^2.
+; Together they leave the RAMP intact as well as the top speed —
+; cap/accel frames becomes (cap*r)/(accel*r^2) = (cap/accel)/r frames, which
+; at 50.007 fps is the same number of REAL SECONDS as it was at 60.099.
+;
+; TS_R(v) is TS_STEP's own PAL arm written as a build-time expression, which
+; is what lets a per-frame-SQUARED quantity be scaled TWICE (once here into
+; the base, once by the macro). It is NOT a second copy of the ratio:
+; TS_GAIN_NUM / TS_GAIN_DEN are tick_scale's and single-sourced.
+; (the parameter is `v`, not `x`: ca65 reads a bare `x` in a define's
+;  parameter list as the index REGISTER and refuses the definition.)
+.define TS_R(v) ((v) + ((v) * TS_GAIN_NUM + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
+
+TS_ACCEL_BASE   = RC_ACCEL * TS_ONE
+TS_ACCEL_BASE_R = TS_R(TS_ACCEL_BASE)
+TS_DECEL_BASE   = RC_DECEL * TS_ONE
+TS_DECEL_BASE_R = TS_R(TS_DECEL_BASE)
+; ONE POSE PER FRAME is `rc_steer`'s turn rate, and it is docs/95 §5.1's HARD
+; class: a small integer with no correct x5/6. The accumulator answers it the
+; way the animation dividers are answered elsewhere — the pose SET is
+; untouched and what is scaled is how far the heading advances, so a PAL frame
+; turns 1 or 2 poses averaging 1.2018 and the world rotates under the player
+; at the same rate per REAL second.
+TS_STEER_BASE   = 1 * TS_ONE
+
+RC_SPEED_CAP_R = TS_R(RC_SPEED_CAP)
+RC_GRASS_CAP_R = TS_R(RC_GRASS_CAP)
+RC_BAR_STEP_R  = TS_R(RC_BAR_STEP)
+; THE OFF-ROAD BLEED IS SCALED AS AN INTEGER, not through an accumulator, and
+; that is a stated rounding rather than an oversight. Its base would be
+; 384 * TS_ONE = 98,304, past tick_scale's TS_BASE_MAX of 42,000 — the bound
+; where `base * TS_GAIN_NUM` wraps ca65's 32-bit expression arithmetic — so an
+; accumulator would need the quantity re-expressed in quarter units. It does
+; not earn that: the constant is 384 counts, so r^2 lands on 554.6 and the
+; nearest integer is 0.07% away. (The two constants that DO get accumulators
+; are 64 and 48 counts, where the same rounding would cost 0.5%.)
+; (two steps, not one nested call: ca65 will not parse a define-macro
+;  invocation inside another one's argument list.)
+RC_OFFROAD_DRAG_1 = TS_R(RC_OFFROAD_DRAG)
+RC_OFFROAD_DRAG_R = TS_R(RC_OFFROAD_DRAG_1)
+
+; The bar reads FULL at the top speed on both machines, which is only true
+; while the tick and the cap carry the same scale. Asserted rather than
+; assumed: the bar is a rendered readout and a cap that outran its own step
+; would light every tick and stay there.
+.assert RC_BAR_STEP_R * RC_BAR_TICKS <= RC_SPEED_CAP_R, error, "the region-scaled speed bar cannot reach its last tick at the region-scaled cap"
 
 RC_FLAG_DRIVABLE = 1                ; gen_col_flags.FLAG_DRIVABLE
 
@@ -59,6 +125,32 @@ rc_arm:
     stz z:US_SPEED
     stz z:US_SUB_PX + 0
     stz z:US_SUB_PX + 2
+    ; ---- the region's four constants. The loop above has already zeroed the
+    ; three accumulators and their published steps, which is their
+    ; write-before-read contract. ----------------------------------------
+    lda z:ES_RGN_PAL
+    beq :+
+    lda #RC_SPEED_CAP_R
+    sta z:RC_VCAP
+    lda #RC_GRASS_CAP_R
+    sta z:RC_VGRSS
+    lda #RC_OFFROAD_DRAG_R
+    sta z:RC_VDRAG
+    lda #RC_BAR_STEP_R
+    sta z:RC_VBAR
+    bra :++
+:   .a16
+    .i16
+    lda #RC_SPEED_CAP               ; today's constants, to the bit
+    sta z:RC_VCAP
+    lda #RC_GRASS_CAP
+    sta z:RC_VGRSS
+    lda #RC_OFFROAD_DRAG
+    sta z:RC_VDRAG
+    lda #RC_BAR_STEP
+    sta z:RC_VBAR
+:   .a16
+    .i16
     sep #$20
     .a8
     lda #0                          ; (stz has no abs-long form)
@@ -72,6 +164,37 @@ rc_arm:
     .a16
     lda #RC_TOD_HOLD
     sta f:US_TOD_T_LONG
+    rts
+
+; --- rc_ts_publish: this frame's three region-correct steps, published once -
+; In/out: A16/I16, DB=0. Clobbers A. Called at the top of the scene tick, so
+; every consumer reads a settled word.
+;
+; On NTSC each publishes the constant this file authored, to the unit, and the
+; carried fraction stays 0 for ever — which is why the NTSC picture cannot
+; move. The two ACCELERATIONS take the r^2 arm: TS_STEP applies exactly one r,
+; so the other one rides the BASE and the arm is chosen BEFORE the macro.
+; ANONYMOUS LABELS, not `@cheap` ones: TS_STEP's `.local` labels are plain
+; symbols, so expanding it between a `@label` and its use RESETS the
+; cheap-local scope and the branch target goes undefined.
+rc_ts_publish:
+    .a16
+    .i16
+    TS_STEP z:RC_TSH_A, TS_STEER_BASE   ; the steering: ONE r (poses/frame)
+    sta z:RC_TSH
+    lda z:ES_RGN_PAL
+    beq :+
+    TS_STEP z:RC_TSA_A, TS_ACCEL_BASE_R
+    sta z:RC_TSA
+    TS_STEP z:RC_TSD_A, TS_DECEL_BASE_R
+    sta z:RC_TSD
+    rts
+:   .a16
+    .i16
+    TS_STEP z:RC_TSA_A, TS_ACCEL_BASE
+    sta z:RC_TSA
+    TS_STEP z:RC_TSD_A, TS_DECEL_BASE
+    sta z:RC_TSD
     rts
 
 ; --- rc_pause: START toggles the freeze. Out: A16, Z set while RACING -------
@@ -115,8 +238,9 @@ rc_steer:
     sep #$20
     .a8
     lda f:US_HEADING_LONG
-    inc a
-    and #(RC_POSES - 1)
+    clc
+    adc z:RC_TSH                    ; 1 pose on NTSC; 1 or 2 on PAL, averaging
+    and #(RC_POSES - 1)             ;   1.2018 — the same turn per REAL second
     sta f:US_HEADING_LONG
     rep #$20
     .a16
@@ -130,7 +254,8 @@ rc_steer:
     sep #$20
     .a8
     lda f:US_HEADING_LONG
-    dec a
+    sec
+    sbc z:RC_TSH
     and #(RC_POSES - 1)
     sta f:US_HEADING_LONG
     rep #$20
@@ -156,17 +281,17 @@ rc_throttle:
     beq @coast
     lda z:US_SPEED
     clc
-    adc #RC_ACCEL
-    cmp #RC_SPEED_CAP
+    adc z:RC_TSA
+    cmp z:RC_VCAP
     bcc @store
-    lda #RC_SPEED_CAP               ; clamp at top speed
+    lda z:RC_VCAP                   ; clamp at top speed
     bra @store
 @coast:
     .a16
     .i16
     lda z:US_SPEED
     sec
-    sbc #RC_DECEL
+    sbc z:RC_TSD
     bcs @store
     lda #0                          ; floor at a full standstill
 @store:
@@ -203,13 +328,13 @@ rc_offroad:
     .a16
     bne @on_track
     lda z:US_SPEED
-    cmp #RC_GRASS_CAP
+    cmp z:RC_VGRSS
     bcc @done                       ; already at the crawl: no extra drag
     sec
-    sbc #RC_OFFROAD_DRAG
-    cmp #RC_GRASS_CAP
+    sbc z:RC_VDRAG
+    cmp z:RC_VGRSS
     bcs @store
-    lda #RC_GRASS_CAP               ; floor the bleed at the crawl speed
+    lda z:RC_VGRSS                  ; floor the bleed at the crawl speed
 @store:
     .a16
     .i16
@@ -370,10 +495,10 @@ rc_bar_ticks:
 @count:
     .a16
     .i16
-    cmp #RC_BAR_STEP
+    cmp z:RC_VBAR
     bcc @done
     sec
-    sbc #RC_BAR_STEP
+    sbc z:RC_VBAR
     iny
     cpy #RC_BAR_TICKS
     bcc @count
