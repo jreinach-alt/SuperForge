@@ -152,3 +152,4 @@ writing your first test.
 - **The falsification harness** — why a plant that no-ops used to read as a pass → [`docs/46`](docs/46_falsification_harness.md)
 - **The deterministic harness** — the lockstep `Machine`, the two core patches, the determinism gate → [`docs/53`](docs/53_deterministic_harness_settlement.md)
 - **Provenance** — what in this tree is not ours, and how that was established → [`docs/92`](docs/92_provenance_audit.md)
+- **Region speed** — the rate oracle, the frame-assumption lint (`make tick-check`), and a prototype timebase measured at 0.99919 parity → [`docs/96`](docs/96_region_timebase_tooling.md)

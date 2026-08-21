@@ -1,0 +1,24 @@
+# Deliberately violating: the declarations below name a frame unit.
+[scene.play]
+hurt = "u16@dp"          # i-frames after a hit
+
+atick = "u16@dp"         # shared animation clock: the frame-rate divider
+
+vy = "u16@dp"            # signed 8.8 vertical velocity
+
+stepx = "u32@dp"         # this frame's x step, 16.16
+stepy = "u32@dp"
+
+[scene.other]
+ok_one = "u16@dp"        # frames since enter
+                         # TICK: ok — indexes a table, not a clock
+
+
+
+[scene.third]
+
+bare = "u16@dp"          # a countdown in frames
+
+[scene.fourth]
+stamped = "u16@dp"       # a countdown in frames
+                         # TICK: ok

@@ -733,6 +733,18 @@ number that shrinks with cleverness: 30 integer countdowns and 9 small-integer
 animation dividers have no correct ×5/6, only a rounding policy — and a
 rounding policy is a game-feel decision taken 39 times.
 
+> **Mechanised 2026-08-21 as `make tick-check`** —
+> [`docs/96`](96_region_timebase_tooling.md) §3. The two classes here that are
+> a mechanical rule reproduce EXACTLY: §5.2's **135 across 27 rails** and
+> §5.4's **18 files**. §5.1's 27 and §5.3's 5 were hand-reduced and counted
+> per-tool, so the gate reports supersets (58 routines, 24 generator
+> constants) by granularity. It also finds **117 frame-unit equates**, a class
+> this section folded into its 27 and did not enumerate — the one place the
+> gate finds materially more than this document. And it names a class NEITHER
+> of us counted: an input HOLD DURATION measured in frames
+> (`platformer::do_jump`'s variable-height cut), which is a frame coupling
+> that is not state, not a routine, not a generator and not substrate.
+
 ---
 
 ## 6. §5.6 — What does the audio driver do at 50 Hz?

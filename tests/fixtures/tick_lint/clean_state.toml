@@ -1,0 +1,5 @@
+# A clean state declaration set: nothing here is counted in frames.
+[scene.play]
+px = "u16@dp"            # player x, world pixels
+score = "u16@dp"         # PACKED BCD, +$0010 per brick
+gstate = "u16@dp"        # 0 wait / 1 play / 2 over

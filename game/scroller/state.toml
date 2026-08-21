@@ -9,3 +9,31 @@ frames = "u16@dp"        # frames since enter. Drives nothing — it is the
                          # free-running heartbeat a test reads to tell "the
                          # tick is running" from "the tick is stuck", the same
                          # role breaker's `blink` plays.
+
+# --- the PROTOTYPE TIMEBASE (docs/96 §4) -------------------------------------
+# Declared unconditionally and TOUCHED ONLY under `-D SF_TICK=n`. The default
+# build references none of them, so the emitted .inc gains four equates and
+# `build/scroller.sfc` stays byte-identical (verified: md5
+# f34ae672bc8b98e034172ba1e28acbbf before and after this block landed). They
+# are DECLARED rather than hand-placed because the allocator is the authority
+# here whether or not a build uses them — and because a prototype that
+# hand-places its scratch has already stopped being a prototype of THIS kit.
+#
+# `frames` keeps dp offset 19 across the addition: the allocator packs a
+# scene's user words alphabetically, and f sorts before t.
+tb_acc = "u16@dp"        # the timebase's carried fraction, 8.8. It is what
+                         # makes a non-integer per-frame step exact over time
+                         # instead of quantised each frame.
+                         # TICK: ok — this word EXISTS to remove a frame
+                         # coupling, not to express one; it is the fraction the
+                         # scaler carries, and it has no meaning in frames.
+tb_ph = "u16@dp"         # lump scheme: the 0..4 phase that decides which
+                         # frame runs the logic twice.
+                         # TICK: ok — the phase of the REGION COMPENSATOR, and
+                         # the one place the 6:5 cadence is allowed to live.
+tb_reg = "u16@dp"        # 1 = PAL, read from $213F bit 4 at scene enter.
+                         # TICK: ok — a region flag, not a clock.
+tb_st = "u16@dp"         # this frame's integer step in world px, published by
+                         # the timebase and consumed by the four axis adds.
+                         # TICK: ok — the OUTPUT of the scaler; it is already
+                         # expressed against the declared tick.

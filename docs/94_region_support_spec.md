@@ -63,6 +63,17 @@ wording. "Boots on both" is already true and is not what this spec asks for.
 > candidate scheme, a lint that turns the 185 sites into a tracked baseline,
 > and a prototype timebase evaluated behind a flag. **The 185-site retune is
 > NOT authorised by this ruling** and no default behaviour changes.*
+>
+> **LANDED 2026-08-21 — all three, and the mechanism reaches parity.**
+> [`docs/96`](96_region_timebase_tooling.md). `tools/rate_oracle.py` measures
+> game-visible progress per REAL second across four motion classes and reads
+> the uncompensated tree at **0.83208**; `make tick-check` holds the 185 as a
+> **356-entry baseline** whose state half reproduces `docs/95` §5.2's 135
+> across 27 rails to the site; and a declared timebase behind `-D SF_TICK=n`
+> on `scroller` measures **0.99919** parity at **+634 mc per PAL frame
+> (0.15% of it)**, with the NTSC picture pixel-identical and `scroller.sfc`
+> byte-identical with the flag off. The retune is still not authorised, and
+> `docs/96` §5 says why the SURFACE — not the mechanism — is what is left.
 
 ## 3. Tiers, and what each must prove
 

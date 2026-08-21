@@ -1,0 +1,2494 @@
+[
+  {
+    "file": "engine/features/dialog/dialog.asm",
+    "line": 240,
+    "rule": "tick-routine",
+    "message": "`dialog_advance` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/fade/fade.asm",
+    "line": 31,
+    "rule": "tick-routine",
+    "message": "`fade_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/m7_barrel/m7_barrel.asm",
+    "line": 286,
+    "rule": "tick-routine",
+    "message": "`mb_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/m7c_roll/m7c_roll.asm",
+    "line": 27,
+    "rule": "tick-constant",
+    "message": "`ROLL_VFLOOR = 1 << (ROLL_FIX - 2)` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/m7c_roll/m7c_roll.asm",
+    "line": 28,
+    "rule": "tick-constant",
+    "message": "`ROLL_PEAK_MIN = 1 << ROLL_FIX` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/m7c_roll/m7c_roll.asm",
+    "line": 30,
+    "rule": "tick-constant",
+    "message": "`ROLL_PEAK_CAP = 4 << ROLL_FIX` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/m7c_roll/m7c_roll.asm",
+    "line": 178,
+    "rule": "tick-routine",
+    "message": "`roll_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/m7f_cam/m7f_cam.asm",
+    "line": 659,
+    "rule": "tick-routine",
+    "message": "`m7f_apply_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/m7f_floor/m7f_floor.asm",
+    "line": 71,
+    "rule": "tick-constant",
+    "message": "`M7F_TOD_RATE = 32` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/m7f_logic/m7f_logic.asm",
+    "line": 27,
+    "rule": "tick-constant",
+    "message": "`M7F_ACCEL = 1 << (M7F_FP - 4)` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/m7f_logic/m7f_logic.asm",
+    "line": 29,
+    "rule": "tick-constant",
+    "message": "`M7F_SPEED_CAP = 3 << M7F_FP` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/m7f_logic/m7f_logic.asm",
+    "line": 30,
+    "rule": "tick-constant",
+    "message": "`M7F_SPEED_REV = (0 - (2 << M7F_FP)) & $FFFF` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/m7f_obj/m7f_obj.asm",
+    "line": 39,
+    "rule": "tick-constant",
+    "message": "`M7F_PROP_RATE = 8` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/m7f_obj/m7f_obj.asm",
+    "line": 374,
+    "rule": "tick-constant",
+    "message": "`M7F_CLOUD_WIND = $0020` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/m7f_obj/m7f_obj.asm",
+    "line": 423,
+    "rule": "tick-routine",
+    "message": "`cloud_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/m7f_obj/m7f_obj.asm",
+    "line": 546,
+    "rule": "tick-routine",
+    "message": "`obj_prop_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/m7x_logic/m7x_logic.asm",
+    "line": 33,
+    "rule": "tick-constant",
+    "message": "`MXL_STEP_FRAMES = MXL_TILE_PX` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/m7x_logic/m7x_logic.asm",
+    "line": 127,
+    "rule": "tick-routine",
+    "message": "`mxl_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/m7x_logic/m7x_logic.asm",
+    "line": 228,
+    "rule": "tick-routine",
+    "message": "`mxl_try_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/m7x_town/m7x_town.asm",
+    "line": 372,
+    "rule": "tick-routine",
+    "message": "`town_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/m7x_town/m7x_town.asm",
+    "line": 434,
+    "rule": "tick-routine",
+    "message": "`town_try_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/mode7_stream/mode7_stream.asm",
+    "line": 189,
+    "rule": "tick-routine",
+    "message": "`stream_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/mosaic/mosaic.asm",
+    "line": 55,
+    "rule": "tick-constant",
+    "message": "`MOS_OUT_FRAMES = 20` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/mosaic/mosaic.asm",
+    "line": 56,
+    "rule": "tick-constant",
+    "message": "`MOS_IN_FRAMES = 15` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/mosaic/mosaic.asm",
+    "line": 234,
+    "rule": "tick-routine",
+    "message": "`mosaic_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/pfs_logic/pfs_logic.asm",
+    "line": 62,
+    "rule": "tick-constant",
+    "message": "`PFS_FIX = 1 << 8` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/pfs_logic/pfs_logic.asm",
+    "line": 63,
+    "rule": "tick-constant",
+    "message": "`PFS_GRAVITY = PFS_FIX / 4` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/pfs_logic/pfs_logic.asm",
+    "line": 64,
+    "rule": "tick-constant",
+    "message": "`PFS_MAX_FALL = PFS_FIX * 4` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/pfs_logic/pfs_logic.asm",
+    "line": 65,
+    "rule": "tick-constant",
+    "message": "`PFS_JUMP_VEL = PFS_FIX * 4 + PFS_FIX / 2` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/pfs_logic/pfs_logic.asm",
+    "line": 66,
+    "rule": "tick-constant",
+    "message": "`PFS_JUMP_CUT = PFS_FIX` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/pfs_logic/pfs_logic.asm",
+    "line": 67,
+    "rule": "tick-constant",
+    "message": "`PFS_WALK = 2` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/pfs_logic/pfs_logic.asm",
+    "line": 70,
+    "rule": "tick-constant",
+    "message": "`PFS_ANIM_RATE = 8` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/pfs_logic/pfs_logic.asm",
+    "line": 109,
+    "rule": "tick-constant",
+    "message": "`PL_VY = ES_PFS_PLAYER + 6` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/pfs_logic/pfs_logic.asm",
+    "line": 799,
+    "rule": "tick-routine",
+    "message": "`pfs_logic_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/pfs_stream/pfs_stream.asm",
+    "line": 168,
+    "rule": "tick-constant",
+    "message": "`PFS_CLAMP = 2` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/pfs_stream/pfs_stream.asm",
+    "line": 199,
+    "rule": "tick-constant",
+    "message": "`PFSS_REGS = $4300 + ES_H_PFSS_CH * 16` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/pfs_stream/pfs_stream.asm",
+    "line": 454,
+    "rule": "tick-routine",
+    "message": "`pfs_stream_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/race_logic/race_logic.asm",
+    "line": 70,
+    "rule": "tick-routine",
+    "message": "`rl_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/room_logic/room_logic.asm",
+    "line": 14,
+    "rule": "tick-constant",
+    "message": "`RM_SPEED = 2` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/room_logic/room_logic.asm",
+    "line": 20,
+    "rule": "tick-constant",
+    "message": "`RM_STEP_PERIOD = 9` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/rpg_logic/rpg_logic.asm",
+    "line": 18,
+    "rule": "tick-constant",
+    "message": "`RPG_STEP_DX = ES_RPG_HOT + 8` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/rpg_logic/rpg_logic.asm",
+    "line": 20,
+    "rule": "tick-constant",
+    "message": "`RPG_STEP_N = ES_RPG_HOT + 12` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/rs_logic/rs_logic.asm",
+    "line": 153,
+    "rule": "tick-routine",
+    "message": "`rs_path_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/rs_logic/rs_logic.asm",
+    "line": 248,
+    "rule": "tick-routine",
+    "message": "`rs_advance` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/rs_logic/rs_logic.asm",
+    "line": 530,
+    "rule": "tick-routine",
+    "message": "`rs_actors_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/rs_logic/rs_logic.asm",
+    "line": 649,
+    "rule": "tick-routine",
+    "message": "`rs_fail_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/rs_logic/rs_logic.asm",
+    "line": 749,
+    "rule": "tick-routine",
+    "message": "`rs_tier_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/rs_logic/rs_logic.asm",
+    "line": 994,
+    "rule": "tick-routine",
+    "message": "`rs_burst_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/scene_mgr/scene_mgr.asm",
+    "line": 208,
+    "rule": "tick-routine",
+    "message": "`sm_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/sh2_cam/sh2_cam.asm",
+    "line": 765,
+    "rule": "tick-routine",
+    "message": "`cam_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/sh2_cam/sh2_cam.asm",
+    "line": 793,
+    "rule": "tick-routine",
+    "message": "`cam_advance` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/sh2_swarm/sh2_swarm.asm",
+    "line": 103,
+    "rule": "tick-constant",
+    "message": "`SWM_BEAT = ES_SWM_CTL_LONG + 2` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/shg_cam/shg_cam.asm",
+    "line": 321,
+    "rule": "tick-routine",
+    "message": "`cam_advance` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/shm_cam/shm_cam.asm",
+    "line": 233,
+    "rule": "tick-routine",
+    "message": "`shm_zoom_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/shp_cam/shp_cam.asm",
+    "line": 536,
+    "rule": "tick-routine",
+    "message": "`cam_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/split_v_obj/split_v_obj.asm",
+    "line": 463,
+    "rule": "tick-routine",
+    "message": "`sv_blade_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/split_v_obj/split_v_obj.asm",
+    "line": 727,
+    "rule": "tick-routine",
+    "message": "`sv_life_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/svd_bg/svd_bg.asm",
+    "line": 51,
+    "rule": "tick-constant",
+    "message": "`SVD_CAM_B0 = 192` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/vwf/vwf.asm",
+    "line": 381,
+    "rule": "tick-routine",
+    "message": "`vwf_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/window_iris/window_iris.asm",
+    "line": 155,
+    "rule": "tick-routine",
+    "message": "`wi_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "engine/features/window_iris/window_iris.asm",
+    "line": 325,
+    "rule": "tick-routine",
+    "message": "`wi_advance` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss/boss.inc",
+    "line": 9,
+    "rule": "tick-constant",
+    "message": "`BS_REVEAL_FRAMES = 60` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss/boss.inc",
+    "line": 10,
+    "rule": "tick-constant",
+    "message": "`BS_HOLD_FRAMES = 45` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss/boss.inc",
+    "line": 11,
+    "rule": "tick-constant",
+    "message": "`BS_FADE_FRAMES = 32` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss/boss.inc",
+    "line": 16,
+    "rule": "tick-constant",
+    "message": "`BS_RESULT_FRAMES = 90` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss/boss.inc",
+    "line": 34,
+    "rule": "tick-constant",
+    "message": "`BS_DYING_SPIN = 4` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss/boss.inc",
+    "line": 44,
+    "rule": "tick-constant",
+    "message": "`BS_PLAYER_SPEED = 3` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss/boss.inc",
+    "line": 46,
+    "rule": "tick-constant",
+    "message": "`BS_IFRAME_LEN = 30` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss/boss.inc",
+    "line": 49,
+    "rule": "tick-constant",
+    "message": "`BS_SHOT_SPEED = 6` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss/boss.inc",
+    "line": 56,
+    "rule": "tick-constant",
+    "message": "`BS_FIRE_GAP = 8` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss/state.toml",
+    "line": 18,
+    "rule": "tick-state",
+    "message": "`b_timer` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss/state.toml",
+    "line": 35,
+    "rule": "tick-state",
+    "message": "`p_iframe` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss/state.toml",
+    "line": 40,
+    "rule": "tick-state",
+    "message": "`spawn_timer` is declared in a frame unit ('countdown'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss/state.toml",
+    "line": 41,
+    "rule": "tick-state",
+    "message": "`fire_timer` is declared in a frame unit ('countdown'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss/state.toml",
+    "line": 53,
+    "rule": "tick-state",
+    "message": "`frame` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/saucer.inc",
+    "line": 9,
+    "rule": "tick-constant",
+    "message": "`SAU_REVEAL_FRAMES = 60` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/saucer.inc",
+    "line": 10,
+    "rule": "tick-constant",
+    "message": "`SAU_HOLD_FRAMES = 45` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/saucer.inc",
+    "line": 11,
+    "rule": "tick-constant",
+    "message": "`SAU_FADE_FRAMES = 32` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/saucer.inc",
+    "line": 16,
+    "rule": "tick-constant",
+    "message": "`SAU_RESULT_FRAMES = 90` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/saucer.inc",
+    "line": 45,
+    "rule": "tick-constant",
+    "message": "`SAU_LUNGE_FRAMES = 44` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/saucer.inc",
+    "line": 86,
+    "rule": "tick-constant",
+    "message": "`SAU_BEAM_TELE_F = 24` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/saucer.inc",
+    "line": 92,
+    "rule": "tick-constant",
+    "message": "`SAU_BEAM_FIRE_F = 30` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/saucer.inc",
+    "line": 101,
+    "rule": "tick-constant",
+    "message": "`SAU_PLAYER_SPEED = 3` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/saucer.inc",
+    "line": 103,
+    "rule": "tick-constant",
+    "message": "`SAU_IFRAME_LEN = 30` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/saucer.inc",
+    "line": 106,
+    "rule": "tick-constant",
+    "message": "`SAU_SHOT_SPEED = 6` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/saucer.inc",
+    "line": 111,
+    "rule": "tick-constant",
+    "message": "`SAU_FIRE_GAP = 8` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/saucer.inc",
+    "line": 223,
+    "rule": "tick-constant",
+    "message": "`SAU_STAR_CALM = 32` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/state.toml",
+    "line": 20,
+    "rule": "tick-state",
+    "message": "`b_timer` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/state.toml",
+    "line": 25,
+    "rule": "tick-state",
+    "message": "`b_heading` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/state.toml",
+    "line": 37,
+    "rule": "tick-state",
+    "message": "`lunge_timer` is declared in a frame unit ('FRAMES'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/state.toml",
+    "line": 43,
+    "rule": "tick-state",
+    "message": "`beam_timer` is declared in a frame unit ('countdown'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/state.toml",
+    "line": 48,
+    "rule": "tick-state",
+    "message": "`beam_x` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/state.toml",
+    "line": 57,
+    "rule": "tick-state",
+    "message": "`p_iframe` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/state.toml",
+    "line": 62,
+    "rule": "tick-state",
+    "message": "`fire_timer` is declared in a frame unit ('countdown'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/state.toml",
+    "line": 63,
+    "rule": "tick-state",
+    "message": "`paused` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/state.toml",
+    "line": 79,
+    "rule": "tick-state",
+    "message": "`star_far` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/state.toml",
+    "line": 80,
+    "rule": "tick-state",
+    "message": "`star_near` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/state.toml",
+    "line": 85,
+    "rule": "tick-state",
+    "message": "`hud_x` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/state.toml",
+    "line": 90,
+    "rule": "tick-state",
+    "message": "`scr` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/boss_saucer/state.toml",
+    "line": 104,
+    "rule": "tick-state",
+    "message": "`frame` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/brawler/brawler.inc",
+    "line": 18,
+    "rule": "tick-constant",
+    "message": "`BR_WALK_SPEED = 2` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/brawler/brawler.inc",
+    "line": 20,
+    "rule": "tick-constant",
+    "message": "`BR_ATTACK_LEN = 16` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/brawler/brawler.inc",
+    "line": 23,
+    "rule": "tick-constant",
+    "message": "`BR_RESPAWN_T = 90` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/brawler/brawler.inc",
+    "line": 73,
+    "rule": "tick-constant",
+    "message": "`BR_INV_T = 45` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/brawler/scenes/fight.asm",
+    "line": 317,
+    "rule": "tick-routine",
+    "message": "`player_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/brawler/scenes/fight.asm",
+    "line": 457,
+    "rule": "tick-routine",
+    "message": "`enemy_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/brawler/state.toml",
+    "line": 15,
+    "rule": "tick-state",
+    "message": "`facing` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/brawler/state.toml",
+    "line": 18,
+    "rule": "tick-state",
+    "message": "`astate` is declared in a frame unit ('anim'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/brawler/state.toml",
+    "line": 20,
+    "rule": "tick-state",
+    "message": "`atick` is declared in a frame unit ('anim'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/brawler/state.toml",
+    "line": 22,
+    "rule": "tick-state",
+    "message": "`attackt` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/brawler/state.toml",
+    "line": 27,
+    "rule": "tick-state",
+    "message": "`eface` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/brawler/state.toml",
+    "line": 28,
+    "rule": "tick-state",
+    "message": "`estate` is declared in a frame unit ('anim'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/brawler/state.toml",
+    "line": 32,
+    "rule": "tick-state",
+    "message": "`etick` is declared in a frame unit ('anim'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/brawler/state.toml",
+    "line": 34,
+    "rule": "tick-state",
+    "message": "`emov` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/brawler/state.toml",
+    "line": 47,
+    "rule": "tick-state",
+    "message": "`pinv` is declared in a frame unit ('i-frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/brawler/state.toml",
+    "line": 48,
+    "rule": "tick-state",
+    "message": "`estun` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/brawler/state.toml",
+    "line": 49,
+    "rule": "tick-state",
+    "message": "`eresp` is declared in a frame unit ('countdown'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/brawler/state.toml",
+    "line": 51,
+    "rule": "tick-state",
+    "message": "`ahit` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/brawler/state.toml",
+    "line": 54,
+    "rule": "tick-state",
+    "message": "`gameover` is declared in a frame unit ('tick'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/brawler/state.toml",
+    "line": 57,
+    "rule": "tick-state",
+    "message": "`hudp` is declared in a frame unit ('per frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/brawler/state.toml",
+    "line": 61,
+    "rule": "tick-state",
+    "message": "`overp` is declared in a frame unit ('per frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/brawler/state.toml",
+    "line": 82,
+    "rule": "tick-state",
+    "message": "`blink` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/breaker/breaker.inc",
+    "line": 23,
+    "rule": "tick-constant",
+    "message": "`BRK_PADDLE_SPEED = 3` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/breaker/scenes/play.asm",
+    "line": 120,
+    "rule": "tick-routine",
+    "message": "`brk_msg_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/breaker/state.toml",
+    "line": 13,
+    "rule": "tick-state",
+    "message": "`t_frames` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/breaker/state.toml",
+    "line": 32,
+    "rule": "tick-state",
+    "message": "`blink` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/breaker/state.toml",
+    "line": 35,
+    "rule": "tick-state",
+    "message": "`msg` is declared in a frame unit ('PER FRAME'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/camera_follow/state.toml",
+    "line": 22,
+    "rule": "tick-state",
+    "message": "`pwx` is declared in a frame unit ('tick'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/camera_follow/state.toml",
+    "line": 28,
+    "rule": "tick-state",
+    "message": "`frames` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/hud_game/state.toml",
+    "line": 18,
+    "rule": "tick-state",
+    "message": "`dirty` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/hud_game/state.toml",
+    "line": 25,
+    "rule": "tick-state",
+    "message": "`blink` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/jumper/scenes/sky.asm",
+    "line": 182,
+    "rule": "tick-routine",
+    "message": "`phys_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/jumper/state.toml",
+    "line": 14,
+    "rule": "tick-state",
+    "message": "`pyf` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/jumper/state.toml",
+    "line": 15,
+    "rule": "tick-state",
+    "message": "`vy` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/jumper/state.toml",
+    "line": 16,
+    "rule": "tick-state",
+    "message": "`tent` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/jumper/state.toml",
+    "line": 22,
+    "rule": "tick-state",
+    "message": "`frames` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_dungeon/scenes/dungeon.asm",
+    "line": 191,
+    "rule": "tick-constant",
+    "message": "`ACCEL = $10` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_dungeon/scenes/dungeon.asm",
+    "line": 193,
+    "rule": "tick-constant",
+    "message": "`SPEED_CAP = ACCEL * 20` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_dungeon/scenes/dungeon.asm",
+    "line": 216,
+    "rule": "tick-constant",
+    "message": "`PATROL_SPEED = 1` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_dungeon/scenes/dungeon.asm",
+    "line": 224,
+    "rule": "tick-constant",
+    "message": "`GRACE_FRAMES = 40` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_dungeon/state.toml",
+    "line": 20,
+    "rule": "tick-state",
+    "message": "`heading` is declared in a frame unit ('tick'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_dungeon/state.toml",
+    "line": 27,
+    "rule": "tick-state",
+    "message": "`speed` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_dungeon/state.toml",
+    "line": 34,
+    "rule": "tick-state",
+    "message": "`stepx` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_dungeon/state.toml",
+    "line": 35,
+    "rule": "tick-state",
+    "message": "`stepy` is declared in a frame unit (inherited from the declaration above). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_dungeon/state.toml",
+    "line": 53,
+    "rule": "tick-state",
+    "message": "`grace` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_dungeon/state.toml",
+    "line": 55,
+    "rule": "tick-state",
+    "message": "`prev_start` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_oshoot/m7_oshoot.inc",
+    "line": 85,
+    "rule": "tick-constant",
+    "message": "`MO_STRAFE_SPEED = $00C0` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_oshoot/m7_oshoot.inc",
+    "line": 116,
+    "rule": "tick-constant",
+    "message": "`MO_ENE_DYING = 9 * MO_POOL_STRIDE` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_oshoot/m7_oshoot.inc",
+    "line": 135,
+    "rule": "tick-constant",
+    "message": "`MO_BUL_SPEED = $0300` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_oshoot/m7_oshoot.inc",
+    "line": 136,
+    "rule": "tick-constant",
+    "message": "`MO_BUL_LIFE = 90` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_oshoot/m7_oshoot.inc",
+    "line": 140,
+    "rule": "tick-constant",
+    "message": "`MO_SPAWN_PERIOD = 50` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_oshoot/m7_oshoot.inc",
+    "line": 143,
+    "rule": "tick-constant",
+    "message": "`MO_GRACE_FRAMES = 40` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_oshoot/m7_oshoot.inc",
+    "line": 207,
+    "rule": "tick-constant",
+    "message": "`MO_DEATH_FRAMES = 24` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_oshoot/state.toml",
+    "line": 19,
+    "rule": "tick-state",
+    "message": "`heading` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_oshoot/state.toml",
+    "line": 30,
+    "rule": "tick-state",
+    "message": "`speed` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_oshoot/state.toml",
+    "line": 37,
+    "rule": "tick-state",
+    "message": "`strafe` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_oshoot/state.toml",
+    "line": 47,
+    "rule": "tick-state",
+    "message": "`stepx` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_oshoot/state.toml",
+    "line": 48,
+    "rule": "tick-state",
+    "message": "`stepy` is declared in a frame unit (inherited from the declaration above). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_oshoot/state.toml",
+    "line": 60,
+    "rule": "tick-state",
+    "message": "`spawn_t` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_oshoot/state.toml",
+    "line": 64,
+    "rule": "tick-state",
+    "message": "`grace` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/m7_oshoot/state.toml",
+    "line": 79,
+    "rule": "tick-state",
+    "message": "`chase_t` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/maze/state.toml",
+    "line": 17,
+    "rule": "tick-state",
+    "message": "`frames` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/meteor_event/meteor.inc",
+    "line": 17,
+    "rule": "tick-constant",
+    "message": "`MET_FREEZE_HOLD = 40` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/meteor_event/meteor.inc",
+    "line": 18,
+    "rule": "tick-constant",
+    "message": "`MET_CAPTURE_HOLD = 30` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/meteor_event/meteor.inc",
+    "line": 25,
+    "rule": "tick-constant",
+    "message": "`MET_WALK_SPEED = 2` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/meteor_event/meteor.inc",
+    "line": 79,
+    "rule": "tick-constant",
+    "message": "`MET_FLIP_PERIOD = 7` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/meteor_event/state.toml",
+    "line": 25,
+    "rule": "tick-state",
+    "message": "`g_timer` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/meteor_event/state.toml",
+    "line": 38,
+    "rule": "tick-state",
+    "message": "`g_event_done` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/meteor_event/state.toml",
+    "line": 47,
+    "rule": "tick-state",
+    "message": "`g_scr` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/meteor_event/state.toml",
+    "line": 74,
+    "rule": "tick-state",
+    "message": "`spr_y` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/meteor_event/state.toml",
+    "line": 75,
+    "rule": "tick-state",
+    "message": "`spr_tile` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/microzero/scenes/race.asm",
+    "line": 315,
+    "rule": "tick-routine",
+    "message": "`cm_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/microzero/scenes/race.asm",
+    "line": 382,
+    "rule": "tick-routine",
+    "message": "`vwf_dialog_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/microzero/scenes/results.asm",
+    "line": 18,
+    "rule": "tick-constant",
+    "message": "`TALLY_STEP = 5` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/microzero/state.toml",
+    "line": 7,
+    "rule": "tick-state",
+    "message": "`t_frames` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/microzero/state.toml",
+    "line": 19,
+    "rule": "tick-state",
+    "message": "`vel` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/microzero/state.toml",
+    "line": 21,
+    "rule": "tick-state",
+    "message": "`sub_px` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/mode7_chamber/state.toml",
+    "line": 13,
+    "rule": "tick-state",
+    "message": "`posy` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/mode7_chamber/state.toml",
+    "line": 19,
+    "rule": "tick-state",
+    "message": "`vmag` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/mode7_chamber/state.toml",
+    "line": 20,
+    "rule": "tick-state",
+    "message": "`vel` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/mode7_chamber/state.toml",
+    "line": 21,
+    "rule": "tick-state",
+    "message": "`hcur` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/mode7_chamber/state.toml",
+    "line": 26,
+    "rule": "tick-state",
+    "message": "`hold` is declared in a frame unit ('timer'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/mode7_explore/main.asm",
+    "line": 322,
+    "rule": "tick-routine",
+    "message": "`mxx_fade_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/mode7_explore/state.toml",
+    "line": 79,
+    "rule": "tick-state",
+    "message": "`step_remain` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/mode7_explore/state.toml",
+    "line": 80,
+    "rule": "tick-state",
+    "message": "`step_dx` is declared in a frame unit ('per-frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/mode7_explore/state.toml",
+    "line": 81,
+    "rule": "tick-state",
+    "message": "`step_dy` is declared in a frame unit (inherited from the declaration above). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/mode7_flight/state.toml",
+    "line": 14,
+    "rule": "tick-state",
+    "message": "`prop_t` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/mode7_flight/state.toml",
+    "line": 16,
+    "rule": "tick-state",
+    "message": "`prop_f` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/patrol/patrol.inc",
+    "line": 18,
+    "rule": "tick-constant",
+    "message": "`PAT_SPEED = 2` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/patrol/patrol.inc",
+    "line": 28,
+    "rule": "tick-constant",
+    "message": "`PAT_GRAVITY = $0040` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/patrol/patrol.inc",
+    "line": 29,
+    "rule": "tick-constant",
+    "message": "`PAT_MAX_FALL = $0400` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/patrol/patrol.inc",
+    "line": 30,
+    "rule": "tick-constant",
+    "message": "`PAT_JUMP_VEL = $0480` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/patrol/patrol.inc",
+    "line": 41,
+    "rule": "tick-constant",
+    "message": "`PAT_PATROL_SPEED = 1` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/patrol/state.toml",
+    "line": 13,
+    "rule": "tick-state",
+    "message": "`pyf` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/patrol/state.toml",
+    "line": 14,
+    "rule": "tick-state",
+    "message": "`vy` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/patrol/state.toml",
+    "line": 17,
+    "rule": "tick-state",
+    "message": "`pyi` is declared in a frame unit ('per frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/patrol/state.toml",
+    "line": 39,
+    "rule": "tick-state",
+    "message": "`dirty` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/patrol/state.toml",
+    "line": 42,
+    "rule": "tick-state",
+    "message": "`frames` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/platformer/platformer.inc",
+    "line": 63,
+    "rule": "tick-constant",
+    "message": "`PLF_GRAVITY = $0030` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/platformer/platformer.inc",
+    "line": 64,
+    "rule": "tick-constant",
+    "message": "`PLF_JUMP_VEL = $FC00` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/platformer/platformer.inc",
+    "line": 66,
+    "rule": "tick-constant",
+    "message": "`PLF_MAX_FALL = $0400` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/platformer/platformer.inc",
+    "line": 70,
+    "rule": "tick-constant",
+    "message": "`PLF_WALK = 2` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/platformer/platformer.inc",
+    "line": 92,
+    "rule": "tick-constant",
+    "message": "`PLF_BLINK = 4` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/platformer/platformer.inc",
+    "line": 95,
+    "rule": "tick-constant",
+    "message": "`PLF_ANIM_RATE = 8` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/platformer/platformer.inc",
+    "line": 96,
+    "rule": "tick-constant",
+    "message": "`PLF_ANIM_STEPS = 4` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/platformer/scenes/play.asm",
+    "line": 717,
+    "rule": "tick-routine",
+    "message": "`gh_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/platformer/state.toml",
+    "line": 29,
+    "rule": "tick-state",
+    "message": "`t_frames` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/platformer/state.toml",
+    "line": 35,
+    "rule": "tick-state",
+    "message": "`pyf` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/platformer/state.toml",
+    "line": 36,
+    "rule": "tick-state",
+    "message": "`vy` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/platformer/state.toml",
+    "line": 39,
+    "rule": "tick-state",
+    "message": "`grounded` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/platformer/state.toml",
+    "line": 41,
+    "rule": "tick-state",
+    "message": "`hurt` is declared in a frame unit ('i-frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/platformer/state.toml",
+    "line": 47,
+    "rule": "tick-state",
+    "message": "`paused` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/racer/scenes/race.asm",
+    "line": 173,
+    "rule": "tick-routine",
+    "message": "`tod_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/racer/state.toml",
+    "line": 8,
+    "rule": "tick-state",
+    "message": "`speed` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/racer/state.toml",
+    "line": 10,
+    "rule": "tick-state",
+    "message": "`sub_px` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/racer/state.toml",
+    "line": 13,
+    "rule": "tick-state",
+    "message": "`lean` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/racer/state.toml",
+    "line": 15,
+    "rule": "tick-state",
+    "message": "`paused` is declared in a frame unit ('per-frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/racer/state.toml",
+    "line": 21,
+    "rule": "tick-state",
+    "message": "`tod_t` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/railshooter/railshooter.inc",
+    "line": 69,
+    "rule": "tick-constant",
+    "message": "`RS_PATH_SHIFT = 0` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/railshooter/railshooter.inc",
+    "line": 164,
+    "rule": "tick-constant",
+    "message": "`RS_OBS_STEP = 5` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/railshooter/railshooter.inc",
+    "line": 177,
+    "rule": "tick-constant",
+    "message": "`RS_LEAD = (RS_Z_FAR - RS_OBS_HIT_Z) / RS_OBS_STEP` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/railshooter/railshooter.inc",
+    "line": 184,
+    "rule": "tick-constant",
+    "message": "`RS_OBS_GAP = 40` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/railshooter/railshooter.inc",
+    "line": 239,
+    "rule": "tick-constant",
+    "message": "`RS_TIER_HYST = 12` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/railshooter/railshooter.inc",
+    "line": 256,
+    "rule": "tick-constant",
+    "message": "`RS_RET_Z_STEP = 7` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/railshooter/railshooter.inc",
+    "line": 258,
+    "rule": "tick-constant",
+    "message": "`RS_RET_SPEED = 3` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/railshooter/railshooter.inc",
+    "line": 280,
+    "rule": "tick-constant",
+    "message": "`RS_BUL_SPEED = 20` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/railshooter/railshooter.inc",
+    "line": 286,
+    "rule": "tick-constant",
+    "message": "`RS_BURST_FRAMES = 14` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/railshooter/railshooter.inc",
+    "line": 292,
+    "rule": "tick-constant",
+    "message": "`RS_FAIL_FRAMES = 120` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/railshooter/state.toml",
+    "line": 11,
+    "rule": "tick-state",
+    "message": "`cam_x` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/railshooter/state.toml",
+    "line": 15,
+    "rule": "tick-state",
+    "message": "`adv_frac` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/railshooter/state.toml",
+    "line": 20,
+    "rule": "tick-state",
+    "message": "`dist` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/railshooter/state.toml",
+    "line": 31,
+    "rule": "tick-state",
+    "message": "`lean` is declared in a frame unit ('PER FRAME'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/railshooter/state.toml",
+    "line": 51,
+    "rule": "tick-state",
+    "message": "`spawn_t` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/railshooter/state.toml",
+    "line": 60,
+    "rule": "tick-state",
+    "message": "`burst_t` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/railshooter/state.toml",
+    "line": 63,
+    "rule": "tick-state",
+    "message": "`burst_f` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/railshooter/state.toml",
+    "line": 68,
+    "rule": "tick-state",
+    "message": "`fail_t` is declared in a frame unit ('countdown'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/room/state.toml",
+    "line": 6,
+    "rule": "tick-state",
+    "message": "`t_frames` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/room/state.toml",
+    "line": 10,
+    "rule": "tick-state",
+    "message": "`py` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/rpg/main.asm",
+    "line": 74,
+    "rule": "tick-constant",
+    "message": "`STEP_FRAMES = 8` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/rpg/main.asm",
+    "line": 339,
+    "rule": "tick-routine",
+    "message": "`rpg_fade_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/rpg/scenes/overworld.asm",
+    "line": 226,
+    "rule": "tick-routine",
+    "message": "`advance_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/rpg/scenes/overworld.asm",
+    "line": 255,
+    "rule": "tick-routine",
+    "message": "`read_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/rpg/scenes/overworld.asm",
+    "line": 300,
+    "rule": "tick-routine",
+    "message": "`try_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/rpg/scenes/town.asm",
+    "line": 319,
+    "rule": "tick-routine",
+    "message": "`read_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/rpg/scenes/town.asm",
+    "line": 389,
+    "rule": "tick-routine",
+    "message": "`try_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/rpg/scenes/town.asm",
+    "line": 497,
+    "rule": "tick-constant",
+    "message": "`TOWN_FLARE_FRAMES = 12` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/scroll_run/scenes/run.asm",
+    "line": 362,
+    "rule": "tick-routine",
+    "message": "`phys_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/scroll_run/state.toml",
+    "line": 18,
+    "rule": "tick-state",
+    "message": "`pyf` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/scroll_run/state.toml",
+    "line": 19,
+    "rule": "tick-state",
+    "message": "`vy` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/scroll_run/state.toml",
+    "line": 20,
+    "rule": "tick-state",
+    "message": "`tent` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/scroll_run/state.toml",
+    "line": 30,
+    "rule": "tick-state",
+    "message": "`frames` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/scroller/state.toml",
+    "line": 8,
+    "rule": "tick-state",
+    "message": "`frames` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/shmup/scenes/play.asm",
+    "line": 114,
+    "rule": "tick-routine",
+    "message": "`shm_msg_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/shmup/shmup.inc",
+    "line": 22,
+    "rule": "tick-constant",
+    "message": "`SHIP_SPEED = 2` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/shmup/shmup.inc",
+    "line": 23,
+    "rule": "tick-constant",
+    "message": "`BULLET_SPEED = 4` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/shmup/shmup.inc",
+    "line": 24,
+    "rule": "tick-constant",
+    "message": "`FOE_SPEED = 1` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/shmup/shmup.inc",
+    "line": 25,
+    "rule": "tick-constant",
+    "message": "`SPAWN_PERIOD = 48` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/shmup/shmup.inc",
+    "line": 27,
+    "rule": "tick-constant",
+    "message": "`IFRAMES = 90` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/shmup/shmup.inc",
+    "line": 29,
+    "rule": "tick-constant",
+    "message": "`ANIM_RATE = 6` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/shmup/shmup.inc",
+    "line": 30,
+    "rule": "tick-constant",
+    "message": "`ANIM_STEPS = 2` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/shmup/shmup.inc",
+    "line": 31,
+    "rule": "tick-constant",
+    "message": "`BURST_LIFE = 16` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/shmup/shmup.inc",
+    "line": 110,
+    "rule": "tick-constant",
+    "message": "`OBJ_BURST = 8` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/shmup/state.toml",
+    "line": 15,
+    "rule": "tick-state",
+    "message": "`t_frames` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/shmup/state.toml",
+    "line": 23,
+    "rule": "tick-state",
+    "message": "`spawn_t` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/shmup/state.toml",
+    "line": 25,
+    "rule": "tick-state",
+    "message": "`hurt` is declared in a frame unit ('i-frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/shmup/state.toml",
+    "line": 26,
+    "rule": "tick-state",
+    "message": "`atick` is declared in a frame unit ('animation'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/shmup/state.toml",
+    "line": 29,
+    "rule": "tick-state",
+    "message": "`blink` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/shmup/state.toml",
+    "line": 36,
+    "rule": "tick-state",
+    "message": "`tmp2` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/shmup/state.toml",
+    "line": 45,
+    "rule": "tick-state",
+    "message": "`msg` is declared in a frame unit ('PER FRAME'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_h_demo/scenes/cockpit.asm",
+    "line": 304,
+    "rule": "tick-routine",
+    "message": "`spin_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_h_demo/scenes/cockpit.asm",
+    "line": 331,
+    "rule": "tick-routine",
+    "message": "`spin_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_h_demo/scenes/cockpit.asm",
+    "line": 383,
+    "rule": "tick-routine",
+    "message": "`toggle_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_h_demo/scenes/cockpit.asm",
+    "line": 406,
+    "rule": "tick-routine",
+    "message": "`hud_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_h_demo/state.toml",
+    "line": 36,
+    "rule": "tick-state",
+    "message": "`hud_val` is declared in a frame unit ('per-frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_h_demo/state.toml",
+    "line": 41,
+    "rule": "tick-state",
+    "message": "`frames` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_demo/split_v_demo.inc",
+    "line": 18,
+    "rule": "tick-constant",
+    "message": "`SVD_CAM_SPD = 2` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_fight/scenes/fight.asm",
+    "line": 274,
+    "rule": "tick-routine",
+    "message": "`round_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_fight/scenes/fight.asm",
+    "line": 420,
+    "rule": "tick-routine",
+    "message": "`fighter_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_fight/scenes/fight.asm",
+    "line": 539,
+    "rule": "tick-routine",
+    "message": "`jump_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_fight/split_v.inc",
+    "line": 18,
+    "rule": "tick-constant",
+    "message": "`SV_WALK_SPD = 2` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_fight/split_v.inc",
+    "line": 58,
+    "rule": "tick-constant",
+    "message": "`SV_COUNT_STEP = 1 << SV_COUNT_SHIFT` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_fight/split_v.inc",
+    "line": 97,
+    "rule": "tick-constant",
+    "message": "`SV_SWING_LUNGE = 2` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_fight/split_v.inc",
+    "line": 98,
+    "rule": "tick-constant",
+    "message": "`SV_HIT_LEN = 24` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_fight/split_v.inc",
+    "line": 111,
+    "rule": "tick-constant",
+    "message": "`SV_JUMP_V0 = $0400` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_fight/split_v.inc",
+    "line": 112,
+    "rule": "tick-constant",
+    "message": "`SV_GRAV = $0033` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_fight/split_v.inc",
+    "line": 147,
+    "rule": "tick-constant",
+    "message": "`SV_ANIM_STRIDE = 4` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_fight/state.toml",
+    "line": 26,
+    "rule": "tick-state",
+    "message": "`ast` is declared in a frame unit ('anim'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_fight/state.toml",
+    "line": 27,
+    "rule": "tick-state",
+    "message": "`atk` is declared in a frame unit ('anim'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_fight/state.toml",
+    "line": 28,
+    "rule": "tick-state",
+    "message": "`afr` is declared in a frame unit ('anim'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_fight/state.toml",
+    "line": 29,
+    "rule": "tick-state",
+    "message": "`swg` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_fight/state.toml",
+    "line": 30,
+    "rule": "tick-state",
+    "message": "`swh` is declared in a frame unit ('per-frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_fight/state.toml",
+    "line": 33,
+    "rule": "tick-state",
+    "message": "`jmp` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_fight/state.toml",
+    "line": 36,
+    "rule": "tick-state",
+    "message": "`jvel` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_fight/state.toml",
+    "line": 37,
+    "rule": "tick-state",
+    "message": "`hitt` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_fight/state.toml",
+    "line": 41,
+    "rule": "tick-state",
+    "message": "`rtimer` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_fight/state.toml",
+    "line": 51,
+    "rule": "tick-state",
+    "message": "`ppress` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_fight/state.toml",
+    "line": 52,
+    "rule": "tick-state",
+    "message": "`fx0` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/split_v_seamtrial/state.toml",
+    "line": 13,
+    "rule": "tick-state",
+    "message": "`spreadf` is declared in a frame unit ('px/frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/stomper/scenes/play.asm",
+    "line": 261,
+    "rule": "tick-routine",
+    "message": "`phys_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
+    "severity": "error"
+  },
+  {
+    "file": "game/stomper/state.toml",
+    "line": 15,
+    "rule": "tick-state",
+    "message": "`pyf` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/stomper/state.toml",
+    "line": 16,
+    "rule": "tick-state",
+    "message": "`vy` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/stomper/state.toml",
+    "line": 21,
+    "rule": "tick-state",
+    "message": "`tent` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/stomper/state.toml",
+    "line": 52,
+    "rule": "tick-state",
+    "message": "`clearp` is declared in a frame unit ('countdown'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/stomper/state.toml",
+    "line": 57,
+    "rule": "tick-state",
+    "message": "`blink` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "severity": "error"
+  },
+  {
+    "file": "game/stomper/stomper.inc",
+    "line": 16,
+    "rule": "tick-constant",
+    "message": "`ST_SPEED = 2` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/stomper/stomper.inc",
+    "line": 24,
+    "rule": "tick-constant",
+    "message": "`ST_GRAVITY = 1 << 6` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/stomper/stomper.inc",
+    "line": 25,
+    "rule": "tick-constant",
+    "message": "`ST_MAX_FALL = 4 << 8` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/stomper/stomper.inc",
+    "line": 30,
+    "rule": "tick-constant",
+    "message": "`ST_JUMP_VEL = (4 << 8) + (1 << 7)` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/stomper/stomper.inc",
+    "line": 36,
+    "rule": "tick-constant",
+    "message": "`ST_BOUNCE_VEL = 3 << 8` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "game/stomper/stomper.inc",
+    "line": 43,
+    "rule": "tick-constant",
+    "message": "`ST_PATROL_SPEED = 1` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/active_lines.py",
+    "line": 213,
+    "rule": "tick-substrate",
+    "message": "the NTSC frame's master-cycle count as a literal. A PAL frame is 425,568 mc (measured); every percent-of-frame and modulo built on this number means 'the NTSC frame' where it reads as 'the frame'.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_boss_tracks.py",
+    "line": 41,
+    "rule": "tick-generator",
+    "message": "`REVEAL_FRAMES = 60, and REVEAL_STEP = (REVEAL_SCALE - INIT_SCALE) /` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_boss_tracks.py",
+    "line": 92,
+    "rule": "tick-generator",
+    "message": "`REVEAL_FRAMES = 60` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_boss_tracks.py",
+    "line": 94,
+    "rule": "tick-generator",
+    "message": "`DEATH_SPIN = 3` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_m7f_gradient.py",
+    "line": 138,
+    "rule": "tick-generator",
+    "message": "`TOD_RATE = 32` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_m7f_gradient.py",
+    "line": 140,
+    "rule": "tick-generator",
+    "message": "`TOD_SEG_FRAMES = (1 << 16) // len(SNAPSHOTS) // TOD_RATE` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_m7f_gradient.py",
+    "line": 141,
+    "rule": "tick-generator",
+    "message": "`TOD_CYCLE_FRAMES = TOD_SEG_FRAMES * len(SNAPSHOTS)` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_m7f_gradient.py",
+    "line": 142,
+    "rule": "tick-generator",
+    "message": "`TOD_STEP_FRAMES = (1 << TOD_STEP_SHIFT) // TOD_RATE` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_meteor_tracks.py",
+    "line": 123,
+    "rule": "tick-generator",
+    "message": "`MET_SCALE_STEP = 0x0030` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_meteor_tracks.py",
+    "line": 124,
+    "rule": "tick-generator",
+    "message": "`TUMBLE_STEP = 4` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_move_lut.py",
+    "line": 44,
+    "rule": "tick-generator",
+    "message": "`VEL_MAX = 0x3000` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_move_lut.py",
+    "line": 45,
+    "rule": "tick-generator",
+    "message": "`VEL_MIN = -0x1000` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_move_lut.py",
+    "line": 46,
+    "rule": "tick-generator",
+    "message": "`ACCEL = 0x0100` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_racer_assets.py",
+    "line": 109,
+    "rule": "tick-generator",
+    "message": "`SPEED_CAP = 0x0F00` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_racer_assets.py",
+    "line": 110,
+    "rule": "tick-generator",
+    "message": "`ACCEL = 0x0040` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_racer_assets.py",
+    "line": 114,
+    "rule": "tick-generator",
+    "message": "`OFFROAD_DRAG = 0x0180` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_racer_assets.py",
+    "line": 115,
+    "rule": "tick-generator",
+    "message": "`TOD_HOLD = 128` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_racer_assets.py",
+    "line": 116,
+    "rule": "tick-generator",
+    "message": "`TOD_STEP = 16` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_saucer_tracks.py",
+    "line": 169,
+    "rule": "tick-generator",
+    "message": "`REVEAL_FRAMES = 60` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_saucer_tracks.py",
+    "line": 172,
+    "rule": "tick-generator",
+    "message": "`DEATH_SPIN = 3` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_saucer_tracks.py",
+    "line": 176,
+    "rule": "tick-generator",
+    "message": "`LUNGE_FRAMES = 1 + (INIT_SCALE - NEAR_SCALE - 1) // LUNGE_STEP` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_split_v_assets.py",
+    "line": 208,
+    "rule": "tick-generator",
+    "message": "`HUD_PER_ROW = 8` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_split_v_assets.py",
+    "line": 458,
+    "rule": "tick-generator",
+    "message": "`FRAME_BOX = 32` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_split_v_assets.py",
+    "line": 459,
+    "rule": "tick-generator",
+    "message": "`FRAMES_PER_GROUP = 4` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/gen_split_v_assets.py",
+    "line": 489,
+    "rule": "tick-generator",
+    "message": "`ANIM_STRIDE = 4` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/measure_col_map_cost.py",
+    "line": 53,
+    "rule": "tick-substrate",
+    "message": "the NTSC frame's master-cycle count as a literal. A PAL frame is 425,568 mc (measured); every percent-of-frame and modulo built on this number means 'the NTSC frame' where it reads as 'the frame'.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/measure_col_map_cost.py",
+    "line": 66,
+    "rule": "tick-substrate",
+    "message": "the substrate's `frame.ntsc` table read BY NAME. It is the only frame table there is; a second region needs a second table and a caller that chooses.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/measure_m7_project.py",
+    "line": 147,
+    "rule": "tick-substrate",
+    "message": "the substrate's `frame.ntsc` table read BY NAME. It is the only frame table there is; a second region needs a second table and a caller that chooses.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/measure_m7dg_logic.py",
+    "line": 166,
+    "rule": "tick-substrate",
+    "message": "the substrate's `frame.ntsc` table read BY NAME. It is the only frame table there is; a second region needs a second table and a caller that chooses.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/measure_sh2_swarm.py",
+    "line": 218,
+    "rule": "tick-substrate",
+    "message": "the substrate's `frame.ntsc` table read BY NAME. It is the only frame table there is; a second region needs a second table and a caller that chooses.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/measure_tad_process.py",
+    "line": 173,
+    "rule": "tick-substrate",
+    "message": "the substrate's `frame.ntsc` table read BY NAME. It is the only frame table there is; a second region needs a second table and a caller that chooses.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/tick_lint.py",
+    "line": 75,
+    "rule": "tick-substrate",
+    "message": "the NTSC frame's master-cycle count as a literal. A PAL frame is 425,568 mc (measured); every percent-of-frame and modulo built on this number means 'the NTSC frame' where it reads as 'the frame'.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/tick_lint.py",
+    "line": 122,
+    "rule": "tick-substrate",
+    "message": "the NTSC frame's master-cycle count as a literal. A PAL frame is 425,568 mc (measured); every percent-of-frame and modulo built on this number means 'the NTSC frame' where it reads as 'the frame'.",
+    "severity": "error"
+  },
+  {
+    "file": "tools/tick_lint.py",
+    "line": 185,
+    "rule": "tick-substrate",
+    "message": "the NTSC frame's master-cycle count as a literal. A PAL frame is 425,568 mc (measured); every percent-of-frame and modulo built on this number means 'the NTSC frame' where it reads as 'the frame'.",
+    "severity": "error"
+  },
+  {
+    "file": "allocator/pin_budgets.py",
+    "line": 57,
+    "rule": "tick-substrate",
+    "message": "the substrate's `frame.ntsc` table read BY NAME. It is the only frame table there is; a second region needs a second table and a caller that chooses.",
+    "severity": "error"
+  },
+  {
+    "file": "allocator/schemas.py",
+    "line": 142,
+    "rule": "tick-substrate",
+    "message": "the substrate's `frame.ntsc` table read BY NAME. It is the only frame table there is; a second region needs a second table and a caller that chooses.",
+    "severity": "error"
+  },
+  {
+    "file": "allocator/substrate.toml",
+    "line": 88,
+    "rule": "tick-substrate",
+    "message": "the substrate's `frame.ntsc` table read BY NAME. It is the only frame table there is; a second region needs a second table and a caller that chooses.",
+    "severity": "error"
+  },
+  {
+    "file": "allocator/substrate.toml",
+    "line": 91,
+    "rule": "tick-substrate",
+    "message": "the NTSC frame's master-cycle count as a literal. A PAL frame is 425,568 mc (measured); every percent-of-frame and modulo built on this number means 'the NTSC frame' where it reads as 'the frame'.",
+    "severity": "error"
+  },
+  {
+    "file": "tests/test_measure_cpu.py",
+    "line": 61,
+    "rule": "tick-substrate",
+    "message": "the NTSC frame's master-cycle count as a literal. A PAL frame is 425,568 mc (measured); every percent-of-frame and modulo built on this number means 'the NTSC frame' where it reads as 'the frame'.",
+    "severity": "error"
+  },
+  {
+    "file": "tests/test_microzero_stream.py",
+    "line": 30,
+    "rule": "tick-substrate",
+    "message": "the NTSC frame's master-cycle count as a literal. A PAL frame is 425,568 mc (measured); every percent-of-frame and modulo built on this number means 'the NTSC frame' where it reads as 'the frame'.",
+    "severity": "error"
+  },
+  {
+    "file": "tests/test_mode7_flight.py",
+    "line": 168,
+    "rule": "tick-substrate",
+    "message": "the NTSC frame's master-cycle count as a literal. A PAL frame is 425,568 mc (measured); every percent-of-frame and modulo built on this number means 'the NTSC frame' where it reads as 'the frame'.",
+    "severity": "error"
+  },
+  {
+    "file": "tests/test_pfs_stream.py",
+    "line": 122,
+    "rule": "tick-substrate",
+    "message": "the NTSC frame's master-cycle count as a literal. A PAL frame is 425,568 mc (measured); every percent-of-frame and modulo built on this number means 'the NTSC frame' where it reads as 'the frame'.",
+    "severity": "error"
+  },
+  {
+    "file": "tests/test_platformer.py",
+    "line": 42,
+    "rule": "tick-substrate",
+    "message": "the NTSC frame's master-cycle count as a literal. A PAL frame is 425,568 mc (measured); every percent-of-frame and modulo built on this number means 'the NTSC frame' where it reads as 'the frame'.",
+    "severity": "error"
+  },
+  {
+    "file": "tests/test_room_window.py",
+    "line": 630,
+    "rule": "tick-substrate",
+    "message": "the NTSC frame's master-cycle count as a literal. A PAL frame is 425,568 mc (measured); every percent-of-frame and modulo built on this number means 'the NTSC frame' where it reads as 'the frame'.",
+    "severity": "error"
+  },
+  {
+    "file": "tests/test_scene_mgr_shadow.py",
+    "line": 46,
+    "rule": "tick-substrate",
+    "message": "the NTSC frame's master-cycle count as a literal. A PAL frame is 425,568 mc (measured); every percent-of-frame and modulo built on this number means 'the NTSC frame' where it reads as 'the frame'.",
+    "severity": "error"
+  },
+  {
+    "file": "tests/test_schemas.py",
+    "line": 27,
+    "rule": "tick-substrate",
+    "message": "the NTSC frame's master-cycle count as a literal. A PAL frame is 425,568 mc (measured); every percent-of-frame and modulo built on this number means 'the NTSC frame' where it reads as 'the frame'.",
+    "severity": "error"
+  }
+]
