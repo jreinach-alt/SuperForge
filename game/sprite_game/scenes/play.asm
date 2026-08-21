@@ -28,6 +28,22 @@
 ; scene-scoped, so its asm has to see this scene's emitted symbols.
 .include "sprg_obj.asm"
 
+; =============================================================================
+; THE ONE BASE RATE tick_scale SCALES (docs/96 §4, docs/97 §3)
+; =============================================================================
+; SPRG_SPEED is still the one number to reach for when tuning how this rail
+; feels; what changed is that it is now a RATE rather than a per-frame
+; immediate. On NTSC TS_STEP publishes it to the pixel, so the picture cannot
+; move; on PAL it publishes 2 or 3 in the pattern that averages 2.4036, so the
+; player crosses the screen in the same number of REAL SECONDS on both
+; machines.
+;
+; NOTHING ELSE ON THIS RAIL IS COUNTED IN FRAMES. There is no countdown, no
+; animation divider, no i-frame window and no respawn timer — the score is a
+; count of catches and the dot teleports. That is why this rail needs exactly
+; one accumulator pair and no judgement calls: it is the whole conversion.
+TS_MOVE_BASE = SPRG_SPEED * TS_ONE
+
 ; --- enter: forced blank + NMI masked (scene_mgr contract) ------------------
 ; In/out: A16/I16, DB=0.
 enter:
@@ -61,6 +77,10 @@ enter:
     sta z:US_PY
     stz z:US_SCORE
     stz z:US_DOT_IDX
+    stz z:US_TS_ACC             ; the timebase's carried fraction, and this
+    stz z:US_TS_STEP            ;   frame's step: written before either is read
+                                ;   (the tick republishes the step at its top,
+                                ;   but enter's own placement runs first)
     ldx #0                      ; preset 0 from the table — one source of
     lda f:dot_presets, x        ;   truth for where the dot sits, rather than
     sta z:US_DOT_X              ;   a spawn coordinate inlined here as well
@@ -84,6 +104,13 @@ exit:
 tick:
     .a16
     .i16
+    ; ---- this frame's region-correct step, published once -----------------
+    ; Computed here rather than inside move_player so the four axis moves all
+    ; read ONE answer: compute once per frame per rate, consume as many times
+    ; as the frame needs. On NTSC no branch beyond the flag test is taken and
+    ; the published word is SPRG_SPEED exactly.
+    TS_STEP z:US_TS_ACC, TS_MOVE_BASE
+    sta z:US_TS_STEP
     jsr move_player
     jsr catch_dot
     jmp sprg_obj_place
@@ -99,7 +126,7 @@ move_player:
     beq @no_right
     lda z:US_PX
     clc
-    adc #SPRG_SPEED
+    adc z:US_TS_STEP
     sta z:US_PX
 @no_right:
     .a16
@@ -109,7 +136,7 @@ move_player:
     beq @no_left
     lda z:US_PX
     sec
-    sbc #SPRG_SPEED
+    sbc z:US_TS_STEP
     sta z:US_PX
 @no_left:
     .a16
@@ -119,7 +146,7 @@ move_player:
     beq @no_down
     lda z:US_PY
     clc
-    adc #SPRG_SPEED
+    adc z:US_TS_STEP
     sta z:US_PY
 @no_down:
     .a16
@@ -129,7 +156,7 @@ move_player:
     beq @no_up
     lda z:US_PY
     sec
-    sbc #SPRG_SPEED
+    sbc z:US_TS_STEP
     sta z:US_PY
 @no_up:
     .a16

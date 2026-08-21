@@ -21,7 +21,17 @@
 # `fade` is in globals because scene_mgr commits INIDISP from fade's shadow
 # in the NMI handler every armed frame; without it the screen has no legal
 # way to come out of forced blank.
-globals = ["scene_mgr", "input", "fade", "oam_sprites", "sprg_rom"]
+# REGION + TICK_SCALE: what makes this cart one cart on both machines.
+#   region      reads $213F bit 4 once at boot and publishes ES_RGN_PAL.
+#   tick_scale  turns a per-frame delta into a REGION-CORRECT one, carrying
+#               the fraction between frames. It `depends = ["region"]`, so the
+#               allocator pulls `region` in with it; listing both here is
+#               documentation rather than a requirement.
+# ONE RATE, and this is the tree's cleanest instance of it: SPRG_SPEED is the
+# whole of the motion, there is no clamp to interact with, and nothing else on
+# the rail is counted in frames at all.
+globals = ["scene_mgr", "input", "fade", "oam_sprites", "sprg_rom",
+           "region", "tick_scale"]
 
 [[scene]]
 id = "play"

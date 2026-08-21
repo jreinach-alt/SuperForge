@@ -35,7 +35,19 @@
 #                backdrop slot (scroller's refusal, same geometry).
 #   bg_text   -- no text in this rail; the picture is the whole of it.
 #   audio     -- this rail is silent: nothing queues music or SFX.
-globals = ["scene_mgr", "fade", "input", "oam_sprites", "maze_rom"]
+# REGION + TICK_SCALE: what makes this cart one cart on both machines.
+#   region      reads $213F bit 4 once at boot and publishes ES_RGN_PAL.
+#   tick_scale  turns a per-frame delta into a REGION-CORRECT one, carrying
+#               the fraction between frames. It `depends = ["region"]`, so the
+#               allocator pulls `region` in with it.
+# THE NO-TUNNEL BOUND SURVIVES THE SCALE, and that is the one thing to check on
+# this rail before anything else: maze.inc's MZ_SPEED comment says the step
+# "must stay under one 8 px tile so a single step can never cross a wall
+# cell". TS_STEP publishes 2 on NTSC and alternates 2/3 on PAL, so the largest
+# step this composition can ever produce is 3 — still well inside the 8 px
+# cell, and the per-axis probe still sees every cell the box enters.
+globals = ["scene_mgr", "fade", "input", "oam_sprites", "maze_rom",
+           "region", "tick_scale"]
 
 [[scene]]
 id = "room"

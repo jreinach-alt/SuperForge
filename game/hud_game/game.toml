@@ -19,8 +19,18 @@
 # `fade` is in globals because scene_mgr commits INIDISP from fade's shadow in
 # the NMI handler every armed frame (scene_mgr owns INIDISP; fade owns the
 # ramp). Without it the screen has no legal way to come out of forced blank.
+# REGION + TICK_SCALE: what makes this cart one cart on both machines.
+#   region      reads $213F bit 4 once at boot and publishes ES_RGN_PAL.
+#   tick_scale  turns a per-frame delta into a REGION-CORRECT one, carrying
+#               the fraction between frames. It `depends = ["region"]`, so the
+#               allocator pulls `region` in with it.
+# ONE RATE, AND ONE THING DELIBERATELY LEFT ALONE. HUD_SPEED is scaled; the
+# SCORE is not, and cannot be — it is bumped on the RISING EDGE of A, which is
+# an event per press and not a rate per second. That is the rail's edge-vs-
+# level lesson holding under the region change: the held d-pad is a rate and
+# scales, the pressed button is an edge and does not.
 globals = ["scene_mgr", "input", "fade", "text_dp", "font_rom", "enter_scr",
-           "oam_sprites", "hud_rom"]
+           "oam_sprites", "hud_rom", "region", "tick_scale"]
 
 [[scene]]
 id = "play"

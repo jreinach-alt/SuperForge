@@ -25,6 +25,22 @@ pwy = "u16@dp"           # player y, WORLD px. Clamped to [0, CF_WORLD_H - 8].
 scrx = "u16@dp"          # sprite x, SCREEN px = pwx - cam_x. In [0, 248] by
                          # construction once both clamps hold.
 scry = "u16@dp"          # sprite y, SCREEN px = pwy - cam_y. In [0, 216].
+# --- the TIMEBASE's per-consumer state (engine/features/tick_scale) ---------
+#
+# ONE RATE, ONE PAIR. CF_SPEED is the only velocity on the rail: the camera and
+# the screen position are both PURE FUNCTIONS of the player, recomputed from
+# scratch every tick, so neither carries a rate of its own and neither needs an
+# accumulator. A second rate would declare a second pair.
+ts_acc = "u16@dp"        # the carried fraction, 8.8 — what makes a
+                         # non-integer per-frame step exact over time instead
+                         # of re-quantised every frame.
+                         # TICK: ok — this word EXISTS to remove a frame
+                         # coupling, not to express one; it is the fraction the
+                         # scaler carries and has no meaning in frames.
+ts_step = "u16@dp"       # this frame's whole-unit step in world px, published
+                         # once by TS_STEP and consumed by the four axis moves.
+                         # TICK: ok — the OUTPUT of the scaler; already
+                         # expressed against the declared tick.
 frames = "u16@dp"        # frames since enter. Drives nothing — the
                          # free-running heartbeat a test reads to tell "the
                          # tick is running" from "the tick is stuck" (the

@@ -26,6 +26,23 @@
 ; scene-scoped, so its asm has to see this scene's emitted symbols.
 .include "hud_obj.asm"
 
+; =============================================================================
+; THE ONE BASE RATE tick_scale SCALES (docs/96 §4, docs/97 §3)
+; =============================================================================
+; HUD_SPEED is still the one number to reach for when tuning how this rail
+; feels; what changed is that it is now a RATE rather than a per-frame
+; immediate. On NTSC TS_STEP publishes it to the pixel, so the picture cannot
+; move; on PAL it publishes 2 or 3 in the pattern that averages 2.4036.
+;
+; THE SCORE IS NOT SCALED AND MUST NOT BE. It is bumped on the RISING EDGE of
+; A — one bump per press however long the button is held — so it is an event
+; count, not a rate per second, and a player pressing A ten times scores ten
+; on either machine already. That is this rail's edge-vs-level lesson stated
+; in the time domain: the HELD d-pad is a rate and scales, the PRESSED button
+; is an edge and does not. `blink` is likewise left alone: it is the
+; free-running heartbeat and drives nothing.
+TS_MOVE_BASE = HUD_SPEED * TS_ONE
+
 ; BG3 2bpp tile attr: palette 7 (claim pins CGRAM words 28..31), priority set
 ; so the HUD line draws over the player where they overlap — BGMODE bit 3
 ; below puts BG3's priority-1 tiles above the sprites, which is what a HUD is.
@@ -95,6 +112,9 @@ enter:
     stz z:US_SCORE
     stz z:US_DIRTY
     stz z:US_BLINK
+    stz z:US_TS_ACC             ; the timebase's carried fraction, and this
+    stz z:US_TS_STEP            ;   frame's step: written before either is read
+                                ;   (enter's own placement runs first)
     ; ---- the HUD, printed under the blank where a whole string is legal ---
     lda #TXT_ATTR
     sta z:ES_TXT_TMP
@@ -132,6 +152,12 @@ tick:
     lda z:US_BLINK
     inc a
     sta z:US_BLINK              ; the free-running heartbeat
+    ; ---- this frame's region-correct step, published once ------------------
+    ; Computed here rather than inside move_player so all four axis moves read
+    ; ONE answer: compute once per frame per rate, consume as many times as
+    ; the frame needs.
+    TS_STEP z:US_TS_ACC, TS_MOVE_BASE
+    sta z:US_TS_STEP
     jsr move_player
     jsr bump_score
     jsr hud_refresh
@@ -149,7 +175,7 @@ move_player:
     beq @no_right
     lda z:US_PX
     clc
-    adc #HUD_SPEED
+    adc z:US_TS_STEP
     sta z:US_PX
 @no_right:
     .a16
@@ -159,7 +185,7 @@ move_player:
     beq @no_left
     lda z:US_PX
     sec
-    sbc #HUD_SPEED
+    sbc z:US_TS_STEP
     sta z:US_PX
 @no_left:
     .a16
@@ -169,7 +195,7 @@ move_player:
     beq @no_down
     lda z:US_PY
     clc
-    adc #HUD_SPEED
+    adc z:US_TS_STEP
     sta z:US_PY
 @no_down:
     .a16
@@ -179,7 +205,7 @@ move_player:
     beq @no_up
     lda z:US_PY
     sec
-    sbc #HUD_SPEED
+    sbc z:US_TS_STEP
     sta z:US_PY
 @no_up:
     .a16

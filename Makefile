@@ -309,7 +309,9 @@ $(BUILD)/hud_game.sfc: $(HD_ASM) $(HD)/hud.inc \
 	$(CA65) -I $(HD_MAP) -I $(VROM) -I $(HD) \
 		-I engine/features/scene_mgr -I engine/features/input \
 		-I engine/features/fade -I engine/features/bg_text \
-		-I engine/features/oam_sprites -I engine/features/hud_obj \
+		-I engine/features/oam_sprites \
+		-I engine/features/region -I engine/features/tick_scale \
+		-I engine/features/hud_obj \
 		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/hud_game.o $(HD)/main.asm
 	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/hud_game.o
@@ -347,7 +349,9 @@ $(BUILD)/sprite_game.sfc: $(SPRG_ASM) $(SPRG)/sprg.inc \
 	$(CA65) -I $(SPRG_MAP) -I $(VROM) -I $(SPRG) \
 		-I engine/features/scene_mgr -I engine/features/input \
 		-I engine/features/fade \
-		-I engine/features/oam_sprites -I engine/features/sprg_obj \
+		-I engine/features/oam_sprites \
+		-I engine/features/region -I engine/features/tick_scale \
+		-I engine/features/sprg_obj \
 		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/sprite_game.o $(SPRG)/main.asm
 	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/sprite_game.o
@@ -1116,6 +1120,7 @@ $(CF_MAP)/engine_state_globals.inc $(CF_MAP)/symbol_map.json: \
 CF_INC := -I $(CF_MAP) -I $(VROM) -I $(CF) \
           -I engine/features/scene_mgr -I engine/features/input \
           -I engine/features/oam_sprites -I engine/features/fade \
+          -I engine/features/region -I engine/features/tick_scale \
           -I engine/features/cf_bg -I engine/features/cf_obj
 
 $(BUILD)/camera_follow.sfc: $(CF_ASM) $(CF)/cf.inc \
@@ -1166,6 +1171,7 @@ $(MZE_MAP)/engine_state_globals.inc $(MZE_MAP)/symbol_map.json: \
 MZE_INC := -I $(MZE_MAP) -I $(VROM) -I $(MZE) \
            -I engine/features/scene_mgr -I engine/features/input \
            -I engine/features/oam_sprites -I engine/features/fade \
+           -I engine/features/region -I engine/features/tick_scale \
            -I engine/features/maze_bg -I engine/features/maze_obj \
            -I engine/features/col_map
 

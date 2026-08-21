@@ -44,6 +44,25 @@ MZ_WORLD_PX = 1 << (CM_WORLD_W_LOG2 + 3)
 
 .scope room
 
+; =============================================================================
+; THE ONE BASE RATE tick_scale SCALES (docs/96 §4, docs/97 §3)
+; =============================================================================
+; MZ_SPEED is still the one number to reach for when tuning how this rail
+; feels; what changed is that it is now a RATE rather than a per-frame
+; immediate. On NTSC TS_STEP publishes it to the pixel, so the picture cannot
+; move; on PAL it publishes 2 or 3 in the pattern that averages 2.4036.
+;
+; THE NO-TUNNEL BOUND IS WHAT MAKES THIS SAFE, and it is worth restating where
+; the scale happens rather than only in maze.inc: the move-check probes the
+; four corners of the box AT THE TENTATIVE POSITION and drops the whole step if
+; any is solid, so the property it needs is that one step cannot carry the box
+; ACROSS a solid cell without landing in it. That needs step < 8, the cell
+; size. The largest step this composition can publish is 3.
+;
+; The step is per-RATE, not per-axis: x and y both move at MZ_SPEED, so both
+; read the one published word and share the one carried fraction.
+TS_MOVE_BASE = MZ_SPEED * TS_ONE
+
 ; --- enter ----------------------------------------------------------------
 ; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
 enter:
@@ -57,6 +76,9 @@ enter:
     lda #MZ_SPAWN_Y
     sta z:US_PY
     stz z:US_FRAMES
+    stz z:US_TS_ACC                 ; the timebase's carried fraction, and this
+    stz z:US_TS_STEP                ;   frame's step: written before either is
+                                    ;   read (enter's own draw runs first)
     jsr mzo_draw                    ; stage BEFORE the first NMI, so frame 0
                                     ; commits a real entry rather than
                                     ; whatever oam_park_all left
@@ -89,6 +111,12 @@ tick:
     .a16
     .i16
     inc z:US_FRAMES
+    ; ---- this frame's region-correct step, published once ------------------
+    ; Both axes read it, so it is computed before either tentative move rather
+    ; than inside them: compute once per frame per rate, consume as often as
+    ; the frame needs.
+    TS_STEP z:US_TS_ACC, TS_MOVE_BASE
+    sta z:US_TS_STEP
     ; ---- X axis: tentative move, keep only if clear -----------------------
     lda z:US_PX
     sta z:US_CAND_X
@@ -99,7 +127,7 @@ tick:
     beq @no_right
     lda z:US_CAND_X
     clc
-    adc #MZ_SPEED
+    adc z:US_TS_STEP
     sta z:US_CAND_X
 @no_right:
     .a16
@@ -109,7 +137,7 @@ tick:
     beq @no_left
     lda z:US_CAND_X
     sec
-    sbc #MZ_SPEED
+    sbc z:US_TS_STEP
     sta z:US_CAND_X
 @no_left:
     .a16
@@ -131,7 +159,7 @@ tick:
     beq @no_down
     lda z:US_CAND_Y
     clc
-    adc #MZ_SPEED
+    adc z:US_TS_STEP
     sta z:US_CAND_Y
 @no_down:
     .a16
@@ -141,7 +169,7 @@ tick:
     beq @no_up
     lda z:US_CAND_Y
     sec
-    sbc #MZ_SPEED
+    sbc z:US_TS_STEP
     sta z:US_CAND_Y
 @no_up:
     .a16
