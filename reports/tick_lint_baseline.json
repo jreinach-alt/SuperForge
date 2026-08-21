@@ -1436,7 +1436,7 @@
   },
   {
     "file": "game/platformer/scenes/play.asm",
-    "line": 717,
+    "line": 865,
     "rule": "tick-routine",
     "message": "`gh_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"

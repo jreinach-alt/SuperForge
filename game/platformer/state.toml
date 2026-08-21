@@ -68,6 +68,60 @@ aframe = "u16@dp"
 msg = "u16@dp"           # pending block address, 0 = idle
 msgpos = "u16@dp"        # the next cell of that block
 
+# --- the TIMEBASE's per-consumer state (engine/features/tick_scale) ---------
+#
+# FOUR RATES, FOUR PAIRS, and the fourth is the one worth reading. A ballistic
+# arc has a VELOCITY (px per frame, region scale r) and a GRAVITY (px per
+# frame SQUARED, region scale r^2), and tick_scale's TS_STEP applies exactly
+# one r. So three of these are ordinary consumer pairs and gravity feeds
+# TS_STEP a base that already carries one r on the PAL arm -- see
+# scenes/play.asm, the only place that arithmetic is spelled.
+#
+# The ghost beat and the animation clock keep SEPARATE pairs even though both
+# bases are numerically 1: they are different quantities (world px against
+# animation units) and a shared accumulator would couple them the day either
+# is tuned. tick_scale carries the fraction per RATE, not per consumer.
+tsw_acc = "u16@dp"       # the hero's walk: PLF_WALK px per frame
+                         # TICK: ok -- the carried FRACTION of a scaled rate.
+                         # It exists to remove a frame coupling, not to hold
+                         # one, and it has no meaning in frames.
+tsw = "u16@dp"           # ...and this frame's answer, in whole px
+                         # TICK: ok -- the OUTPUT of the scaler; already
+                         # expressed against the declared tick.
+tsg_acc = "u16@dp"       # gravity: PLF_GRAVITY of 8.8 velocity per frame
+                         # TICK: ok -- as tsw_acc.
+tsg = "u16@dp"           # ...and this frame's answer, in whole 8.8 counts
+                         # TICK: ok -- as tsw.
+tsa_acc = "u16@dp"       # the animation clock: one anim unit per frame. This
+                         # is the pair that answers docs/95 §5.2's class C --
+                         # a small-integer divider with no correct x5/6 -- by
+                         # scaling what the clock ADVANCES BY instead of the
+                         # divider it is compared against.
+                         # TICK: ok -- as tsw_acc.
+tsa = "u16@dp"           # ...and this frame's answer, in whole anim units
+                         # TICK: ok -- as tsw.
+tsh_acc = "u16@dp"       # both ghosts' beat: 1 px per frame (gh_step's
+                         # inc a / dec a, which is why the base is spelled in
+                         # play.asm rather than in platformer.inc)
+                         # TICK: ok -- as tsw_acc.
+tsh = "u16@dp"           # ...and this frame's answer, in whole px
+                         # TICK: ok -- as tsw.
+
+# --- the three velocity constants, region-selected once at enter ------------
+# ASSIGNMENTS rather than accumulations -- a launch writes one, the rise cut
+# and the stomp bounce the second, the terminal clamp the third -- so there is
+# no fraction to carry and no accumulator to declare. A console cannot change
+# region, so all three are chosen once at enter and every site reads the word.
+# On NTSC each holds the constant platformer.inc authored, to the bit.
+vmax = "u16@dp"          # terminal fall speed, 8.8 (PLF_MAX_FALL * r)
+                         # TICK: ok -- a VELOCITY already expressed against
+                         # the declared tick; the scaler's output, not a
+                         # frame count.
+vjump = "u16@dp"         # launch velocity, 8.8 signed (PLF_JUMP_VEL * r)
+                         # TICK: ok -- as vmax.
+vcut = "u16@dp"          # the rise cut AND the stomp bounce, 8.8 signed
+                         # TICK: ok -- as vmax.
+
 # --- scratch, never live across a phase boundary ---
 ax = "u16@dp"            # obj_put's x / y arguments...
 ay = "u16@dp"

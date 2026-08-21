@@ -349,7 +349,7 @@ RAILS = {
         #  * standing still keeps the hero alive. A run-and-shuttle drive
         #    walks him into a patrolling ghost inside 5 s and the guard below
         #    fires; bouncing on the spawn tile holds `lives` at 3 for 22 s+.
-        #  * `do_jump` (play.asm:449) launches on the PRESS EDGE of A-or-B and
+        #  * `do_jump` (play.asm) launches on the PRESS EDGE of A-or-B and
         #    CUTS THE RISE when neither is held — a variable-height jump. A
         #    fixed real-time hold therefore buys 9 rise frames on NTSC and 7.5
         #    on PAL, so the two regions fly DIFFERENT ARCS and the ratio
@@ -357,9 +357,24 @@ RAILS = {
         #    buttons keeps one of them held at all times (never cut) while
         #    still delivering a fresh press edge (always able to launch), so
         #    both regions fly the SAME full-height arc.
+        #
+        # THE ALTERNATION PERIOD IS LONGER THAN THE FLIGHT, and that is the
+        # half that makes `arc_rate` readable. `edges` is an INTEGER count, so
+        # over a 14 s window it sees ~16 arcs and one boundary arc is worth 6%
+        # — far more than the 1% the scheme has to be adjudicated at. The bias
+        # cancels in the RATIO only if both regions cut the window at the same
+        # phase of the arc, and they do exactly when every press edge finds
+        # the hero already grounded: then arcs start at the DRIVE's real-time
+        # cadence rather than at "wherever the last landing happened to fall",
+        # which is a different instant in each region. 0.9 s clears the
+        # longest flight in play here (0.82 s: the UNCOMPENSATED PAL arc,
+        # 41 frames at 50.007 fps) with margin, so every edge launches.
+        # Measured on the 0.25 s draft: arc_rate 0.94545 with the NTSC halves
+        # 1.409 / 1.582; the clean arcs underneath it were 41 frames NTSC and
+        # 34 PAL, which is 1.0034, and the rest was the boundary.
         script=[(0.0, {}), (0.5, {"start": True}), (0.8, {})]
-               + [(1.2 + 0.25 * k, {"a": True} if k % 2 == 0 else {"b": True})
-                  for k in range(160)],
+               + [(1.2 + 0.9 * k, {"a": True} if k % 2 == 0 else {"b": True})
+                  for k in range(40)],
         warmup_s=3.0, window_s=14.0,
         guard=[("US_GOVER", 2, 0), ("US_LIVES", 2, 3)],
         observables=[

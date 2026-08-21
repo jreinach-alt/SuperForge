@@ -486,6 +486,7 @@ $(BUILD)/platformer.sfc: $(PL_ASM) $(PL)/platformer.inc \
 		-I engine/features/oam_sprites -I engine/features/save \
 		-I engine/features/platformer_bg -I engine/features/platformer_obj \
 		-I engine/features/rgb_gradient \
+		-I engine/features/region -I engine/features/tick_scale \
 		-I vendor/tad -I assets/audio/export \
 		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/platformer.o $(PL)/main.asm

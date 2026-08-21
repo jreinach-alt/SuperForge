@@ -17,8 +17,27 @@
 # SRAM, and only the title after a loss offers SELECT = CONTINUE. Folding them
 # would put that difference in a runtime flag the scene manager already models
 # as an id, and the arc's whole point is that the four states are real.
+#
+# REGION + TICK_SCALE. This is the rail docs/95 §3.3 names as needing the
+# TWO-CONSTANT treatment, and it is why: the hero's arc is a velocity AND a
+# gravity, and they carry DIFFERENT region scales. A velocity is px per frame
+# and scales by the frame ratio r; a gravity is px per frame SQUARED and
+# scales by r^2. Scaling only the velocity flattens the arc — the apex drops
+# and the hop stops clearing the pit it was tuned to clear — while the pair
+# leaves apex = v0^2/2g unchanged, so a PAL player makes the same jumps.
+#   region      reads $213F bit 4 once at boot and publishes ES_RGN_PAL.
+#   tick_scale  turns a per-frame delta into a region-correct one, carrying
+#               the fraction. It `depends = ["region"]`.
+# FOUR rates are scaled: the walk, the ghosts' beat, the animation clock and
+# gravity. NOT scaled, and each is a decision: the i-frame countdowns
+# (PLF_GRACE 60, PLF_RESPAWN_I 90) and the blink phase they drive, which are
+# docs/95 §5.2's class B — an integer with no correct x5/6, only a rounding
+# policy, and a rounding policy is a game-FEEL decision rather than a speed
+# one; and `t_frames`, the title's free-running heartbeat, which is what it
+# is FOR.
 globals = ["scene_mgr", "input", "fade", "text_dp", "font_rom", "enter_scr",
-           "oam_sprites", "platformer_rom", "save", "audio", "tad_rom"]
+           "oam_sprites", "platformer_rom", "save", "audio", "tad_rom",
+           "region", "tick_scale"]
 
 # The three menu scenes are text over a flat colour: bg_text + backdrop, the
 # two cheapest features in the tree, and the correct composition for a scene
