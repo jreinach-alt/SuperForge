@@ -219,16 +219,19 @@ tick:
     ; the return puts her back standing ON the demo house, and a check that
     ; asked "am I on it" rather than "did I just arrive on it" would warp her
     ; straight back in, forever.
-    lda z:US_STEP_ACTIVE
-    pha
     jsr mxl_tick                    ; advance a slide, or start one
     jsr mxl_apply_camera            ; -> ES_M7ORG and the affine shadow
     jsr stream_tick                 ; the leading edge, staged into WRAM slots
     jsr mxo_draw                    ; the avatar at the pin
-    pla
-    beq @done                       ; nothing was in flight -> nothing landed
-    lda z:US_STEP_ACTIVE
-    bne @done                       ; still sliding
+    ; US_LANDED, NOT A BEFORE/AFTER PAIR ON US_STEP_ACTIVE. The pair said the
+    ; same thing while a frame was exactly one state step; it stops saying it
+    ; the moment one is not, because a doubled PAL frame can land a slide AND
+    ; arm the next one before the scene looks, and the pair then reads "still
+    ; sliding" and drops the trigger. mxl_tick raises this on the step that
+    ; lands, whichever step of the frame that is, and clears it at the top of
+    ; every frame. On NTSC the two are the same test to the frame.
+    lda z:US_LANDED
+    beq @done
     jsr check_town_entry
 @done:
     .a16

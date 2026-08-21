@@ -56,8 +56,16 @@
 # swap, so it is in flight in BOTH scenes within one dissolve. Its seven DP
 # bytes and its MOSAIC ($2106) claim are therefore carried into every scene,
 # which is also what lets the NMI hook commit the shadow unconditionally.
+# REGION + TICK_SCALE (docs/94 R0, docs/96 §4). This rail's camera is WHOLE
+# PIXELS by declaration (state.toml says why), so the published step is 1 or 2
+# px under any scheme and an accumulator on the position buys no smoothness
+# here. What it would leave unscaled is the per-step ARMING frame — a held
+# direction is 8 px over 9 frames, eight moving and one deciding — so the tick
+# is what the timebase multiplies: mxl_tick runs the whole state step 1 or 2
+# times per frame, averaging 1.2018. See m7x_logic.asm's "THE GRID STEP IN TWO
+# REGIONS".
 globals = ["scene_mgr", "input", "fade", "oam_sprites", "m7_affine", "m7x_rom",
-           "mosaic"]
+           "mosaic", "region", "tick_scale"]
 
 [[scene]]
 id = "overworld"

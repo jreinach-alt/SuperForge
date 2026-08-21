@@ -761,6 +761,34 @@ RAILS = {
     # inside the window, a `guard` says so: a window that spans a dead rail
     # averages a live half with a frozen half and reports a ratio about
     # nothing.
+    "mode7_explore": dict(
+        rom="build/mode7_explore.sfc", map="build/m7x/symbol_map.json",
+        scene="overworld",
+        klass="mode7",
+        # RIGHT and DOWN together, and both halves earn their place. The
+        # dispatch priority is LEFT, RIGHT, UP, DOWN with a FALL-THROUGH on a
+        # blocked axis, so holding two open directions keeps her walking when
+        # one is refused by water or mountain — a single held axis measures the
+        # terrain as much as the rail. And both lead AWAY from the one
+        # enterable house: the spawn is tile (258,258) and the door is
+        # (254,254), so a rightward, downward walk cannot trip the scene swap
+        # and strand the window in an interior that does not move this camera.
+        script=[(0.0, {"right": True, "down": True})],
+        warmup_s=2.0, window_s=12.0, guard=[],
+        observables=[
+            dict(name="cam_path", kind="path2d", unit="world px",
+                 mem="wram",
+                 fields=[("ES_M7ORG", 0, 2, 4096), ("ES_M7ORG", 2, 2, 4096)],
+                 why="ES_M7ORG +0/+2 is the camera mxl_apply_camera publishes "
+                     "(m7x_logic.asm:328) — the word `mode7_stream` reads to "
+                     "decide which world rows enter VRAM, and the same "
+                     "position m7a_set_center turns into the affine pivot. "
+                     "The floor is drawn FROM it, so the path length it traces "
+                     "is the ground she covers. The modulus is the authored "
+                     "world's 4,096 px (M7X_WORLD_PX); the clamp keeps the "
+                     "camera at 512..3,576 so it never reaches one."),
+        ],
+    ),
     "mode7_chamber": dict(
         rom="build/mode7_chamber.sfc", map="build/m7c/symbol_map.json",
         scene="chamber",

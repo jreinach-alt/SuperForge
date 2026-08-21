@@ -33,6 +33,46 @@ MXL_TILE_PX     = 8
 MXL_STEP_FRAMES = MXL_TILE_PX
 .assert MXL_TILE_PX = M7X_WORLD_PX / M7X_WORLD_T, error, "m7x_logic: the tile step disagrees with the generated world geometry"
 
+; =============================================================================
+; THE GRID STEP IN TWO REGIONS — why the TICK is scaled and not the pixel
+; =============================================================================
+; `docs/95` §5.1 #11 names MXL_STEP_FRAMES = MXL_TILE_PX as a HARD INTEGER and
+; it is right: the slide moves exactly one pixel a frame for exactly TILE_PX
+; frames, and that equality is what leaves the camera grid-aligned the moment
+; it lands. It is not scaled here and neither is the tile.
+;
+; WHAT IS SCALED IS THE STATE STEP ITSELF. `mxl_tick` runs its body 1 or 2
+; times per frame — the count `tick_scale` publishes for a base of one tick per
+; frame, averaging 1.2018 on PAL and exactly 1 on NTSC. Three reasons that is
+; the right shape here rather than the accumulator `scroller` uses:
+;
+;  * THE CAMERA IS WHOLE PIXELS by declaration (state.toml: "a step is exactly
+;    8 px animated over exactly 8 frames at 1 px/frame, so the position is
+;    always an integer"). An accumulator on the position publishes 1 or 2 px
+;    on exactly the same frames this loop moves on, so it buys no smoothness —
+;    only a fraction word and a second way to be wrong.
+;  * A PIXEL BUDGET WOULD LEAVE THE ARMING FRAME UNSCALED. A held direction is
+;    8 px over NINE frames: eight sliding and one deciding, because
+;    `mxl_try_step` arms and returns without moving. Scale only the eight and
+;    PAL runs 8 px per 7.66 frames against NTSC's 8 per 9 — 1.0444 px/frame
+;    against 0.889, which is 52.2 px/s against 53.4 and reads 0.978, outside
+;    tolerance. Scaling the TICK scales the deciding frame with the sliding
+;    ones.
+;  * THE CLAMP IS UNTOUCHED. `mode7_stream`'s allowance is 8 tiles per axis per
+;    frame; two pixels is still thirty-two times inside it, so the quota
+;    docs/95 §5.1 #8 warns about is not approached from this direction.
+;
+; The cost is that ~20% of PAL frames run one extra state step. That is
+; docs/96 §4.4's LUMP scheme, whose objection is that its cost is O(tick) —
+; and here the tick is one compare, two adds and a countdown, so the objection
+; does not reach it. What it buys back is the property that objection was
+; about: everything on the rail's clock scales together.
+;
+; TICK: ok — this block is the region compensator's derivation for this rail.
+;   Naming the NTSC frame beside the PAL one is the subject of the comment
+;   rather than a coupling in it, exactly as in tick_scale.asm.
+MXL_TICK_BASE = TS_ONE                  ; one state step per NTSC frame
+
 ; --- the camera clamp -------------------------------------------------------
 ; The Mode 7 tilemap is a 128x128 TORUS and M7SEL is set to wrap, so a camera
 ; driven past the authored world's edge would show the same 128 tiles again
@@ -109,6 +149,8 @@ mxl_arm:
     stz z:US_STEP_DX                ;   ...and no staged delta
     stz z:US_STEP_DY
     stz z:US_FACING                 ; FACE_DOWN — she faces the camera at boot
+    stz z:US_TS_ACC                 ; the timebase's carried fraction...
+    stz z:US_LANDED                 ;   ...and this frame's landing flag
     jsr mxl_apply_camera            ; ES_M7ORG + the affine shadow, seeded HERE
                                     ;  so stream_arm and the first NMI both
                                     ;  see a real camera rather than power-on
@@ -127,6 +169,35 @@ mxl_arm:
 mxl_tick:
     .a16
     .i16
+    stz z:US_LANDED                 ; one frame's answer, rebuilt every frame
+    ; This frame's state steps: 1 on NTSC to the tick, 1 or 2 on PAL in the
+    ; pattern that averages 1.2018. See "THE GRID STEP IN TWO REGIONS" above.
+    TS_STEP z:US_TS_ACC, MXL_TICK_BASE
+    beq @none                       ; unreachable on either machine, and the
+                                    ;   loop below must not run 65,536 times
+                                    ;   if that ever stops being true
+@again:
+    .a16
+    .i16
+    pha
+    jsr mxl_tick_one
+    pla
+    dec a
+    bne @again
+@none:
+    .a16
+    .i16
+    rts
+
+; --- mxl_tick_one: ONE state step ------------------------------------------
+; In/out: A16/I16, DB=0. Clobbers A, X, Y. This is the body `mxl_tick` used to
+; be, unchanged except that a landing now also raises US_LANDED — the scene's
+; town trigger reads that instead of comparing US_STEP_ACTIVE either side of
+; the call, because on a doubled PAL frame a slide can land and the next one
+; arm before the scene looks, and the pair would then read "still sliding".
+mxl_tick_one:
+    .a16
+    .i16
     lda z:US_STEP_ACTIVE
     beq @idle
     ; ---- (1) a slide is in progress: advance it one pixel ----------------
@@ -143,6 +214,8 @@ mxl_tick:
     sta z:US_STEP_REMAIN
     bne @done
     stz z:US_STEP_ACTIVE            ; landed — grid-aligned again
+    lda #1
+    sta z:US_LANDED
     rts
 @idle:
     .a16

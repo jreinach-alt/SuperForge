@@ -898,7 +898,8 @@ M7X_INC := -I $(M7X_MAP) -I $(VROM) -I $(M7X) -I $(BUILD)/assets \
            -I engine/features/m7_affine -I engine/features/mode7_stream \
            -I engine/features/col_map -I engine/features/m7x_floor \
            -I engine/features/m7x_obj -I engine/features/m7x_logic \
-           -I engine/features/m7x_town -I engine/features/mosaic
+           -I engine/features/m7x_town -I engine/features/mosaic \
+           -I engine/features/region -I engine/features/tick_scale
 
 $(BUILD)/mode7_explore.sfc: $(M7X_ASM) \
 		$(M7X_MAP)/engine_state_globals.inc \

@@ -51,6 +51,13 @@ NMI:
 .include "input.asm"
 .include "oam_sprites.asm"
 .include "mosaic.asm"
+.include "region.asm"               ; $213F bit 4 -> ES_RGN_PAL, once at boot
+.include "tick_scale.asm"           ; TS_STEP: the macro mxl_tick's loop counts
+                                    ;   with. INCLUDED BEFORE THE SCENES, and
+                                    ;   it must be — a ca65 macro has to be
+                                    ;   defined before the line that expands
+                                    ;   it, and m7x_logic.asm is inside
+                                    ;   scenes/overworld.asm's scope.
 
 ; =============================================================================
 ; THE ROM CLAIM SITES
@@ -403,6 +410,9 @@ MAIN:
     jsr sm_init
     jsr input_init
     jsr fade_init
+    jsr region_init             ; the console's own region line, once. It is
+                                ;   game-lifetime state: a console does not
+                                ;   change region between scenes.
     jsr mosaic_init             ; the wipe is idle and its $2106 shadow is $00 —
                                 ;   both are READ BEFORE ANY WRITE (mosaic_tick
                                 ;   from frame one, the NMI commit from the
