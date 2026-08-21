@@ -12,8 +12,25 @@
 # refuses a self-transition (`sm_request` compares next against cur), and the
 # trip through the title exercises breaker_bg's enter path twice per session,
 # which is a strictly better test surface than a restart that never re-enters.
+# REGION + TICK_SCALE: what makes this cart one cart on both machines.
+#   region      reads $213F bit 4 once at boot and publishes ES_RGN_PAL.
+#   tick_scale  turns a per-frame delta into a REGION-CORRECT one, carrying
+#               the fraction between frames. It `depends = ["region"]`, so the
+#               allocator pulls `region` in with it.
+# THREE RATES: the bat, and the ball's TWO SPEED CLASSES. The bat is a plain
+# px/frame step. The BALL is not — its velocity is a signed word holding
+# +-BRK_SPEED_1 or +-BRK_SPEED_2, chosen by the launch angle and re-chosen by
+# the paddle english on every return — so the speed CLASS is state and both
+# classes are scaled, with the sign re-applied afterwards because a direction
+# does not scale.
+# THE NO-TUNNEL BOUND SURVIVES: breaker.inc requires the ball's step to stay
+# under the 8 px cell so the leading edge cannot be carried across a live
+# brick. The largest step this composition can publish is 3.
+# NOT SCALED: nothing. Every countdown on this rail is a text pump (US_MSGPOS)
+# or a heartbeat (US_BLINK), and neither is a rate a player perceives.
 globals = ["scene_mgr", "input", "fade", "text_dp", "font_rom", "enter_scr",
-           "oam_sprites", "breaker_rom", "audio", "tad_rom"]
+           "oam_sprites", "breaker_rom", "audio", "tad_rom",
+           "region", "tick_scale"]
 
 [[scene]]
 id = "title"

@@ -34,6 +34,8 @@ picture", which is a question about frames.
     python3 tools/tb_picture_diff.py --frames 120,300,600 REF ROM...
     python3 tools/tb_picture_diff.py --pad left BEFORE/brawler.sfc \\
         build/brawler.sfc          # a pre-change image as the reference
+    python3 tools/tb_picture_diff.py --fresh --pad start,left BEFORE/room.sfc \\
+        build/room.sfc             # a rail that writes SRAM: see --fresh
 
 Exit 0 iff every ROM's NTSC captures matched the reference. Non-zero says
 which one moved, and on which frame.
@@ -46,6 +48,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 SUPERFORGE = Path(__file__).resolve().parent.parent
@@ -82,17 +85,43 @@ def worker(args):
     print("SFTBPIC " + json.dumps({"region": region, "roms": out}))
 
 
-def _child(args, region):
-    env = dict(os.environ, SF_REGION=region)
-    argv = [sys.executable, __file__, "--worker", "--frames", args.frames,
-            "--pad", args.pad, "--outdir", args.outdir, *args.roms]
+def _one_child(argv, env, tag):
     r = subprocess.run(argv, env=env, capture_output=True, text=True,
                        cwd=str(SUPERFORGE))
     line = next((x for x in r.stdout.splitlines() if x.startswith("SFTBPIC ")),
                 None)
     if line is None:
-        raise SystemExit(f"{region} pass failed:\n{r.stdout}\n{r.stderr}")
+        raise SystemExit(f"{tag} pass failed:\n{r.stdout}\n{r.stderr}")
     return json.loads(line[len("SFTBPIC "):])
+
+
+def _child(args, region):
+    """One region's captures.
+
+    By default every ROM is loaded in ONE child, in order, which is fine for a
+    rail whose picture is a pure function of its image. It is NOT fine for a
+    rail that writes SRAM: Mesen keeps its battery files under the process's
+    Mesen home (``Saves/*.srm``, see mesen_runner's SF_MESEN_HOME note), so the
+    SECOND load boots WARM off the first one's save and renders a different
+    picture — for `room` that is a different count of visit pips, and it
+    reproduces with the SAME IMAGE loaded twice, which is what proves it is
+    the harness and not the ROM. `--fresh` gives every ROM its own child AND
+    its own Mesen home, so each one boots cold.
+    """
+    base = dict(os.environ, SF_REGION=region)
+    common = [sys.executable, __file__, "--worker", "--frames", args.frames,
+              "--pad", args.pad, "--outdir", args.outdir]
+    if not args.fresh:
+        return _one_child(common + list(args.roms), base, region)
+    out = {"region": region, "roms": []}
+    for i, rom in enumerate(args.roms):
+        home = os.path.join(tempfile.gettempdir(),
+                            f"mesen_home_tbpic_{os.getpid()}_{region}_{i}")
+        os.makedirs(home, exist_ok=True)
+        env = dict(base, SF_MESEN_HOME=home)
+        out["roms"] += _one_child(common + [rom], env,
+                                  f"{region}/{Path(rom).name}")["roms"]
+    return out
 
 
 def main():
@@ -104,6 +133,12 @@ def main():
                     help="comma-separated buttons held for the whole capture "
                          "(e.g. 'left', 'b,right', or '' for none)")
     ap.add_argument("--outdir", default="build/tb_shots")
+    ap.add_argument("--fresh", action="store_true",
+                    help="load each ROM in its OWN child process with its own "
+                         "Mesen home, so a rail that writes SRAM cannot boot "
+                         "the next ROM warm off the previous one's save. "
+                         "Required for any rail composing `save`; harmless "
+                         "elsewhere, and slower by one process per ROM.")
     ap.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args()
     os.makedirs(args.outdir, exist_ok=True)

@@ -42,6 +42,11 @@ NMI:
 .include "bg_text.asm"
 .include "oam_sprites.asm"
 .include "save.asm"
+.include "region.asm"               ; $213F bit 4 -> ES_RGN_PAL, once at boot
+.include "tick_scale.asm"           ; TS_STEP: the macro both room scenes use.
+                                    ; INCLUDED BEFORE THE SCENES, and it must
+                                    ; be — a ca65 macro has to be defined
+                                    ; before the line that expands it.
 
 ; --- text_dp boot init (the text engine's global DP block) ------------------
 text_dp_init:
@@ -146,6 +151,10 @@ MAIN:
     jsr input2_init
     jsr fade_init
     jsr text_dp_init
+    jsr region_init             ; the console's own region line, once. It is
+                                ;   game-lifetime state: a console does not
+                                ;   change region between scenes — which is
+                                ;   why it is here and not in either enter.
     jsr oam_park_all            ; whole shadow written before its first DMA
     ; ---- audio boot (TAD contract, tad-audio.inc): interrupts are DISABLED
     ; here by construction — init.inc leaves NMI off and $4200 is written

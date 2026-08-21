@@ -8,8 +8,25 @@
 # instead. `sm_request` refuses a self-transition, so START on the end screen
 # goes to the title and START there comes back, re-entering `play::enter` under
 # forced blank where every screen the round needs is legal to write.
+# REGION + TICK_SCALE: what makes this cart one cart on both machines.
+#   region      reads $213F bit 4 once at boot and publishes ES_RGN_PAL.
+#   tick_scale  turns a per-frame delta into a REGION-CORRECT one, carrying
+#               the fraction between frames. It `depends = ["region"]`, so the
+#               allocator pulls `region` in with it.
+# FOUR RATES AND A CLOCK, which is the most any lane-A rail carries: the
+# ship's d-pad step, the bullets' climb, the fighters' descent, the planet
+# field's drift, and the engine-plume animation clock. Each declares its own
+# accumulator pair — the drift and the fighters happen to share a base of
+# 1 px/frame and are still kept apart, because one pair would silently couple
+# the field's speed to the enemy's the day either constant is tuned.
+# NOT SCALED, and each is docs/95 §5.2's class B — an integer countdown with
+# no correct x5/6, only a rounding policy: SPAWN_PERIOD (the wave beat),
+# IFRAMES, BLINK_PHASE and BURST_LIFE. The visible consequence is stated
+# rather than hidden: a PAL wave arrives every 0.96 s where an NTSC one
+# arrives every 0.80 s, so the rail is a little easier there.
 globals = ["scene_mgr", "input", "fade", "text_dp", "font_rom", "enter_scr",
-           "oam_sprites", "shmup_rom", "audio", "tad_rom"]
+           "oam_sprites", "shmup_rom", "audio", "tad_rom",
+           "region", "tick_scale"]
 
 [[scene]]
 id = "title"

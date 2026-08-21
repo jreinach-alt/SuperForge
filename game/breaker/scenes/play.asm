@@ -26,6 +26,27 @@ RG_MATH_LAYERS = (1 | 2)
 ; scene-scoped, so its symbols must be too --------------------------------
 .include "breaker_bg.asm"
 .include "breaker_obj.asm"
+
+; =============================================================================
+; THE TWO BASE RATES tick_scale SCALES (docs/96 §4, docs/97 §3)
+; =============================================================================
+; The bat is the ordinary case: BRK_PADDLE_SPEED is now a RATE rather than a
+; per-frame immediate, and on NTSC TS_STEP publishes it to the pixel.
+TS_PADDLE_BASE = BRK_PADDLE_SPEED * TS_ONE
+; The ball is not. Its velocity is a signed word holding +-BRK_SPEED_1 or
+; +-BRK_SPEED_2, set by the launch angle and re-set by the paddle english on
+; every return, so there is no ONE constant to scale — the SPEED CLASS is
+; state. What is scaled is therefore BOTH CLASSES, each with its own pair, and
+; `brk_ball_delta` selects between them by magnitude and re-applies the sign.
+;
+; TWO PAIRS RATHER THAN ONE SCALED UNIT, and the difference is measurable. A
+; single published unit (1 on NTSC, 1/2 on PAL) would give the right AVERAGE
+; for both classes — a class-2 ball would alternate 2 and 4 — but 4 px is a
+; big frame against an 8 px cell, and every reflection costs a whole frame of
+; travel, so the lumpier the step the noisier the measured path. Two pairs
+; give 1/2 and 2/3 instead of 1/2 and 2/4.
+TS_BALL1_BASE  = BRK_SPEED_1 * TS_ONE
+TS_BALL2_BASE  = BRK_SPEED_2 * TS_ONE
 .include "rgb_gradient.asm"
 
 ; =============================================================================
@@ -231,6 +252,12 @@ enter:
     stz z:US_VX
     stz z:US_VY
     stz z:US_BLINK
+    stz z:US_TSP_ACC            ; the timebase's three carried fractions and
+    stz z:US_TSP                ;   the three published steps: all written
+    stz z:US_TS1_ACC            ;   before any of them is read
+    stz z:US_TS1
+    stz z:US_TS2_ACC
+    stz z:US_TS2
     stz z:US_DIRTY                  ; enter prints both counters directly
     stz z:US_MSG
     stz z:US_MSGPOS
@@ -355,6 +382,16 @@ brk_update:
     lda z:US_BLINK
     inc a
     sta z:US_BLINK              ; a free-running heartbeat: "the tick ran"
+    ; ---- this frame's three region-correct steps, published once ----------
+    ; BEFORE the START test and the state dispatch, deliberately: WAIT moves
+    ; the bat too, and a step word that stops being republished is a stale
+    ; word waiting to be read.
+    TS_STEP z:US_TSP_ACC, TS_PADDLE_BASE
+    sta z:US_TSP
+    TS_STEP z:US_TS1_ACC, TS_BALL1_BASE
+    sta z:US_TS1
+    TS_STEP z:US_TS2_ACC, TS_BALL2_BASE
+    sta z:US_TS2
     ; START LEAVES, FROM ANY STATE. Start IS the restart here — it is the
     ; first half of the trip through the title that rebuilds the wall — so
     ; gating it on the end screens (as a restart-in-place would) would mean
@@ -465,7 +502,7 @@ brk_move_paddle:
     beq @no_left
     lda z:US_PX
     sec
-    sbc #BRK_PADDLE_SPEED
+    sbc z:US_TSP
     cmp #BRK_PADDLE_MIN_X
     bcs @store_l
     lda #BRK_PADDLE_MIN_X
@@ -481,7 +518,7 @@ brk_move_paddle:
     beq @no_right
     lda z:US_PX
     clc
-    adc #BRK_PADDLE_SPEED
+    adc z:US_TSP
     cmp #BRK_PADDLE_MAX_X
     bcc @store_r
     lda #BRK_PADDLE_MAX_X
@@ -564,6 +601,63 @@ brk_blip:
     .a16
     rts
 
+; --- brk_ball_delta: one axis velocity -> this frame's signed pixel step ----
+; NOT `_step`, deliberately: this is a pure function of a velocity and a
+; published word, with no state and no clock of its own, and `make tick-check`
+; reads a `*_step` name as "a routine the frame clocks". Calling it a delta is
+; both more accurate and one fewer entry in that gate's tracked population.
+; In:  A16/I16, DB=0. A = the axis velocity (+-BRK_SPEED_1 or +-BRK_SPEED_2,
+;      two's complement). Out: A = the signed step to apply this frame.
+;      CLOBBERS A ONLY, and no index register at all: the callers keep the
+;      velocity in DP and the probe path downstream owns X and Y.
+;
+; The velocity is one of four values, so this is a two-way magnitude test and
+; a sign re-application: the sign is the ball's DIRECTION and never scales,
+; only the magnitude does. The word is compared UNSIGNED, which is why the
+; negative arm tests against BRK_SPEED_N1 ($FFFF) rather than against -1: as
+; unsigned words $FFFF sorts above $FFFE, so `beq` picks class 1 exactly.
+;
+; ON NTSC THIS IS THE IDENTITY. US_TS1 is BRK_SPEED_1 and US_TS2 is
+; BRK_SPEED_2 on every frame while the region flag is clear, so
+; brk_move_x/brk_move_y apply exactly the velocity they applied before and
+; the picture cannot move.
+;
+; THE NO-TUNNEL BOUND: the largest thing this can return is 3 px, against the
+; 8 px cell the leading-edge probe reads. A step smaller than a cell cannot
+; carry the edge ACROSS a live brick without landing in it, which is the
+; property breaker.inc's "max speed is 2 px/frame" note is actually
+; asserting.
+brk_ball_delta:
+    .a16
+    .i16
+    bmi @negative
+    cmp #BRK_SPEED_2
+    bcc @pos1
+    lda z:US_TS2
+    rts
+@pos1:
+    .a16
+    .i16
+    lda z:US_TS1
+    rts
+@negative:
+    .a16
+    .i16
+    cmp #BRK_SPEED_N1           ; -1 sorts ABOVE -2 as an unsigned word
+    beq @neg1
+    lda z:US_TS2
+    bra @negate
+@neg1:
+    .a16
+    .i16
+    lda z:US_TS1
+@negate:
+    .a16
+    .i16
+    eor #$FFFF                  ; two's complement, the rail's own idiom
+    inc a                       ;   (BRK_SPEED_N1/N2 are written the same way)
+    rts
+
 ; --- brk_move_x / brk_move_y: per-axis move-then-probe ---------------------
 ; In/out: A16/I16, DB=0.
 ; The canonical shape: compute the tentative position, probe the LEADING edge
@@ -573,9 +667,10 @@ brk_blip:
 brk_move_x:
     .a16
     .i16
-    lda z:US_BX
+    lda z:US_VX
+    jsr brk_ball_delta           ; the velocity, scaled to this frame
     clc
-    adc z:US_VX
+    adc z:US_BX
     sta z:US_NEWX
     lda z:US_VX
     bmi @lead_left
@@ -627,9 +722,10 @@ brk_move_x:
 brk_move_y:
     .a16
     .i16
-    lda z:US_BY
+    lda z:US_VY
+    jsr brk_ball_delta           ; the velocity, scaled to this frame
     clc
-    adc z:US_VY
+    adc z:US_BY
     sta z:US_NEWY
     lda z:US_VY
     bmi @lead_top

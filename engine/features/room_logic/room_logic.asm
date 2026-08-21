@@ -11,7 +11,24 @@
 ; guarded. The cost is that a diagonal into a corner slides along the wall,
 ; which is what a player expects anyway.
 
-RM_SPEED = 2                        ; px per frame, per axis
+RM_SPEED = 2                        ; px per frame, per axis — a RATE now, not
+                                    ; a per-frame immediate. The scene
+                                    ; publishes this frame's whole-pixel share
+                                    ; of it in US_TS_STEP (tick_scale's
+                                    ; TS_STEP), and RM_MOVE_PAD reads that
+                                    ; word. On NTSC the published value is
+                                    ; RM_SPEED to the pixel, so the picture
+                                    ; cannot move; on PAL it alternates 2/3 in
+                                    ; the pattern that averages 2.4036.
+                                    ;
+                                    ; READING A US_ SYMBOL FROM FEATURE CODE is
+                                    ; this file's existing shape, not a new
+                                    ; coupling: rm_spawn already writes US_PX /
+                                    ; US_PY / US_PX2 / US_PY2 by name, because
+                                    ; the GAME owns the hero's position and
+                                    ; this feature owns only the kernel's DP
+                                    ; scratch (feature.toml's split). The
+                                    ; published step joins that list.
 RM_LO    = 8                        ; the wall is one 8-px cell thick
 RM_HI_X  = 256 - 8 - 16             ; screen width  - wall - sprite = 232
 RM_HI_Y  = 224 - 8 - 16             ; visible height - wall - sprite = 200
@@ -52,14 +69,14 @@ JOY_UP    = 1 << 11
     beq :+
     lda z:ES_RM_HOT + 0
     sec
-    sbc #RM_SPEED
+    sbc z:US_TS_STEP
     sta z:ES_RM_HOT + 0
 :   lda z:pad_cur
     and #JOY_RIGHT
     beq :+
     lda z:ES_RM_HOT + 0
     clc
-    adc #RM_SPEED
+    adc z:US_TS_STEP
     sta z:ES_RM_HOT + 0
 :   lda z:ES_RM_HOT + 0
     bpl :+                          ; went negative (left of the wall)?
@@ -82,14 +99,14 @@ JOY_UP    = 1 << 11
     beq :+
     lda z:ES_RM_HOT + 2
     sec
-    sbc #RM_SPEED
+    sbc z:US_TS_STEP
     sta z:ES_RM_HOT + 2
 :   lda z:pad_cur
     and #JOY_DOWN
     beq :+
     lda z:ES_RM_HOT + 2
     clc
-    adc #RM_SPEED
+    adc z:US_TS_STEP
     sta z:ES_RM_HOT + 2
 :   lda z:ES_RM_HOT + 2
     bpl :+
@@ -136,6 +153,13 @@ rm_move:
     ; means pushing into a wall is silent), at most every RM_STEP_PERIOD
     ; frames; going idle resets the cadence so the next walk starts with an
     ; immediate step.
+    ;
+    ; NOT REGION-SCALED, deliberately. RM_STEP_PERIOD is an integer countdown
+    ; between SFX queues — docs/95 §5.2's class B, the class with no correct
+    ; x5/6 and only a rounding policy — and scaling it is a game-feel decision
+    ; this composition does not take. The consequence is stated rather than
+    ; hidden: the WALK is region-correct and the cadence is not, so a PAL hero
+    ; covers about 21.6 px between footsteps where an NTSC one covers 18.
     lda z:ES_RM_HOT + 4
     beq @idle
     lda z:ES_RM_STEP

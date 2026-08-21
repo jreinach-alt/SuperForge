@@ -22,8 +22,30 @@
 # build would stop at ASSEMBLY time. What carries over is the keystone BG
 # *pattern*, which `patrol_bg` re-instantiates; `bg_text`, `col_map`,
 # `oam_sprites` and `input` compose as written.
+# REGION + TICK_SCALE: what makes this cart one cart on both machines.
+#   region      reads $213F bit 4 once at boot and publishes ES_RGN_PAL.
+#   tick_scale  turns a per-frame delta into a REGION-CORRECT one, carrying
+#               the fraction between frames. It `depends = ["region"]`, so the
+#               allocator pulls `region` in with it.
+# TWO RATES SCALED: the player's run (PAT_SPEED) and the patrol beat both
+# enemies walk (PAT_PATROL_SPEED). Separate pairs, because they are different
+# rates and tick_scale carries the fraction per rate.
+# THE BALLISTIC ARC IS NOT SCALED, AND THIS IS THE REASON. Preserving a jump
+# in REAL time needs the take-off velocity times r AND gravity times r
+# SQUARED — the arc's height is v^2/2g, so a single factor changes the shape
+# rather than the speed. tick_scale supplies exactly ONE gain (docs/97 §3.1:
+# the step plus 0.2018039 of it), so r is expressible through TS_STEP and r^2
+# is not; giving the feature a second gain is surgery on machinery other rails
+# compose. docs/97 §3.3 reached the same conclusion about `platformer` and
+# called it R2 work rather than foundation work.
+# WHAT THAT LEAVES, stated rather than hidden: the run and the patrol beat are
+# region-correct and the jump is not, so on PAL a jump lasts the same number
+# of FRAMES (a fifth longer in real time) while the runner covers a fifth more
+# ground during it. The arc's apex is unchanged to the pixel. The oracle reads
+# both halves of that in one run — player_x and e1_x at parity, fall_y still
+# at the frame ratio — and fall_y is this rail's non-vacuity control.
 globals = ["scene_mgr", "input", "fade", "text_dp", "font_rom", "enter_scr",
-           "oam_sprites", "patrol_rom"]
+           "oam_sprites", "patrol_rom", "region", "tick_scale"]
 
 [[scene]]
 id = "play"

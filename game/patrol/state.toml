@@ -41,3 +41,25 @@ dirty = "u16@dp"         # HUD reprint request: bit 0 = the hits cells. Set
                          # stages nothing and VRAM is not rewritten.
 frames = "u16@dp"        # frames since enter. Drives nothing — the
                          # free-running heartbeat (breaker's blink convention)
+
+# --- the TIMEBASE's per-consumer state (engine/features/tick_scale) ---------
+#
+# TWO RATES, TWO PAIRS — the player's run and the enemies' patrol beat. They
+# are different bases (2 px/frame against 1), so they cannot share a carried
+# fraction even in principle.
+#
+# THERE IS NO THIRD PAIR FOR THE JUMP, and that is the rail's stated limit
+# rather than an omission: a ballistic arc needs velocity x r and gravity
+# x r^2, and tick_scale supplies one gain. game.toml carries the argument.
+tsr_acc = "u16@dp"       # the player's run: PAT_SPEED px per frame
+                         # TICK: ok — the carried FRACTION of a scaled rate.
+                         # It exists to remove a frame coupling, not to hold
+                         # one, and it has no meaning in frames.
+tsr = "u16@dp"           # ...and this frame's answer, in whole px
+                         # TICK: ok — the OUTPUT of the scaler; already
+                         # expressed against the declared tick.
+tse_acc = "u16@dp"       # the patrol beat: PAT_PATROL_SPEED px per frame,
+                         # shared by both enemies because they share the base
+                         # TICK: ok — as tsr_acc.
+tse = "u16@dp"           # ...and this frame's answer, in whole px
+                         # TICK: ok — as tsr.
