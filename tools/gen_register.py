@@ -59,6 +59,11 @@ SCOPE OF THE CENSUS
     rather than assumed (a non-fixture dir outside engine/features/, or a
     fixture inside it, is an error).
 
+    And the census is built from feature.toml FILES while the sentence it emits
+    counts DIRS, so `load_tree` refuses any dir under engine/features/ that
+    carries no feature.toml -- otherwise a half-created feature (sources
+    present, declaration absent) is uncounted and the gate says OK anyway.
+
 USAGE
     tools/gen_register.py --check     exit 1 + unified diff if the doc drifted
     tools/gen_register.py --write     regenerate in place
@@ -174,6 +179,35 @@ def load_tree(repo: Path | None = None
                 f"{p}: role '{d.role}' outside engine/features/ -- dirs outside "
                 f"the census must declare role = \"fixture\"")
 
+    # THE COUNT HAS TO BE A DIR COUNT, because that is what the generated
+    # sentence asserts ("All N dirs under `engine/features/` accounted for")
+    # and what `make register`'s OK line prints. The census below is built from
+    # feature.toml FILES, so without this a directory holding sources and no
+    # declaration is invisible to the census, to the count, and to the doc's
+    # completeness sentence -- all three still saying OK.
+    #
+    # Reproduced, not theorised: docs/audit/region_r0-audit-1.md 3.2 planted
+    # `engine/features/audit_half_made/` holding an .asm and no feature.toml,
+    # so 158 dirs sat on disk, and the gate printed
+    # `register OK: census matches the tree (157 dirs)` and exited 0. That is
+    # the shape behind paper cut #4 -- a half-created feature is exactly the
+    # thing this gate exists to catch, and a silent OK is how it ships.
+    #
+    # Refuse the difference BY NAME, and refuse it in `load_tree` so `--write`
+    # refuses too: a census cannot be truthfully regenerated while a dir it
+    # claims to account for has nothing to account.
+    if features_dir.is_dir():
+        undeclared = sorted(q.name for q in features_dir.iterdir()
+                            if q.is_dir() and not (q / "feature.toml").exists())
+        if undeclared:
+            raise RegisterError(
+                f"engine/features/ holds {len(undeclared)} dir(s) with no "
+                f"feature.toml: {', '.join(undeclared)}. The census is built "
+                f"from feature.toml files but the generated sentence counts "
+                f"DIRS, so an undeclared dir would be uncounted AND reported "
+                f"OK. Declare each one (a feature.toml whose `name` equals the "
+                f"directory name) or delete the directory.")
+
     census = {n: d for n, d in everything.items()
               if (features_dir / n / "feature.toml").exists()}
 
@@ -227,6 +261,9 @@ def render_census(rows: list[dict]) -> str:
                              if k in by_role)
 
     out = [
+        # `len(rows)` IS the dir count: load_tree() refuses any dir under
+        # engine/features/ that carries no feature.toml, so the two cannot
+        # diverge (see its "THE COUNT HAS TO BE A DIR COUNT" guard).
         f"**All {len(rows)} dirs under `engine/features/` accounted for.** "
         f"{tally}.",
         "",

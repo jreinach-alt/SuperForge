@@ -112,6 +112,46 @@ def test_plant_new_feature_dir_is_caught():
     assert "zz_plant" in r.stderr
 
 
+def test_plant_undeclared_feature_dir_is_caught():
+    """A dir with sources and NO feature.toml must be REFUSED, not uncounted.
+
+    The census is built from feature.toml FILES, while the sentence it
+    generates counts DIRS ("All N dirs under `engine/features/` accounted
+    for") and so does `make register`'s OK line. Those two used to be able to
+    disagree in silence: `docs/audit/region_r0-audit-1.md` 3.2 planted exactly
+    this shape -- a directory holding an .asm and no declaration -- put 158
+    dirs on disk, and the gate printed `census matches the tree (157 dirs)`
+    and exited 0. A half-created feature is precisely what this gate exists to
+    catch, and it is the mechanism behind paper cut #4.
+
+    `--write` is asserted alongside `--check` because the escape hatch would
+    otherwise be to regenerate: a census cannot be truthfully rewritten while
+    a dir it claims to account for has nothing to account.
+    """
+    d = FEATURES / "zz_half_made"
+    assert not d.exists(), "pick another plant name"
+    before = REGISTER.read_bytes()
+    try:
+        d.mkdir()
+        (d / "half.asm").write_text("; sources present, declaration absent\n")
+        on_disk = sum(1 for q in FEATURES.iterdir() if q.is_dir())
+        r = run_check()
+        w = subprocess.run([sys.executable, "tools/gen_register.py", "--write"],
+                           cwd=SUPERFORGE, capture_output=True, text=True)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+    assert r.returncode == 1, (
+        f"{on_disk} dirs on disk and --check said OK -- an undeclared feature "
+        f"dir is uncounted AND unreported:\n{r.stdout}{r.stderr}")
+    assert "zz_half_made" in r.stderr, \
+        f"refused, but does not name the dir:\n{r.stderr}"
+    assert "no feature.toml" in r.stderr, \
+        f"refused, but not for the missing declaration:\n{r.stderr}"
+    assert w.returncode == 1, "--write regenerated a census over an undeclared dir"
+    assert REGISTER.read_bytes() == before, "--write mutated the doc anyway"
+
+
 def test_plant_changed_claim_class_is_caught():
     p = FEATURES / "fade" / "feature.toml"
     with planted_text(p, p.read_text().replace("[[claims.dp]]", "[[claims.wram]]", 1)):
