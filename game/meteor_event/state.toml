@@ -19,6 +19,27 @@
 # and how far the glow has ramped.
 [global]
 
+# --- the timebase (engine/features/tick_scale, composed in game.toml) ------
+# TWO PAIRS, GLOBAL, and both halves of that matter. Two pairs because the two
+# scenes scale different rates — an integer 2 px walk and a one-tick cutscene
+# playhead — and two consumers on different bases cannot share a carried
+# fraction. GLOBAL because the scenes SWAP into each other and scene DP is
+# space the allocator reuses: a scene-scoped accumulator would be overwritten
+# by the other scene's state while the event runs.
+ts_walk_acc = "u16@dp"   # the walk's carried fraction
+                         # TICK: ok — a carried FRACTION, the thing that
+                         # REMOVES the frame coupling. It has no meaning in
+                         # frames.
+ts_walk = "u16@dp"       # ...and this frame's answer, in whole world px
+                         # TICK: ok — the OUTPUT of the scaler, already
+                         # expressed against the declared tick.
+ts_tick_acc = "u16@dp"   # the cutscene playhead's carried fraction
+                         # TICK: ok — as ts_walk_acc.
+ts_tick = "u16@dp"       # ...and this frame's answer, in whole ticks: what
+                         #   US_G_TIMER advances by, so the baked tracks it
+                         #   indexes are WALKED faster rather than re-baked
+                         # TICK: ok — as ts_walk.
+
 g_state = "u16@dp"         # MET_ST_* (meteor.inc). PLAY/FREEZE/CAPTURE run in
                            #   the `level` scene, SCENE in `impact`; RESTORE is
                            #   the request that carries the machine back.

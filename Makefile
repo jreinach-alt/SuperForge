@@ -2079,7 +2079,8 @@ MET_INC := -I $(MET_MAP) -I $(VROM) -I $(MET) \
            -I engine/features/fade -I engine/features/oam_sprites \
            -I engine/features/m7_affine -I engine/features/m7_track \
            -I engine/features/met_obj -I engine/features/met_bg \
-           -I engine/features/met_floor -I engine/features/met_glow
+           -I engine/features/met_floor -I engine/features/met_glow \
+           -I engine/features/region -I engine/features/tick_scale
 
 $(BUILD)/meteor_event.sfc: $(MET_ASM) $(MET)/meteor.inc \
 		$(MET_MAP)/engine_state_globals.inc $(MET_ASSETS) \

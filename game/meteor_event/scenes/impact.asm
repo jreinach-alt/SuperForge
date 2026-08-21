@@ -119,9 +119,25 @@ exit:
 ; WIDTH-RISK: A16/I16 entry; every helper is A16/I16 on both sides. The A8
 ; windows are inside `sm_request` at the end and inside met_glow's math
 ; helpers, and each restores A16.
+; THE CUTSCENE PLAYHEAD IS WHAT THE TIMEBASE SCALES. US_G_TIMER indexes BAKED
+; PER-FRAME TRACKS — the growth matrix through m7t_apply, the sprite approach's
+; screen position, and the orientation flips at MET_FR_* — so the way to run
+; the cutscene at the same speed on both machines is to walk the INDEX faster,
+; not to re-bake anything. The tables stay byte-identical; the timer advances
+; by THIS FRAME'S TICKS.
+;
+; The two phase boundaries are already >= and < tests (`bcs @mode7`,
+; `bcc @done`), so a step that lands past one rather than on it is handled by
+; the comparison that was already there.
+;
+; TICK: ok — this note is the region compensator's derivation for this scene;
+;   naming the frame beside the tick is its subject rather than a coupling.
 tick:
     .a16
     .i16
+    ; This frame's ticks, published once and read by the advance below.
+    TS_STEP z:US_TS_TICK_ACC, TS_ONE
+    sta z:US_TS_TICK
     lda z:US_G_TIMER
     cmp #MET_SPRITE_END
     bcs @mode7
@@ -135,7 +151,8 @@ tick:
     .a16
     .i16
     lda z:US_G_TIMER
-    inc a
+    clc
+    adc z:US_TS_TICK            ; the playhead, at this console's tick rate
     sta z:US_G_TIMER
     cmp #MET_SCN_END
     bcc @done

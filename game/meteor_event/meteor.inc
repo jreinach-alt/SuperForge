@@ -23,6 +23,10 @@ MET_CAPTURE_HOLD = 30           ; frames the captured-over-black frame holds,
 MET_PLAYER_SCRN_X = 96          ; fixed screen x; the world scrolls under it
 MET_PLAYER_Y      = 176         ; sits on the ground (top y 192, 16 px tall)
 MET_WALK_SPEED    = 2           ; world px/frame
+; ...as a TS_STEP base, in the 8.8 unit that macro takes. The walk is an
+; integer rate, so what the timebase gives it is a carried fraction rather than
+; a scaled constant: 2 px on NTSC to the pixel, 2 or 3 on PAL averaging 2.4036.
+MET_WALK_BASE     = MET_WALK_SPEED * TS_ONE
 
 ; --- ground / platform geometry (BG1 tile grid, 32x32, 8 px tiles) ---------
 ; ONE deliberate departure from a one-row platform layout: the raised platforms
