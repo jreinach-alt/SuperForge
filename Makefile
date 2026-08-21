@@ -1332,6 +1332,7 @@ $(BUILD)/stomper.sfc: $(ST_ASM) $(ST)/stomper.inc \
 		-I engine/features/fade -I engine/features/bg_text \
 		-I engine/features/oam_sprites -I engine/features/col_map \
 		-I engine/features/stomper_bg -I engine/features/stomper_obj \
+		-I engine/features/region -I engine/features/tick_scale \
 		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/stomper.o $(ST)/main.asm
 	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/stomper.o

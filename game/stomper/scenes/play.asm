@@ -8,6 +8,69 @@
 ; out below rather than called into the engine: none of the three is shared by
 ; a second rail yet, and a feature is what two compositions need.
 .scope play
+
+; =============================================================================
+; THE REGION-CORRECT UNITS — an arc takes TWO scales, not one
+; =============================================================================
+; A PAL frame must carry r = 1.2018039 of the distance an NTSC frame carries
+; (engine/features/tick_scale carries that derivation and is the only place
+; the ratio lives). A VELOCITY is px per frame and scales by r. A GRAVITY is
+; px per frame SQUARED and scales by r SQUARED — and doing only the first is
+; the classic half-conversion: the fall accelerates at NTSC's rate through
+; frames that are 20% longer, the arc flattens, and the hop stops clearing
+; the low walls it was tuned to clear.
+;
+; The pair preserves the arc's SHAPE, not merely its speed:
+;
+;     apex        = v0^2 / 2g   ->  (v0*r)^2 / (2*g*r^2)   = the same apex
+;     flight time = 2*v0/g frames -> (2*v0/g)/r frames, which at 50.007 fps
+;                   is the same number of REAL SECONDS as it was at 60.099
+;
+; TS_R(v) is TS_STEP's own PAL arm written as a build-time expression, which
+; is what lets a per-frame-SQUARED quantity be scaled TWICE (once here into
+; the base, once by the macro). It is NOT a second copy of the ratio:
+; TS_GAIN_NUM / TS_GAIN_DEN are tick_scale's and single-sourced, and this only
+; applies them. The `+ DEN/2` is the macro's own rounding, kept identical so
+; the two arms cannot disagree by a count.
+; (the parameter is `v`, not `x`: ca65 reads a bare `x` in a define's
+;  parameter list as the index REGISTER and refuses the definition.)
+.define TS_R(v) ((v) + ((v) * TS_GAIN_NUM + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
+
+; --- the two walk rates: one r each, ordinary consumer pairs ---------------
+; ST_SPEED and ST_PATROL_SPEED are still the numbers to reach for when tuning
+; how this rail feels; what changed is that they are RATES rather than
+; per-frame immediates.
+TS_WALK_BASE   = ST_SPEED * TS_ONE
+TS_PATROL_BASE = ST_PATROL_SPEED * TS_ONE
+
+; --- gravity: the r^2 site, and the only one on this rail ------------------
+; TS_STEP applies exactly one r, so the other one goes into the BASE — on the
+; PAL arm only, which is why the tick branches on ES_RGN_PAL BEFORE the macro
+; instead of after it. Both arms share one accumulator: a console cannot
+; change region, so only one of them is ever taken.
+TS_GRAV_BASE   = ST_GRAVITY * TS_ONE
+TS_GRAV_BASE_R = TS_R(TS_GRAV_BASE)
+
+; --- the three velocities: one r each, chosen once at enter ----------------
+ST_MAX_FALL_R   = TS_R(ST_MAX_FALL)
+ST_JUMP_VEL_R   = TS_R(ST_JUMP_VEL)
+ST_JUMP_NEG_R   = (0 - ST_JUMP_VEL_R) & $FFFF
+ST_BOUNCE_VEL_R = TS_R(ST_BOUNCE_VEL)
+ST_BOUNCE_NEG_R = (0 - ST_BOUNCE_VEL_R) & $FFFF
+
+; stomper.inc's own bounds, re-asserted on the SCALED pair. A region scale is
+; exactly the kind of change that walks a tuned constant through a bound
+; nobody re-checked, and this rail has TWO of them.
+;   * the 8x8 box probe and the row-top snaps only cover an 8 px step, in
+;     either direction;
+;   * the STOMP WINDOW is sized against the terminal fall: a falling
+;     first-touch is at most one frame's descent deep into the enemy's top,
+;     so ST_STOMP_DEPTH must still cover the SCALED terminal speed or a clean
+;     stomp starts classifying as a side hit at full falling speed.
+.assert ST_MAX_FALL_R <= 8 << 8, error, "the PAL-scaled ST_MAX_FALL exceeds 8 px/frame — the landing snap / no-tunnel bound does not cover it"
+.assert ST_JUMP_VEL_R <= 8 << 8, error, "the PAL-scaled ST_JUMP_VEL exceeds 8 px/frame — a take-off that fast can tunnel a ceiling"
+.assert ST_BOUNCE_VEL_R <= 8 << 8, error, "the PAL-scaled ST_BOUNCE_VEL exceeds 8 px/frame"
+.assert ST_MAX_FALL_R <= ST_STOMP_DEPTH << 8, error, "the PAL-scaled ST_MAX_FALL is deeper than the stomp window — a first-touch at terminal speed would classify as a side hit"
 .include "engine_state_play.inc"    ; GENERATED — this scene's map
 
 ; --- col_map's world binding ------------------------------------------------
@@ -112,6 +175,33 @@ enter:
     stz z:US_GROUNDED
     lda #ST_SPAWN_Y
     sta z:US_PYI
+    ; ---- the timebase's six words, and the three region-selected feel
+    ;      constants ------------------------------------------------------
+    stz z:US_TSP_ACC
+    stz z:US_TSP
+    stz z:US_TSE_ACC
+    stz z:US_TSE
+    stz z:US_TSG_ACC
+    stz z:US_TSG
+    lda z:ES_RGN_PAL
+    beq :+
+    lda #ST_MAX_FALL_R
+    sta z:US_VMAX
+    lda #ST_JUMP_NEG_R
+    sta z:US_VJUMP
+    lda #ST_BOUNCE_NEG_R
+    sta z:US_VBOUNCE
+    bra :++
+:   .a16
+    .i16
+    lda #ST_MAX_FALL                ; today's constants, to the bit
+    sta z:US_VMAX
+    lda #ST_JUMP_NEG
+    sta z:US_VJUMP
+    lda #ST_BOUNCE_NEG
+    sta z:US_VBOUNCE
+:   .a16
+    .i16
     lda #ST_E1_X0
     sta z:US_E1X
     lda #1
@@ -290,10 +380,10 @@ phys_step:
     ; ---- gravity, clamped to terminal fall speed --------------------------
     lda z:US_VY
     clc
-    adc #ST_GRAVITY
-    cmp #ST_MAX_FALL
+    adc z:US_TSG
+    cmp z:US_VMAX
     bcc @noclamp
-    lda #ST_MAX_FALL
+    lda z:US_VMAX
 @noclamp:
     .a16
     .i16
@@ -342,7 +432,7 @@ phys_rising:
     stz z:US_GROUNDED
     lda z:US_VY                 ; gravity (no clamp needed while negative)
     clc
-    adc #ST_GRAVITY
+    adc z:US_TSG
     sta z:US_VY
     lda z:US_PYF
     clc
@@ -400,14 +490,14 @@ phys_rising:
     beq move_left
     lda z:ex
     clc
-    adc #ST_PATROL_SPEED
+    adc z:US_TSE
     bra store_x
 move_left:
     .a16
     .i16
     lda z:ex
     sec
-    sbc #ST_PATROL_SPEED
+    sbc z:US_TSE
 store_x:
     .a16
     .i16
@@ -535,7 +625,7 @@ contact:
     cmp #(ST_STOMP_DEPTH + 1)
     bcs hurt                    ; too deep -> side contact mid-fall
     stz z:ealive                ; STOMP: kill + bounce
-    lda #ST_BOUNCE_NEG
+    lda z:US_VBOUNCE
     sta z:US_VY
     lda #1
     bra done
@@ -563,6 +653,29 @@ tick:
     lda z:US_BLINK
     inc a
     sta z:US_BLINK              ; the free-running heartbeat
+    ; ---- this frame's three region-correct steps, published once ---------
+    ; On NTSC each publishes the constant stomper.inc authored, to the unit,
+    ; and the carried fraction stays 0 for ever — which is why the NTSC
+    ; picture cannot move.
+    TS_STEP z:US_TSP_ACC, TS_WALK_BASE
+    sta z:US_TSP
+    TS_STEP z:US_TSE_ACC, TS_PATROL_BASE
+    sta z:US_TSE
+    ; Gravity is per-frame-SQUARED: the second r rides the BASE, so the arm
+    ; is chosen BEFORE the macro rather than after it. ANONYMOUS LABELS, not
+    ; `@cheap` ones: TS_STEP's `.local` labels are plain symbols, so expanding
+    ; it between a `@label` and its use RESETS the cheap-local scope and the
+    ; branch target goes undefined.
+    lda z:ES_RGN_PAL
+    beq :+
+    TS_STEP z:US_TSG_ACC, TS_GRAV_BASE_R
+    bra :++
+:   .a16
+    .i16
+    TS_STEP z:US_TSG_ACC, TS_GRAV_BASE
+:   .a16
+    .i16
+    sta z:US_TSG
     jsr clear_pump              ; pending CLEAR letters, one cell per frame
     jsr move_player
     jsr do_jump
@@ -594,7 +707,7 @@ move_player:
     beq @no_right
     lda z:US_NEWX
     clc
-    adc #ST_SPEED
+    adc z:US_TSP
     sta z:US_NEWX
 @no_right:
     .a16
@@ -604,7 +717,7 @@ move_player:
     beq @no_left
     lda z:US_NEWX
     sec
-    sbc #ST_SPEED
+    sbc z:US_TSP
     sta z:US_NEWX
 @no_left:
     .a16
@@ -640,7 +753,7 @@ do_jump:
 @go:
     .a16
     .i16
-    lda #ST_JUMP_NEG            ; -ST_JUMP_VEL: 4.5 px/f take-off
+    lda z:US_VJUMP              ; -ST_JUMP_VEL * r: the region's take-off
     sta z:US_VY
     stz z:US_GROUNDED
     rts

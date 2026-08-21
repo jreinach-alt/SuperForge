@@ -1318,6 +1318,60 @@ RAILS = {
                      "purpose, because the run does not stop in the air."),
         ],
     ),
+    "stomper": dict(
+        rom="build/stomper.sfc", map="build/st/symbol_map.json",
+        scene="play",
+        klass="physics / jump",
+        # `jumper`'s drive with the corridor moved. This rail's hazards are
+        # its two ENEMIES (a contact knocks the player back to spawn, which
+        # would restart every arc from a different place), the 16 px low wall
+        # at col 20 (x 160..167) and the platform at cols 4..8. Everything
+        # right of that wall is empty ground: enemy 1 paces 88..152 and
+        # cannot cross it, enemy 2 is on the far-left platform, and nothing
+        # overhangs. RIGHT-first 0.2 s legs from the x=200 spawn keep the run
+        # inside [200, 224] -- 32 px clear of the wall, 16 px clear of the
+        # right border -- and the guard below is what SAYS so rather than
+        # this comment: `hurts` must stay 0 and enemy 1 must stay alive for
+        # the window to mean anything.
+        script=([(0.0, {})]
+                + _hop_shuttle(200, 250, 80, 20000, first="right",
+                               t0_ms=200)),
+        warmup_s=3.0, window_s=12.0,
+        guard=[("US_HURTS", 2, 0), ("US_E1ALIVE", 2, 1)],
+        observables=[
+            dict(name="arc_rate", kind="edges", unit="arcs / airborne s",
+                 mem="wram", fields=[("US_GROUNDED", 0, 2, 65536)],
+                 gate=("US_GROUNDED", 2, 0),
+                 why="0 -> non-0 on US_GROUNDED is the frame the player "
+                     "TOUCHES DOWN (phys_step's landing snap and its "
+                     "standing probe are the only writers of the 1), over "
+                     "the seconds it is OFF the ground. 'How fast does one "
+                     "ballistic arc complete', in flight-seconds -- the "
+                     "r-and-r-squared pair's whole subject."),
+            dict(name="fall_speed", kind="distance", unit="px/256 per air s",
+                 mem="wram", fields=[("US_PYF", 0, 2, 65536)],
+                 gate=("US_GROUNDED", 2, 0),
+                 why="the player's 8.8 world y -- the integrator output "
+                     "US_PYI and therefore the drawn OAM row derive from -- "
+                     "accumulated over airborne seconds. 8.8 px is the "
+                     "finest-grained progress this rail has."),
+            dict(name="run", kind="distance", unit="world px",
+                 mem="wram", fields=[("US_PX", 0, 2, 65536)],
+                 why="the player's world x, which st_obj_draw turns into the "
+                     "OAM X the PPU draws from. World px per second is the "
+                     "run rate a player perceives."),
+            dict(name="patrol", kind="distance", unit="world px",
+                 mem="wram", fields=[("US_E1X", 0, 2, 65536)],
+                 why="enemy 1's world x, drawn from the same OAM staging as "
+                     "the player. It is the rail's SECOND rate on a "
+                     "different base (ST_PATROL_SPEED against ST_SPEED), and "
+                     "it is measured because a shared accumulator would "
+                     "couple the two silently -- so the pair being separate "
+                     "is a claim, and this is the observable that checks "
+                     "it. It never stops: the beat turns at the wall and at "
+                     "the ledge and paces on."),
+        ],
+    ),
 }
 
 
