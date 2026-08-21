@@ -99,6 +99,10 @@ enter:
     ; ---- the rail's own state: camera, odometer, ship, the two pools ------
     ; NOT "heading" — there is no heading state on this rail at all; the
     ; S-curve is a translation of the camera origin.
+    stz z:US_TS_ACC             ; the timebase's carried fraction. HERE and not
+                                ;   in rs_logic_arm: that routine re-runs on
+                                ;   the fail-state self-restart, and this is
+                                ;   the CONSOLE's clock rather than the run's
     jsr rs_logic_arm
     ; ---- HDMAEN shadow: four channels (the NMI applies it) ----------------
     sep #$20
@@ -132,6 +136,49 @@ exit:
 ; The fail state is a gate at the top, not a mode elsewhere: while it runs the
 ; rail freezes and only the draw happens, so the empty life bar and the blinking
 ; ship are on screen for a pilot to read before it restarts itself.
+; =============================================================================
+; THE RAIL IN TWO REGIONS (engine/features/tick_scale)
+; =============================================================================
+; THE STATE STEP IS THE UNIT, and here that is not a preference — it is the
+; only thing that keeps the GROUND LOCK intact.
+;
+; railshooter.inc states the lock twice. "ONE ODOMETER DRIVES EVERYTHING":
+; US_DIST counts +1 per frame and the path index, every spawn schedule and
+; every actor's arrival phase come off it. And "z falls RS_OBS_STEP per frame
+; while `dist` rises 1 per frame, so `dist * RS_OBS_STEP + z` is INVARIANT for
+; an actor across its whole flight" — which is what makes RS_LEAD a real
+; "where will the camera be when this arrives" number. The forward scroll is
+; the third expression of the same clock: RS_RAIL_SPEED_88 and RS_OBS_STEP are
+; LOCKED to each other (5 z per frame IS 0.5 texture px per frame), and the
+; file's own measured note says a 4-against-128 pair reads as an actor/surface
+; rate ratio of 0.8 at every row.
+;
+; Three separate accumulators would let those three drift apart by their
+; rounding, and drifting them apart is exactly the defect the lock exists to
+; prevent. Stepping the STATE keeps them one clock by construction: the
+; odometer, the depth and the scroll advance together or not at all.
+;
+; So the seven state routines run 1 or 2 times per frame — the count TS_STEP
+; publishes for a base of one tick per frame — and the projection and the draw
+; run ONCE. On NTSC the count is exactly 1 for ever, so the rail is unchanged
+; to the cycle, which is what keeps `make rs-probe`'s calibration case reading
+; the same surface and pylon rates it was landed against.
+;
+; WHAT THE DOUBLED STEP DOES NOT BREAK, checked rather than assumed: the spawn
+; schedules fire on the ARRIVAL PHASE of `dist`, and each state step sees a
+; DISTINCT dist, so a doubled frame evaluates two phases rather than one phase
+; twice — no schedule can double-fire, and none can be skipped either. The
+; bank ramp's rate limiter moves one pose per STEP, which is the rate it was
+; always meant to be.
+;
+; NOT SCALED, and stated: rs_fail_step's RS_FAIL_FRAMES countdown. It is the
+; dwell on a dead run before the self-restart, outside the play loop and
+; outside anything the player is steering — `brawler`'s class B, left alone for
+; `brawler`'s reason.
+;
+; TICK: ok — this block is the region compensator's derivation for this rail;
+;   naming the NTSC frame beside the PAL one is its subject rather than a
+;   coupling in it, exactly as in tick_scale.asm.
 tick:
     .a16
     .i16
@@ -143,15 +190,33 @@ tick:
 @play:
     .a16
     .i16
+    ; THIS FRAME'S STATE STEPS: 1, or 2. See "THE RAIL IN TWO REGIONS" above.
+    ; The seven state routines are inside the loop and the PROJECTION and DRAW
+    ; are outside it — the cache is one frame's answer and the screen is drawn
+    ; once, whatever the state did to get there.
+    TS_STEP z:US_TS_ACC, TS_ONE
+    beq rail_project            ; unreachable on either machine, and the loop
+                                ;   must not run 65,536 times if that ever
+                                ;   stops being true
+@again:
+    .a16
+    .i16
+    pha
     jsr rs_path_step            ; the S-curve: the odometer -> the camera's x
     jsr rs_advance              ; the rail walks forward, always
     jsr rs_reticle_move         ; the d-pad -> the world-anchored aim point
     jsr rs_spawn                ; the scheduled hazard / pylon field
     jsr rs_step_pools           ; depth, arrival damage, and the tier hysteresis
     jsr rs_bul_move             ; every tracer recedes; freed at the horizon
+    jsr rs_burst_step           ; the kill flash counts itself down
+    pla
+    dec a
+    bne @again
+rail_project:
+    .a16
+    .i16
     jsr rs_cache_build          ; PASS 1: project every actor and the aim point
     jsr rs_fire                 ; A -> the screen-space hitscan, burst, score
-    jsr rs_burst_step           ; the kill flash counts itself down
     jsr rs_pool_census          ; publish every pool's live count
     jsr rs_draw                 ; PASS 2: the whole foreground plus the HUD
     rts

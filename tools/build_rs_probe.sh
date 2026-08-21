@@ -41,7 +41,8 @@ INC="-I $MAP -I $VROM -I game/railshooter
      -I engine/features/split_band -I engine/features/oam_sprites
      -I engine/features/mode7_persp -I engine/features/rs_floor
      -I engine/features/sky_band -I engine/features/rs_obj
-     -I engine/features/rs_logic"
+     -I engine/features/rs_logic
+     -I engine/features/region -I engine/features/tick_scale"
 
 if [ ! -f "$MAP/symbol_map.json" ]; then
     echo "build_rs_probe: run 'make railshooter' first ($MAP is missing)" >&2

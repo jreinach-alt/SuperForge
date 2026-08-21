@@ -1752,7 +1752,8 @@ RS_INC := -I $(RS_MAP) -I $(VROM) -I $(RS) \
           -I engine/features/split_band -I engine/features/oam_sprites \
           -I engine/features/mode7_persp -I engine/features/rs_floor \
           -I engine/features/sky_band -I engine/features/rs_obj \
-          -I engine/features/rs_logic
+          -I engine/features/rs_logic \
+          -I engine/features/region -I engine/features/tick_scale
 
 $(BUILD)/railshooter.sfc: $(RS_ASM) $(RS)/railshooter.inc \
 		$(RS_MAP)/engine_state_globals.inc $(RS_ASSETS) \
