@@ -753,6 +753,43 @@ RAILS = {
                      "wrap as a 1,016 px jump."),
         ],
     ),
+    # --- fleet lane B ---------------------------------------------------
+    # The Mode 7 and camera rails. Every observable below is a word the PPU is
+    # DRIVEN FROM — a Mode 7 camera origin the floor is drawn out of, or an OAM
+    # byte the sprite table hands the PPU — never a frame counter and never a
+    # counter that only feeds one. Where a rail can die, stall or change scene
+    # inside the window, a `guard` says so: a window that spans a dead rail
+    # averages a live half with a frozen half and reports a ratio about
+    # nothing.
+    "mode7_chamber": dict(
+        rom="build/mode7_chamber.sfc", map="build/m7c/symbol_map.json",
+        scene="chamber",
+        klass="mode7",
+        # NO PAD AT ALL, and that is the rail: the roll drives itself in legs
+        # of three surges, holds dead for half a second, then reverses. Holding
+        # Up/Down would walk m7_barrel's bow step, which changes the picture
+        # without changing the motion — so the empty script measures the roll
+        # and nothing else.
+        #
+        # THE WINDOW IS LONG BECAUSE THE CYCLE IS. One surge is ~7 s and a leg
+        # is ~21 s, so a 14 s window would compare two different parts of the
+        # cycle. 30 s spans more than a whole leg in both regions.
+        script=[(0.0, {})],
+        warmup_s=1.0, window_s=30.0, guard=[],
+        observables=[
+            dict(name="roll_y", kind="distance", unit="world px",
+                 mem="wram", fields=[("US_POSY", 1, 2, 1024)],
+                 why="the INTEGER half of the 16.8 vertical position. "
+                     "`roll_commit` (m7c_roll.asm:61) copies exactly this word "
+                     "into MB_M7Y and derives MB_VOFS from it, and mb_commit_"
+                     "origin writes both to the PPU every VBlank — so this is "
+                     "the world row the bottom scanline is standing on. World "
+                     "pixels per second here IS the speed the chamber rolls "
+                     "at. The modulus is the plane's own period (CH_MAP_MASK "
+                     "+ 1 = 1024), which the roll wraps to in both "
+                     "directions."),
+        ],
+    ),
 }
 
 

@@ -67,6 +67,13 @@ NMI:
 .include "scene_mgr.asm"
 .include "fade.asm"
 .include "input.asm"
+.include "region.asm"                ; $213F bit 4 -> ES_RGN_PAL, once at boot
+.include "tick_scale.asm"            ; TS_GAIN_NUM/DEN: the measured frame
+                                     ;   ratio m7c_roll builds its region
+                                     ;   constants from. INCLUDED BEFORE
+                                     ;   m7c_roll.asm, and it must be — the
+                                     ;   equates below are evaluated where they
+                                     ;   are written.
 
 ; --- the ROM claim sites ---------------------------------------------------
 ; Each site .asserts its blob's linker placement against the allocator's
@@ -166,6 +173,9 @@ MAIN:
     jsr sm_init
     jsr fade_init
     jsr input_init
+    jsr region_init             ; the console's own region line, once. It is
+                                ;   game-lifetime state: a console does not
+                                ;   change region between scenes.
     ; ---- enter the boot scene (id 0 = chamber) under forced blank --------
     ldx #0
     jsr (sm_enter_tab, x)

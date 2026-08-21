@@ -27,3 +27,43 @@ hold   = "u16@dp"        # hold-timer countdown, in frames
 rng_f  = "u16@dp"        # forward-leg LFSR — its own variance pattern
 rng_r  = "u16@dp"        # reverse-leg LFSR — a DIFFERENT pattern, so the two
                          # directions do not replay each other's surges
+
+# --- the roll's four numbers, in the units of the RUNNING console ----------
+# (engine/features/tick_scale, composed in game.toml)
+#
+# THE ROLL IS A VELOCITY MODEL, so nothing here is a published integer step of
+# the kind `scroller` and `brawler` consume. What the timebase changes is the
+# four constants the velocity is BUILT from, and each takes a different power
+# of the frame ratio — m7c_roll.asm's "THE ROLL IN TWO REGIONS" block derives
+# which and why. `roll_region_init` writes all four once, from ES_RGN_PAL, and
+# the kernel reads them instead of the immediates it used to carry.
+#
+# WORDS RATHER THAN A BRANCH AT EACH SITE: there are seven use sites across
+# roll_tick and roll_draw_peak, and a region test at each one is seven chances
+# to test the wrong sense. One test, four words, and the kernel stops knowing
+# there are two machines.
+r_accel  = "u16@dp"      # the rise rate the running console uses
+                         # TICK: ok — this word EXISTS to remove a frame
+                         # coupling: it is ROLL_ACCEL re-expressed for the
+                         # frame the console actually has, so that the
+                         # acceleration per REAL second is the same number on
+                         # both machines.
+r_decel  = "u16@dp"      # ...and the fall rate
+                         # TICK: ok — as r_accel.
+r_vfloor = "u16@dp"      # ...the creep floor between surges (a velocity)
+                         # TICK: ok — as r_accel.
+r_hold   = "u16@dp"      # ...and the dead-stop dwell, 30 on NTSC and 25 on
+                         #   PAL — half a second on both
+                         # TICK: ok — the whole point of the word is that the
+                         # dwell is half a second on both machines rather than
+                         # thirty frames on both.
+r_frac   = "u16@dp"      # the ramp accumulator's carried fraction, in 1/256
+                         #   of an LSB of velocity. It is what lets a PAL rise
+                         #   rate of 2.889 LSB/frame be applied exactly rather
+                         #   than rounded to 3 — see ROLL_RAMP.
+                         # TICK: ok — a carried FRACTION, the thing that
+                         # REMOVES the frame coupling. It has no meaning in
+                         # frames and is cleared at the top of every leg.
+gtmp     = "u16@dp"      # roll_gain's and ROLL_RAMP's one scratch word (the
+                         #   surge peak's region scale, the fall arm's step).
+                         #   Dead between calls.
