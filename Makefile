@@ -1227,7 +1227,8 @@ JR_INC := -I $(JR_MAP) -I $(VROM) -I $(JR) \
           -I engine/features/scene_mgr -I engine/features/input \
           -I engine/features/oam_sprites -I engine/features/fade \
           -I engine/features/jumper_bg -I engine/features/jumper_obj \
-          -I engine/features/col_map
+          -I engine/features/col_map \
+          -I engine/features/region -I engine/features/tick_scale
 
 $(BUILD)/jumper.sfc: $(JR_ASM) $(JR)/jumper.inc \
 		$(JR_MAP)/engine_state_globals.inc $(JR_ASSETS) \
