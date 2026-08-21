@@ -800,7 +800,8 @@ M7DG_INC := -I $(M7DG_MAP) -I $(VROM) -I $(M7DG) \
             -I engine/features/oam_sprites -I engine/features/fade \
             -I engine/features/m7_affine -I engine/features/m7_project \
             -I engine/features/m7dg_floor -I engine/features/m7dg_obj \
-            -I engine/features/col_map
+            -I engine/features/col_map \
+            -I engine/features/region -I engine/features/tick_scale
 
 $(BUILD)/m7_dungeon.sfc: $(M7DG_ASM) \
 		$(M7DG_MAP)/engine_state_globals.inc \

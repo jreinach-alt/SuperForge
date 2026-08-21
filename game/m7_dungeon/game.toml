@@ -26,8 +26,20 @@
 #                   owner by hardware contract.
 #   bg_text      -- BG3 does not exist in Mode 7. There is no HUD here; the
 #                   picture is the HUD.
+# REGION + TICK_SCALE (docs/94 R0, docs/96 §4). Three dimensions, three
+# exponents of the measured frame ratio r = 1.2018039:
+#
+#   ACCEL / DECEL are px per frame PER FRAME, so they take r SQUARED — one r
+#     for the velocity they produce and one for the frame they produce it in.
+#   SPEED_CAP is px per frame, so it takes r. It is 8.8, which is docs/95
+#     §5.2's cheap class: the fixed point absorbs the ratio and the constant is
+#     chosen once at scene enter.
+#   TURN_STEP and PATROL_SPEED are INTEGERS — one heading unit and one world
+#     pixel a frame — and an integer has no correct x1.2018, so both go through
+#     TS_STEP and carry their fraction between frames.
 globals = ["scene_mgr", "input", "fade", "oam_sprites",
-           "m7_affine", "m7_project", "m7dg_rom"]
+           "m7_affine", "m7_project", "m7dg_rom",
+           "region", "tick_scale"]
 
 [[scene]]
 id = "dungeon"

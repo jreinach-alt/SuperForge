@@ -789,6 +789,44 @@ RAILS = {
                      "camera at 512..3,576 so it never reaches one."),
         ],
     ),
+    "m7_dungeon": dict(
+        rom="build/m7_dungeon.sfc", map="build/m7dg/symbol_map.json",
+        scene="dungeon",
+        klass="mode7",
+        # B AND LEFT, and B ALONE WOULD MEASURE THE MAZE. Measured: holding the
+        # throttle straight walks him into the corridor wall inside three
+        # seconds and the position stops changing at all, so the rail would
+        # read zero and the reason would be the level, not the timebase. With
+        # the turn held too he circles inside the START cell, bumping walls,
+        # which is motion the maze cannot stop.
+        #
+        # THE WINDOW IS SHORT AND THE GUARD SAYS WHY: an enemy reaches him at
+        # about 3.3 s and a contact knocks the hero HOME — a teleport no path
+        # measure should average into a walking speed.
+        script=[(0.0, {"b": True, "left": True})],
+        warmup_s=0.5, window_s=2.5,
+        guard=[("US_HITS", 2, 0), ("US_PAUSED", 2, 0)],
+        observables=[
+            dict(name="heading", kind="distance", unit="heading units",
+                 mem="wram", fields=[("US_HEADING", 0, 1, 256)],
+                 why="the hero's heading, 0..255. `m7a_set_heading` turns it "
+                     "into the affine matrix the VBlank commit writes, so the "
+                     "WHOLE DUNGEON FLOOR rotates by it — heading units per "
+                     "second is the rate the world turns under the player, "
+                     "which no position measure captures."),
+            dict(name="hero_path", kind="path2d", unit="px/65536",
+                 mem="wram",
+                 fields=[("US_POSX", 0, 4, 1 << 32),
+                         ("US_POSY", 0, 4, 1 << 32)],
+                 why="the hero's 16.16 world position, read WHOLE — the pair "
+                     "m7a_set_center re-pins the affine pivot from every "
+                     "frame, so the floor is drawn out of it. Read at 16.16 "
+                     "rather than at the integer half for the reason "
+                     "m7_oshoot's entry gives: summing hypot() over integer "
+                     "deltas charges the two regions different rounding and "
+                     "measures the quantiser as much as the rail."),
+        ],
+    ),
     "m7_oshoot": dict(
         rom="build/m7_oshoot.sfc", map="build/mo/symbol_map.json",
         scene="arena",
