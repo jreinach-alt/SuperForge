@@ -14,9 +14,33 @@
 #   split_band   -- a different splitter (single-shape, scanline bands) and the
 #                   sole active-phase owner of BGMODE. Composing it would be a
 #                   second BGMODE writer, refused.
+#
+# REGION + TICK_SCALE. This rail is a BALLISTIC ARC with a combat window
+# hanging off it, which is why the two-constant discipline matters more here
+# than anywhere else in the set. A velocity is px per frame and scales by the
+# frame ratio r; a GRAVITY is px per frame SQUARED and scales by r^2. Together
+# they leave apex = v0^2/2g unchanged -- and the apex is not decoration on this
+# rail: SV_SWING_VGATE says a swing MISSES a fighter whose height differs by
+# 14 px, so the hop is the defence, and an arc that flattened by 17% would
+# quietly stop being one on PAL.
+#   region      reads $213F bit 4 once at boot and publishes ES_RGN_PAL.
+#   tick_scale  turns a per-frame delta into a region-correct one, carrying
+#               the fraction. It `depends = ["region"]`.
+# WHAT IS NOT SCALED, and this rail is where the line is drawn most explicitly:
+# every COUNTDOWN. SV_SWING_LEN 20 (whose countdown INDEXES sv_blade_step's
+# frame table -- scale it and it indexes a different row), SV_SWING_FIRST /
+# LAST, SV_HIT_LEN 24, SV_KO_LEN 94, SV_COUNT_STEP 32 and SV_DWELL 72. They are
+# docs/95 §5.2's class B: an integer with no correct x5/6, only a rounding
+# policy, and a rounding policy is a game-FEEL decision. SV_KO_LEN in
+# particular is load-bearing at its ODD value -- the gallery clip's loop cut
+# depends on the whole round being a multiple of 3 frames -- so scaling it
+# would move a published artifact for no measured gain. The DISTANCES
+# (SV_KNOCKBACK 12 px, SV_SWING_REACH 44, SV_SWING_VGATE 14) are not rates
+# either: they are lengths, and a length is the same length on both machines.
 globals = ["scene_mgr", "input", "input2", "oam_sprites", "enter_scr",
            "fade",
-           "split_v_rom", "audio", "tad_rom"]
+           "split_v_rom", "audio", "tad_rom",
+           "region", "tick_scale"]
 
 [[scene]]
 id = "fight"

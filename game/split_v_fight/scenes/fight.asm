@@ -20,6 +20,81 @@
 .scope fight
 
 ; =============================================================================
+; THE REGION-CORRECT UNITS — an arc takes TWO scales, and this one has a
+; combat window hanging off it
+; =============================================================================
+; A PAL frame must carry r = 1.2018039 of the distance an NTSC frame carries
+; (engine/features/tick_scale carries that derivation and is the only place
+; the ratio lives). A VELOCITY is px per frame and scales by r. A GRAVITY is
+; px per frame SQUARED and scales by r SQUARED. Together they leave
+; apex = v0^2/2g unchanged — and on THIS rail the apex is a rule rather than a
+; look: SV_SWING_VGATE says a swing misses a fighter whose height differs by
+; 14 px, so the hop IS the defence. An arc flattened by 17% would quietly stop
+; being one.
+;
+; TS_R(v) is TS_STEP's own PAL arm written as a build-time expression, which
+; is what lets a per-frame-SQUARED quantity be scaled TWICE (once here into
+; the base, once by the macro). It is NOT a second copy of the ratio:
+; TS_GAIN_NUM / TS_GAIN_DEN are tick_scale's and single-sourced, and this only
+; applies them. The `+ DEN/2` is the macro's own rounding, kept identical so
+; the two arms cannot disagree by a count.
+; (the parameter is `v`, not `x`: ca65 reads a bare `x` in a define's
+;  parameter list as the index REGISTER and refuses the definition.)
+.define TS_R(v) ((v) + ((v) * TS_GAIN_NUM + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
+
+; --- the four rates on one r ----------------------------------------------
+; SV_WALK_SPD and SV_SWING_LUNGE are still the numbers to reach for when
+; tuning how this rail feels; what changed is that they are RATES rather than
+; per-frame immediates. They keep separate pairs though both are 2 px today.
+TS_WALK_BASE  = SV_WALK_SPD * TS_ONE
+TS_LUNGE_BASE = SV_SWING_LUNGE * TS_ONE
+; ONE ANIMATION UNIT. The DIVIDER (sv_anim_meta's per-table rate) is untouched
+; — scaling a small integer divider is docs/95 §5.2's class C and has no
+; correct answer — so what is scaled is the amount the CLOCK advances by.
+TS_ANIM_BASE  = TS_ONE
+; THE DIVIDER'S EASE, AND WHY ITS BASE IS A HALF UNIT. SV_SPR_STEP is already
+; an 8.8 rate (0.75 px/frame = 192 counts), so the natural base would be
+; 192 * TS_ONE = 49,152 — past tick_scale's TS_BASE_MAX of 42,000, which is
+; the point where `base * TS_GAIN_NUM` would wrap ca65's 32-bit expression
+; arithmetic. That assert exists to be believed, so the base is expressed in
+; HALF counts (96 * TS_ONE = 24,576) and the published step is doubled where
+; it is stored. The average is exact either way; what the halving costs is one
+; bit of granularity in a smoothing accumulator, which is nothing a divider
+; that settles on an integer target can see.
+.assert (SV_SPR_STEP / 2) * 2 = SV_SPR_STEP, error, "SV_SPR_STEP is odd — the half-unit timebase base would lose a count per frame"
+TS_SPREAD_BASE = (SV_SPR_STEP / 2) * TS_ONE
+
+; --- gravity: the r^2 site, and the only one on this rail ------------------
+; TS_STEP applies exactly one r, so the other one goes into the BASE — on the
+; PAL arm only, which is why the tick branches on ES_RGN_PAL BEFORE the macro
+; instead of after it. Both arms share one accumulator: a console cannot
+; change region, so only one of them is ever taken.
+TS_GRAV_BASE   = SV_GRAV * TS_ONE
+TS_GRAV_BASE_R = TS_R(TS_GRAV_BASE)
+
+; --- the take-off: one r, chosen once at enter -----------------------------
+SV_JUMP_V0_R = TS_R(SV_JUMP_V0)
+
+; --- THE CLAIM, ASSERTED AT BUILD TIME ------------------------------------
+; "The apex is preserved" is the whole reason gravity gets r^2 rather than r,
+; and it is cheap to check rather than assume: apex = v0^2 / 2g in the 8.8
+; counts US_JMP is kept in, computed for each region from the constants each
+; region actually runs. SV_GRAV_PAL is the whole-count part of the PAL step
+; TS_STEP publishes (base * r^2, rounded down at the count), which is what the
+; integrator adds.
+;
+; The bound is +/- 1/16. That is not a tolerance the arc needs — the measured
+; difference is under 1% — it is a TRIPWIRE: scale the wrong constant, or
+; scale gravity once instead of twice, and the apex moves by ~17% and this
+; refuses the build with the reason on it rather than shipping a flattened
+; hop that only a playtest would find.
+SV_GRAV_PAL   = TS_R(TS_GRAV_BASE_R) / TS_ONE
+SV_APEX_NTSC  = SV_JUMP_V0 * SV_JUMP_V0 / (2 * SV_GRAV)
+SV_APEX_PAL   = SV_JUMP_V0_R * SV_JUMP_V0_R / (2 * SV_GRAV_PAL)
+.assert SV_APEX_PAL <= SV_APEX_NTSC + SV_APEX_NTSC / 16, error, "the PAL jump apex is more than 6% ABOVE the NTSC one — the velocity/gravity region scales are not r and r^2"
+.assert SV_APEX_PAL >= SV_APEX_NTSC - SV_APEX_NTSC / 16, error, "the PAL jump apex is more than 6% BELOW the NTSC one — the velocity/gravity region scales are not r and r^2, and a flattened arc stops clearing SV_SWING_VGATE"
+
+; =============================================================================
 ; SV_ANIM_STEP — one fighter's animation clock, one frame
 ; =============================================================================
 ; The RATE and the LENGTH come from sv_anim_meta rather than being pasted in as
@@ -52,12 +127,25 @@
     and #$00FF
     sta z:US_ATTR                   ; ...and its frame-rate divider
     plx
+    ; THE CLOCK ADVANCES BY US_TSA, NOT BY ONE. That is this rail's answer to
+    ; docs/95 §5.2's class C: a frame-rate divider is a small integer with no
+    ; correct x5/6, so the table's rate is left alone and what the clock
+    ; ADVANCES BY is scaled instead — 1 unit per NTSC frame, 1.2018 per PAL
+    ; frame, the fraction carried by tick_scale. On NTSC US_TSA is exactly 1
+    ; every frame, so this is `inc a` in behaviour.
     lda z:US_ATK, x
-    inc a
+    clc
+    adc z:US_TSA
     sta z:US_ATK, x
     cmp z:US_ATTR
     bcc sv_done                     ; not time for the next step yet
-    lda #0
+    ; CARRY THE OVERSHOOT rather than zeroing. On NTSC the clock arrives at
+    ; the divider EXACTLY (it steps by 1 from 0 and set_state resets it on
+    ; every state change), so tick - rate = 0 and this is the `lda #0` it
+    ; replaces; on PAL a 2-unit frame can cross the divider by one, and
+    ; dropping that one is a bias nothing downstream can see.
+    sec
+    sbc z:US_ATTR
     sta z:US_ATK, x
     lda z:US_AFR, x
     inc a
@@ -117,6 +205,29 @@ enter:
     stz z:US_CROSSED
     stz z:ES_SV_SPREAD
     stz z:ES_SV_MID
+    ; ---- the timebase's ten words, and the region-selected take-off ------
+    ; Power-on DP is RANDOM (rule 5), so these stores ARE the write-before-
+    ; read contract for every one of them.
+    stz z:US_TSW_ACC
+    stz z:US_TSW
+    stz z:US_TSL_ACC
+    stz z:US_TSL
+    stz z:US_TSS_ACC
+    stz z:US_TSS
+    stz z:US_TSA_ACC
+    stz z:US_TSA
+    stz z:US_TSG_ACC
+    stz z:US_TSG
+    lda z:ES_RGN_PAL
+    beq :+
+    lda #SV_JUMP_V0_R
+    bra :++
+:   .a16
+    .i16
+    lda #SV_JUMP_V0                 ; today's constant, to the bit
+:   .a16
+    .i16
+    sta z:US_VJUMP
 .ifdef SV_HOLD
     ; A proof build: no countdown, because these ROMs exist to freeze ONE
     ; variable and a banner across the middle of the screen is a second one.
@@ -180,6 +291,36 @@ nowin_reference:
 tick:
     .a16
     .i16
+    ; ---- this frame's five region-correct steps, published once ----------
+    ; BEFORE the variant gates, deliberately: the -DSV_HOLD proof builds skip
+    ; the whole game body but still run `director`, whose spread EASE reads
+    ; US_TSS, and a step word that stops being republished is a stale word
+    ; waiting to be read. On NTSC each publishes the constant split_v.inc
+    ; authored, to the unit, and the carried fraction stays 0 for ever.
+    TS_STEP z:US_TSW_ACC, TS_WALK_BASE
+    sta z:US_TSW
+    TS_STEP z:US_TSL_ACC, TS_LUNGE_BASE
+    sta z:US_TSL
+    TS_STEP z:US_TSA_ACC, TS_ANIM_BASE
+    sta z:US_TSA
+    TS_STEP z:US_TSS_ACC, TS_SPREAD_BASE
+    asl a                           ; half counts -> the 8.8 counts the ease
+    sta z:US_TSS                    ;   accumulator is kept in
+    ; Gravity is per-frame-SQUARED: the second r rides the BASE, so the arm
+    ; is chosen BEFORE the macro rather than after it. ANONYMOUS LABELS, not
+    ; `@cheap` ones: TS_STEP's `.local` labels are plain symbols, so expanding
+    ; it between a `@label` and its use RESETS the cheap-local scope and the
+    ; branch target goes undefined.
+    lda z:ES_RGN_PAL
+    beq :+
+    TS_STEP z:US_TSG_ACC, TS_GRAV_BASE_R
+    bra :++
+:   .a16
+    .i16
+    TS_STEP z:US_TSG_ACC, TS_GRAV_BASE
+:   .a16
+    .i16
+    sta z:US_TSG
 .ifdef SV_HOLD
     ; frozen: the director still runs so the spread EASES to its fixed point,
     ; which is what makes the held frame a settled state rather than frame 1
@@ -378,7 +519,7 @@ director:
     ; ease down
     lda z:US_SPREADF
     sec
-    sbc #SV_SPR_STEP
+    sbc z:US_TSS
     bcs @store                      ; no underflow past zero
     lda #0
     bra @store
@@ -387,7 +528,7 @@ director:
     .i16
     lda z:US_SPREADF
     clc
-    adc #SV_SPR_STEP
+    adc z:US_TSS
 @store:
     .a16
     .i16
@@ -496,7 +637,7 @@ fighter_input:
     lda z:US_PPRESS
     and #(JOY_B | JOY_UP)
     beq @walk
-    lda #SV_JUMP_V0
+    lda z:US_VJUMP
     sta z:US_JVEL, x
     lda #SV_ST_JUMP
     jmp set_state                   ; the take-off frame does not also walk
@@ -512,7 +653,7 @@ fighter_input:
     beq :+
     lda z:US_FX1, x
     sec
-    sbc #SV_WALK_SPD
+    sbc z:US_TSW
     sta z:US_FX1, x
 :   .a16
     .i16
@@ -521,7 +662,7 @@ fighter_input:
     beq @done
     lda z:US_FX1, x
     clc
-    adc #SV_WALK_SPD
+    adc z:US_TSW
     sta z:US_FX1, x
 @done:
     .a16
@@ -553,7 +694,7 @@ jump_step:
     bmi @landed                     ; height went negative: through the floor
     lda z:US_JVEL, x
     sec
-    sbc #SV_GRAV
+    sbc z:US_TSG
     sta z:US_JVEL, x
     rts
 @landed:
@@ -594,7 +735,7 @@ swing_lunge:
     bcc @leftward
     lda z:US_FX1, x                 ; the opponent is to the right
     clc
-    adc #SV_SWING_LUNGE
+    adc z:US_TSL
     sta z:US_FX1, x
     rts
 @leftward:
@@ -602,7 +743,7 @@ swing_lunge:
     .i16
     lda z:US_FX1, x
     sec
-    sbc #SV_SWING_LUNGE
+    sbc z:US_TSL
     sta z:US_FX1, x
 @done:
     .a16
@@ -943,11 +1084,11 @@ demo_walk:
     ; --- fighter 1 ->, fighter 2 <- ---------------------------------------
     lda z:US_FX1
     clc
-    adc #SV_WALK_SPD
+    adc z:US_TSW
     sta z:US_FX1
     lda z:US_FX2
     sec
-    sbc #SV_WALK_SPD
+    sbc z:US_TSW
     sta z:US_FX2
     lda z:US_FX1
     cmp #SV_ARENA_HI
@@ -960,11 +1101,11 @@ demo_walk:
     .i16
     lda z:US_FX1
     sec
-    sbc #SV_WALK_SPD
+    sbc z:US_TSW
     sta z:US_FX1
     lda z:US_FX2
     clc
-    adc #SV_WALK_SPD
+    adc z:US_TSW
     sta z:US_FX2
     lda z:US_FX1
     cmp #(SV_ARENA_LO + 1)

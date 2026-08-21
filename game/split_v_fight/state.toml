@@ -62,3 +62,60 @@ oy = "u16@dp"            # the sprite's screen y for this placement
 slot = "u16@dp"          # ...and the OAM slot it is going into, while the
                          # index registers are busy carrying x and the
                          # fighter's pair index
+
+# --- the TIMEBASE's per-consumer state (engine/features/tick_scale) ---------
+#
+# FIVE RATES, FIVE PAIRS. A ballistic arc has a VELOCITY (px per frame, region
+# scale r) and a GRAVITY (px per frame SQUARED, region scale r^2), and
+# tick_scale's TS_STEP applies exactly one r -- so four of these are ordinary
+# consumer pairs and gravity feeds TS_STEP a base that already carries one r
+# on the PAL arm. scenes/fight.asm is the only place that arithmetic is
+# spelled.
+#
+# The walk and the lunge keep SEPARATE pairs even though both bases are 2 px
+# per frame today: they are two different tuning knobs (SV_WALK_SPD against
+# SV_SWING_LUNGE) and a shared accumulator would couple them the day either
+# moves. The two FIGHTERS share every pair, which is the other half of the
+# same rule -- they are two consumers of ONE rate, and the published step is
+# the same number for both.
+tsw_acc = "u16@dp"       # the walk: SV_WALK_SPD px per frame, both fighters
+                         # TICK: ok -- the carried FRACTION of a scaled rate.
+                         # It exists to remove a frame coupling, not to hold
+                         # one, and it has no meaning in frames.
+tsw = "u16@dp"           # ...and this frame's answer, in whole px
+                         # TICK: ok -- the OUTPUT of the scaler; already
+                         # expressed against the declared tick.
+tsl_acc = "u16@dp"       # the lunge: SV_SWING_LUNGE px per active frame
+                         # TICK: ok -- as tsw_acc.
+tsl = "u16@dp"           # ...and this frame's answer, in whole px
+                         # TICK: ok -- as tsw.
+tss_acc = "u16@dp"       # the divider's EASE: SV_SPR_STEP of 8.8 px per frame
+                         # TICK: ok -- as tsw_acc.
+tss = "u16@dp"           # ...and this frame's answer, in 8.8 px (the published
+                         # step is doubled at the point it is stored -- see
+                         # fight.asm's TS_SPREAD_BASE for why the base is a
+                         # HALF unit)
+                         # TICK: ok -- as tsw.
+tsa_acc = "u16@dp"       # the animation clock: one anim unit per frame, both
+                         # fighters. This is the pair that answers docs/95
+                         # §5.2's class C -- a small-integer divider with no
+                         # correct x5/6 -- by scaling what the clock ADVANCES
+                         # BY instead of the divider it is compared against.
+                         # TICK: ok -- as tsw_acc.
+tsa = "u16@dp"           # ...and this frame's answer, in whole anim units
+                         # TICK: ok -- as tsw.
+tsg_acc = "u16@dp"       # gravity: SV_GRAV of 8.8 velocity per frame
+                         # TICK: ok -- as tsw_acc.
+tsg = "u16@dp"           # ...and this frame's answer, in whole 8.8 counts
+                         # TICK: ok -- as tsw.
+
+# --- the one velocity constant, region-selected once at enter ---------------
+# An ASSIGNMENT rather than an accumulation -- a take-off writes it and
+# nothing else does -- so there is no fraction to carry and no accumulator to
+# declare. A console cannot change region, so it is chosen once at enter and
+# the take-off reads the word. On NTSC it holds SV_JUMP_V0 to the bit.
+vjump = "u16@dp"         # take-off velocity, 8.8 (SV_JUMP_V0 * r; up is
+                         # positive on this rail, so no negation)
+                         # TICK: ok -- a VELOCITY already expressed against
+                         # the declared tick; the scaler's output, not a frame
+                         # count.
