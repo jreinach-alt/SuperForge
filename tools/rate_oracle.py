@@ -47,6 +47,12 @@ harness drove it slow*. Every script below is written in SECONDS and each
 region converts with its own frame period. What the ratio then reports is the
 game's rate difference and nothing else.
 
+A rail may also declare `script2`, driving PAD 2 on the same real-time
+timeline. Only one rail in the set is two-player (`split_v_fight`), and it
+needs the second pad for a reason the first cannot supply: its divider only
+opens when the two fighters separate past SV_MERGE_DX, so a one-pad drive
+leaves the mechanism the rail exists to show completely still.
+
 --------------------------------------------------------------------------
 THE ONE-PROCESS CONSTRAINT
 --------------------------------------------------------------------------
@@ -116,7 +122,9 @@ MASTER_HZ = {"ntsc": 21_477_270, "pal": 21_281_370}
 #
 # `gate` (optional) narrows the DENOMINATOR: a rate is numerator / seconds,
 # and `gate=(sym, width, value)` counts only the seconds in which that word
-# holds that value. It exists because of a measured trap, and the trap is
+# holds that value. A fourth element flips the test — `gate=(sym, width, 0,
+# "ne")` counts the seconds in which the word is NOT that value, which is how
+# a rail whose "airborne" is `height != 0` rather than a flag says so. It exists because of a measured trap, and the trap is
 # worth stating: a jump driven by a real-time input script lands at the
 # SCRIPT'S cadence in both regions, so "landings per second" reads 0.99969 —
 # PARITY — while the rail is plainly running 17% slow. What that observable
@@ -229,14 +237,15 @@ def _axis_shuttle(half_s, first, second, start_s=None, n=200, hold=None,
     return out
 
 def _hop_shuttle(half_ms, jump_every_ms, jump_hold_ms, total_ms,
-                 first="left", t0_ms=0, step_ms=25):
+                 first="left", t0_ms=0, step_ms=25, button="a"):
     """A pad script that paces LEFT/RIGHT on a real-time half-period and taps
     JUMP on another, both written in REAL TIME so each region converts them
     with its own frame period and neither machine is handed more input than
     the other (the module header's load-bearing rule). Marks begin at
     `t0_ms`, so a caller can prepend a lead-in that walks the actor somewhere
     before the shuttle starts. Consecutive identical pad states are
-    collapsed, so the returned list is the state CHANGES.
+    collapsed, so the returned list is the state CHANGES. `jump_hold_ms = 0`
+    presses nothing, which is how a caller asks for a bare shuttle.
 
     EVERY PERIOD IS AN INTEGER NUMBER OF MILLISECONDS and every division here
     is integer division, which is not fussiness — it is a measured defect in
@@ -253,7 +262,7 @@ def _hop_shuttle(half_ms, jump_every_ms, jump_hold_ms, total_ms,
     for k in range(0, total_ms - t0_ms + 1, step_ms):
         pad = {first if (k // half_ms) % 2 == 0 else other: True}
         if k % jump_every_ms < jump_hold_ms:
-            pad["a"] = True
+            pad[button] = True
         if not out or out[-1][1] != pad:
             out.append(((t0_ms + k) / 1000.0, pad))
     return out
@@ -1387,6 +1396,97 @@ RAILS = {
                      "the ledge and paces on."),
         ],
     ),
+    # ------------------------------------------------------ 2-PLAYER FIGHT
+    "split_v_fight": dict(
+        rom="build/split_v_fight.sfc", map="build/sv/symbol_map.json",
+        scene="fight",
+        klass="physics / jump",
+        # THE ONLY TWO-PAD DRIVE IN THE REGISTRY, and both halves earn their
+        # place. Fighter 2 (pad 2) walks and NEVER jumps, because this rail's
+        # walk is GROUND-ONLY ("a hop is a commitment") — a fighter that
+        # jumps stops walking, so measuring the walk on an actor that also
+        # jumps would fold the flight time into the walk rate and measure the
+        # arc twice. Fighter 1 (pad 1) walks AND jumps, and it is the one
+        # that jumps because the gate below can only name a SYMBOL, not an
+        # offset inside it: `US_JMP` is a two-element pair claim and its base
+        # is fighter 1's word.
+        #
+        # 0.5 s legs, mirrored: fighter 1 leaves its x=98 mark going LEFT and
+        # fighter 2 leaves its x=158 mark going RIGHT. Both stay inside the
+        # arena walls (24..232) with room to spare, which matters:
+        # `clamp_fighter` PINS a fighter at the wall and a pinned frame is
+        # lost distance the ratio would report as a rate difference.
+        #
+        # NEITHER PAD PRESSES A. No attack means no damage, no KO and no
+        # round restart, so the phase clock stays in LIVE — which has no
+        # timer — for the whole window, and the guard below is what says so.
+        # The warm-up covers the opening count: SV_COUNT_LEN is 128 frames,
+        # which is 2.13 s on NTSC and 2.56 s on PAL, and input is gated until
+        # it expires.
+        script=_hop_shuttle(500, 1200, 300, 20000, first="left",
+                            button="b"),
+        script2=_hop_shuttle(500, 1000, 0, 20000, first="right"),
+        warmup_s=4.0, window_s=12.0,
+        guard=[("US_RSTATE", 2, 1), ("US_HP", 2, 4)],
+        observables=[
+            dict(name="walk", kind="distance", unit="world px",
+                 mem="wram", fields=[("US_FX2", 0, 2, 65536)],
+                 why="fighter 2's world x, which split_v_obj turns into the "
+                     "OAM X of the 32x32 knight against its own half's "
+                     "camera. World px per second is the walk speed a player "
+                     "perceives, and this fighter never leaves the ground so "
+                     "the number is the walk rate and nothing else."),
+            dict(name="anim", kind="transitions", unit="tile changes",
+                 mem="oam", fields=[("ES_O_FIGHTER2", 2, 1, 256)],
+                 why="fighter 2's OAM tile byte, read out of the sprite "
+                     "table the PPU draws from — rendered output, not the "
+                     "counter behind it. Counting the frames on which the "
+                     "drawn tile CHANGES measures the walk cycle where a "
+                     "player can actually see it, and it is the observable "
+                     "that checks the CLOCK-not-divider answer to docs/95 "
+                     "§5.2's class C: the sv_anim_meta rate is untouched and "
+                     "only what the clock advances by is scaled."),
+            dict(name="jump_path", kind="distance", unit="px/256 per s",
+                 mem="wram", fields=[("US_JMP", 0, 2, 65536)],
+                 gate=("US_JMP", 2, 0, "ne"),
+                 why="fighter 1's jump HEIGHT in 8.8 px — the word "
+                     "split_v_obj subtracts from the floor line to get the "
+                     "drawn OAM y. Its path length per second is twice the "
+                     "apex times the jumps per second, and the jumps per "
+                     "second are the DRIVE's, identical in both regions. "
+                     "GATED ON AIRBORNE, and the gate is the whole "
+                     "difference between a measurement and a tautology: "
+                     "ungated, the UNCOMPENSATED build reads 0.99989 — "
+                     "PARITY — because the path per jump is a property of "
+                     "the constants and the jumps per second are the drive's, "
+                     "so the number says nothing at all while the rail runs "
+                     "17% slow. Over airborne seconds it is twice the apex "
+                     "divided by the flight time, which is exactly what the "
+                     "r-and-r-squared pair claims to preserve. `jmp` is the "
+                     "height, so airborne is `!= 0` rather than a flag."),
+            # NO `divider` OBSERVABLE, and its absence is a MEASUREMENT
+            # rather than an omission. SV_SPR_STEP — the ease that opens and
+            # closes the BG3 divider — is scaled like every other rate here,
+            # but this rail cannot be asked about it fairly, because the
+            # divider only moves once the fighters separate past
+            # SV_MERGE_DX and WHERE they are is not a rate.
+            #
+            # The opening count is SV_COUNT_LEN = 128 FRAMES and it stays an
+            # integer (docs/95 §5.2's class B), so it runs 2.13 s on NTSC and
+            # 2.56 s on PAL. Input is gated until it expires, so the two
+            # regions start walking 0.43 s apart in the drive's phase and
+            # stay there — there is no restoring force in a pure integration
+            # to pull them back. Measured on this exact drive: NTSC reached
+            # dx = 176 px and PAL only 116, so the divider opened to 16 px on
+            # one machine and never left 0 on the other, and the observable
+            # read 0.829 — the frame ratio, of the harness.
+            #
+            # That is the price of the countdown decision, stated with a
+            # number. It costs the divider an oracle line; it does not cost
+            # the ease its scale, which the three observables above prove
+            # through the same TS_STEP publication.
+        ],
+    ),
 }
 
 
@@ -1493,7 +1593,9 @@ def worker(args):
     guard_break = None
 
     gates = [(_sym(jmap, ob["gate"][0], rail["scene"])["start"],
-              ob["gate"][1], ob["gate"][2]) if ob.get("gate") else None
+              ob["gate"][1], ob["gate"][2],
+              (ob["gate"][3] if len(ob["gate"]) > 3 else "eq"))
+             if ob.get("gate") else None
              for ob, _ in plan]
 
     c_start = master_clock(lib)
@@ -1508,7 +1610,9 @@ def worker(args):
 
     t = 0.0
     while t < total_s:
-        m.advance(1, pad1=_script_at(rail["script"], t))
+        m.advance(1, pad1=_script_at(rail["script"], t),
+                  pad2=(_script_at(rail["script2"], t)
+                        if rail.get("script2") else None))
         c_now = master_clock(lib)
         dt, t = (c_now - c_prev) / hz, (c_now - c_start) / hz
         c_prev = c_now
@@ -1530,7 +1634,8 @@ def worker(args):
             else:
                 raise SystemExit(f"unknown observable kind {k!r}")
             g = gates[i]
-            if g is None or read(g[0], g[1], "wram") == g[2]:
+            if g is None or ((read(g[0], g[1], "wram") == g[2])
+                             == (g[3] == "eq")):
                 acc[i][1] += dt
             prev[i] = cur
         if guard_break is None and t >= warm:

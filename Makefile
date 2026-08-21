@@ -754,7 +754,8 @@ SV_INC := -I $(SV_MAP) -I $(VROM) -I $(SV) \
           -I engine/features/scene_mgr -I engine/features/input \
           -I engine/features/input2 -I engine/features/oam_sprites -I engine/features/fade \
           -I engine/features/split_v_bg -I engine/features/split_v_obj \
-          -I vendor/tad -I assets/audio/export
+          -I vendor/tad -I assets/audio/export \
+           -I engine/features/region -I engine/features/tick_scale
 
 $(BUILD)/split_v_fight.sfc: $(SV_ASM) $(SV)/split_v.inc \
 		$(SV_MAP)/engine_state_globals.inc $(SV_ASSETS) \

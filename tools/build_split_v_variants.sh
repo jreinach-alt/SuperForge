@@ -36,6 +36,7 @@ INC="-I $MAP -I $VROM -I game/split_v_fight
      -I engine/features/input2 -I engine/features/oam_sprites
      -I engine/features/fade
      -I engine/features/split_v_bg -I engine/features/split_v_obj
+     -I engine/features/region -I engine/features/tick_scale
      -I vendor/tad -I assets/audio/export"
 
 if [ ! -f "$MAP/symbol_map.json" ]; then
