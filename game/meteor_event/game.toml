@@ -54,8 +54,23 @@
 #   audio       -- this rail composes no audio, exactly as `boss` measured for
 #                  itself.
 #   save        -- nothing persists; the event is one-shot within a power-on.
+# REGION + TICK_SCALE (docs/94 R0, docs/96 §4). TWO CONSUMERS, one per scene,
+# and the second is the interesting one:
+#
+#   the WALK (level) is an integer 2 world px a frame — docs/95 §5.2's class
+#     with no correct x1.2018 — so it goes through TS_STEP and carries a
+#     fraction, publishing 2 or 3 px in the pattern that averages 2.4036.
+#   the CUTSCENE PLAYHEAD (impact) is US_G_TIMER, and it indexes BAKED
+#     PER-FRAME TRACKS: the growth matrix, the sprite approach and the
+#     orientation flips are all read off it. So the table stays byte-identical
+#     and what is scaled is how fast the playhead WALKS it — the timer advances
+#     by this frame's ticks instead of by one.
+#
+# Both accumulators are GLOBAL rather than scene-scoped, because the two scenes
+# swap into each other and scene DP is space the allocator reuses.
 globals = ["scene_mgr", "input", "fade", "oam_sprites",
-           "m7_affine", "m7_track", "met_rom", "met_obj"]
+           "m7_affine", "m7_track", "met_rom", "met_obj",
+           "region", "tick_scale"]
 
 [[scene]]
 id = "level"

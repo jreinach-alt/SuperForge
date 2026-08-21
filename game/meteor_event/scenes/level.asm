@@ -64,6 +64,10 @@ game_init:
     stz z:US_G_GLOW
     stz z:US_G_CM_ON
     stz z:US_G_SCR
+    stz z:US_TS_WALK_ACC            ; the two timebase accumulators and their
+    stz z:US_TS_WALK                ;   published steps, written before either
+    stz z:US_TS_TICK_ACC            ;   scene reads one (rule 5)
+    stz z:US_TS_TICK
     rts
 
 ; =============================================================================
@@ -140,6 +144,24 @@ exit:
 tick:
     .a16
     .i16
+    ; This frame's walk, published once. MET_WALK_SPEED is an INTEGER 2 px a
+    ; frame and an integer has no correct x1.2018 (round-to-nearest is 2 and
+    ; changes nothing; round-up is 3 and overshoots by 25%), so the fraction is
+    ; carried instead — docs/95 §5.2. The three states that do NOT walk read it
+    ; and ignore it, which costs one store.
+    TS_STEP z:US_TS_WALK_ACC, MET_WALK_BASE
+    sta z:US_TS_WALK
+    ; ...and this frame's TICKS, which the two event dwells count in. They are
+    ; cinematic beats INSIDE the event the observables integrate — 40 frames
+    ; frozen and 30 captured — so leaving them in frames would make the event
+    ; 0.235 s longer on PAL and hold the camera still for it. MEASURED that
+    ; way: the camera reads 0.967 and the meteor's approach 0.971, both short
+    ; by exactly the extra standstill. This is the same call `mode7_chamber`
+    ; makes for its dead stop and the opposite of the one `boss` makes for an
+    ; invulnerability window: a dwell that paces the PICTURE is scaled, a dwell
+    ; that paces a fight is not.
+    TS_STEP z:US_TS_TICK_ACC, TS_ONE
+    sta z:US_TS_TICK
     lda z:US_G_STATE
     asl                             ; *2 for the word jump table
     tax
@@ -200,7 +222,8 @@ do_freeze:
     jsr camera_commit               ; the same camera, re-committed: frozen
     jsr draw_player
     lda z:US_G_TIMER
-    inc a
+    clc
+    adc z:US_TS_TICK
     sta z:US_G_TIMER
     cmp #MET_FREEZE_HOLD
     bcc @done
@@ -232,14 +255,22 @@ do_capture:
 @maybe_black:
     .a16
     .i16
+    ; `bcc`, NOT `bne`, and the difference is the whole safety of this step.
+    ; The emit is at timer 0 and the black at timer 1, one frame apart and
+    ; measured — but the timer now advances by this frame's TICKS, so on PAL it
+    ; can step 0 -> 2 and an equality test on 1 would MISS, leaving the level's
+    ; BG standing under the Mode 7 cutscene. A `>= 1` test cannot be skipped.
+    ; `bg_black` writes TM, so running it on every frame from 1 onward instead
+    ; of only on 1 is idempotent and the picture is identical.
     cmp #1
-    bne @hold
+    bcc @hold
     jsr bg_black                    ; TM = OBJ only — the BG goes away
 @hold:
     .a16
     .i16
     lda z:US_G_TIMER
-    inc a
+    clc
+    adc z:US_TS_TICK
     sta z:US_G_TIMER
     cmp #MET_CAPTURE_HOLD
     bcc @done
@@ -275,8 +306,8 @@ play_input:
     beq @done
     lda z:US_G_WORLDX
     clc
-    adc #MET_WALK_SPEED
-    sta z:US_G_WORLDX
+    adc z:US_TS_WALK                ; 2 world px per TICK: 2 on NTSC to the
+    sta z:US_G_WORLDX               ;   pixel, 2 or 3 on PAL averaging 2.4036
 @done:
     .a16
     .i16

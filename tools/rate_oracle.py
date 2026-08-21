@@ -434,6 +434,50 @@ RAILS = {
                      "strafe, the one rate the player commands directly."),
         ],
     ),
+    "meteor_event": dict(
+        rom="build/meteor_event.sfc", map="build/met/symbol_map.json",
+        scene=None,
+        klass="mode7",
+        # HOLD RIGHT FROM BOOT, AND LET THE WHOLE EVENT RUN INSIDE THE WINDOW.
+        # This rail is a Mode 1 walk that trips a Mode 7 cutscene and hands
+        # back, so a window narrow enough to sit in one phase would measure one
+        # third of it. Twelve seconds covers the walk to the trigger at world x
+        # 240, the freeze, the capture, the 180-tick cutscene and the walk that
+        # resumes after — and both observables below are GLOBAL claims, so they
+        # survive the scene swap that happens in the middle of it.
+        #
+        # `scene=None` for the same reason: the two observables are in the
+        # GLOBAL pool, and the window spans both scenes.
+        script=[(0.0, {"right": True})],
+        warmup_s=0.5, window_s=12.0, guard=[],
+        observables=[
+            dict(name="cam", kind="distance", unit="world px",
+                 mem="wram", fields=[("US_G_CAMX", 0, 2, 65536)],
+                 why="the camera `camera_commit` publishes — the scroll the "
+                     "Mode 1 layer is drawn at, and the player's screen x is "
+                     "FIXED, so this word is the whole of what moves on "
+                     "screen during the walk. It stands still through the "
+                     "freeze and the cutscene by design, which is why the "
+                     "window has to span all three phases for the number to "
+                     "mean the rail rather than one phase of it."),
+            dict(name="meteor_y", kind="distance", unit="px / cutscene s",
+                 mem="oam", fields=[("ES_O_METEOR", 1, 1, 256)],
+                 gate=("US_G_STATE", 2, 3),
+                 why="the meteor's OAM Y byte, read out of the sprite table "
+                     "the PPU draws from. Its whole approach is the BAKED "
+                     "per-frame track US_G_TIMER indexes, so screen pixels "
+                     "per second here is exactly the rate that playhead "
+                     "walks.\n"
+                     "  THE GATE IS NOT OPTIONAL and the registry header says "
+                     "why: the numerator is BOUNDED — the track is a fixed "
+                     "path and the whole of it runs inside a 12 s window in "
+                     "both regions — so ungated this reads 0.99989 on the "
+                     "UNCOMPENSATED binary, which is the trap that entry "
+                     "describes. Counting only the seconds US_G_STATE holds "
+                     "MET_ST_SCENE turns it into 'how fast does the cutscene "
+                     "play', which is a property of the playhead alone."),
+        ],
+    ),
     "m7_dungeon": dict(
         rom="build/m7_dungeon.sfc", map="build/m7dg/symbol_map.json",
         scene="dungeon",
