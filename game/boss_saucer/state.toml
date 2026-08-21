@@ -114,6 +114,9 @@ frame = "u16@dp"         # free-running frame counter; read ONLY for its parity
 # the beam and every cadence advance off one clock. arena.asm's "THE BATTLE IN
 # TWO REGIONS" derives why the step and not the pixel. The published count is
 # consumed immediately in the loop, so there is no second word to hold it.
+# TICK: ok — the word below is a carried FRACTION, not a count of frames: it
+# is what lets a frame BE more than one state step, so it removes the coupling
+# rather than holding one.
 ts_acc = "u16@dp"        # the carried fraction of the scaled state step.
                          #   Seeded in `enter` and NOT in battle_init: it is
                          #   the console's clock, not the battle's, so the

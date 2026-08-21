@@ -210,11 +210,15 @@ MO_BLINK_MASK   = 4     ; the hero is drawn iff (US_GRACE & this) != 0
 .define MO_RGAIN(v)  ((((v) * (TS_GAIN_DEN + TS_GAIN_NUM)) + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
 .define MO_RSHRINK(v) (((v) * TS_GAIN_DEN + (TS_GAIN_DEN + TS_GAIN_NUM) / 2) / (TS_GAIN_DEN + TS_GAIN_NUM))
 
+; TICK: ok — the four below are the region compensator's OWN outputs; naming
+;   the frame they convert into is what the line is for.
 MO_MOVE_SPEED_PAL   = MO_RGAIN(MO_MOVE_SPEED)       ; 320 -> 385 (1.504 px/f)
 MO_STRAFE_SPEED_PAL = MO_RGAIN(MO_STRAFE_SPEED)     ; 192 -> 231
 MO_BUL_SPEED_PAL    = MO_RGAIN(MO_BUL_SPEED)        ; 768 -> 923
 MO_BUL_LIFE_PAL     = MO_RSHRINK(MO_BUL_LIFE)       ; 90 frames -> 75: the
                                                     ;   same 270 px of range
+; TICK: ok — a frame count BY CONSTRUCTION, and paired with MO_BUL_SPEED_PAL
+;   so that their PRODUCT — the bolt's range in world px — is region-free.
 
 ; The two INTEGER rates, as TS_STEP bases in the 8.8 unit that macro takes.
 ; TS_STEP publishes whole units and carries the remainder, which is the only

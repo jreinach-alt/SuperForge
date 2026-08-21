@@ -221,7 +221,11 @@ SPEED_REV = (0 - SPEED_CAP) & $FFFF  ; ...and its negative, the reverse cap
 .define DG_RGAIN(v)  ((((v) * (TS_GAIN_DEN + TS_GAIN_NUM)) + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
 ACCEL_PAL     = DG_RGAIN(DG_RGAIN(ACCEL))       ; 16 -> 23
 DECEL_PAL     = DG_RGAIN(DG_RGAIN(DECEL))       ; 8  -> 12
+; TICK: ok — SPEED_CAP_PAL is the region compensator's OWN output; naming the
+;   frame it converts into is what the line is for.
 SPEED_CAP_PAL = DG_RGAIN(SPEED_CAP)             ; 320 -> 385 (1.504 px/frame)
+; TICK: ok — the two below are TS_STEP BASES, which is the unit that removes
+;   the coupling: what they name is the tick they convert out of.
 TURN_BASE     = TURN_STEP * TS_ONE              ; the TS_STEP base: 1 unit/frame
 PATROL_BASE   = PATROL_SPEED * TS_ONE           ; ...and one world px/frame
 

@@ -1014,6 +1014,83 @@ RAILS = {
                      "odometer and the ramp were on different clocks."),
         ],
     ),
+    # DEFERRED, NOT CONVERTED, and this entry is the measurement that says so.
+    # The rail reads 0.83208 / 0.80538 / 0.86167 below and the shipping image is
+    # byte-identical to what it was.
+    #
+    # WHY. Every velocity on this rail is a RUNTIME word read out of one baked
+    # LUT: `move256[h]`, 8.8 with a constant 2.0 px/frame magnitude, which
+    # SH2_DRIVE_AXIS accumulates for the two cameras and swm_ai accumulates at
+    # half rate for each of 22 followers with its own per-entity 8-bit
+    # fractions. There is no build-time constant for TS_STEP to take, so the
+    # mechanism the other nine rails use does not reach it.
+    #
+    # AND THE STATE-STEP FORM DOES NOT FIT, measured rather than argued. Running
+    # `cam_advance` + `swm_ai` 1 or 2 times per frame OVERRUNS the PAL frame:
+    # SWM_BEAT — the scene tick's own counter, which sh2_swarm.asm pairs with
+    # scene_mgr's VBlank count precisely so an overrun is visible — reached 423
+    # against ES_SM_FRAME's 479, so an eighth of PAL frames dropped their game
+    # update. The pre-change image runs 479/479 in both regions. That is
+    # docs/95 §4.3's O(tick) objection landing on a real rail, and it is the
+    # first time in this lane it has bitten: the other nine rails' state steps
+    # are a dozen adds, and this one steers a 24-entity swarm through a
+    # projection.
+    #
+    # Narrowing the loop to `cam_advance` alone DOES fit (479/479, heading at
+    # 1.2 units a frame), and it is not taken: it would put the floor at parity
+    # and leave the cast it is projected against at 0.832, which is a new
+    # inconsistency rather than a partial fix.
+    #
+    # WHAT WOULD CONVERT IT: a SECOND baked move LUT at the PAL magnitude
+    # (2.4036 px/frame), selected by ES_RGN_PAL at scene enter. Both consumers
+    # read the same blob, so one +1 KB rom claim and a generator argument would
+    # scale the cameras AND the swarm at ZERO per-frame cost — which is the
+    # shape this rail wants and is asset-pipeline work across seven variant
+    # images, not a timebase composition.
+    "split_h_2p_demo": dict(
+        rom="build/split_h_2p_demo.sfc", map="build/sh2/symbol_map.json",
+        scene="split",
+        klass="mode7",
+        # PAD 1 ONLY, holding B and RIGHT: B drives camera 1 forward at a
+        # constant 2.0 px/frame through the move LUT and RIGHT steps its
+        # heading, so it flies a constant-radius circle. The shipping build's
+        # pad control REPLACES the autonomous step (cam_input, not cam_drive),
+        # so with nothing held the cameras stand still — which is why the
+        # script holds something. `mesen_runner` drives port 1 here, so camera
+        # 2 stays parked and is not measured.
+        script=[(0.0, {"b": True, "right": True})],
+        warmup_s=2.0, window_s=14.0, guard=[],
+        observables=[
+            dict(name="cam1_x", kind="distance", unit="world px",
+                 mem="wram", fields=[("ES_SH2_POS", 0, 2, 1024)],
+                 why="camera 1's world X. `cam_stamp` writes it into the "
+                     "origin table HDMA feeds to M7X at scanline 0, so band 1 "
+                     "of the picture is drawn FROM this word. Read as a "
+                     "PER-AXIS distance rather than as half a path2d: hypot is "
+                     "subadditive and this rail advances its state 1 or 2 "
+                     "times per frame, so a doubled frame would be charged for "
+                     "the shortcut (railshooter's entry carries the "
+                     "measurement). The modulus is the plane's own period, "
+                     "SH2_WRAP + 1 = 1,024, which SH2_DRIVE_AXIS masks to."),
+            dict(name="cam1_y", kind="distance", unit="world px",
+                 mem="wram", fields=[("ES_SH2_POS", 2, 2, 1024)],
+                 why="camera 1's world Y, the other axis of the same origin "
+                     "and the same HDMA table. Both are needed because the "
+                     "move LUT splits a CONSTANT 2.0 px/frame magnitude "
+                     "between them by heading, so either axis alone measures "
+                     "the heading as much as the speed."),
+            dict(name="cam1_head", kind="distance", unit="heading units",
+                 mem="wram", fields=[("ES_SH2_ROT", 0, 2, 256)],
+                 why="camera 1's heading, 0..255. `cam_ptrs` turns it into the "
+                     "pose-table pointer band 1's two INDIRECT HDMA channels "
+                     "stream a fresh 4-byte matrix unit from on every one of "
+                     "its 112 scanlines — so the whole band rotates by it. It "
+                     "is also the index the move LUT is read at, which is why "
+                     "the rail scales the state step: the rotation and the "
+                     "translation have to advance together or the camera "
+                     "points somewhere the floor is not."),
+        ],
+    ),
     "m7_dungeon": dict(
         rom="build/m7_dungeon.sfc", map="build/m7dg/symbol_map.json",
         scene="dungeon",

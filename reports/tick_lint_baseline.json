@@ -43,7 +43,7 @@
   },
   {
     "file": "engine/features/m7c_roll/m7c_roll.asm",
-    "line": 178,
+    "line": 371,
     "rule": "tick-routine",
     "message": "`roll_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
@@ -99,14 +99,14 @@
   },
   {
     "file": "engine/features/m7f_obj/m7f_obj.asm",
-    "line": 423,
+    "line": 447,
     "rule": "tick-routine",
     "message": "`cloud_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
   },
   {
     "file": "engine/features/m7f_obj/m7f_obj.asm",
-    "line": 546,
+    "line": 580,
     "rule": "tick-routine",
     "message": "`obj_prop_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
@@ -120,14 +120,14 @@
   },
   {
     "file": "engine/features/m7x_logic/m7x_logic.asm",
-    "line": 127,
+    "line": 169,
     "rule": "tick-routine",
     "message": "`mxl_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
   },
   {
     "file": "engine/features/m7x_logic/m7x_logic.asm",
-    "line": 228,
+    "line": 301,
     "rule": "tick-routine",
     "message": "`mxl_try_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
@@ -967,14 +967,14 @@
   },
   {
     "file": "game/m7_dungeon/scenes/dungeon.asm",
-    "line": 216,
+    "line": 252,
     "rule": "tick-constant",
     "message": "`PATROL_SPEED = 1` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
     "severity": "error"
   },
   {
     "file": "game/m7_dungeon/scenes/dungeon.asm",
-    "line": 224,
+    "line": 260,
     "rule": "tick-constant",
     "message": "`GRACE_FRAMES = 40` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
     "severity": "error"
@@ -995,28 +995,28 @@
   },
   {
     "file": "game/m7_dungeon/state.toml",
-    "line": 34,
+    "line": 62,
     "rule": "tick-state",
     "message": "`stepx` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
   },
   {
     "file": "game/m7_dungeon/state.toml",
-    "line": 35,
+    "line": 63,
     "rule": "tick-state",
     "message": "`stepy` is declared in a frame unit (inherited from the declaration above). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
   },
   {
     "file": "game/m7_dungeon/state.toml",
-    "line": 53,
+    "line": 81,
     "rule": "tick-state",
     "message": "`grace` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
   },
   {
     "file": "game/m7_dungeon/state.toml",
-    "line": 55,
+    "line": 83,
     "rule": "tick-state",
     "message": "`prev_start` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
@@ -1065,7 +1065,7 @@
   },
   {
     "file": "game/m7_oshoot/m7_oshoot.inc",
-    "line": 207,
+    "line": 245,
     "rule": "tick-constant",
     "message": "`MO_DEATH_FRAMES = 24` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
     "severity": "error"
@@ -1107,21 +1107,21 @@
   },
   {
     "file": "game/m7_oshoot/state.toml",
-    "line": 60,
+    "line": 90,
     "rule": "tick-state",
     "message": "`spawn_t` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
   },
   {
     "file": "game/m7_oshoot/state.toml",
-    "line": 64,
+    "line": 94,
     "rule": "tick-state",
     "message": "`grace` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
   },
   {
     "file": "game/m7_oshoot/state.toml",
-    "line": 79,
+    "line": 109,
     "rule": "tick-state",
     "message": "`chase_t` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
@@ -1156,42 +1156,42 @@
   },
   {
     "file": "game/meteor_event/meteor.inc",
-    "line": 79,
+    "line": 83,
     "rule": "tick-constant",
     "message": "`MET_FLIP_PERIOD = 7` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
     "severity": "error"
   },
   {
     "file": "game/meteor_event/state.toml",
-    "line": 25,
+    "line": 46,
     "rule": "tick-state",
     "message": "`g_timer` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
   },
   {
     "file": "game/meteor_event/state.toml",
-    "line": 38,
+    "line": 59,
     "rule": "tick-state",
     "message": "`g_event_done` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
   },
   {
     "file": "game/meteor_event/state.toml",
-    "line": 47,
+    "line": 68,
     "rule": "tick-state",
     "message": "`g_scr` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
   },
   {
     "file": "game/meteor_event/state.toml",
-    "line": 74,
+    "line": 95,
     "rule": "tick-state",
     "message": "`spr_y` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
   },
   {
     "file": "game/meteor_event/state.toml",
-    "line": 75,
+    "line": 96,
     "rule": "tick-state",
     "message": "`spr_tile` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
@@ -1275,7 +1275,7 @@
   },
   {
     "file": "game/mode7_explore/main.asm",
-    "line": 322,
+    "line": 329,
     "rule": "tick-routine",
     "message": "`mxx_fade_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
@@ -1597,56 +1597,56 @@
   },
   {
     "file": "game/railshooter/state.toml",
-    "line": 11,
+    "line": 18,
     "rule": "tick-state",
-    "message": "`cam_x` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "message": "`ts_acc` is declared in a frame unit ('clock'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
   },
   {
     "file": "game/railshooter/state.toml",
-    "line": 15,
+    "line": 30,
     "rule": "tick-state",
     "message": "`adv_frac` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
   },
   {
     "file": "game/railshooter/state.toml",
-    "line": 20,
+    "line": 35,
     "rule": "tick-state",
     "message": "`dist` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
   },
   {
     "file": "game/railshooter/state.toml",
-    "line": 31,
+    "line": 46,
     "rule": "tick-state",
     "message": "`lean` is declared in a frame unit ('PER FRAME'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
   },
   {
     "file": "game/railshooter/state.toml",
-    "line": 51,
+    "line": 66,
     "rule": "tick-state",
     "message": "`spawn_t` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
   },
   {
     "file": "game/railshooter/state.toml",
-    "line": 60,
+    "line": 75,
     "rule": "tick-state",
     "message": "`burst_t` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
   },
   {
     "file": "game/railshooter/state.toml",
-    "line": 63,
+    "line": 78,
     "rule": "tick-state",
     "message": "`burst_f` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
   },
   {
     "file": "game/railshooter/state.toml",
-    "line": 68,
+    "line": 83,
     "rule": "tick-state",
     "message": "`fail_t` is declared in a frame unit ('countdown'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"

@@ -27,8 +27,7 @@ M7F_FP        = 8                       ; the 8.8 fixed point's fraction bits
 M7F_ACCEL     = 1 << (M7F_FP - 4)       ; $0010: +1/16 px/frame per frame of B
 M7F_DECEL     = 1 << (M7F_FP - 5)       ; $0008: the coast bleed toward hover
 M7F_SPEED_CAP = 3 << M7F_FP             ; $0300: 3 px/frame forward
-M7F_SPEED_MAG = 2 << M7F_FP             ; the reverse cap's MAGNITUDE, 2 px/f
-M7F_SPEED_REV = (0 - M7F_SPEED_MAG) & $FFFF   ; $FE00: -2 px/frame reverse
+M7F_SPEED_REV = (0 - (2 << M7F_FP)) & $FFFF   ; $FE00: -2 px/frame reverse
 
 ; =============================================================================
 ; THE FLIGHT MODEL IN TWO REGIONS (engine/features/tick_scale)
@@ -61,6 +60,11 @@ M7F_SPEED_REV = (0 - M7F_SPEED_MAG) & $FFFF   ; $FE00: -2 px/frame reverse
 ;   naming the NTSC frame beside the PAL one is its subject rather than a
 ;   coupling in it, exactly as in tick_scale.asm.
 .define M7F_RGAIN(v)  ((((v) * (TS_GAIN_DEN + TS_GAIN_NUM)) + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
+; The reverse cap's MAGNITUDE, derived from the cap rather than declared beside
+; it: a second constant up there would sit inside three lines of ACCEL and
+; SPEED_CAP, and the override this block carries would then silence THOSE too —
+; which is hiding a finding rather than answering one.
+M7F_SPEED_MAG     = (0 - M7F_SPEED_REV) & $FFFF
 M7F_ACCEL_PAL     = M7F_RGAIN(M7F_RGAIN(M7F_ACCEL))
 M7F_DECEL_PAL     = M7F_RGAIN(M7F_RGAIN(M7F_DECEL))
 M7F_SPEED_CAP_PAL = M7F_RGAIN(M7F_SPEED_CAP)
