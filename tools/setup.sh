@@ -279,9 +279,28 @@ else
 fi
 
 # --- 6. Sanity test: full pipeline assemble -> emulate -> verify ------------
+# THIS STEP RUNS BEFORE THE RAILS ARE BUILT, and that is the whole reason for
+# the `-m` below. `tests/test_rom_header.py` grew a section that opens the
+# LINKED IMAGES under build/ — every rail plus the probes — so in a fresh
+# clone, where nothing is linked yet, all 75 of those cases failed and took
+# `make bare-check` down at its `setup` step in 19 seconds.
+#
+# They are deselected HERE, at this one call site, by a marker. They are NOT
+# stood down inside the tests: a case that goes quiet when its subject is
+# missing passes in a fresh clone AND passes on a broken build, which is how
+# coverage evaporates unnoticed. In the normal suite `make test` takes every
+# rail plus `toy` and `probes` as PREREQUISITES, so the images are guaranteed
+# to be there and a missing one is a real failure with a real cause.
+# tests/test_rom_header.py owns the contract (its "WHY THE CASES BELOW CARRY A
+# MARKER" block) and asserts this line still says what it says.
+#
+# What still runs here is what a fresh clone can actually prove: the whole
+# allocator suite, the four checksum cases, and the $FFD9 override case — which
+# assembles and links a throwaway image, so the "full pipeline" claim above
+# stays true.
 echo "6. Running sanity test (allocator + ROM header)..."
 if (cd "$REPO_ROOT" && python3 -m pytest tests/test_allocator.py tests/test_rom_header.py -q \
-        >/dev/null 2>&1); then
+        -m "not needs_linked_images" >/dev/null 2>&1); then
     pass "sanity tests pass"
 else
     fail "sanity tests failed — check MesenRunner + libSDL2"
