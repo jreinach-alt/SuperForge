@@ -62,6 +62,10 @@ enter:
 
     stz z:US_FRAME                  ; the free-running blink clock (persistent,
                                     ;   so it is seeded HERE, not per battle)
+    stz z:US_TS_ACC                 ; ...and the timebase's carried fraction,
+                                    ;   for the same reason: it is the
+                                    ;   CONSOLE's clock, not the battle's, so
+                                    ;   the RESET loop must not restart it
     jsr battle_init                 ; full battle state + reveal[0] + ST_REVEAL
 
     ; ---- the scene's base display (bs_floor's scene_writes) ---------------
@@ -138,10 +142,67 @@ battle_init:
 ; tick — one game frame: the state machine, then the draw
 ; =============================================================================
 ; In/out: A16/I16, DB=0. Clobbers A, X, Y.
+; =============================================================================
+; THE BATTLE IN TWO REGIONS (engine/features/tick_scale)
+; =============================================================================
+; THE STATE STEP IS THE UNIT, and three separate things on this rail say so:
+;
+;  * the REVEAL and DEATH tracks are BAKED ONE ENTRY PER FRAME. The way to play
+;    a baked track faster is to walk its INDEX faster — the table stays
+;    byte-identical and only the playhead moves. Here the index IS the state
+;    timer (`idx = FRAMES + 1 - timer`, su_reveal's own derivation), so
+;    stepping the state machine steps the playhead with no second cursor.
+;  * the attack rain carries a PER-SLOT SIGNED INTEGER velocity, drawn at
+;    random when the drop spawns. There is no fractional velocity to scale, and
+;    eight per-slot accumulators to buy one is a claim the rail should not
+;    grow, so what is multiplied is how many times the integrator runs.
+;  * the boss's SPIN is +1, +2, +3 or +4 headings per frame BY PHASE. Its base
+;    is a runtime value, and TS_STEP takes a build-time constant.
+;
+; So `tick` runs `state_update` 1 or 2 times per frame and `draw_frame` ONCE.
+; On NTSC the count is exactly 1 for ever, which is why the NTSC picture cannot
+; move. On PAL it averages 1.2018, and every clock on the rail — the two track
+; playheads, the spin, the strafe, the shots, the rain, the fire cadence, the
+; spawn cadence, the invulnerability window and the state dwells — advances
+; together, because they are all read off the same state step.
+;
+; WHAT THE DOUBLED STEP DOES NOT BREAK, checked rather than assumed: the fire
+; cadence is gated on US_FIRE_TIMER, which the first step sets to BS_FIRE_GAP,
+; so the second cannot fire a second bolt; the spawn cadence is gated the same
+; way; and both track applies are idempotent — m7t_apply writes the matrix
+; shadow, so the second one simply wins.
+;
+; THE COST is docs/96 §4.4's LUMP objection, and it is worth stating plainly:
+; ~20% of PAL frames run one extra state_update. That is a jump table, one
+; track apply and two pool passes over twelve slots — not the 121% of a frame
+; docs/95 §4.3 measured for a lump on the streaming rail, because there the
+; tick was a streaming quota and here it is a dozen adds.
+;
+; STATED RESIDUAL: US_FRAME is NOT scaled. It is a free-running heartbeat read
+; only for its parity classes (the hit-flash blink), which is `brawler`'s
+; US_BLINK exactly, and it is left alone for the same reason.
+;
+; TICK: ok — this block is the region compensator's derivation for this rail;
+;   naming the NTSC frame beside the PAL one is its subject rather than a
+;   coupling in it, exactly as in tick_scale.asm.
 tick:
     .a16
     .i16
+    TS_STEP z:US_TS_ACC, TS_ONE     ; this frame's state steps: 1, or 2
+    beq @drawn                      ; unreachable on either machine, and the
+                                    ;   loop must not run 65,536 times if that
+                                    ;   ever stops being true
+@again:
+    .a16
+    .i16
+    pha
     jsr state_update
+    pla
+    dec a
+    bne @again
+@drawn:
+    .a16
+    .i16
     jsr draw_frame
     lda z:US_FRAME
     inc a

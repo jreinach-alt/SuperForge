@@ -1941,7 +1941,8 @@ BS_INC := -I $(BS_MAP) -I $(VROM) -I $(BS) \
           -I engine/features/fade -I engine/features/oam_sprites \
           -I engine/features/pool -I engine/features/m7_affine \
           -I engine/features/m7_track -I engine/features/bs_floor \
-          -I engine/features/bs_obj
+          -I engine/features/bs_obj \
+          -I engine/features/region -I engine/features/tick_scale
 
 $(BUILD)/boss.sfc: $(BS_ASM) $(BS)/boss.inc \
 		$(BS_MAP)/engine_state_globals.inc $(BS_ASSETS) \

@@ -364,6 +364,48 @@ RAILS = {
                      "steps, 34 s on NTSC."),
         ],
     ),
+    "boss": dict(
+        rom="build/boss.sfc", map="build/bs/symbol_map.json",
+        scene="arena",
+        klass="mode7",
+        # A SHUTTLE ON THE STRAFE, AND NO FIRE BUTTON. Holding a direction
+        # parks the ship against its clamp at 8 or 232 and the position measure
+        # goes to zero; alternating every 0.4 s keeps it moving across the
+        # whole span. A is deliberately absent: a held A kills the boss in
+        # about six seconds (240 HP at 5 a bolt, one bolt per eight frames) and
+        # the window would then span the death track and the result hold.
+        #
+        # The warmup clears the 60-frame reveal and the 45-frame hold, so the
+        # window opens inside FIGHT — which is what the guard then requires. It
+        # covers BOTH ways this rail can leave: the boss dying takes the state
+        # to DEATH and the player dying takes it to LOSE.
+        script=[(0.0, {})]
+               + [(2.0 + 0.4 * k, {"left": True} if k % 2 == 0
+                  else {"right": True}) for k in range(40)],
+        # MEASURED: with this drive the player takes his third rain hit at
+        # t = 7.0 s, so the window closes at 6.2 and the guard is what says
+        # whether that held on the day.
+        warmup_s=2.2, window_s=4.0, guard=[("US_B_STATE", 2, 3)],
+        observables=[
+            dict(name="spin", kind="distance", unit="heading units",
+                 mem="wram", fields=[("US_B_HEADING", 0, 1, 256)],
+                 why="the boss's ring heading. `su_fight` indexes bs_ring_bin "
+                     "with it and m7t_apply writes the result into the Mode 7 "
+                     "matrix shadow the NMI commits, so the WHOLE BOSS rotates "
+                     "by it — heading units per second is the rate the thing "
+                     "on screen turns. It is also the observable the phase "
+                     "schedule moves (+1, +2 or +3 by HP third), which is why "
+                     "its base is not a build-time constant and the rail "
+                     "scales the state STEP instead."),
+            dict(name="player_x", kind="distance", unit="screen px",
+                 mem="oam", fields=[("ES_O_PLAYER", 0, 1, 256)],
+                 why="the player ship's OAM X byte, read out of the sprite "
+                     "table the PPU draws from — rendered output, not US_P_X "
+                     "behind it. Screen pixels per second here is the strafe "
+                     "speed, which is the one rate on this rail the player "
+                     "commands directly."),
+        ],
+    ),
     "m7_dungeon": dict(
         rom="build/m7_dungeon.sfc", map="build/m7dg/symbol_map.json",
         scene="dungeon",
