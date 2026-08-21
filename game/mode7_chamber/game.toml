@@ -44,7 +44,17 @@
 #   audio       -- this rail is silent. Adding music would be the "prettify the
 #                  demo" move rather than a showcase of the mechanism.
 #   input2      -- one pad drives the one runtime axis.
-globals = ["scene_mgr", "fade", "input", "m7c_rom", "barrel_rom"]
+# REGION + TICK_SCALE (docs/94 R0, docs/96 §4). The roll is this rail's whole
+# motion and it is a VELOCITY model, not a step: the surge rises by ROLL_ACCEL
+# per frame toward a randomised peak and falls by ROLL_DECEL, all in 8.8
+# px/frame. That is docs/95 §5.2's class A — "scales cleanly; the sub-pixel
+# accumulator absorbs the fraction" — so what is scaled here is the CONSTANTS
+# the velocity is built from rather than a published integer step. Which power
+# of the frame ratio each one takes is written out in m7c_roll.asm's
+# "THE ROLL IN TWO REGIONS" block: a velocity takes r, an acceleration takes
+# r squared, and the dwell between legs takes 1/r.
+globals = ["scene_mgr", "fade", "input", "m7c_rom", "barrel_rom",
+           "region", "tick_scale"]
 
 [[scene]]
 id = "chamber"

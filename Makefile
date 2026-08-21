@@ -1695,6 +1695,7 @@ $(M7C_MAP)/engine_state_globals.inc $(M7C_MAP)/symbol_map.json: \
 M7C_INC := -I $(M7C_MAP) -I $(VROM) -I $(M7C) \
            -I engine/features/scene_mgr -I engine/features/fade \
            -I engine/features/input \
+           -I engine/features/region -I engine/features/tick_scale \
            -I engine/features/m7c_floor -I engine/features/m7_barrel \
            -I engine/features/split_band -I engine/features/rgb_gradient \
            -I engine/features/m7c_roll
