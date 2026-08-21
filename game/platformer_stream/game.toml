@@ -13,7 +13,25 @@
 # is written against its enter contract (forced blank, HDMAEN cleared, NMITIMEN
 # zeroed across the switch) and its NMI hook, and one scene uses all of that.
 # What it does not use is the phase machine, since there is nowhere to go.
-globals = ["scene_mgr", "input", "fade", "oam_sprites", "pfs_rom"]
+#
+# REGION + TICK_SCALE. A ballistic arc AND a streamer, and the pair is why the
+# second one is safe. A velocity is px per frame and scales by the frame ratio
+# r; a GRAVITY is px per frame SQUARED and scales by r^2, so apex = v0^2/2g is
+# unchanged and the hero clears the same gaps. The follow camera IS the
+# player's position, so preserving the arc preserves the camera's path — and
+# the streamer is then asked for the same tiles at the same real moments,
+# which is the property a quota has to survive.
+#   region      reads $213F bit 4 once at boot and publishes ES_RGN_PAL.
+#   tick_scale  turns a per-frame delta into a region-correct one, carrying
+#               the fraction. It `depends = ["region"]`.
+# THE QUOTA WAS MEASURED, NOT ASSUMED. pfs_stream stages at most PFS_CLAMP = 2
+# lines per axis per frame and refuses to snap when the clamp bites. A scaled
+# frame moves the camera at most 3 px horizontally and 5 px vertically, both
+# under one 8 px tile, so the worst frame still asks for ONE line per axis —
+# the same worst case as NTSC, with a whole line of margin. pfs_logic.asm
+# asserts that bound at build time rather than leaving it to this comment.
+globals = ["scene_mgr", "input", "fade", "oam_sprites", "pfs_rom",
+           "region", "tick_scale"]
 
 [[scene]]
 id = "play"

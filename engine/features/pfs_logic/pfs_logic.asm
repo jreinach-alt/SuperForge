@@ -113,7 +113,124 @@ PL_FACING = ES_PFS_PLAYER + 12      ; 0 right / 1 left
 PL_ATICK  = ES_PFS_PLAYER + 14      ; anim clock
 PL_AFRAME = ES_PFS_PLAYER + 16      ; anim frame
 PL_TENTX  = ES_PFS_PLAYER + 18      ; tentative world X for the walk probe
-.assert PL_TENTX + 2 - ES_PFS_PLAYER = ES_PFS_PLAYER_SIZE, error, "the player's field layout does not fill its DP claim"
+PL_TSW_A  = ES_PFS_PLAYER + 20      ; the timebase's three (fraction, step)
+PL_TSW    = ES_PFS_PLAYER + 22      ;   pairs: walk, gravity, anim clock
+PL_TSG_A  = ES_PFS_PLAYER + 24
+PL_TSG    = ES_PFS_PLAYER + 26
+PL_TSA_A  = ES_PFS_PLAYER + 28
+PL_TSA    = ES_PFS_PLAYER + 30
+PL_VMAX   = ES_PFS_PLAYER + 32      ; ...and the three region-picked velocity
+PL_VJUMP  = ES_PFS_PLAYER + 34      ;   constants, chosen once at enter
+PL_VCUT   = ES_PFS_PLAYER + 36
+.assert PL_VCUT + 2 - ES_PFS_PLAYER = ES_PFS_PLAYER_SIZE, error, "the player's field layout does not fill its DP claim"
+
+; =============================================================================
+; THE REGION-CORRECT UNITS — an arc takes TWO scales, not one
+; =============================================================================
+; A PAL frame must carry r = 1.2018039 of the distance an NTSC frame carries
+; (engine/features/tick_scale carries that derivation and is the only place
+; the ratio lives). A VELOCITY is px per frame and scales by r. A GRAVITY is
+; px per frame SQUARED and scales by r SQUARED. Together they leave
+; apex = v0^2/2g unchanged, so the hero clears the same gaps on both machines
+; — which on THIS rail also means the follow camera traces the same path, and
+; therefore that the streamer is asked for the same tiles at the same real
+; moments.
+;
+; TS_R(v) is TS_STEP's own PAL arm written as a build-time expression, which
+; is what lets a per-frame-SQUARED quantity be scaled TWICE (once here into
+; the base, once by the macro). It is NOT a second copy of the ratio:
+; TS_GAIN_NUM / TS_GAIN_DEN are tick_scale's and single-sourced.
+; (the parameter is `v`, not `x`: ca65 reads a bare `x` in a define's
+;  parameter list as the index REGISTER and refuses the definition.)
+.define TS_R(v) ((v) + ((v) * TS_GAIN_NUM + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
+
+TS_WALK_BASE   = PFS_WALK * TS_ONE
+TS_ANIM_BASE   = TS_ONE             ; the DIVIDER (PFS_ANIM_RATE) is untouched
+TS_GRAV_BASE   = PFS_GRAVITY * TS_ONE
+TS_GRAV_BASE_R = TS_R(TS_GRAV_BASE)
+
+PFS_MAX_FALL_R    = TS_R(PFS_MAX_FALL)
+PFS_JUMP_VEL_R    = TS_R(PFS_JUMP_VEL)
+PFS_JUMP_CUT_R    = TS_R(PFS_JUMP_CUT)
+PFS_JUMP_UP_R     = (PFS_FIX * PFS_FIX) - PFS_JUMP_VEL_R
+PFS_JUMP_CUT_UP_R = (PFS_FIX * PFS_FIX) - PFS_JUMP_CUT_R
+
+; The file's own bounds, re-asserted on the SCALED pair — a region scale is
+; exactly the kind of change that walks a tuned constant through a bound
+; nobody re-checked.
+.assert PFS_MAX_FALL_R <= PFS_BOX * 256, error, "the PAL-scaled PFS_MAX_FALL > 8 px/frame breaks the landing snap / no-tunnel bound"
+.assert PFS_JUMP_VEL_R <= PFS_BOX * 256, error, "the PAL-scaled PFS_JUMP_VEL > 8 px/frame can tunnel through ceilings"
+; AND ONE THIS RAIL ADDS, because it is the only streamed platformer in the
+; set: the follow camera IS the player's position, so a frame's camera step is
+; a frame's player step, and pfs_stream stages one ring line per TILE the
+; camera crosses against a clamp of PFS_CLAMP per axis. Keeping the scaled
+; step under one tile is what keeps the worst frame at one line per axis and
+; therefore inside the clamp with a whole line of margin.
+.assert PFS_MAX_FALL_R < PFS_BOX * 256, error, "the PAL-scaled terminal fall can cross a whole tile in one frame — the streamer's per-axis clamp no longer has a line of margin"
+.assert TS_R(TS_WALK_BASE) < PFS_BOX * TS_ONE, error, "the PAL-scaled walk can cross a whole tile in one frame — the streamer's per-axis clamp no longer has a line of margin"
+
+; --- ts_publish: this frame's three region-correct steps, published once ----
+; In/out: A16/I16, DB=0. Clobbers A. Called at the top of pfs_logic_tick, so
+; every consumer below reads a settled word.
+;
+; On NTSC each publishes the constant this file authored, to the unit, and the
+; carried fraction stays 0 for ever — which is why the NTSC picture cannot
+; move.
+ts_publish:
+    .a16
+    .i16
+    TS_STEP z:PL_TSW_A, TS_WALK_BASE
+    sta z:PL_TSW
+    TS_STEP z:PL_TSA_A, TS_ANIM_BASE
+    sta z:PL_TSA
+    ; Gravity is per-frame-SQUARED: the second r rides the BASE, so the arm
+    ; is chosen BEFORE the macro rather than after it. ANONYMOUS LABELS, not
+    ; `@cheap` ones: TS_STEP's `.local` labels are plain symbols, so expanding
+    ; it between a `@label` and its use RESETS the cheap-local scope and the
+    ; branch target goes undefined.
+    lda z:ES_RGN_PAL
+    beq :+
+    TS_STEP z:PL_TSG_A, TS_GRAV_BASE_R
+    bra :++
+:   .a16
+    .i16
+    TS_STEP z:PL_TSG_A, TS_GRAV_BASE
+:   .a16
+    .i16
+    sta z:PL_TSG
+    rts
+
+; --- ts_arm: the accumulators, and the region's three velocity constants ----
+; In/out: A16/I16, DB=0. Clobbers A. Called from the scene enter. Power-on DP
+; is RANDOM (rule 5), so these stores ARE the write-before-read contract.
+ts_arm:
+    .a16
+    .i16
+    lda #0
+    sta z:PL_TSW_A
+    sta z:PL_TSW
+    sta z:PL_TSG_A
+    sta z:PL_TSG
+    sta z:PL_TSA_A
+    sta z:PL_TSA
+    lda z:ES_RGN_PAL
+    beq :+
+    lda #PFS_MAX_FALL_R
+    sta z:PL_VMAX
+    lda #PFS_JUMP_UP_R
+    sta z:PL_VJUMP
+    lda #PFS_JUMP_CUT_UP_R
+    sta z:PL_VCUT
+    rts
+:   .a16
+    .i16
+    lda #PFS_MAX_FALL               ; today's constants, to the bit
+    sta z:PL_VMAX
+    lda #PFS_JUMP_UP
+    sta z:PL_VJUMP
+    lda #PFS_JUMP_CUT_UP
+    sta z:PL_VCUT
+    rts
 
 PB_X = ES_PFS_PROBE + 0             ; the world PIXEL pair a probe is asked
 PB_Y = ES_PFS_PROBE + 2             ;   about (col_map does the >>3 itself)
@@ -351,10 +468,10 @@ pl_physics:
     ; ---- gravity, clamped to terminal fall speed --------------------------
     lda z:PL_VY
     clc
-    adc #PFS_GRAVITY
-    cmp #PFS_MAX_FALL
+    adc z:PL_TSG
+    cmp z:PL_VMAX
     bcc :+
-    lda #PFS_MAX_FALL
+    lda z:PL_VMAX
 :   sta z:PL_VY
     ; ---- the tentative move, then probe the row it landed on --------------
     jsr pl_addpos
@@ -364,12 +481,23 @@ pl_physics:
     cmp #1
     bne @fall_clear
     ; ---- blocked: the landing snap, over the tentative commit -------------
+    ; THE FEET LINE IS THE TOP OF THE TILE ROW THE FEET ENTERED, which is a
+    ; floor and not a ceiling. It used to be written `(newy + BOX - 1) & MASK
+    ; - BOX`, which is the same answer for every newy STRICTLY inside a tile
+    ; and a whole tile too high on the tile's FIRST row: newy = 960 gave 952.
+    ; The fall then rested 8 px in the air for one frame and dropped again —
+    ; a 7 px hitch on landing, and a 6-frame arc in an arc-rate measurement.
+    ;
+    ; NTSC never reached it. The standing probe one pixel below the contact
+    ; line catches a 4.0 px/frame fall at newy = 959 first, so the exact
+    ; boundary was unreachable and the off-by-one sat there. A 4.81 px/frame
+    ; PAL fall steps 955 -> 960 in one frame and lands on it, which is how a
+    ; region scale finds a latent bound: it does not create the defect, it
+    ; reaches it. Measured before the fix: 2 of 15 PAL arcs were 6-frame
+    ; stubs resting at y = 952, and `arc_rate` read 1.120 for a rail whose
+    ; whole arcs are 35 frames NTSC and 29 PAL — which is 1.003.
     lda z:PL_NEWY
-    clc
-    adc #(PFS_BOX - 1)
     and #PFS_TILE_MASK              ; the top of the tile row it entered
-    sec
-    sbc #PFS_BOX
     sta z:PL_PY
     stz z:PL_PYSUB
     stz z:PL_VY
@@ -420,7 +548,7 @@ pl_physics:
     stz z:PL_GROUND
     lda z:PL_VY
     clc
-    adc #PFS_GRAVITY                ; no clamp is needed while negative
+    adc z:PL_TSG                    ; no clamp is needed while negative
     sta z:PL_VY
     jsr pl_addpos
     lda z:PB_T
@@ -460,7 +588,7 @@ pl_walk:
     beq @no_right
     lda z:PL_PX
     clc
-    adc #PFS_WALK
+    adc z:PL_TSW
     cmp #(PFS_WORLD_W_PX - PFS_BOX)
     bcs @no_right                   ; the world's right edge blocks too
     sta z:PL_TENTX
@@ -477,10 +605,10 @@ pl_walk:
     and #PFS_JOY_LEFT
     beq @no_left
     lda z:PL_PX
-    cmp #PFS_WALK
+    cmp z:PL_TSW
     bcc @no_left                    ; the world's left edge
     sec
-    sbc #PFS_WALK
+    sbc z:PL_TSW
     sta z:PL_TENTX
     jsr pl_walk_blocked
     cmp #1
@@ -509,7 +637,7 @@ pl_jump:
     beq @no_press
     lda z:PL_GROUND
     beq @no_press                   ; mid-air: no second jump
-    lda #PFS_JUMP_UP
+    lda z:PL_VJUMP
     sta z:PL_VY
     stz z:PL_GROUND
 @no_press:
@@ -520,9 +648,9 @@ pl_jump:
     bne @held
     lda z:PL_VY
     bpl @held                       ; not rising
-    cmp #PFS_JUMP_CUT_UP
+    cmp z:PL_VCUT
     bcs @held                       ; already at or below the cap
-    lda #PFS_JUMP_CUT_UP
+    lda z:PL_VCUT
     sta z:PL_VY
 @held:
     .a16
@@ -569,12 +697,20 @@ pl_camera:
 pl_anim:
     .a16
     .i16
+    ; THE CLOCK ADVANCES BY PL_TSA, NOT BY ONE — docs/95 §5.2's class C: a
+    ; frame-rate divider is a small integer with no correct x5/6, so
+    ; PFS_ANIM_RATE is left alone and what the clock ADVANCES BY is scaled.
+    ; On NTSC PL_TSA is exactly 1 every frame, so this is `inc a` in
+    ; behaviour, and the overshoot it carries is 0.
     lda z:PL_ATICK
-    inc a
+    clc
+    adc z:PL_TSA
     sta z:PL_ATICK
     cmp #PFS_ANIM_RATE
     bcc @done
-    stz z:PL_ATICK
+    sec
+    sbc #PFS_ANIM_RATE              ; CARRY the overshoot rather than zeroing
+    sta z:PL_ATICK
     lda z:PL_AFRAME
     inc a
     cmp #PFS_ANIM_LEN
@@ -799,6 +935,7 @@ pfs_spawn:
 pfs_logic_tick:
     .a16
     .i16
+    jsr ts_publish                  ; this frame's region-correct steps, once
     jsr pl_anim
     jsr pl_walk
     jsr pl_jump

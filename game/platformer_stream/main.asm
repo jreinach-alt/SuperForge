@@ -59,6 +59,12 @@ NMI:
 .include "input.asm"
 .include "fade.asm"
 .include "oam_sprites.asm"
+.include "region.asm"               ; $213F bit 4 -> ES_RGN_PAL, once at boot
+.include "tick_scale.asm"           ; TS_STEP: the macro pfs_logic.asm's
+                                    ; ts_publish uses. INCLUDED BEFORE THE
+                                    ; SCENE (which includes pfs_logic), and it
+                                    ; must be -- a ca65 macro has to be
+                                    ; defined before the line that expands it.
 
 ; =============================================================================
 ; THE ROM CLAIM SITES
@@ -196,6 +202,9 @@ MAIN:
     jsr sm_init
     jsr input_init
     jsr fade_init
+    jsr region_init             ; the console's own region line, once. It is
+                                ;   game-lifetime state: a console does not
+                                ;   change region between scenes.
     jsr oam_park_all            ; the whole shadow written before its first DMA
                                 ;   — power-on WRAM is random, and this is the
                                 ;   write-before-read contract for it, not a

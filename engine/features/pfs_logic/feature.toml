@@ -52,7 +52,7 @@ depends = []
 # 5's "never zero-init to be safe".
 [[claims.dp]]
 name = "pfs_player"
-bytes = 20               # +0  px      world X, box left (u16)
+bytes = 38               # +0  px      world X, box left (u16)
                          # +2 py world Y, feet contact line (u16)
                          # +4 pysub Y subpixel (8.8 fraction, low byte)
                          # +6 vy signed velocity, 8.8 px/frame
@@ -62,6 +62,29 @@ bytes = 20               # +0  px      world X, box left (u16)
                          # +14 atick anim clock
                          # +16 aframe anim frame
                          # +18 tentx tentative world X for the walk probe
+                         #
+                         # THE TIMEBASE (engine/features/tick_scale). Three
+                         # rates, three (accumulator, published step) pairs,
+                         # plus the three velocity constants the region picks
+                         # once at enter. They live in THIS claim rather than
+                         # in a game state.toml because this rail HAS no user
+                         # state: the physics is the feature's and so is its
+                         # clock.
+                         # TICK: ok — every word below EXISTS to remove a
+                         # frame coupling rather than to express one. The
+                         # accumulators hold a carried FRACTION with no
+                         # meaning in frames; the steps and the velocities
+                         # are the scaler's OUTPUT, already expressed against
+                         # the declared tick.
+                         # +20 tsw_acc walk: the carried fraction, 8.8
+                         # +22 tsw ...and this frame's whole px
+                         # +24 tsg_acc gravity: the carried fraction
+                         # +26 tsg ...and this frame's 8.8 counts
+                         # +28 tsa_acc anim clock: the carried fraction
+                         # +30 tsa ...and this frame's whole anim units
+                         # +32 vmax terminal fall, region-scaled
+                         # +34 vjump take-off, region-scaled (two's comp)
+                         # +36 vcut the rise cut, region-scaled (two's comp)
 
 [[claims.dp]]
 name = "pfs_probe"

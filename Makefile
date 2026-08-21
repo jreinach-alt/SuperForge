@@ -987,7 +987,8 @@ PFS_INC := -I $(PFS_MAP) -I $(VROM) -I $(PFS) -I $(BUILD)/assets \
            -I engine/features/oam_sprites -I engine/features/fade \
            -I engine/features/pfs_bg -I engine/features/pfs_stream \
            -I engine/features/pfs_logic \
-           -I engine/features/col_map -I engine/features/rgb_gradient
+           -I engine/features/col_map -I engine/features/rgb_gradient \
+           -I engine/features/region -I engine/features/tick_scale
 
 $(BUILD)/platformer_stream.sfc: $(PFS_ASM) \
 		$(PFS_MAP)/engine_state_globals.inc $(PFS_ASSETS) \
