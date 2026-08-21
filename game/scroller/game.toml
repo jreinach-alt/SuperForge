@@ -47,8 +47,13 @@
 # REGION + TICK_SCALE: the two features that make this cart one cart.
 #   region      reads $213F bit 4 once at boot and publishes ES_RGN_PAL.
 #   tick_scale  turns a per-frame delta into a REGION-CORRECT one, carrying
-#               the fraction. It `depends = ["region"]`, so composing it
-#               without the flag it reads is a refusal, not a silent 1.0.
+#               the fraction. It `depends = ["region"]`, so the allocator
+#               pulls `region` in with it — `resolve_features` expands
+#               `depends`, so listing both here is documentation rather than a
+#               requirement, and dropping `region` from this list builds the
+#               same bytes. A silent 1.0 is ruled out by a different route:
+#               with `region` uncomposed, ES_RGN_PAL is undefined and ca65
+#               refuses.
 # This rail is where the mechanism was prototyped (docs/96 §4) and it is where
 # the promoted form is proven: tools/rate_oracle.py reads cam_x at 0.83208
 # uncompensated and 0.99919 with these two composed.

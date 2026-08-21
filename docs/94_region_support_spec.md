@@ -98,8 +98,11 @@ reads rendered output, per CLAUDE.md rule 2.
 > **imported from the linker config**, so all 37 rails and both 32 KB images
 > now declare their real length — `tools/fix_checksum.py` refuses any image
 > that does not, on every build. The seventeen hand-written `SF_HDR_ROM_SIZE =
-> $09` declarations were deleted and **moved zero bytes**, which is what
-> proves the derivation. `microzero.sfc` holds
+> $09` declarations were deleted and **the deletion moved zero bytes**, which
+> is what proves the derivation — sixteen images are byte-identical outright,
+> and `brawler`'s bytes moved only for the composition below (revert that and
+> it rebuilds to its pre-change md5 with the hand line still gone).
+> `microzero.sfc` holds
 > `e45ddeabac4218cd71709da7b9fcc849`; the 31 images whose bytes did move are
 > enumerated in `docs/97` §5 with their reason, per §4.1.
 >

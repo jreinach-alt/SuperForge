@@ -35,5 +35,14 @@
 name = "tick_scale"
 role = "feature"
 depends = ["region"]     # ES_RGN_PAL is what TS_STEP branches on. Declared, so
-                         # the allocator refuses a composition that takes the
-                         # macro without the flag it reads.
+                         # the allocator AUTO-INCLUDES `region` in any
+                         # composition that takes this feature: `resolve_features`
+                         # (allocator/allocate.py) expands `depends` before
+                         # placement. It is inclusion, NOT a refusal — a rail
+                         # that lists only `tick_scale` in its globals builds
+                         # byte-identically to one that lists both, and the
+                         # claim is satisfied silently rather than rejected.
+                         # What is impossible either way is a SILENT SCALE OF
+                         # 1: with `region` absent from the composition
+                         # altogether, tick_scale.asm's read of ES_RGN_PAL is
+                         # an undefined symbol and ca65 stops the build.

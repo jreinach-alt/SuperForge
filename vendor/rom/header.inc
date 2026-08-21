@@ -37,7 +37,7 @@ SF_HDR_CART_TYPE = $00      ; default: ROM only. The allocator emits $02
 ; is resolved at link time.
 ;
 ; `<` is required, not decorative: `.byte <import>` emits a byte-sized fixup
-; ld65 resolves, while a bare `.byte <import>` is an assembly-time Range error
+; ld65 resolves, while a bare `.byte import` is an assembly-time Range error
 ; (ca65 cannot prove an unresolved external fits in a byte).
 ;
 ; The escape hatch stays: a ROM linked with a config that does not export the

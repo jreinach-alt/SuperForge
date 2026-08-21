@@ -119,6 +119,12 @@ declare `$09` and are 524,288 B; none lies.**
 `.byte $01` became `.ifndef SF_HDR_DEST` / default `$01` / `.byte
 SF_HDR_DEST`. Nothing in the tree overrides it and **no image's byte moved**.
 
+The hatch itself is exercised, which is the half that was missing:
+`tests/test_rom_header.py::test_the_destination_byte_can_be_overridden` links
+the toy twice with the same ca65/ld65 invocation the Makefile uses — plain, and
+with `-D SF_HDR_DEST=$02` — and requires `$FFD9` to read `$02`, the control arm
+to read `$01`, and **no other byte in the image to move**.
+
 It is a declaration of the TARGET MARKET, not a runtime region — a cart
 composing `region` detects the console at boot and adapts, so `$01` stays
 correct for a ROM meant to run on both machines. What reads this byte is a
@@ -204,8 +210,18 @@ It has none, deliberately. The only two things such a claim could hold are:
   consumers on different base rates cannot share a carried fraction.
 
 What is left is arithmetic, so what the feature supplies is arithmetic plus the
-`depends = ["region"]` that makes composing the macro without the flag it reads
-a **refusal** rather than a silent scale of 1.
+`depends = ["region"]` that makes the flag readable wherever the macro is.
+
+**What that `depends` does, stated as the tool does it** — an earlier draft of
+this note said it makes composing the macro without `region` a *refusal*, and
+that is wrong. `resolve_features` (`allocator/allocate.py`) **auto-expands**
+`depends` before placement, so a rail that lists only `tick_scale` in its
+globals gets `region` pulled in with it and builds the same bytes as one that
+lists both — silent satisfaction, not rejection. The property the sentence was
+reaching for still holds, by a different mechanism: with `region` absent from
+the composition altogether there is no `ES_RGN_PAL`, `tick_scale.asm`'s read of
+it is an undefined symbol, and **ca65 stops the build**. A silent scale of 1 is
+unreachable; a refusal is not what prevents it.
 
 A CONSUMER declares two `u16@dp` per rate: the accumulator and the published
 step. `scroller` declares one pair (its whole motion is one rate). `brawler`
@@ -353,8 +369,14 @@ being 524,288 B.
 **(b) The composition — 2 images.** `scroller.sfc`
 (`f34ae672bc8b98e034172ba1e28acbbf` → `1cc6f10974bcc9c06a60ec434ad0ce02`) and
 `brawler.sfc` (`1b72f8d129fd7a3b667a9c4d9c8c7586` →
-`af404239133ea8e0c6edc3f3a0572d54`) compose `region` + `tick_scale`. Both
-carry the header correction as well.
+`af404239133ea8e0c6edc3f3a0572d54`) compose `region` + `tick_scale`.
+
+The header correction reaches them differently, and only one of the two moves a
+byte for it. `scroller` was one of the twenty that inherited `$05`, so its
+`$7FD7` moved `$05` → `$09` on top of the composition. `brawler` already
+declared `$09` by hand, so its correction is **derivational** — the byte's
+SOURCE moved from its own `main.asm` to the linker config, its VALUE did not —
+and every byte `brawler` moved is the composition.
 
 **Unchanged, byte for byte:** the other 16 rails, `toy`, `probe_vblank`,
 `probe_cpu`, `probe_cpu_step`. In particular:
@@ -362,9 +384,14 @@ carry the header correction as well.
 * **`microzero.sfc` holds `e45ddeabac4218cd71709da7b9fcc849`** — `docs/94`
   §4.2's pin. It does not compose either feature and it already declared `$09`
   by hand, so removing that hand declaration moved nothing;
-* the 17 rails that hand-declared `$09` are byte-identical after their
-  declarations were deleted, which is the proof that the linker-config
-  derivation reproduces exactly what they said.
+* **the derivation moved zero bytes on all 17 rails that hand-declared
+  `$09`**, which is the proof that the linker config reproduces exactly what
+  they said. Sixteen of the seventeen show it outright: byte-identical with
+  their declarations deleted. The seventeenth is `brawler`, whose image DID
+  move — but for (b), not for this: with its composition reverted and the hand
+  `SF_HDR_ROM_SIZE = $09` line still deleted, so the byte comes from the
+  config, it rebuilds to `1b72f8d129fd7a3b667a9c4d9c8c7586` — its pre-change
+  md5, exactly (`docs/audit/region_r0-audit-1.md` §2).
 
 ## 6. What this does NOT do
 

@@ -112,9 +112,35 @@ def test_the_region_flag_is_clear_on_ntsc_and_set_on_pal(scr):
 
 
 def test_the_flag_is_stable_for_the_whole_run(scr):
-    """It is latched once at boot, not re-read per frame, so it may not
-    flicker — and $213F bit 7 (the odd/even frame flag) changing under the
-    ROM's feet is exactly what a compare-against-$13 would have picked up."""
+    """It is latched once at boot, not re-read per frame, so it may not flicker.
+
+    THE LIMIT, STATED — this case does NOT prove the read is a MASK, and no
+    other case in this module does either. The flag is latched ONCE, so a wrong
+    latch is stably wrong: stability and correctness are independent here.
+    Measured rather than argued — a planted `cmp #(RGN_PAL_BIT | 3)` / `bne` in
+    place of `and` / `beq` passes EVERY case in this file
+    (`docs/audit/region_r0-audit-1.md` §4.2). An earlier version of this
+    docstring claimed bit 7 toggling was "exactly what a compare-against-$13
+    would have picked up". It is not.
+
+    Why nothing here can settle it, from the emulator's own source: `$213F` is
+    `oddFrame<<7 | locationLatched<<6 | (Ppu2OpenBus & $20) | PAL<<4 | $03`
+    (`/tmp/Mesen2/Core/SNES/SnesPpu.cpp`, `case 0x213F`). A compare against the
+    whole byte is right by coincidence exactly while bits 7, 6 and 5 are clear
+    at the read instant — and this harness boots deterministically into frame 0
+    with nothing latched and no prior PPU2 read, so all three always are. Bit 7
+    is the only one that moves unaided, and it moves at END of frame, after the
+    boot read has already happened.
+
+    Settling it needs an instrument this repo does not have: a boot on the
+    other field parity (`vendor/mesen_runner.py` binds no console `Reset`), a
+    second emulator, or hardware. Until one exists the mask is established by
+    READING THE FILE — `and #RGN_PAL_BIT`, `RGN_PAL_BIT = 1 << 4`, in
+    `engine/features/region/region.asm` — which is the primary source for what
+    our own code does, and is NOT evidence about the machine.
+
+    What this case does prove stands on its own: once latched the flag does not
+    move again, on either machine, for the whole window."""
     for region in ("ntsc", "pal"):
         series = scr[region]["words"]["ES_RGN_PAL"]
         assert len(set(series)) == 1, (
