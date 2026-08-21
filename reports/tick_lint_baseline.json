@@ -729,14 +729,14 @@
   },
   {
     "file": "game/brawler/scenes/fight.asm",
-    "line": 317,
+    "line": 369,
     "rule": "tick-routine",
     "message": "`player_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
   },
   {
     "file": "game/brawler/scenes/fight.asm",
-    "line": 457,
+    "line": 510,
     "rule": "tick-routine",
     "message": "`enemy_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
@@ -848,7 +848,7 @@
   },
   {
     "file": "game/brawler/state.toml",
-    "line": 82,
+    "line": 114,
     "rule": "tick-state",
     "message": "`blink` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
@@ -1667,14 +1667,14 @@
   },
   {
     "file": "game/rpg/main.asm",
-    "line": 74,
+    "line": 70,
     "rule": "tick-constant",
     "message": "`STEP_FRAMES = 8` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
     "severity": "error"
   },
   {
     "file": "game/rpg/main.asm",
-    "line": 339,
+    "line": 335,
     "rule": "tick-routine",
     "message": "`rpg_fade_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"

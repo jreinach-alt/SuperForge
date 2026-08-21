@@ -90,6 +90,26 @@ reads rendered output, per CLAUDE.md rule 2.
   defect found by `docs/93`; it belongs here because it is the same class and
   the same file.)*
 
+> **LANDED 2026-08-21 — all four clauses.**
+> [`docs/97`](97_region_r0_landing.md). `engine/features/region` reads `$213F`
+> bit 4 at boot and publishes `ES_RGN_PAL`, proven from a booted ROM under
+> BOTH `SF_REGION` settings (`tests/test_region.py`); the destination byte is
+> `.ifndef`-guarded with its `$01` default unmoved; and the ROM-size byte is
+> **imported from the linker config**, so all 37 rails and both 32 KB images
+> now declare their real length — `tools/fix_checksum.py` refuses any image
+> that does not, on every build. The seventeen hand-written `SF_HDR_ROM_SIZE =
+> $09` declarations were deleted and **moved zero bytes**, which is what
+> proves the derivation. `microzero.sfc` holds
+> `e45ddeabac4218cd71709da7b9fcc849`; the 31 images whose bytes did move are
+> enumerated in `docs/97` §5 with their reason, per §4.1.
+>
+> The same landing promoted `docs/96` §4's prototype timebase into
+> `engine/features/tick_scale`, composed by `scroller` (scrolling) and
+> `brawler` (sprite animation): 0.99919 / 0.99969 / 0.99909 against the
+> uncompensated 0.832, NTSC picture pixel-identical on every rail. **That is
+> still not the 185-site retune** — `docs/95` §7's R2-D stands, and
+> `make tick-check` still holds 356.
+
 **R1 — the screen is filled.**
 - On PAL the PPU renders the taller active area, evidenced by the **active
   line count** read from the rendered frame (224 lines occupy rows 7..230;

@@ -153,3 +153,4 @@ writing your first test.
 - **The deterministic harness** — the lockstep `Machine`, the two core patches, the determinism gate → [`docs/53`](docs/53_deterministic_harness_settlement.md)
 - **Provenance** — what in this tree is not ours, and how that was established → [`docs/92`](docs/92_provenance_audit.md)
 - **Region speed** — the rate oracle, the frame-assumption lint (`make tick-check`), and a prototype timebase measured at 0.99919 parity → [`docs/96`](docs/96_region_timebase_tooling.md)
+- **Region support** — the region flag, the two header corrections, and the timebase promoted to a composable feature (R0 landed) → [`docs/97`](docs/97_region_r0_landing.md)

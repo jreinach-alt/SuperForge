@@ -612,6 +612,20 @@ up:
   claim — composed by the rails that want it, with each consumer declaring
   its own accumulator instead of sharing one. That is a day's work and it is
   the first thing to do if R2 is ever authorised beyond tooling.
+
+  > **DONE 2026-08-21** — [`docs/97`](97_region_r0_landing.md).
+  > `engine/features/tick_scale` is that feature and `-D SF_TICK=n` is gone.
+  > It landed with **no dp claim of its own**, against the sketch above, and
+  > `docs/97` §3.2 says why: the only two things such a claim could hold are
+  > the region flag (`engine/features/region` owns it, and a second copy is
+  > the duplicated-constant defect) and a shared accumulator (which the
+  > sentence above rules out). It `depends = ["region"]` instead, so taking
+  > the arithmetic without the flag it branches on is a refusal.
+  > Consumers: `scroller` (0.83208 → **0.99919**) and `brawler`, picked for
+  > its MOTION CLASS — `knight_tile` 0.82831 → **0.99969** read out of the
+  > OAM tile byte, `px` 0.83208 → **0.99909**. `brawler` is also where the
+  > accumulator answers §5's class C: its animation DIVIDER is untouched and
+  > what is scaled is the amount the clock advances by.
 * **Do not promote `tick-check` into `gates` or `bare-check` until its
   baseline is small.** §3.6 says why, and the day it belongs there will be
   obvious.

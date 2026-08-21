@@ -32,6 +32,8 @@ picture", which is a question about frames.
     python3 tools/tb_picture_diff.py build/scroller.sfc \\
         build/scroller_tb_lump.sfc build/scroller_tb_accum.sfc
     python3 tools/tb_picture_diff.py --frames 120,300,600 REF ROM...
+    python3 tools/tb_picture_diff.py --pad left BEFORE/brawler.sfc \\
+        build/brawler.sfc          # a pre-change image as the reference
 
 Exit 0 iff every ROM's NTSC captures matched the reference. Non-zero says
 which one moved, and on which frame.
@@ -49,9 +51,14 @@ from pathlib import Path
 SUPERFORGE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SUPERFORGE / "vendor"))
 
-# The same held-RIGHT drive tools/rate_oracle.py uses on this rail, expressed
-# in FRAMES here because the anchor is the frame.
-PAD = {"right": True}
+# THE DRIVE, held for the whole capture. The default is the held-RIGHT drive
+# tools/rate_oracle.py uses on `scroller`, expressed in FRAMES here because the
+# anchor is the frame; `--pad` names a different one for a different rail (the
+# oracle drives `brawler` with LEFT, and a rail behind a title screen wants
+# `--pad start` or nothing at all). What matters is only that BOTH images are
+# driven the SAME way — this tool asks "is this the same picture", not "does
+# the rail reach gameplay".
+DEFAULT_PAD = "right"
 
 
 def worker(args):
@@ -59,13 +66,14 @@ def worker(args):
 
     region = os.environ.get("SF_REGION", "auto")
     at = sorted(int(x) for x in args.frames.split(","))
+    pad = {b: True for b in args.pad.split(",") if b} or None
     out = []
     for rom in args.roms:
         m = M.Machine(rom)
         shots = {}
         for f in at:
             while m.ppu_frame_count() < f:
-                m.advance(1, pad1=PAD)
+                m.advance(1, pad1=pad)
             png = f"{args.outdir}/{Path(rom).stem}.{region}.f{f}.png"
             m.take_screenshot(png)
             shots[f] = hashlib.sha1(Path(png).read_bytes()).hexdigest()[:16]
@@ -77,7 +85,7 @@ def worker(args):
 def _child(args, region):
     env = dict(os.environ, SF_REGION=region)
     argv = [sys.executable, __file__, "--worker", "--frames", args.frames,
-            "--outdir", args.outdir, *args.roms]
+            "--pad", args.pad, "--outdir", args.outdir, *args.roms]
     r = subprocess.run(argv, env=env, capture_output=True, text=True,
                        cwd=str(SUPERFORGE))
     line = next((x for x in r.stdout.splitlines() if x.startswith("SFTBPIC ")),
@@ -92,6 +100,9 @@ def main():
     ap.add_argument("roms", nargs="+", help="reference ROM first, then variants")
     ap.add_argument("--frames", default="120,300,600",
                     help="absolute PPU frames to capture at")
+    ap.add_argument("--pad", default=DEFAULT_PAD,
+                    help="comma-separated buttons held for the whole capture "
+                         "(e.g. 'left', 'b,right', or '' for none)")
     ap.add_argument("--outdir", default="build/tb_shots")
     ap.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args()
@@ -109,7 +120,7 @@ def main():
             same = [f for f, sha in r["shots"].items()
                     if sha == ref["shots"][f]]
             diff = [f for f in r["shots"] if f not in same]
-            name = Path(r["rom"]).name
+            name = f'{Path(r["rom"]).name} {r["md5"][:8]}'
             if region == "ntsc":
                 verdict = ("IDENTICAL — the picture did not move"
                            if not diff else
@@ -121,7 +132,7 @@ def main():
                            if diff else
                            "IDENTICAL — the scheme changed NOTHING on PAL "
                            "<- vacuous")
-            print(f"  {name:<30} {verdict}")
+            print(f"  {name:<40} {verdict}")
     print("\ncaptures in " + args.outdir)
     return rc
 

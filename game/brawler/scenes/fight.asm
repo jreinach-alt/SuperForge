@@ -25,6 +25,22 @@ BR_CELL_WINS  = ES_V_TEXT_MAP + BR_HUD_ROW * BR_MAP_W + BR_WINS_VAL_C
 BR_CELL_OVER  = ES_V_TEXT_MAP + BR_OVER_ROW * BR_MAP_W + BR_OVER_C
 
 ; =============================================================================
+; THE THREE BASE RATES tick_scale SCALES (docs/96 §4)
+; =============================================================================
+; Each is a per-frame delta in the 8.8 unit TS_STEP takes, built from the
+; rail's own tuning constants so brawler.inc stays the one place a designer
+; edits. What changed is that BR_WALK_SPEED and BR_ENEMY_SPEED are now RATES
+; rather than per-frame immediates: on NTSC the published step is the constant
+; to the pixel, on PAL it is the constant times 1.2018 with the fraction
+; carried.
+TS_WALK_BASE  = BR_WALK_SPEED * TS_ONE
+TS_ENEMY_BASE = BR_ENEMY_SPEED * TS_ONE
+; One animation unit. The DIVIDER in br_anim_meta is untouched — scaling a
+; small integer divider is docs/95 §5.2's class C and has no correct answer —
+; so what is scaled is the amount the clock advances by.
+TS_ANIM_BASE  = TS_ONE
+
+; =============================================================================
 ; BR_ANIM_STEP — one actor's animation clock, one frame
 ; =============================================================================
 ; The RATE and LENGTH are read from br_anim_meta rather than pasted in as macro
@@ -52,12 +68,26 @@ BR_CELL_OVER  = ES_V_TEXT_MAP + BR_OVER_ROW * BR_MAP_W + BR_OVER_C
     xba
     and #$00FF
     sta z:US_ATTR                   ; ...and its frame-rate divider
+    ; THE CLOCK ADVANCES BY US_TSA, NOT BY ONE. That is the whole of this
+    ; rail's answer to docs/95 §5.2's class C: a frame-rate divider is a small
+    ; integer with no correct x5/6, so the divider is left alone and what the
+    ; clock ADVANCES BY is scaled instead — 1 unit per NTSC frame, 1.2018 per
+    ; PAL frame, the fraction carried by tick_scale. On NTSC US_TSA is exactly
+    ; 1 every frame, so this is `inc a` to the cycle in behaviour.
     lda brs_tick
-    inc a
+    clc
+    adc z:US_TSA
     sta brs_tick
     cmp z:US_ATTR
     bcc brs_done                    ; not time for the next step yet
-    stz brs_tick
+    ; CARRY THE OVERSHOOT rather than zeroing. On NTSC the clock arrives at
+    ; the divider EXACTLY (it steps by 1 from 0 and the caller resets it on
+    ; every state change), so tick - rate = 0 and this is `stz` in behaviour;
+    ; on PAL a 2-unit frame can cross the divider by one, and dropping that
+    ; one is a bias the accumulator upstream cannot see.
+    sec
+    sbc z:US_ATTR
+    sta brs_tick
     lda brs_frame
     inc a
     cmp z:US_TILE
@@ -227,6 +257,15 @@ enter:
     stz z:US_ERESP
     stz z:US_AHIT
     stz z:US_GAMEOVER
+    ; The timebase's six words. The accumulators start empty and the three
+    ; published steps are written before anything reads them — the tick
+    ; republishes all three at its top, but the enter draw runs first.
+    stz z:US_TSP_ACC
+    stz z:US_TSP
+    stz z:US_TSE_ACC
+    stz z:US_TSE
+    stz z:US_TSA_ACC
+    stz z:US_TSA
     stz z:US_HUDP
     stz z:US_OVERP
     stz z:US_BLINK
@@ -286,6 +325,19 @@ tick:
     lda z:US_BLINK
     inc a
     sta z:US_BLINK
+
+    ; ---- this frame's three region-correct steps, published once ----------
+    ; BEFORE the gameover test, deliberately: the freeze still draws and a
+    ; later state may still clock, and a step word that stops being republished
+    ; is a stale word waiting to be read. Three macro expansions, no branches
+    ; taken on NTSC beyond the flag test — each publishes today's constant to
+    ; the unit when ES_RGN_PAL is clear.
+    TS_STEP z:US_TSP_ACC, TS_WALK_BASE
+    sta z:US_TSP
+    TS_STEP z:US_TSE_ACC, TS_ENEMY_BASE
+    sta z:US_TSE
+    TS_STEP z:US_TSA_ACC, TS_ANIM_BASE
+    sta z:US_TSA
 
     lda z:US_GAMEOVER
     beq @alive
@@ -356,7 +408,7 @@ player_step:
     beq @no_right
     lda z:US_PX
     clc
-    adc #BR_WALK_SPEED
+    adc z:US_TSP
     cmp #BR_ARENA_R
     bcc :+
     lda #BR_ARENA_R
@@ -375,7 +427,8 @@ player_step:
     beq @no_left
     lda z:US_PX
     sec
-    sbc #BR_WALK_SPEED          ; safe: px >= ARENA_L and WALK_SPEED <= 8
+    sbc z:US_TSP                ; safe: px >= ARENA_L and the published
+                                ;   step is <= BR_WALK_SPEED + 1 <= 8
     cmp #BR_ARENA_L
     bcs :+
     lda #BR_ARENA_L
@@ -394,7 +447,7 @@ player_step:
     beq @no_down
     lda z:US_PY
     clc
-    adc #BR_WALK_SPEED
+    adc z:US_TSP
     cmp #BR_LANE_BOT
     bcc :+
     lda #BR_LANE_BOT
@@ -412,7 +465,7 @@ player_step:
     beq @no_up
     lda z:US_PY
     sec
-    sbc #BR_WALK_SPEED
+    sbc z:US_TSP
     cmp #BR_LANE_TOP
     bcs :+
     lda #BR_LANE_TOP
@@ -501,7 +554,7 @@ enemy_step:
     sta z:US_EFACE              ; the player is to his left
     lda z:US_EX
     sec
-    sbc #BR_ENEMY_SPEED
+    sbc z:US_TSE
     sta z:US_EX
     lda #1
     sta z:US_EMOV
@@ -512,7 +565,7 @@ enemy_step:
     stz z:US_EFACE
     lda z:US_EX
     clc
-    adc #BR_ENEMY_SPEED
+    adc z:US_TSE
     sta z:US_EX
     lda #1
     sta z:US_EMOV
@@ -525,7 +578,7 @@ enemy_step:
     bcc @go_down
     lda z:US_EY
     sec
-    sbc #BR_ENEMY_SPEED
+    sbc z:US_TSE
     sta z:US_EY
     lda #1
     sta z:US_EMOV
@@ -535,7 +588,7 @@ enemy_step:
     .i16
     lda z:US_EY
     clc
-    adc #BR_ENEMY_SPEED
+    adc z:US_TSE
     sta z:US_EY
     lda #1
     sta z:US_EMOV

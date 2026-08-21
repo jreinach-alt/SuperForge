@@ -1,0 +1,34 @@
+# region — the console's own region line, read once at boot (docs/94 R0).
+#
+# THE POINT OF THE TIER, in one word: a cart that knows which machine it is
+# running on can adapt at runtime instead of being built twice. docs/95 §7's
+# R0-a is this shape and it was chosen over R0-b (read $213F unconditionally in
+# vendor/rom/init.inc) for one measured reason: R0-b moves the image on all 37
+# rails, `microzero` included, and breaks docs/94 §4.2's md5 pin for nothing.
+# A DECLARED FEATURE is opt-in, so a rail that does not compose it is
+# byte-identical to what it was — which is the reversibility property §4.1
+# asks for, held by construction rather than by care.
+#
+# WHAT A GAME DOES WITH IT: one read.
+#
+#     lda z:ES_RGN_PAL        ; 0 = NTSC, 1 = PAL
+#     beq @ntsc
+#
+# The flag is game-lifetime, not scene-scoped: the console does not change
+# region between scenes. Compose it in `globals` and call `region_init` once
+# from MAIN's boot block, beside `input_init` and `fade_init`.
+name = "region"
+role = "feature"
+
+[[claims.dp]]
+name = "rgn_pal"
+bytes = 2                # 0 = NTSC (60 Hz), 1 = PAL (50 Hz). A WORD, not a
+                         # byte, because every consumer in this kit is A16 on
+                         # the frame path and a byte would cost each of them a
+                         # width toggle to read.
+
+[init]
+zero = ["rgn_pal"]       # region_init stz's it first and only then sets the
+                         # PAL case, so the word is written on BOTH paths
+                         # before anything can read it (power-on RAM is random
+                         # — CLAUDE.md rule 5).

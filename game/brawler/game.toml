@@ -43,8 +43,27 @@
 #   col_map     the rail probes no tiles: the floor is scenery and the lane
 #               band is a pair of constants. Composing it would declare a
 #               world binding nothing reads.
+# REGION + TICK_SCALE (docs/94 R0, docs/96 §4). This is the SECOND rail to
+# compose the timebase and it was picked for its motion class, not its size:
+# `scroller` is scrolling and this one is SPRITE ANIMATION, which is the class
+# where the mechanism has something to prove. Two of docs/95 §5.2's classes
+# meet here in one rail —
+#
+#   * an integer walk step (class B/E: BR_WALK_SPEED, BR_ENEMY_SPEED px per
+#     frame), the same shape scroller has;
+#   * an ANIMATION DIVIDER (class C: br_anim_meta's per-table frame rate),
+#     which docs/95 calls out as having "no correct x5/6" because the divider
+#     is a small integer — 30 integer countdowns and 9 of these are the reason
+#     that document recommends against a retune.
+#
+# The accumulator answers the divider without changing it: the CLOCK advances
+# 1.2018 units per PAL frame instead of 1, so a divider of 6 fires every 4.99
+# PAL frames and the walk cycle runs at the same rate per REAL second. And
+# tools/rate_oracle.py reads `knight_tile` out of the OAM tile byte the PPU
+# draws from, so the parity number is measured on rendered output rather than
+# on the counter behind it.
 globals = ["scene_mgr", "input", "fade", "text_dp", "font_rom", "enter_scr",
-           "oam_sprites", "brawler_rom"]
+           "oam_sprites", "brawler_rom", "region", "tick_scale"]
 
 [[scene]]
 id = "fight"

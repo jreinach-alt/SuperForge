@@ -1,0 +1,39 @@
+# tick_scale — one tick per frame, the per-frame delta scaled by the region's
+# frame ratio, the fraction carried between frames (docs/96 §4, promoted).
+#
+# WHAT IT IS FOR. Everything downstream keeps saying "move one step"; what a
+# step IS becomes a property of this feature. docs/96 measured that shape on
+# `scroller` behind `-D SF_TICK=3` and read PAL/NTSC = 0.99919 against the
+# uncompensated 0.83208, at +634 master cycles per PAL frame — 0.15% of it —
+# and O(1) in the size of the tick. The flag is gone; composition replaced it.
+#
+# THE OTHER THREE CANDIDATES ARE NOT HERE, and each was refuted by measurement
+# rather than by argument (docs/96 §4.4):
+#   * the LUMP scheme (6 logic ticks per 5 frames) reaches 0.99850 but its
+#     cost is O(tick) — docs/95 §4.3 measured that shape at 121% of a PAL
+#     frame in work alone on the tightest rail, so it does not fit there;
+#   * an INTEGER scale has no correct answer on a step of 2: round-to-nearest
+#     is 2 and changes nothing (0.83208), round-up is 3 and overshoots by
+#     24.8%. docs/95 §5.2's "no correct x5/6, only a rounding policy" is not a
+#     figure of speech;
+#   * 6/5 as the constant is worth 0.15% on its own — the frame ratio is
+#     1.2018039, not 1.2 (docs/96 §4.4).
+#
+# NO CLAIMS OF ITS OWN, and that is a design decision worth stating because
+# docs/96 §7 sketched it with "its own dp claim". Two things could live in
+# such a word and neither should: the region flag (that is `region`'s claim,
+# and a second copy of it is the duplicated-constant defect this kit exists to
+# refuse) and a shared accumulator (which §7 itself rules out — "each consumer
+# declaring its own accumulator instead of sharing one", because two consumers
+# on different rates cannot share a carried fraction). What is left is
+# arithmetic, so what this feature supplies is arithmetic: the measured ratio,
+# the TS_STEP macro, and the `region` dependency that makes the flag readable.
+#
+# WHAT A CONSUMER DECLARES: two u16 words per RATE it scales — an accumulator
+# and the published whole-unit step — in its own state.toml. Two consumers on
+# the SAME base rate may share one pair; two on different bases may not.
+name = "tick_scale"
+role = "feature"
+depends = ["region"]     # ES_RGN_PAL is what TS_STEP branches on. Declared, so
+                         # the allocator refuses a composition that takes the
+                         # macro without the flag it reads.

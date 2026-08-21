@@ -44,7 +44,16 @@
 #   audio     -- this rail is silent by design. Adding music would be the
 #                "prettify the demo" move, and a demo that prettifies stops
 #                measuring what it was built to measure.
-globals = ["scene_mgr", "fade", "input", "oam_sprites", "scroller_rom"]
+# REGION + TICK_SCALE: the two features that make this cart one cart.
+#   region      reads $213F bit 4 once at boot and publishes ES_RGN_PAL.
+#   tick_scale  turns a per-frame delta into a REGION-CORRECT one, carrying
+#               the fraction. It `depends = ["region"]`, so composing it
+#               without the flag it reads is a refusal, not a silent 1.0.
+# This rail is where the mechanism was prototyped (docs/96 §4) and it is where
+# the promoted form is proven: tools/rate_oracle.py reads cam_x at 0.83208
+# uncompensated and 0.99919 with these two composed.
+globals = ["scene_mgr", "fade", "input", "oam_sprites", "scroller_rom",
+           "region", "tick_scale"]
 
 [[scene]]
 id = "world"

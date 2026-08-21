@@ -22,14 +22,10 @@
 
 .define SF_HDR_TITLE "SUPERFORGE RPG"
 SF_HDR_TITLE_SET = 1
-SF_HDR_ROM_SIZE = $09               ; 512 KB. header.inc's default is $05 (32 KB,
-                                    ;   the toy/probe size) and this cart links
-                                    ;   at 524,288 B — an undeclared size is the
-                                    ;   shape of a cart whose header lies about
-                                    ;   its own size, on the one field the
-                                    ;   allocator does NOT derive (it derives
-                                    ;   $FFD6/$FFD8 from claims; $FFD7 is the
-                                    ;   game's).
+; $FFD7 (ROM size) is DERIVED: vendor/rom/header.inc imports
+; SF_LD_ROM_SIZE from the linker config, which is the only file that
+; knows how big the image is. It used to be declared here, in 17 rails,
+; beside 20 that inherited a 32 KB default and shipped 524,288 B.
 .include "engine_state_globals.inc" ; GENERATED — system + game-lifetime map
 .include "tad-audio.inc"            ; vendor/tad — the TAD API imports + enums
 .include "tad_audio_enums.inc"      ; GENERATED — Song:: / SFX:: ids for this

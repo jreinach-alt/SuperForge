@@ -74,6 +74,38 @@ bby = "u16@dp"
 bbw = "u16@dp"
 bbh = "u16@dp"
 
+# --- the TIMEBASE's per-consumer state (engine/features/tick_scale) ---------
+#
+# THREE RATES, THREE PAIRS. tick_scale carries the fraction PER RATE, so two
+# consumers on different bases cannot share one accumulator — and the two that
+# happen to share a base here (Mordred at 1 px/frame, the anim clock at 1 unit
+# per frame) are kept apart anyway, because a shared pair would silently
+# couple the enemy's speed to the walk cycle the day either constant is tuned.
+# Six words is what honesty costs; the allocator is what proves they fit.
+#
+# Each pair is (carried fraction, this frame's published whole-unit step). The
+# step is computed ONCE per frame at the top of the tick and read by every add
+# that needs it.
+tsp_acc = "u16@dp"       # Arthur's walk: BR_WALK_SPEED px per frame
+                         # TICK: ok — the carried FRACTION of a scaled rate.
+                         # It exists to remove a frame coupling, not to hold
+                         # one, and it has no meaning in frames.
+tsp = "u16@dp"           # ...and this frame's answer, in whole px
+                         # TICK: ok — the OUTPUT of the scaler; already
+                         # expressed against the declared tick.
+tse_acc = "u16@dp"       # Mordred's walk: BR_ENEMY_SPEED px per frame
+                         # TICK: ok — as tsp_acc.
+tse = "u16@dp"           # ...and this frame's answer, in whole px
+                         # TICK: ok — as tsp.
+tsa_acc = "u16@dp"       # the animation clock: one anim unit per frame. This
+                         # is the pair that answers docs/95 §5.2's class C —
+                         # a small-integer divider with no correct x5/6 — by
+                         # scaling what the clock ADVANCES BY instead of the
+                         # divider it is compared against.
+                         # TICK: ok — as tsp_acc.
+tsa = "u16@dp"           # ...and this frame's answer, in whole anim units
+                         # TICK: ok — as tsp.
+
 # --- scratch ----------------------------------------------------------------
 col = "u16@dp"           # floor build loop: the screen column, 0..31
 row = "u16@dp"           # floor build loop: the tilemap row being filled

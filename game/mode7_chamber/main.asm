@@ -38,7 +38,10 @@
 
 .define SF_HDR_TITLE "BARREL CHAMBER"
 SF_HDR_TITLE_SET = 1
-SF_HDR_ROM_SIZE = $09               ; 512 KB
+; $FFD7 (ROM size) is DERIVED: vendor/rom/header.inc imports
+; SF_LD_ROM_SIZE from the linker config, which is the only file that
+; knows how big the image is. It used to be declared here, in 17 rails,
+; beside 20 that inherited a 32 KB default and shipped 524,288 B.
 
 .include "engine_state_globals.inc" ; GENERATED — system + game-lifetime map
 ; The scene map, included UNSCOPED. The generated header suggests wrapping it

@@ -1037,6 +1037,7 @@ $(SCR_MAP)/engine_state_globals.inc $(SCR_MAP)/symbol_map.json: \
 SCR_INC := -I $(SCR_MAP) -I $(VROM) -I $(SCR) \
            -I engine/features/scene_mgr -I engine/features/input \
            -I engine/features/oam_sprites -I engine/features/fade \
+           -I engine/features/region -I engine/features/tick_scale \
            -I engine/features/scroller_bg -I engine/features/scroller_obj
 
 $(BUILD)/scroller.sfc: $(SCR_ASM) $(SCR)/scroller.inc \
@@ -1422,6 +1423,7 @@ $(BUILD)/brawler.sfc: $(BR_ASM) $(BR)/brawler.inc \
 		-I engine/features/scene_mgr -I engine/features/input \
 		-I engine/features/fade -I engine/features/bg_text \
 		-I engine/features/oam_sprites \
+		-I engine/features/region -I engine/features/tick_scale \
 		-I engine/features/brawler_bg -I engine/features/brawler_obj \
 		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/brawler.o $(BR)/main.asm
