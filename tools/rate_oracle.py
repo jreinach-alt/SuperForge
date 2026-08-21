@@ -955,6 +955,65 @@ RAILS = {
                      "play', which is a property of the playhead alone."),
         ],
     ),
+    "railshooter": dict(
+        rom="build/railshooter.sfc", map="build/rs/symbol_map.json",
+        scene="rail",
+        klass="mode7",
+        # NO PAD. The ship is FIXED and flies itself around a baked S-curve;
+        # the only thing the player owns is the aiming reticle, and moving it
+        # would add a rate the drive script paces rather than one the rail
+        # generates. The guard is the fail state: five hazard strikes stop the
+        # run and put a 120-frame countdown in front of a self-restart, and a
+        # window spanning that averages a live rail with a dead one.
+        # MEASURED, and the guard is what found it: with nobody shooting, the
+        # ship takes its fifth hazard strike at t = 8.0 s and the rail freezes
+        # for a 120-frame countdown. A window closing at 8.5 s spans half a
+        # second of that, which drags the forward rate from 30.05 px/s to
+        # 26.33 in its second half — a dead rail averaged into a live one,
+        # exactly what the guard exists to make visible. The window closes at
+        # 7.5 s.
+        script=[(0.0, {})],
+        warmup_s=1.5, window_s=6.0, guard=[("US_FAIL_T", 2, 0)],
+        observables=[
+            dict(name="cam_fwd", kind="distance", unit="world px",
+                 mem="wram", fields=[("ES_M7ORG", 2, 2, 1024)],
+                 why="M7Y — the forward half of the camera origin `rs_advance` "
+                     "publishes (rs_logic.asm:270) and the NMI hook commits to "
+                     "the PPU every armed frame. The Mode 7 plane is drawn "
+                     "FROM it, so world pixels per second here is the rate the "
+                     "ground comes at the ship.\n"
+                     "  THE TWO AXES ARE MEASURED SEPARATELY, NOT AS A "
+                     "path2d, and on this rail that is worth 3.7 points. "
+                     "path2d sums hypot() of the per-frame delta PAIR, and "
+                     "hypot is SUBADDITIVE: two unit steps taken one axis at a "
+                     "time sum to 2 while the same displacement taken in one "
+                     "frame is 1.414. This rail advances its state 1 or 2 "
+                     "times per frame, so a doubled frame folds two steps into "
+                     "one delta and path2d charges PAL for the shortcut — "
+                     "measured at 0.96255 against 0.99850 on the same binary. "
+                     "Summing |delta| per AXIS is additive and immune to it."),
+            dict(name="cam_swing", kind="distance", unit="world px",
+                 mem="wram", fields=[("ES_M7ORG", 0, 2, 1024)],
+                 why="M7X — the lateral half of the same origin, and the whole "
+                     "of the S-curve: `rs_path_step` sets it to RS_CENTRE + "
+                     "rs_path[dist] and rs_advance publishes it. Lateral world "
+                     "pixels per second is the rate the rail SWINGS, which the "
+                     "forward measure cannot see. Same per-axis reasoning as "
+                     "cam_fwd. The modulus is the plane's own period "
+                     "(RS_WORLD_MASK + 1 = 1,024), which rs_advance masks both "
+                     "axes to."),
+            dict(name="ship_pose", kind="transitions", unit="tile changes",
+                 mem="oam", fields=[("ES_O_RS_SHIP", 2, 1, 256)],
+                 why="the ship's OAM TILE byte, read out of the sprite table "
+                     "the PPU draws from — rendered output, not US_LEAN behind "
+                     "it. rs_path_step grades the path's own slope into nine "
+                     "bank poses and a rate limiter walks ONE pose per state "
+                     "step toward the target, so the frames on which the drawn "
+                     "pose CHANGES measure the bank ramp — the one animation "
+                     "on this rail, and the one that would drift if the "
+                     "odometer and the ramp were on different clocks."),
+        ],
+    ),
     "m7_dungeon": dict(
         rom="build/m7_dungeon.sfc", map="build/m7dg/symbol_map.json",
         scene="dungeon",

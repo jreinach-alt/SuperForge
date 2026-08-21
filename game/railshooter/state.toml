@@ -8,6 +8,21 @@
 # point that lives in the WORLD (`ret_x`, `ret_z`), and the two things a pilot
 # is told about themselves (`score`, `lives`).
 [scene.rail]
+
+# --- the timebase (engine/features/tick_scale, composed in game.toml) ------
+# ONE WORD, because what this rail scales is the STATE STEP and not a distance.
+# `dist`, the depth axis and the forward scroll are three expressions of ONE
+# clock and their invariant is what the ground lock IS, so they advance
+# together or not at all — rail.asm's "THE RAIL IN TWO REGIONS". The published
+# count is consumed immediately in the loop, so there is no second word.
+ts_acc     = "u16@dp"    # the carried fraction of the scaled state step.
+                         #   Seeded in the scene's `enter` and NOT in
+                         #   rs_logic_arm: it is the console's clock, not the
+                         #   run's, so the fail-state self-restart must not
+                         #   restart it.
+                         # TICK: ok — a carried FRACTION, the thing that
+                         # REMOVES the frame coupling rather than one that
+                         # holds it. It has no meaning in frames.
 cam_x      = "u16@dp"    # camera world X, 0..1023 (wraps). Hot: the S-curve
                          # writes it every frame and every projection reads it
 cam_y      = "u16"       # camera world Y, 0..1023 (wraps). The rail's forward

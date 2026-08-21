@@ -34,8 +34,17 @@
 #                   decoupled from the matrix).
 #   audio        -- this rail is silent. A soundtrack would be content, not
 #                   mechanism, and the pool is the mechanism on show.
+# REGION + TICK_SCALE (docs/94 R0, docs/96 §4). THE STATE STEP IS THE UNIT
+# here and it is not a preference — it is the only thing that keeps this rail's
+# GROUND LOCK intact. rail.asm's "THE RAIL IN TWO REGIONS" is the derivation;
+# the short form is that `dist`, the depth axis and the forward scroll are
+# THREE EXPRESSIONS OF ONE CLOCK (railshooter.inc: "z falls RS_OBS_STEP per
+# frame while `dist` rises 1 per frame, so `dist * RS_OBS_STEP + z` is
+# INVARIANT for an actor across its whole flight"), and three independent
+# accumulators would let that invariant drift.
 globals = ["scene_mgr", "input", "fade", "oam_sprites", "enter_scr",
-           "pose_rom", "pool", "rs_rom"]
+           "pose_rom", "pool", "rs_rom",
+           "region", "tick_scale"]
 
 [[scene]]
 id = "rail"
