@@ -38,7 +38,8 @@ INC="-I $MAP -I $VROM -I game/split_v_demo
      -I engine/features/scene_mgr -I engine/features/fade
      -I engine/features/input -I engine/features/input2
      -I engine/features/oam_sprites
-     -I engine/features/svd_bg -I engine/features/svd_obj"
+     -I engine/features/svd_bg -I engine/features/svd_obj
+     -I engine/features/region -I engine/features/tick_scale"
 
 if [ ! -f "$MAP/symbol_map.json" ]; then
     echo "build_svd_nowin: run 'make split_v_demo' first ($MAP is missing)" >&2

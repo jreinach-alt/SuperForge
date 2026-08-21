@@ -22,8 +22,23 @@
 #
 # input2 is here for the same reason as split_v_fight's: player 2 drives the
 # right camera, so the second pad is read every frame.
+#
+# REGION + TICK_SCALE, and this is the one rig in the split family that takes
+# them. The judgement is about WHAT MOVES AND WHY. This rail's motion is two
+# PLAYERS' cameras and a player's seam sweep — pad-driven, continuous, and
+# perceived as speed — so a PAL player pans a fifth slower at every one of
+# them. Its siblings' motion is an INSTRUMENT (a frame-indexed sweep, a
+# constant-delta pan that is the position oracle a test reads, a pose step
+# chosen to fill a capture window), and each of those game.tomls says so where
+# it declines this pair.
+#   region      reads $213F bit 4 once at boot and publishes ES_RGN_PAL.
+#   tick_scale  turns a per-frame delta into a region-correct one, carrying
+#               the fraction. It `depends = ["region"]`.
+# TWO RATES: SVD_CAM_SPD (both cameras, one shared accumulator — same base)
+# and the seam's one px per frame (its own pair). NOT scaled: the MODE cycle,
+# which is a press-edge event rather than a rate.
 globals = ["scene_mgr", "fade", "input", "input2", "oam_sprites",
-           "enter_scr", "svd_rom"]
+           "enter_scr", "svd_rom", "region", "tick_scale"]
 
 [[scene]]
 id = "demo"

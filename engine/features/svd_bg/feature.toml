@@ -116,8 +116,27 @@ at = 0                   # includes word 0, the BACKDROP: with no `backdrop`
 # Write-before-read: svd_arm seeds all four at enter.
 [[claims.dp]]
 name = "svd_cam"
-bytes = 6                # +0 camera A (BG1, left)  +2 camera B (BG2, right)
+bytes = 14               # +0 camera A (BG1, left)  +2 camera B (BG2, right)
                          # +4 the seam x, clamped to [SEAM_LO, SEAM_HI]
+                         #
+                         # THE TIMEBASE (engine/features/tick_scale), from +6.
+                         # Two (accumulator, published step) pairs: the two
+                         # cameras share one because they pan at the same
+                         # SVD_CAM_SPD, and the seam has its own because one
+                         # px per frame is a different base. They live in this
+                         # claim rather than in a game state.toml because this
+                         # rail HAS no user state — the cameras and the seam
+                         # are the feature's.
+                         # TICK: ok — every word below EXISTS to remove a
+                         # frame coupling rather than to express one. The
+                         # accumulators hold a carried FRACTION with no
+                         # meaning in frames; the steps are the scaler's
+                         # OUTPUT, already expressed against the declared
+                         # tick.
+                         # +6  tsc_acc camera pan: carried fraction
+                         # +8  tsc ...and this frame's whole px
+                         # +10 tss_acc seam sweep: carried fraction
+                         # +12 tss ...and this frame's whole px
 
 [[claims.dp]]
 name = "svd_mode"

@@ -53,6 +53,14 @@
 #                 inherits it.
 #   input/2    -- no buttons are read at all. Both cameras drive themselves,
 #                 and the comparison builds are the -D ROMs.
+# REGION PARITY IS NOT THIS RAIL'S SUBJECT, so it does not compose `region` +
+# `tick_scale`. The +1 and +2 px per frame pan IS the instrument: "DIFFERENT
+# SPEEDS IS THE SIGNAL: equal speeds would render a moving picture that no test
+# could tell from one camera driving both bands" (shg_cam.asm), and band 2's
+# red stripe is the position oracle every framebuffer assertion reads. A scaled
+# pan publishes 1-or-2 and 2-or-3 px in a given frame, so the 2:1 relation the
+# assertions depend on would hold only on average — the proof would get weaker
+# to buy a demo speed nobody is timing.
 globals = ["scene_mgr", "fade", "shg_rom"]
 
 [[scene]]

@@ -40,6 +40,14 @@
 # sv_anim_meta -- next to the five the stage and bevel need. Those seven are
 # backed by zero blobs here, each one sized to its claim, which is the honest
 # way to say a rail does not use them.
+# REGION PARITY IS NOT THIS RAIL'S SUBJECT, so it does not compose `region` +
+# `tick_scale`. Its sweep is frame-indexed ON PURPOSE — `advance(N)` fixes
+# `spread` exactly, which is what makes every screenshot in
+# tests/test_split_v_seamtrial.py a claim about a DETERMINED state rather than
+# a sampled one. A region-scaled sweep would make the same absolute frame a
+# different spread on the two machines, which is precisely the property this
+# rail exists to remove. (The sibling that DOES take the timebase is
+# `split_v_demo`: its motion is two players' cameras, not an instrument.)
 globals = ["scene_mgr", "fade", "enter_scr", "split_v_rom"]
 
 [[scene]]

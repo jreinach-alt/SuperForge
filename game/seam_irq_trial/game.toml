@@ -41,6 +41,11 @@
 #   input/2    -- controls: none. The scene is frozen on purpose, and the -D
 #                 variants ARE the controls — the default build is the
 #                 subject, not a pilot to be steered.
+# REGION PARITY IS NOT THIS RAIL'S SUBJECT, and here there is nothing to
+# scale: both cameras are FROZEN by design, because cross-ROM pixel equality
+# against the -DSIT_HDMA_ORIGIN control is the gold assertion and motion would
+# turn it into a phase-alignment question. A rail with no rate has no rate to
+# make region-correct.
 globals = ["scene_mgr", "fade", "sit_rom"]
 
 [[scene]]

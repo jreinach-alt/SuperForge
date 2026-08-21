@@ -2415,7 +2415,8 @@ SVD_INC := -I $(SVD_MAP) -I $(VROM) -I $(SVD) \
            -I engine/features/scene_mgr -I engine/features/fade \
            -I engine/features/input -I engine/features/input2 \
            -I engine/features/oam_sprites \
-           -I engine/features/svd_bg -I engine/features/svd_obj
+           -I engine/features/svd_bg -I engine/features/svd_obj \
+           -I engine/features/region -I engine/features/tick_scale
 
 $(BUILD)/split_v_demo.sfc: $(SVD_ASM) $(SVD)/split_v_demo.inc \
 		$(SVD_MAP)/engine_state_globals.inc $(SVD_ASSETS) \
