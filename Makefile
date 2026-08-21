@@ -209,6 +209,7 @@ $(BUILD)/room.sfc: $(RM_ASM) $(RM_MAP)/engine_state_globals.inc \
 		-I engine/features/oam_sprites -I engine/features/room_bg \
 		-I engine/features/room_hero -I engine/features/room_logic \
 		-I engine/features/window_iris -I engine/features/save \
+		-I engine/features/region -I engine/features/tick_scale \
 		-I vendor/tad -I assets/audio/export \
 		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/room.o $(RM)/main.asm
@@ -269,6 +270,7 @@ $(BUILD)/breaker.sfc: $(BK_ASM) $(BK)/breaker.inc \
 		-I engine/features/fade -I engine/features/bg_text \
 		-I engine/features/oam_sprites -I engine/features/breaker_bg \
 		-I engine/features/breaker_obj -I engine/features/rgb_gradient \
+		-I engine/features/region -I engine/features/tick_scale \
 		-I vendor/tad -I assets/audio/export \
 		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/breaker.o $(BK)/main.asm
@@ -414,6 +416,7 @@ $(BUILD)/shmup.sfc: $(SH_ASM) $(SH)/shmup.inc \
 		-I engine/features/fade -I engine/features/bg_text \
 		-I engine/features/oam_sprites -I engine/features/shmup_bg \
 		-I engine/features/shmup_obj \
+		-I engine/features/region -I engine/features/tick_scale \
 		-I vendor/tad -I assets/audio/export \
 		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/shmup.o $(SH)/main.asm
@@ -1273,6 +1276,7 @@ PAT_INC := -I $(PAT_MAP) -I $(VROM) -I $(PAT) \
            -I engine/features/scene_mgr -I engine/features/input \
            -I engine/features/fade -I engine/features/bg_text \
            -I engine/features/oam_sprites -I engine/features/col_map \
+           -I engine/features/region -I engine/features/tick_scale \
            -I engine/features/patrol_bg -I engine/features/patrol_obj
 
 $(BUILD)/patrol.sfc: $(PAT_ASM) $(PAT)/patrol.inc \

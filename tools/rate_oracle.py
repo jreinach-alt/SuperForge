@@ -166,50 +166,67 @@ def _axis_shuttle(half_s, first, second, start_s=None, n=200, hold=None,
     interesting band is not where it spawns. `hold` is a pad state held for
     the whole run on top of the alternating direction. `tap` is
     (button, period_s, hold_s) — a button pressed on its own real-time beat,
-    for a rail whose action is EDGE-triggered and which therefore cannot be
-    driven by holding anything.
+    for a rail whose action is EDGE-triggered and therefore cannot be driven
+    by holding anything.
+
+    THE PHASE IS CARRIED AS AN INDEX, NEVER RECOVERED FROM THE TIMESTAMP, and
+    that is not a style preference — it is a measured bug. Deriving the
+    direction as `int((t - t0) // half_s) % 2` reads the k-th boundary back as
+    k-1 whenever the float sum lands a ulp low (t0 = 0.5 + 0.6 is
+    1.0999999999999999, so the 0.7 s boundary divides to 0.999...), the
+    reversal is silently skipped, and the actor walks into the clamp the
+    shuttle exists to avoid. That showed up as `room` reading 83.7 px/s on
+    NTSC where the same drive had read 120.198 before — a harness fault that
+    looks exactly like a broken ROM.
 
     The three streams are merged onto ONE timeline rather than concatenated,
     because `_script_at` takes the last entry at or before t and each entry
     is a WHOLE pad state: an event that carried only the tap would silently
     release the direction.
     """
-    marks = set()
-    if start_s is not None:
-        marks |= {0.0, start_s, start_s + 0.3}
-        t0 = start_s + 0.6
-    else:
-        t0 = 0.0
-    marks.add(t0)
-    for k in range(n):
-        marks.add(t0 + lead_s + k * half_s)
-    if tap:
-        _b, per, hold_s = tap
-        k = 0
-        while t0 + k * per < span_s:
-            marks.add(t0 + k * per)
-            marks.add(t0 + k * per + hold_s)
-            k += 1
     hold = hold or {}
+    t0 = (start_s + 0.6) if start_s is not None else 0.0
 
-    def _pad(t):
-        if start_s is not None and t < start_s:
-            return {}
-        if start_s is not None and start_s <= t < start_s + 0.3:
-            return {"start": True}
-        if t < t0:
-            return {}
-        p = dict(hold)
-        d = t - t0
-        p[first if d < lead_s else
-          (first if int((d - lead_s) // half_s) % 2 == 0 else second)] = True
-        if tap:
-            b, per, hold_s = tap
-            if (d % per) < hold_s - 1e-9:
-                p[b] = True
-        return p
+    # (time, direction-or-None, tap-on-or-None) events, each carrying the
+    # phase it establishes. Merged by time, then folded forward so every
+    # emitted pad state is complete.
+    ev = []
+    if start_s is not None:
+        ev += [(0.0, "", None), (start_s, "start", None), (start_s + 0.3, "", None)]
+    if lead_s > 0.0:
+        ev.append((t0, first, None))
+    for k in range(n):
+        ev.append((t0 + lead_s + k * half_s,
+                   first if k % 2 == 0 else second, None))
+    if tap:
+        b, per, hold_s = tap
+        k = 0
+        while k * per < span_s:
+            ev.append((t0 + k * per, None, True))
+            ev.append((t0 + k * per + hold_s, None, False))
+            k += 1
 
-    return [(t, _pad(t)) for t in sorted(marks)]
+    ev.sort(key=lambda e: e[0])
+    out, cur_dir, cur_tap, booted = [], None, False, start_s is None
+    for t, d, tp in ev:
+        if d == "start":
+            out.append((t, {"start": True}))
+            continue
+        if d == "":
+            out.append((t, {}))
+            continue
+        if d is not None:
+            cur_dir, booted = d, True
+        if tp is not None:
+            cur_tap = tp
+        if not booted:
+            continue
+        pad = dict(hold)
+        pad[cur_dir] = True
+        if cur_tap and tap:
+            pad[tap[0]] = True
+        out.append((t, pad))
+    return out
 
 
 RAILS = {
@@ -392,13 +409,32 @@ RAILS = {
         rom="build/scroll_run.sfc", map="build/sr/symbol_map.json",
         scene="run",
         klass="scrolling",
-        # A horizontal shuttle. The world is 512 px and the runner spawns at
-        # x=16, so the LEFT clamp is 16 px away — the shuttle therefore opens
-        # by running RIGHT for a full half-period and reverses on a 0.6 s
-        # beat (72 px at the NTSC rate), which keeps him between roughly 16
-        # and 160 in both regions.
-        script=_axis_shuttle(0.6, "right", "left"),
-        warmup_s=2.0, window_s=12.0, guard=[],
+        # RUN RIGHT for two seconds first, THEN shuttle, and tap A on its own
+        # beat. All three parts are load-bearing:
+        #  * the camera CLAMPS at 0 until the runner passes SR_HALF_W = 128,
+        #    and he spawns at x=16. A shuttle from the spawn therefore reads
+        #    cam_x = 0 in both regions — a measurement of the clamp, not of
+        #    the rail.
+        #  * A is EDGE-triggered (do_jump), so a held A is one jump and then
+        #    nothing; it has to be tapped.
+        #  * THE TAPS ARE NOT OPTIONAL ON THIS RAIL. Measured: holding RIGHT
+        #    from the spawn advances the runner to x = 104 and then STOPS —
+        #    655 of 700 frames blocked against a wall he is meant to jump.
+        #    The level is authored around the arc.
+        #
+        # THAT LAST FACT IS WHY THIS RAIL IS MEASURED AND NOT CONVERTED. Its
+        # traversal rate is the run AND the arc together, and tick_scale's
+        # single gain expresses r but not the gravity r^2 an arc needs, so
+        # scaling the run alone stretches every jump a fifth further on PAL
+        # and changes what the runner can clear. The numbers are in the
+        # ledger: uncompensated cam_x reads 0.86321, and a run-only
+        # conversion read 0.97471 with PAL halves of 105.7 and 120.2 — the
+        # drive itself goes non-uniform, because the fraction of the window
+        # the runner spends blocked or airborne stops being the same in the
+        # two regions.
+        script=_axis_shuttle(0.6, "right", "left", lead_s=2.0,
+                             tap=("a", 0.9, 0.2)),
+        warmup_s=3.0, window_s=12.0, guard=[],
         observables=[
             dict(name="cam_x", kind="distance", unit="world px",
                  mem="wram", fields=[("ES_SR_CAM", 0, 2, 65536)],
@@ -413,11 +449,11 @@ RAILS = {
             dict(name="fall_y", kind="distance", unit="px/256",
                  mem="wram", fields=[("US_PYF", 0, 2, 65536)],
                  why="the runner's 8.8 vertical position, the integrator "
-                     "output the sprite Y is derived from. THIS ONE IS THE "
-                     "NON-VACUITY CONTROL: the ballistic arc is NOT scaled "
-                     "(see the rail's own note), so it must still read the "
-                     "frame ratio while run_x reads parity. An instrument "
-                     "that showed both at parity would be measuring itself."),
+                     "output the sprite Y is derived from — the arc itself, "
+                     "in the units the physics keeps. On this rail it is not "
+                     "a control but the SUBJECT: the level cannot be crossed "
+                     "without it, which is what puts scroll_run out of "
+                     "tick_scale's reach."),
         ],
     ),
     # ------------------------------------------------------------- WALKERS
@@ -502,8 +538,18 @@ RAILS = {
         # x=200 and the run is a per-axis move-check against col_map, so a
         # half-period that reaches a wall would measure the wall: 0.5 s is
         # 60 px at the NTSC rate, which stays on open floor.
+        # NO JUMP IN THIS DRIVE, and that was measured rather than chosen.
+        # Tapping A every 1.2 s to exercise the arc made the HORIZONTAL
+        # numbers meaningless: the hero's vertical position decides which
+        # frames he touches a patrolling enemy, `do_contact` KNOCKS HIM BACK
+        # to the spawn, and a teleport is a large |delta| that `distance`
+        # cannot tell from walking. player_x went from a flat 1.00128 to
+        # 1.02211 with a PAL first half of 125.2 px/s — faster than the
+        # engine can walk, which is the teleport showing through. The guard
+        # below is the standing check on that: a window that contains a
+        # knockback is a window whose distance is about the knockback.
         script=_axis_shuttle(0.5, "left", "right"),
-        warmup_s=2.0, window_s=12.0, guard=[],
+        warmup_s=2.0, window_s=12.0, guard=[("US_HITS", 2, 0)],
         observables=[
             dict(name="player_x", kind="distance", unit="world px",
                  mem="wram", fields=[("US_PX", 0, 2, 65536)],
@@ -517,13 +563,6 @@ RAILS = {
                      "rate (PAT_PATROL_SPEED, half the player's) and by no "
                      "input at all — a beat that walks itself, so it is the "
                      "one observable here that no drive script can pace."),
-            dict(name="fall_y", kind="distance", unit="px/256",
-                 mem="wram", fields=[("US_PYF", 0, 2, 65536)],
-                 why="the player's 8.8 vertical position. THIS ONE IS THE "
-                     "NON-VACUITY CONTROL: the ballistic arc is NOT scaled "
-                     "(see the rail's own note), so it must still read the "
-                     "frame ratio while the two horizontal rates read "
-                     "parity."),
         ],
     ),
     "room": dict(
@@ -554,15 +593,35 @@ RAILS = {
         rom="build/shmup.sfc", map="build/sh/symbol_map.json",
         scene="play",
         klass="shooting",
-        # START clears the title, then a horizontal shuttle with A held down
-        # so the ship also fires. SHIP_MIN_X/MAX_X are 8 and 224 and the ship
-        # spawns at 120; a 0.6 s half-period is 72 px at the NTSC rate, which
-        # keeps it off both clamps. A is held rather than tapped because the
-        # bullet observable wants the pool busy, and the fire gate is a
-        # per-frame pool spawn rather than a press edge.
+        # START clears the title, then a horizontal shuttle with A TAPPED on
+        # its own beat. Both details were forced by measurement:
+        #  * `shm_fire` reads ES_INP_PRESS, so a HELD A fires exactly ONE
+        #    bullet and then nothing. With the guns silent the fighters reach
+        #    the ship inside 7 s and the guard fires. Tapping every 0.15 s
+        #    keeps the bullet pool busy.
+        #  * SHIP_MIN_X/MAX_X are 8 and 224 and the ship spawns at 120; a
+        #    0.6 s half-period is 72 px at the NTSC rate, which keeps it off
+        #    both clamps.
+        #
+        # THE WINDOW IS 3 s BECAUSE THE SHIP CANNOT BE KEPT ALIVE LONGER, and
+        # that is a property of the rail rather than of the drive. There is no
+        # safe place to stand: the eight spawn columns
+        # (24/40/64/88/120/168/200/216) and the CLOSED 16 px overlap test
+        # leave exactly one safe band, x in [137, 151], and no clamp lands
+        # there — so no open-loop script can park in it at the same x in both
+        # regions. Nor is there a safe row: a fighter spawns at y=24 and is
+        # culled at y=208, and the ship's own [32, 200] lies inside that.
+        # Measured with this drive, the first hit lands at ~6.5 s on the PAL
+        # arm. Warm 3 s + window 3 s therefore closes before it in all four
+        # arms (the NTSC arms take no hit at all in 20 s).
+        #
+        # THE COST IS ship_tile's RESOLUTION, stated rather than hidden: it is
+        # an EVENT counter at ~10 Hz, so 3 s is ~30 events and one event is
+        # 3.3%. `--warmup 3 --window 12` reads it to 0.01% and trades the
+        # guard for it; both runs belong in a report of this rail.
         script=_axis_shuttle(0.6, "right", "left", start_s=0.5,
-                             hold={"a": True}),
-        warmup_s=3.0, window_s=12.0,
+                             tap=("a", 0.15, 0.1)),
+        warmup_s=3.0, window_s=3.0,
         guard=[("US_GOVER", 2, 0), ("US_LIVES", 2, 3)],
         observables=[
             dict(name="field_scroll", kind="distance", unit="BG px",
@@ -578,27 +637,50 @@ RAILS = {
                  why="byte 0 of the ship's OAM entry — where the PPU draws "
                      "it. The playfield does not scroll horizontally, so "
                      "this is the ship's speed as the player sees it."),
-            dict(name="ship_y", kind="distance", unit="screen px",
-                 mem="wram", fields=[("US_PY", 0, 2, 65536)],
-                 why="the ship's own y. It is the axis the shuttle does NOT "
-                     "drive, so it moves only when the drive's held "
-                     "direction changes nothing about it — kept as the "
-                     "cross-check that the tick is doing per-axis work."),
+            dict(name="ship_tile", kind="transitions", unit="tile changes",
+                 mem="oam", fields=[("ES_O_SHIP", 2, 1, 256)],
+                 why="the ship's OAM tile byte, read out of the sprite table "
+                     "the PPU draws from — rendered output, not the counter "
+                     "behind it. It is the engine-plume ANIMATION CLOCK, "
+                     "which docs/95 §5.2 puts in class C (a small-integer "
+                     "divider with no correct x5/6). Counting the frames on "
+                     "which the drawn tile CHANGES measures the flicker "
+                     "where a player perceives it, and it is the one "
+                     "observable here that no drive script can pace."),
         ],
     ),
     "breaker": dict(
         rom="build/breaker.sfc", map="build/bk/symbol_map.json",
         scene="play",
         klass="shooting",
-        # START clears the title; A launches the ball off the paddle; then a
-        # horizontal shuttle runs the bat. The bat is clamped to [8, 224] and
-        # starts at 116, so a 0.5 s half-period (90 px at the NTSC rate)
-        # stays inside. A is re-tapped on the shuttle's beat so a LOST ball
-        # relaunches rather than leaving the window measuring a dead rail —
-        # the guard below is what makes that visible if it fails anyway.
+        # START clears the title, A launches the ball off the bat, and the bat
+        # shuttles on a 0.5 s half-period (90 px at the NTSC rate, inside its
+        # [8, 224] clamp).
+        #
+        # THE WINDOW IS SHORT ON PURPOSE, AND THIS IS THE ONE ENTRY IN THE
+        # REGISTRY WHERE THAT IS TRUE. A billiard cannot be kept alive by an
+        # open-loop script: the ball leaves the bat, bounces, and comes down
+        # somewhere the bat is not. Measured both ways — bat shuttling and
+        # bat parked — each ball lives ~1.95 s and the round is over at
+        # ~7.3 s.
+        #
+        # THE WINDOW IS PLACED FROM THE MEASURED TIMES IN ALL FOUR ARMS
+        # (before/after x ntsc/pal), because they are not the same. The ball
+        # LAUNCHES at 1.11 s on NTSC and 1.26 s on PAL — the title fade is
+        # counted in frames, so it takes longer in real time there — and the
+        # first ball is LOST at 3.06 s on both NTSC arms, 3.20 s on PAL after
+        # and 3.60 s on PAL before. Warm 1.35 s + window 1.60 s closes at
+        # 2.95 s, inside every one of those, so the numerator never contains
+        # a relaunch teleport — which a gate on the DENOMINATOR could not
+        # have removed.
+        #
+        # THOSE SAME TIMES ARE THEMSELVES A MEASUREMENT, and a cleaner one
+        # than the path integral: the first ball's FLIGHT lasts 1.95 s on
+        # NTSC, 2.34 s on PAL uncompensated (a ratio of 0.83) and 1.94 s on
+        # PAL compensated (0.995). No drive script paces that at all.
         script=_axis_shuttle(0.5, "right", "left", start_s=0.5,
-                             hold={"a": True}),
-        warmup_s=3.0, window_s=10.0,
+                             tap=("a", 0.15, 0.1)),
+        warmup_s=1.35, window_s=1.6,
         guard=[("US_GSTATE", 2, 1)],
         observables=[
             dict(name="paddle_oam_x", kind="distance", unit="OAM px",
@@ -625,10 +707,14 @@ RAILS = {
         rom="build/rpg.sfc", map="build/rpg/symbol_map.json",
         scene="overworld",
         klass="mode7",
-        # Hold RIGHT for the whole run. The overworld is a 1024 px TORUS, so
-        # there is no clamp anywhere and a held direction walks for ever —
-        # the grid slide simply re-arms itself every STEP_FRAMES frames.
-        script=[(0.0, {"right": True})],
+        # A VERTICAL shuttle. The overworld is a 1024 px TORUS with no clamp
+        # anywhere, but it has TERRAIN: a press into a blocked tile is
+        # rejected outright, and the spawn is walled to the EAST — measured,
+        # holding RIGHT for 120 frames moves the camera zero pixels while
+        # DOWN moves it 106. The north/south axis is open at the spawn in
+        # both directions, and a 1.0 s half-period keeps the walk inside the
+        # ground that was probed.
+        script=_axis_shuttle(1.0, "down", "up"),
         warmup_s=3.0, window_s=12.0, guard=[],
         observables=[
             dict(name="m7_path", kind="path2d", unit="world px",
@@ -694,7 +780,8 @@ def worker(args):
 
     rail = RAILS[args.rail]
     rom = args.rom or str(SUPERFORGE / rail["rom"])
-    jmap = json.loads((SUPERFORGE / rail["map"]).read_text())
+    jmap = json.loads(Path(args.map).read_text() if args.map
+                      else (SUPERFORGE / rail["map"]).read_text())
 
     # Resolve every observable's field to a (memory, address, width, modulus).
     plan = []
@@ -823,7 +910,8 @@ def _run_child(args, region):
     env = dict(os.environ, SF_REGION=region)
     argv = [sys.executable, __file__, args.rail, "--worker",
             "--warmup", str(args.warmup or 0), "--window", str(args.window or 0)]
-    for flag, val in (("--rom", args.rom), ("--label", args.label),
+    for flag, val in (("--rom", args.rom), ("--map", args.map),
+                      ("--label", args.label),
                       ("--picture-at", args.picture_at),
                       ("--outdir", args.outdir)):
         if val:
@@ -923,7 +1011,18 @@ def main():
     ap.add_argument("--halves", action="store_true",
                     help="also print each half's rate (drive uniformity)")
     ap.add_argument("--rom", default=None,
-                    help="override the rail's ROM (a flag build)")
+                    help="override the rail's ROM (a variant or a "
+                         "pre-change image); see --map, which such an image "
+                         "almost always needs too")
+    ap.add_argument("--map", default=None,
+                    help="override the rail's emitted symbol map. A PRE-CHANGE "
+                         "image needs its PRE-CHANGE map: the allocator packs "
+                         "a scene's user words alphabetically, so declaring a "
+                         "new one moves every word that sorts after it, and "
+                         "reading an old ROM through the new map reads the "
+                         "wrong dp bytes. Measured, not reasoned: `room`'s "
+                         "hero_x read 0.000 that way while its OAM observable "
+                         "(a claim that did not move) read correctly.")
     ap.add_argument("--label", default=None, help="name for the ROM variant")
     ap.add_argument("--picture-at", default=None,
                     help="comma-separated REAL seconds to capture at")

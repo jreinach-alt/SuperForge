@@ -5,9 +5,23 @@
 # ship) and it makes the window feature's DISARM path real: a lantern left
 # armed on scene exit would darken the next scene through registers that
 # scene never wrote, which is exactly the bug class rg_disarm exists for.
+# REGION + TICK_SCALE: what makes this cart one cart on both machines.
+#   region      reads $213F bit 4 once at boot and publishes ES_RGN_PAL.
+#   tick_scale  turns a per-frame delta into a REGION-CORRECT one, carrying
+#               the fraction between frames. It `depends = ["region"]`, so the
+#               allocator pulls `region` in with it.
+# ONE RATE ACROSS TWO SCENES. room_logic's RM_SPEED moves both heroes in both
+# rooms, so `room` and `room_b` each declare their own pair — the scenes are
+# separately scoped and rm_move reads whichever scene's word is in scope, the
+# same way it already reads that scene's US_PX.
+# NOT SCALED: the FOOTSTEP CADENCE (room_logic's RM_STEP_PERIOD). It is an
+# integer countdown between SFX queues — docs/95 §5.2's class B, where a x5/6
+# has no correct answer, only a rounding policy — and this is not that retune.
+# The visible consequence is stated where it lives: on PAL the hero covers
+# ~21.6 px between footsteps instead of 18.
 globals = ["scene_mgr", "input", "input2", "fade", "text_dp", "font_rom",
            "enter_scr", "oam_sprites", "hero_rom", "room_rom", "audio",
-           "tad_rom", "save"]
+           "tad_rom", "save", "region", "tick_scale"]
 
 [[scene]]
 id = "title"

@@ -11,8 +11,34 @@ py = "u16@dp"            # movement and the iris both read these every frame)
 px2 = "u16@dp"           # the second hero (pad 2) — same screen space, moved
 py2 = "u16@dp"           # by input2's JOY2 word
 
+# --- the TIMEBASE's per-consumer state (engine/features/tick_scale) --------
+# ONE RATE, ONE PAIR PER SCENE. room_logic's RM_SPEED is the only velocity in
+# either room; the footstep cadence is a countdown and is left alone. The
+# pair is per-RATE, not per-hero and not per-axis: both pads and both axes
+# step by the same base, so they share one carried fraction.
+ts_acc = "u16@dp"        # the carried fraction, 8.8.
+                         # TICK: ok — this word EXISTS to remove a frame
+                         # coupling, not to express one; it has no meaning in
+                         # frames.
+ts_step = "u16@dp"       # this frame's whole-unit step in screen px,
+                         # published once by the tick and read by RM_MOVE_PAD.
+                         # TICK: ok — the OUTPUT of the scaler.
+
 [scene.room_b]
 px = "u16@dp"            # the cavern's own hero position — same shape as
 py = "u16@dp"            # room's (room_logic is scene-scoped)
 px2 = "u16@dp"           # ...and the cavern's own second hero (pad 2)
 py2 = "u16@dp"
+
+# --- the TIMEBASE's per-consumer state (engine/features/tick_scale) --------
+# ONE RATE, ONE PAIR PER SCENE. room_logic's RM_SPEED is the only velocity in
+# either room; the footstep cadence is a countdown and is left alone. The
+# pair is per-RATE, not per-hero and not per-axis: both pads and both axes
+# step by the same base, so they share one carried fraction.
+ts_acc = "u16@dp"        # the carried fraction, 8.8.
+                         # TICK: ok — this word EXISTS to remove a frame
+                         # coupling, not to express one; it has no meaning in
+                         # frames.
+ts_step = "u16@dp"       # this frame's whole-unit step in screen px,
+                         # published once by the tick and read by RM_MOVE_PAD.
+                         # TICK: ok — the OUTPUT of the scaler.

@@ -31,5 +31,10 @@ ts_step = "u16@dp"       # this frame's whole-unit step in px, published once
                          # TICK: ok — the OUTPUT of the scaler; already
                          # expressed against the declared tick.
 
+# ---------------------------------------------------------------------------
+# (The blank run above is load-bearing: `make tick-check`'s override radius is
+# THREE LINES, so a `TICK: ok` sitting closer than that to the next
+# declaration silences ITS finding too. The heartbeat below is a real
+# frame-unit declaration and must keep being counted.)
 frames = "u16@dp"        # frames since enter — the free-running heartbeat a
                          #   test reads to tell "tick running" from "stuck"

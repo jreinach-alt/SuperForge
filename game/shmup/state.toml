@@ -48,3 +48,43 @@ msg = "u16@dp"              # pending verdict-block address, 0 = idle. A block
                          # queue, because a running scene cannot write VRAM
                          # any other way
 msgpos = "u16@dp"           # the next cell of that block
+
+# --- the TIMEBASE's per-consumer state (engine/features/tick_scale) ---------
+#
+# FIVE RATES, FIVE PAIRS. tick_scale carries the fraction PER RATE, so two
+# consumers on different bases cannot share one accumulator — and the two that
+# DO share a base here (the fighters at 1 px/frame and the field drift at 1
+# px/frame) are kept apart anyway, because a shared pair would silently couple
+# the enemy's speed to the sky's the day either constant is tuned. Ten words
+# is what honesty costs; the allocator is what proves they fit.
+#
+# Each pair is (carried fraction, this frame's published whole-unit step). The
+# step is computed ONCE per frame at the top of the update and read by every
+# add that needs it.
+tss_acc = "u16@dp"       # the ship's d-pad step: SHIP_SPEED px per frame
+                         # TICK: ok — the carried FRACTION of a scaled rate.
+                         # It exists to remove a frame coupling, not to hold
+                         # one, and it has no meaning in frames.
+tss = "u16@dp"           # ...and this frame's answer, in whole px
+                         # TICK: ok — the OUTPUT of the scaler; already
+                         # expressed against the declared tick.
+tsb_acc = "u16@dp"       # the bullets' climb: BULLET_SPEED px per frame
+                         # TICK: ok — as tss_acc.
+tsb = "u16@dp"           # ...and this frame's answer, in whole px
+                         # TICK: ok — as tss.
+tsf_acc = "u16@dp"       # the fighters' descent: FOE_SPEED px per frame
+                         # TICK: ok — as tss_acc.
+tsf = "u16@dp"           # ...and this frame's answer, in whole px
+                         # TICK: ok — as tss.
+tsd_acc = "u16@dp"       # the planet field's drift: 1 BG px per frame
+                         # TICK: ok — as tss_acc.
+tsd = "u16@dp"           # ...and this frame's answer, in whole BG px
+                         # TICK: ok — as tss.
+tsa_acc = "u16@dp"       # the animation clock: one anim unit per frame. This
+                         # is the pair that answers docs/95 §5.2's class C —
+                         # ANIM_RATE is a small-integer divider with no
+                         # correct x5/6 — by scaling what the clock ADVANCES
+                         # BY instead of the divider it is compared against.
+                         # TICK: ok — as tss_acc.
+tsa = "u16@dp"           # ...and this frame's answer, in whole anim units
+                         # TICK: ok — as tss.

@@ -23,6 +23,28 @@ PLAY_TXT_ATTR = (7 << 10) | (1 << 13)
 .include "shmup_obj.asm"
 
 ; =============================================================================
+; THE FIVE BASE RATES tick_scale SCALES (docs/96 §4, docs/97 §3)
+; =============================================================================
+; Each is a per-frame delta in the 8.8 unit TS_STEP takes, built from the
+; rail's own tuning constants so shmup.inc stays the one place a designer
+; edits. SHIP_SPEED, BULLET_SPEED and FOE_SPEED are now RATES rather than
+; per-frame immediates: on NTSC the published step is the constant to the
+; pixel, on PAL it is the constant times 1.2018 with the fraction carried.
+TS_SHIP_BASE   = SHIP_SPEED * TS_ONE
+TS_BULLET_BASE = BULLET_SPEED * TS_ONE
+TS_FOE_BASE    = FOE_SPEED * TS_ONE
+; The planet field falls one BG pixel per frame. shmup_bg owns that step and
+; is NOT edited: the scene calls its one-pixel `shm_drift` the published
+; number of times instead, so the feature keeps its `dec a` + mask exactly as
+; written and the scale lives entirely on the caller's side. On NTSC that is
+; one call, to the cycle.
+TS_DRIFT_BASE  = TS_ONE
+; One animation unit. The DIVIDER in ANIM_RATE is untouched — scaling a small
+; integer divider is docs/95 §5.2's class C and has no correct answer — so
+; what is scaled is the amount the clock advances by.
+TS_ANIM_BASE   = TS_ONE
+
+; =============================================================================
 ; MESSAGE BLOCKS — two 11-cell rows written ONE CELL PER FRAME
 ; =============================================================================
 ; A running scene cannot write VRAM, so the verdict lines go through bg_text's
@@ -224,6 +246,18 @@ enter:
     stz z:US_ATICK
     stz z:US_AFRAME
     stz z:US_BLINK
+    ; The timebase's ten words. The accumulators start empty and the five
+    ; published steps are written before anything reads them.
+    stz z:US_TSS_ACC
+    stz z:US_TSS
+    stz z:US_TSB_ACC
+    stz z:US_TSB
+    stz z:US_TSF_ACC
+    stz z:US_TSF
+    stz z:US_TSD_ACC
+    stz z:US_TSD
+    stz z:US_TSA_ACC
+    stz z:US_TSA
     stz z:US_DIRTY                  ; enter prints both counters directly
     stz z:US_MSG
     stz z:US_MSGPOS
@@ -344,6 +378,20 @@ shm_update:
     lda z:US_BLINK
     inc a
     sta z:US_BLINK              ; a free-running heartbeat: "the tick ran"
+    ; ---- this frame's five region-correct steps, published once -----------
+    ; BEFORE the START test and the GAME OVER branch, deliberately: the
+    ; freeze still runs the animation clock and the bursts, and a step word
+    ; that stops being republished is a stale word waiting to be read.
+    TS_STEP z:US_TSS_ACC, TS_SHIP_BASE
+    sta z:US_TSS
+    TS_STEP z:US_TSB_ACC, TS_BULLET_BASE
+    sta z:US_TSB
+    TS_STEP z:US_TSF_ACC, TS_FOE_BASE
+    sta z:US_TSF
+    TS_STEP z:US_TSD_ACC, TS_DRIFT_BASE
+    sta z:US_TSD
+    TS_STEP z:US_TSA_ACC, TS_ANIM_BASE
+    sta z:US_TSA
     lda z:ES_INP_PRESS
     and #JOY_START
     beq @live
@@ -366,7 +414,7 @@ shm_update:
 @play:
     .a16
     .i16
-    jsr shm_drift               ; the field keeps falling
+    jsr shm_field_drift         ; the field keeps falling
     jsr shm_move_ship
     jsr shm_fire
     jsr shm_move_bullets
@@ -376,6 +424,37 @@ shm_update:
     jsr shm_hits               ; bullets vs fighters
     jmp shm_damage             ; fighters vs the ship
 
+; --- shm_field_drift: the field's region-correct fall ----------------------
+; In/out: A16/I16, DB=0. Clobbers A, X.
+;
+; shmup_bg's `shm_drift` moves the field EXACTLY ONE BG pixel — a `dec a` and
+; the map-height mask — and it is left exactly as written. What this does is
+; call it US_TSD times, which is 1 on NTSC (so this is one jsr and one `dec`,
+; the behaviour the rail already had) and 1 or 2 on PAL in the pattern that
+; averages 1.2018. Scaling on the CALLER'S side keeps the whole change inside
+; the game and leaves the feature's wrap arithmetic untouched — the shadow is
+; masked to the map's own height, so two single-pixel steps and one two-pixel
+; step are the same wrap either way.
+shm_field_drift:
+    .a16
+    .i16
+    ldx z:US_TSD
+    beq @done                   ; a 0-step frame cannot happen at this base,
+                                ;   but the loop must not run 65,536 times if
+                                ;   the base is ever retuned to a fraction
+@one:
+    .a16
+    .i16
+    phx
+    jsr shm_drift
+    plx
+    dex
+    bne @one
+@done:
+    .a16
+    .i16
+    rts
+
 ; --- shm_anim: the shared animation clock ----------------------------------
 ; In/out: A16/I16, DB=0. One divider and one step index, shared by the ship
 ; and every fighter — so the whole cast's engine plumes flicker together,
@@ -383,10 +462,25 @@ shm_update:
 shm_anim:
     .a16
     .i16
+    ; THE CLOCK ADVANCES BY US_TSA, NOT BY ONE. That is this rail's answer to
+    ; docs/95 §5.2's class C: ANIM_RATE is a small integer with no correct
+    ; x5/6, so the DIVIDER is left alone and what the clock ADVANCES BY is
+    ; scaled instead — 1 unit per NTSC frame, 1.2018 per PAL frame, the
+    ; fraction carried by tick_scale. On NTSC US_TSA is exactly 1 every
+    ; frame, so this is `inc a` to the cycle in behaviour.
     lda z:US_ATICK
-    inc a
+    clc
+    adc z:US_TSA
     cmp #ANIM_RATE
     bcc @store
+    ; CARRY THE OVERSHOOT rather than zeroing. On NTSC the clock arrives at
+    ; the divider EXACTLY (it steps by 1 from 0), so tick - rate = 0 and the
+    ; store below is `lda #0` in behaviour; on PAL a 2-unit frame can cross
+    ; the divider by one, and dropping that one is a bias the accumulator
+    ; upstream cannot see.
+    sec
+    sbc #ANIM_RATE
+    pha
     lda z:US_AFRAME
     inc a
     cmp #ANIM_STEPS
@@ -395,7 +489,10 @@ shm_anim:
 :   .a16
     .i16
     sta z:US_AFRAME
-    lda #0
+    pla                         ; WIDTH-RISK: stack balance — this PLA (A16,
+                                ;   2 bytes) matches the PHA above; the arm
+                                ;   is straight-line A16 and no width toggle
+                                ;   spans it
 @store:
     .a16
     .i16
@@ -416,7 +513,7 @@ shm_move_ship:
     beq @no_right
     lda z:US_PX
     clc
-    adc #SHIP_SPEED
+    adc z:US_TSS
     cmp #SHIP_MAX_X
     bcc :+
     lda #SHIP_MAX_X
@@ -431,7 +528,7 @@ shm_move_ship:
     beq @no_left
     lda z:US_PX
     sec
-    sbc #SHIP_SPEED
+    sbc z:US_TSS
     cmp #SHIP_MIN_X
     bcs :+
     lda #SHIP_MIN_X
@@ -446,7 +543,7 @@ shm_move_ship:
     beq @no_down
     lda z:US_PY
     clc
-    adc #SHIP_SPEED
+    adc z:US_TSS
     cmp #SHIP_MAX_Y
     bcc :+
     lda #SHIP_MAX_Y
@@ -461,7 +558,7 @@ shm_move_ship:
     beq @no_up
     lda z:US_PY
     sec
-    sbc #SHIP_SPEED
+    sbc z:US_TSS
     cmp #SHIP_MIN_Y
     bcs :+
     lda #SHIP_MIN_Y
@@ -517,7 +614,7 @@ shm_move_bullets:
     beq @next
     lda f:ES_SHM_POOLS_LONG + SHM_PY, x
     sec
-    sbc #BULLET_SPEED
+    sbc z:US_TSB
     sta f:ES_SHM_POOLS_LONG + SHM_PY, x
     cmp #BULLET_TOP
     bcs @next                   ; still below the HUD band
@@ -584,7 +681,7 @@ shm_move_foes:
     beq @next
     lda f:ES_SHM_POOLS_LONG + SHM_PY, x
     clc
-    adc #FOE_SPEED
+    adc z:US_TSF
     sta f:ES_SHM_POOLS_LONG + SHM_PY, x
     cmp #FOE_GONE_Y
     bcc @next

@@ -274,7 +274,7 @@
   },
   {
     "file": "engine/features/room_logic/room_logic.asm",
-    "line": 20,
+    "line": 37,
     "rule": "tick-constant",
     "message": "`RM_STEP_PERIOD = 9` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
     "severity": "error"
@@ -862,7 +862,7 @@
   },
   {
     "file": "game/breaker/scenes/play.asm",
-    "line": 120,
+    "line": 141,
     "rule": "tick-routine",
     "message": "`brk_msg_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
@@ -897,7 +897,7 @@
   },
   {
     "file": "game/camera_follow/state.toml",
-    "line": 28,
+    "line": 49,
     "rule": "tick-state",
     "message": "`frames` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
@@ -911,7 +911,7 @@
   },
   {
     "file": "game/hud_game/state.toml",
-    "line": 25,
+    "line": 45,
     "rule": "tick-state",
     "message": "`blink` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
@@ -1128,7 +1128,7 @@
   },
   {
     "file": "game/maze/state.toml",
-    "line": 17,
+    "line": 39,
     "rule": "tick-state",
     "message": "`frames` is declared in a frame unit ('frames'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
@@ -1765,7 +1765,7 @@
   },
   {
     "file": "game/shmup/scenes/play.asm",
-    "line": 114,
+    "line": 136,
     "rule": "tick-routine",
     "message": "`shm_msg_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"

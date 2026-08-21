@@ -38,3 +38,33 @@ msg = "u16@dp"              # pending message block address, 0 = idle. A block
                          # queue, because a running scene cannot write VRAM
                          # any other way
 msgpos = "u16@dp"           # the next cell of that block
+
+# --- the TIMEBASE's per-consumer state (engine/features/tick_scale) ---------
+#
+# THREE PAIRS: the bat, and the ball's TWO SPEED CLASSES. The ball's velocity
+# is state (+-BRK_SPEED_1 or +-BRK_SPEED_2, set by the launch angle and reset
+# by the paddle english), so there is no single base to scale — both classes
+# get one. They are separate pairs because tick_scale carries the fraction PER
+# RATE and these are three different rates.
+tsp_acc = "u16@dp"       # the bat: BRK_PADDLE_SPEED px per frame
+                         # TICK: ok — the carried FRACTION of a scaled rate.
+                         # It exists to remove a frame coupling, not to hold
+                         # one, and it has no meaning in frames.
+tsp = "u16@dp"           # ...and this frame's answer, in whole px
+                         # TICK: ok — the OUTPUT of the scaler; already
+                         # expressed against the declared tick.
+ts1_acc = "u16@dp"       # the ball's SLOW class: BRK_SPEED_1 px per frame
+                         # TICK: ok — as tsp_acc.
+ts1 = "u16@dp"           # ...and this frame's answer, in whole px
+                         # TICK: ok — as tsp.
+ts2_acc = "u16@dp"       # the ball's FAST class: BRK_SPEED_2 px per frame.
+                         # A separate pair from ts1 because it is a separate
+                         # RATE, and because one shared pair would make a
+                         # class-2 ball alternate 2 and 4 px instead of 2 and
+                         # 3 — the same average, a lumpier picture, and a
+                         # measurably noisier path (every reflection costs a
+                         # whole frame of travel, so a bigger frame costs
+                         # more).
+                         # TICK: ok — as tsp_acc.
+ts2 = "u16@dp"           # ...and this frame's answer, in whole px
+                         # TICK: ok — as tsp.

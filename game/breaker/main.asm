@@ -36,6 +36,11 @@ NMI:
 .include "fade.asm"
 .include "bg_text.asm"
 .include "oam_sprites.asm"
+.include "region.asm"               ; $213F bit 4 -> ES_RGN_PAL, once at boot
+.include "tick_scale.asm"           ; TS_STEP: the macro play.asm's update
+                                    ; uses. INCLUDED BEFORE THE SCENES, and it
+                                    ; must be — a ca65 macro has to be defined
+                                    ; before the line that expands it.
 
 ; --- text_dp boot init (the text engine's global DP block) ------------------
 text_dp_init:
@@ -128,6 +133,9 @@ MAIN:
     jsr input_init
     jsr fade_init
     jsr text_dp_init
+    jsr region_init             ; the console's own region line, once. It is
+                                ;   game-lifetime state: a console does not
+                                ;   change region between scenes.
     jsr oam_park_all            ; whole shadow written before its first DMA
     jsr play::brk_q_init        ; sm_nmi_hook commits this queue on EVERY
                                 ; frame of EVERY scene, so its count byte

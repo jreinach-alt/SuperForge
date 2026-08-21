@@ -24,6 +24,10 @@ ROOM_TXT_ATTR = (7 << 10) | (1 << 13)
 .include "room_logic.asm"
 .include "window_iris.asm"
 
+; The walk's base rate, in the 8.8 unit TS_STEP takes. room_logic's RM_SPEED
+; is still the one number to reach for when tuning how the cavern feels.
+TS_WALK_BASE = RM_SPEED * TS_ONE
+
 ; --- enter: forced blank + NMI masked (scene_mgr contract) ------------------
 ; In/out: A16/I16, DB=0.
 enter:
@@ -31,6 +35,8 @@ enter:
     .i16
     ; ---- the cavern's own state: spawn just inside the west door (the
     ; player walked east out of `room`, so continuity puts them here)
+    stz z:US_TS_ACC             ; the timebase's carried fraction, and this
+    stz z:US_TS_STEP            ;   frame's step: written before either is read
     jsr rm_spawn
     lda #(RM_LO + 2)
     sta z:US_PX
@@ -136,6 +142,11 @@ exit:
 tick:
     .a16
     .i16
+    ; ---- this frame's region-correct walk step, published once -------------
+    ; Read by RM_MOVE_PAD for both pads and both axes — one rate, so one
+    ; answer per frame. On NTSC it is RM_SPEED to the pixel.
+    TS_STEP z:US_TS_ACC, TS_WALK_BASE
+    sta z:US_TS_STEP
     jsr rm_move
     jsr room_refresh
     ; ---- the west door: back to the room. PRESS edge at the left wall,

@@ -44,6 +44,26 @@ CM_FLAGS             = ::pat_flags_bin
 .include "patrol_bg.asm"
 .include "patrol_obj.asm"
 
+; =============================================================================
+; THE TWO BASE RATES tick_scale SCALES (docs/96 §4, docs/97 §3)
+; =============================================================================
+; PAT_SPEED and PAT_PATROL_SPEED are still the two numbers to reach for when
+; tuning how this rail feels; what changed is that they are now RATES rather
+; than per-frame immediates. On NTSC TS_STEP publishes each to the pixel, so
+; the picture cannot move.
+TS_RUN_BASE   = PAT_SPEED * TS_ONE
+TS_BEAT_BASE  = PAT_PATROL_SPEED * TS_ONE
+;
+; THE JUMP IS NOT HERE, and that is a stated limit rather than an oversight.
+; PAT_GRAVITY, PAT_JUMP_VEL and PAT_MAX_FALL are a ballistic arc: preserving
+; it in real time needs the take-off velocity times r AND gravity times r
+; SQUARED, because the apex is v^2/2g and a single factor changes the SHAPE
+; rather than the speed. tick_scale supplies exactly one gain, so r goes
+; through TS_STEP and r^2 does not — and a second gain is surgery on a feature
+; other rails compose. game.toml carries the full argument; the oracle's
+; fall_y observable is the non-vacuity control that keeps it honest, reading
+; the frame ratio in the same run where player_x and e1_x read parity.
+
 ; BG3 2bpp tile attr: palette 7 (claim pins CGRAM words 28..31), priority set
 ; so the HUD line draws over the actors where they overlap — BGMODE bit 3
 ; below puts BG3's priority-1 tiles above the sprites, which is what a HUD is.
@@ -105,14 +125,14 @@ TXT_ATTR = (7 << 10) | (1 << 13)
     beq move_left
     lda z:p_ex
     clc
-    adc #PAT_PATROL_SPEED
+    adc z:US_TSE
     bra store_x
 move_left:
     .a16
     .i16
     lda z:p_ex
     sec
-    sbc #PAT_PATROL_SPEED
+    sbc z:US_TSE
 store_x:
     .a16
     .i16
@@ -255,6 +275,10 @@ enter:
     stz z:US_HITS
     stz z:US_DIRTY
     stz z:US_FRAMES
+    stz z:US_TSR_ACC            ; the timebase's two carried fractions and the
+    stz z:US_TSR                ;   two published steps: written before any of
+    stz z:US_TSE_ACC            ;   them is read (enter's own place runs first)
+    stz z:US_TSE
     ; ---- the HUD, printed under the blank where a whole string is legal ---
     lda #TXT_ATTR
     sta z:ES_TXT_TMP
@@ -292,6 +316,13 @@ tick:
     lda z:US_FRAMES
     inc a
     sta z:US_FRAMES             ; the free-running heartbeat
+    ; ---- this frame's two region-correct steps, published once ------------
+    ; The run is read by move_x's two arms and the beat by both PAT_STEP
+    ; expansions, so both are computed here: once per frame per rate.
+    TS_STEP z:US_TSR_ACC, TS_RUN_BASE
+    sta z:US_TSR
+    TS_STEP z:US_TSE_ACC, TS_BEAT_BASE
+    sta z:US_TSE
     lda z:US_PYF
     xba
     and #$00FF
@@ -324,7 +355,7 @@ move_x:
     beq @no_right
     lda z:US_NEWX
     clc
-    adc #PAT_SPEED
+    adc z:US_TSR
     sta z:US_NEWX
 @no_right:
     .a16
@@ -334,7 +365,7 @@ move_x:
     beq @no_left
     lda z:US_NEWX
     sec
-    sbc #PAT_SPEED
+    sbc z:US_TSR
     sta z:US_NEWX
 @no_left:
     .a16
