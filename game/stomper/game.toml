@@ -32,8 +32,25 @@
 #   audio       this rail is silent; nothing here is timed to sound.
 #   backdrop    stomper_bg's palette group 0 claim owns CGRAM word 0 (the
 #               backdrop slot), and that slot has exactly one owner.
+#
+# REGION + TICK_SCALE. Like `jumper`, this rail is a BALLISTIC ARC and takes
+# the timebase for the two-constant reason: a velocity is px per frame and
+# scales by the frame ratio r, a GRAVITY is px per frame SQUARED and scales
+# by r^2. Together they keep apex = v0^2/2g unchanged, so the hop clears the
+# same wall and the STOMP still lands on the same enemy head on both
+# machines. What this rail adds over jumper is a second rate on the same
+# shape -- the enemies' patrol -- and a THIRD velocity, the stomp bounce.
+#   region      reads $213F bit 4 once at boot and publishes ES_RGN_PAL.
+#   tick_scale  turns a per-frame delta into a region-correct one, carrying
+#               the fraction. It `depends = ["region"]`.
+# NOT scaled, and each is a decision rather than an omission: `clearp` is the
+# CLEAR banner's print pump, which is paced by bg_text's VBlank queue holding
+# one run of up to 4 cells per FRAME -- a hardware transport rate, not a game
+# rate, and scaling it would ask the queue for cells it cannot carry; and
+# `blink` is the free-running heartbeat a test reads to tell a running tick
+# from a stuck one, which is what it is FOR.
 globals = ["scene_mgr", "input", "fade", "text_dp", "font_rom", "enter_scr",
-           "oam_sprites", "stomper_rom"]
+           "oam_sprites", "stomper_rom", "region", "tick_scale"]
 
 [[scene]]
 id = "play"
