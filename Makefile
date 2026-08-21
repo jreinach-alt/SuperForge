@@ -16,13 +16,14 @@ LD65    := ld65
 # no-op. The other three are the same shape and are fixed alongside it.
 .PHONY: all toy alloc no-literals toy-bad rom-unbacked clean test width-check \
 	cleanroom \
-	time-check falsify determinism \
+	time-check tick-check tick-census falsify determinism \
 	probe-colmap microzero room probes measure rail-registered \
 	register register-write push gates breaker shmup platformer split_v_fight \
 	hud_game \
 	m7dg-assets m7_dungeon m7dg-labels m7dg-measure m7dg-measure-logic \
 	sh2-assets split_h_2p_demo sh2-variants sh2-labels sh2-measure bare-check \
 	m7x-assets mode7_explore pfs-assets platformer_stream scroller \
+	scroller-tb tb-measure tb-picture rate-oracle \
 	camera_follow maze jumper patrol sprite_game stomper scroll_run brawler \
 	split_h_matrix_demo split_h_persp3_demo \
 	svd-assets split_v_demo svd-nowin split_v_seamtrial \
@@ -1049,6 +1050,34 @@ $(BUILD)/scroller.sfc: $(SCR_ASM) $(SCR)/scroller.inc \
 	$(PY) tools/fix_checksum.py $@
 
 scroller: $(BUILD)/scroller.sfc
+
+# ---- scroller-tb: the PROTOTYPE TIMEBASE variants (docs/96 §4) ------------
+# Five `-D SF_TICK=n` builds of the SAME source, plus a control arm with no
+# define that must come out byte-identical to `build/scroller.sfc`. The
+# default rail is untouched: with no define the guards are absent and the
+# image holds e45-era md5 f34ae672bc8b98e034172ba1e28acbbf.
+#
+# NOT a gate and not in `gates` — these are research images. What they are
+# for is `tools/rate_oracle.py` (does the scheme reach parity),
+# `tools/measure_tb_cost.py` (what it costs) and `tools/tb_picture_diff.py`
+# (did the NTSC picture move — it must not).
+scroller-tb: $(BUILD)/scroller.sfc
+	@bash tools/build_scroller_tb.sh
+
+# What each candidate COSTS, per region, on the shipping variant images.
+tb-measure: scroller-tb
+	$(PY) tools/measure_tb_cost.py
+
+# Does the NTSC picture move? It must not. Rendered pixels, absolute frames.
+tb-picture: scroller-tb
+	$(PY) tools/tb_picture_diff.py $(BUILD)/scroller.sfc \
+	    $(BUILD)/scroller_tb_lump.sfc $(BUILD)/scroller_tb_accum6_5.sfc \
+	    $(BUILD)/scroller_tb_accum.sfc $(BUILD)/scroller_tb_intscale.sfc \
+	    $(BUILD)/scroller_tb_intup.sfc
+
+# The rate oracle on the four motion classes, both regions.
+rate-oracle:
+	$(PY) tools/rate_oracle.py scroller racer brawler platformer --halves
 
 # ---- camera_follow: the camera/world-space split --
 # A red player moved with the d-pad through a 512x448 world over a repeating
@@ -2914,6 +2943,41 @@ TIME_LINT_TARGETS  = tests tools
 
 time-check:
 	@$(TIME_LINT) $(TIME_LINT_TARGETS) --baseline $(TIME_LINT_BASELINE) --summary
+
+# ---- tick-check: the FRAME-ASSUMPTION gate (docs/96) ----------------------
+# The third sibling of width-check and time-check, for the class the
+# ALLOCATOR cannot see. The allocator proves two features do not collide in
+# SPACE; nothing proved anything about their unit of TIME, and docs/95 §5.5
+# put a number on that: 185 named sites that assume one logic tick is one
+# hardware frame. That number lived in prose, which means the next countdown
+# anybody writes is site 186 and no gate notices.
+#
+# A FINDING IS NOT A DEFECT. Every one of these sites is correct today —
+# every rail ships one tick per frame on purpose. What the gate keeps is the
+# POPULATION: bounded, counted, and only able to go down.
+#
+# DELIBERATELY NOT IN `gates` AND NOT IN `bare-check`. A gate whose baseline
+# holds 356 entries has to earn its place before it is allowed to fail a
+# landing; it is run on demand and by tests/test_tick_lint.py. Promote it
+# when the baseline has been driven down and the rule set has stopped
+# moving — the same path time-check took, which shipped with an EMPTY
+# baseline precisely because its work item drove all 56 findings to zero
+# first. This one cannot: 135 of its findings are game-design decisions.
+#
+# Scope is the first-party tree. vendor/ is OUT (frozen), and that costs one
+# real site — vendor/mesen_runner.py carries one of docs/95 §5.4's `357368`
+# literals. docs/96 §3 records the reconciliation against the 185.
+TICK_LINT          = $(PY) tools/tick_lint.py
+TICK_LINT_BASELINE = reports/tick_lint_baseline.json
+TICK_LINT_TARGETS  = engine game tools allocator tests
+
+tick-check:
+	@$(TICK_LINT) $(TICK_LINT_TARGETS) --baseline $(TICK_LINT_BASELINE) --summary
+
+# The census that reconciles against docs/95 §5.5 — per rule, per file. Not a
+# gate: it prints the whole population, baseline and all.
+tick-census:
+	@$(TICK_LINT) $(TICK_LINT_TARGETS) --by-class || true
 
 # ---- falsify: prove the gates still have teeth (docs/46) ------------------
 # NOT part of `make gates` and deliberately not in the push set: it plants
