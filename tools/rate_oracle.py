@@ -284,6 +284,34 @@ RAILS = {
     # inside the window, a `guard` says so: a window that spans a dead rail
     # averages a live half with a frozen half and reports a ratio about
     # nothing.
+    "mode7_explore": dict(
+        rom="build/mode7_explore.sfc", map="build/m7x/symbol_map.json",
+        scene="overworld",
+        klass="mode7",
+        # RIGHT and DOWN together, and both halves earn their place. The
+        # dispatch priority is LEFT, RIGHT, UP, DOWN with a FALL-THROUGH on a
+        # blocked axis, so holding two open directions keeps her walking when
+        # one is refused by water or mountain — a single held axis measures the
+        # terrain as much as the rail. And both lead AWAY from the one
+        # enterable house: the spawn is tile (258,258) and the door is
+        # (254,254), so a rightward, downward walk cannot trip the scene swap
+        # and strand the window in an interior that does not move this camera.
+        script=[(0.0, {"right": True, "down": True})],
+        warmup_s=2.0, window_s=12.0, guard=[],
+        observables=[
+            dict(name="cam_path", kind="path2d", unit="world px",
+                 mem="wram",
+                 fields=[("ES_M7ORG", 0, 2, 4096), ("ES_M7ORG", 2, 2, 4096)],
+                 why="ES_M7ORG +0/+2 is the camera mxl_apply_camera publishes "
+                     "(m7x_logic.asm:328) — the word `mode7_stream` reads to "
+                     "decide which world rows enter VRAM, and the same "
+                     "position m7a_set_center turns into the affine pivot. "
+                     "The floor is drawn FROM it, so the path length it traces "
+                     "is the ground she covers. The modulus is the authored "
+                     "world's 4,096 px (M7X_WORLD_PX); the clamp keeps the "
+                     "camera at 512..3,576 so it never reaches one."),
+        ],
+    ),
     "mode7_chamber": dict(
         rom="build/mode7_chamber.sfc", map="build/m7c/symbol_map.json",
         scene="chamber",
@@ -364,7 +392,8 @@ def worker(args):
 
     rail = RAILS[args.rail]
     rom = args.rom or str(SUPERFORGE / rail["rom"])
-    jmap = json.loads((SUPERFORGE / rail["map"]).read_text())
+    jmap = json.loads(Path(args.map).read_text() if args.map
+                      else (SUPERFORGE / rail["map"]).read_text())
 
     # Resolve every observable's field to a (memory, address, width, modulus).
     plan = []
@@ -493,7 +522,8 @@ def _run_child(args, region):
     env = dict(os.environ, SF_REGION=region)
     argv = [sys.executable, __file__, args.rail, "--worker",
             "--warmup", str(args.warmup or 0), "--window", str(args.window or 0)]
-    for flag, val in (("--rom", args.rom), ("--label", args.label),
+    for flag, val in (("--rom", args.rom), ("--map", args.map),
+                      ("--label", args.label),
                       ("--picture-at", args.picture_at),
                       ("--outdir", args.outdir)):
         if val:
@@ -594,6 +624,17 @@ def main():
                     help="also print each half's rate (drive uniformity)")
     ap.add_argument("--rom", default=None,
                     help="override the rail's ROM (a flag build)")
+    ap.add_argument("--map", default=None,
+                    help="override the rail's symbol map. REQUIRED whenever "
+                         "--rom names an image built from a different "
+                         "declaration than the tree holds: every field below "
+                         "is (claim symbol, offset) and the claim's BASE comes "
+                         "from the map, so measuring a PRE-CHANGE image "
+                         "against the post-change map silently reads the "
+                         "neighbouring word. Regenerate the old map with "
+                         "allocator/allocate.py against the old game dir "
+                         "(git archive HEAD -- game/<rail> | tar -x) and pass "
+                         "it here.")
     ap.add_argument("--label", default=None, help="name for the ROM variant")
     ap.add_argument("--picture-at", default=None,
                     help="comma-separated REAL seconds to capture at")

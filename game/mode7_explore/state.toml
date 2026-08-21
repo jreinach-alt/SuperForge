@@ -86,6 +86,25 @@ step_dy = "u16@dp"
 # press registered and the terrain refused.
 facing = "u16@dp"        # FACE_DOWN 0 / FACE_UP 1 / FACE_LEFT 2 / FACE_RIGHT 3
 
+# --- the timebase (engine/features/tick_scale, composed in game.toml) ------
+# ONE PAIR, and it is not the shape scroller and brawler use: what this rail
+# scales is the STATE STEP, not a distance, so the "whole units" TS_STEP
+# publishes are STATE STEPS TO RUN THIS FRAME — 1 on NTSC always, 1 or 2 on
+# PAL averaging 1.2018. m7x_logic.asm's "THE GRID STEP IN TWO REGIONS" derives
+# why the tick and not the pixel.
+ts_acc = "u16@dp"        # the carried fraction of the scaled state step
+                         # TICK: ok — a carried FRACTION, the thing that
+                         # REMOVES the frame coupling rather than one that
+                         # holds it. It has no meaning in frames.
+landed = "u16@dp"        # 1 on the frame a slide reached its grid cell. The
+                         #   town trigger reads this instead of comparing
+                         #   step_active either side of mxl_tick, which stops
+                         #   being the same question once a frame can carry
+                         #   two state steps.
+                         # TICK: ok — a per-FRAME edge flag, rebuilt from
+                         # scratch at the top of every mxl_tick and never
+                         # counted in. It is the OUTPUT of the scaled step.
+
 # =============================================================================
 # THE TOWN INTERIOR
 # =============================================================================
