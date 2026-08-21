@@ -18,7 +18,10 @@
 
 .define SF_HDR_TITLE "IRON KNIGHTS"
 SF_HDR_TITLE_SET = 1
-SF_HDR_ROM_SIZE = $09               ; 512 KB
+; $FFD7 (ROM size) is DERIVED: vendor/rom/header.inc imports
+; SF_LD_ROM_SIZE from the linker config, which is the only file that
+; knows how big the image is. It used to be declared here, in 17 rails,
+; beside 20 that inherited a 32 KB default and shipped 524,288 B.
 .include "engine_state_globals.inc" ; GENERATED — system + game-lifetime map
 .include "brawler.inc"              ; the rail's geometry + tuning
 .include "header.inc"
@@ -37,6 +40,11 @@ NMI:
 .include "fade.asm"
 .include "bg_text.asm"
 .include "oam_sprites.asm"
+.include "region.asm"               ; $213F bit 4 -> ES_RGN_PAL, once at boot
+.include "tick_scale.asm"           ; TS_STEP: the macro fight.asm's tick uses.
+                                    ; INCLUDED BEFORE THE SCENE, and it must
+                                    ; be — a ca65 macro has to be defined
+                                    ; before the line that expands it.
 
 ; --- text_dp boot init (the text engine's global DP block) ------------------
 text_dp_init:
@@ -138,6 +146,9 @@ MAIN:
     jsr input_init
     jsr fade_init
     jsr text_dp_init
+    jsr region_init             ; the console's own region line, once. It is
+                                ;   game-lifetime state: a console does not
+                                ;   change region between scenes.
     jsr oam_park_all            ; whole shadow written before its first DMA
     ; ---- enter the boot scene (id 0 = fight) under forced blank -----------
     ldx #(SCENE_FIGHT * 2)

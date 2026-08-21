@@ -894,6 +894,15 @@ rail that works today.
 | 6 | **R1-B on the submission rail** | **3–4 days** | a PAL build that fills the screen | R1′ clauses 1–4 |
 | 7 | **the submission text** | ½ day | the stated limitation | — |
 
+> **Steps 1 and 3 LANDED 2026-08-21** — [`docs/97`](97_region_r0_landing.md).
+> R0-c + R0-d shipped together (the ROM-size byte is imported from the linker
+> config rather than defaulted, and `tools/fix_checksum.py` refuses an image
+> whose declaration is not its real length); R0-a shipped as
+> `engine/features/region`. §7's R0 table is discharged as recommended —
+> R0-a + R0-c + R0-d, with `microzero`'s pin intact. Steps 2 and 4 (the band
+> emission, `visible_lines = 239`, the `continuation` keyword) are NOT done and
+> are still the next thing.
+
 **Steps 1–4 are 4 days, are ROM-neutral or one-byte, and are worth doing on
 their own merits** — they land the declaration and the header correctness even
 if R1 never happens. Step 6 is the only one that needs the game finished first,

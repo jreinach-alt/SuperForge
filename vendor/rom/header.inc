@@ -26,9 +26,28 @@ SF_HDR_CART_TYPE = $00      ; default: ROM only. The allocator emits $02
 .endif
 .byte SF_HDR_CART_TYPE      ; $FFD6 cart type
 .ifndef SF_HDR_ROM_SIZE
-SF_HDR_ROM_SIZE = $05       ; default: 2^5 = 32 KB (toy/probes)
+; DERIVED FROM THE LINKER CONFIG, not narrated here (docs/94 R0).
+;
+; The old default was `$05` — 2^5 KB = 32 KB — and TWENTY of the thirty-seven
+; rails inherited it while linking 524,288 B. That is docs/94 §1's
+; declaration-lies defect, and it lived here because THIS FILE CANNOT KNOW THE
+; ANSWER: the image size is settled by the linker config's MEMORY areas, after
+; ca65 has finished. So the config declares it — every vendor/rom/lorom_*.cfg
+; exports SF_LD_ROM_SIZE beside the areas that create the image — and the byte
+; is resolved at link time.
+;
+; `<` is required, not decorative: `.byte <import>` emits a byte-sized fixup
+; ld65 resolves, while a bare `.byte <import>` is an assembly-time Range error
+; (ca65 cannot prove an unresolved external fits in a byte).
+;
+; The escape hatch stays: a ROM linked with a config that does not export the
+; symbol defines SF_HDR_ROM_SIZE itself before this include. Nothing in this
+; tree does — the 17 rails that used to are the 17 that no longer need to.
+.import SF_LD_ROM_SIZE
+SF_HDR_ROM_SIZE = SF_LD_ROM_SIZE
 .endif
-.byte SF_HDR_ROM_SIZE       ; $FFD7 ROM size (2^N KB; 512 KB ROMs pass $09)
+.byte <SF_HDR_ROM_SIZE      ; $FFD7 ROM size (2^N KB), checked against the
+                            ; image's real length by tools/fix_checksum.py
 .ifndef SF_HDR_SRAM_SIZE
 SF_HDR_SRAM_SIZE = $00      ; default: no SRAM. Allocator-derived from sram
                             ; demand (1024<<N bytes) — never hand-set; a
@@ -36,7 +55,21 @@ SF_HDR_SRAM_SIZE = $00      ; default: no SRAM. Allocator-derived from sram
                             ; bug C2 names.
 .endif
 .byte SF_HDR_SRAM_SIZE      ; $FFD8 SRAM size (1024<<N bytes; $00 = none)
-.byte $01                   ; $FFD9 destination: North America
+.ifndef SF_HDR_DEST
+SF_HDR_DEST = $01           ; default: $01 = North America.
+                            ;
+                            ; It is a DECLARATION OF THE TARGET MARKET, not a
+                            ; runtime region: the console's own region line is
+                            ; $213F bit 4 and `engine/features/region` is what
+                            ; reads it, so a ROM that detects and adapts keeps
+                            ; this at its default and still runs correctly on
+                            ; both machines. Override it (e.g. $02 = Europe)
+                            ; only when a build genuinely targets one market —
+                            ; a flashcart menu and a ROM-verification tool are
+                            ; what read this byte, and neither is emulated
+                            ; here (docs/95 §10 item 6).
+.endif
+.byte SF_HDR_DEST           ; $FFD9 destination
 .byte $33                   ; $FFDA fixed
 .byte $00                   ; $FFDB version
 .word $FFFF                 ; $FFDC checksum complement (placeholder)

@@ -21,6 +21,14 @@ The algorithm (fullsnes, "SNES Cartridge Header"):
     value rather than folding the old one in;
   * sum every byte of the image, mod $10000.
 A non-power-of-two image is REFUSED rather than mirrored — see _sum_mirrored.
+
+IT ALSO REFUSES A LYING ROM-SIZE BYTE. $FFD7 declares 2^N KB and it was
+FALSE on 20 of 37 rails (docs/94 §1); the byte now comes from the linker
+config, and _check_rom_size is what keeps the config and the image from
+drifting apart again. This is the only build step that reads the finished
+image, so it is the only place that can compare the declaration to the truth
+— and a tool that patched a checksum over a lying header would be certifying
+the lie.
 """
 import sys
 from pathlib import Path
@@ -30,6 +38,7 @@ from pathlib import Path
 HDR = 0x7FC0
 OFF_TITLE = HDR + 0x00
 OFF_MAPMODE = HDR + 0x15
+OFF_ROMSIZE = HDR + 0x17
 OFF_COMPLEMENT = HDR + 0x1C
 OFF_CHECKSUM = HDR + 0x1E
 
@@ -89,6 +98,35 @@ def _validate_layout(image: bytes, path: Path) -> None:
     if mapmode & 0x01:
         raise SystemExit(f"{path}: map mode ${mapmode:02X} is HiROM; this "
                          f"tool patches LoROM images only")
+    _check_rom_size(image, path)
+
+
+def _check_rom_size(image: bytes, path: Path) -> None:
+    """$FFD7 declares 2^N KB. Refuse an image whose declaration is not true.
+
+    THIS IS THE GATE ON docs/94 R0's fourth clause, and it exists because the
+    declaration was FALSE on 20 of 37 rails: vendor/rom/header.inc carried a
+    hardcoded 32 KB default that every rail not overriding it inherited while
+    linking 524,288 B. The byte is now imported from the linker config
+    (SF_LD_ROM_SIZE), and this is what stops the config and the image drifting
+    apart again — the check runs on every linked image on every build, because
+    every rail's recipe already runs this tool.
+
+    Deliberately a HARD REFUSAL rather than a warning, and deliberately here
+    rather than in a separate gate: this is the one build step that already
+    reads the finished image, so it is the only place that can see both the
+    declaration and the truth. A tool that patched a checksum over a lying
+    header would be certifying the lie."""
+    n = image[OFF_ROMSIZE]
+    declared = 1024 << n if n < 32 else None
+    if declared != len(image):
+        shown = f"{declared} B" if declared is not None else f"2^{n} KB"
+        raise SystemExit(
+            f"{path}: header ${OFF_ROMSIZE:04X} declares ROM size ${n:02X} "
+            f"= {shown}, but the image is {len(image)} B. The declaration "
+            f"lies. The byte comes from the linker config's SF_LD_ROM_SIZE "
+            f"export (vendor/rom/lorom_*.cfg) — fix it there, or define "
+            f"SF_HDR_ROM_SIZE before including header.inc.")
 
 
 def process(path: Path, check_only: bool) -> bool:
