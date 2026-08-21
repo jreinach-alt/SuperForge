@@ -667,6 +667,21 @@ def pytest_configure(config):
         (home / "Saves").mkdir(parents=True, exist_ok=True)
         os.environ["SF_MESEN_HOME"] = str(home)
 
+    # The one marker in this suite, registered here because there is no ini
+    # file to register it in. `needs_linked_images` marks cases that OPEN a
+    # linked image under build/. A normal run passes no `-m`, so they all run;
+    # `tools/setup.sh`'s pre-build sanity step is the single caller that
+    # deselects them, because in a fresh clone nothing is linked yet. It is a
+    # deselection at ONE NAMED CALL SITE and deliberately not a `skipif` inside
+    # the cases -- a case that skips when its subject is missing is how
+    # coverage evaporates in silence. tests/test_rom_header.py's
+    # "WHY THESE CASES CARRY A MARKER" block owns the full contract, and the
+    # tripwire that holds it is in that file.
+    config.addinivalue_line(
+        "markers",
+        "needs_linked_images: opens a linked image under build/; deselected "
+        "ONLY by tools/setup.sh's pre-build sanity step")
+
 # map path -> (make target that regenerates it, allocate.py argv minus --out).
 # The argv is the same invocation the Makefile recipe uses, so this cannot
 # drift into a second opinion about how a map is produced.

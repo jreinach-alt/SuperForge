@@ -134,8 +134,43 @@ def test_refuses_an_image_it_does_not_recognise(fx, tmp_path):
 # ===========================================================================
 
 BUILD = SUPERFORGE / "build"
+VROM = SUPERFORGE / "vendor" / "rom"
 OFF_ROMSIZE = 0x7FD7
 OFF_DEST = 0x7FD9
+
+# ---------------------------------------------------------------------------
+# WHY THE CASES BELOW CARRY A MARKER, AND WHY IT IS NOT A SKIP
+#
+# They open the LINKED IMAGES under build/. In the normal suite those are
+# guaranteed present by the BUILD GRAPH, not by luck: the Makefile's `test:`
+# target takes every rail plus `toy` and `probes` as PREREQUISITES, and
+# `make rail-registered` (site 12) fails when a rail is missing from that
+# list. So `_image()` FAILS on a missing image -- it never skips -- and that
+# failure is a true statement about the tree rather than an accident of
+# ordering.
+#
+# One caller runs this module BEFORE anything is linked: `tools/setup.sh`'s
+# sanity step, a fresh-clone toolchain check that has no build/ to read. It
+# went 75-red for exactly that reason and took `make bare-check` down with it
+# at its `setup` step. It now DESELECTS these cases by marker:
+#
+#     python3 -m pytest ... -m "not needs_linked_images"
+#
+# That is a deselection at ONE NAMED CALL SITE, not a condition inside the
+# tests. Nothing in this file can make a case vanish from a normal run: a run
+# that passes no `-m` collects every one of them, and pytest's own summary
+# line says "N deselected" the moment anything does.
+#
+# The rejected alternative was a stand-down-if-the-file-is-absent condition on
+# each case. It would have gone green in the fresh clone AND green in a normal
+# run with a broken or half-finished build -- the second is the whole failure:
+# 75 cases reporting nothing while reading as a pass. A test that stands down
+# when its subject is missing is how coverage evaporates without anyone seeing
+# it, so the tripwire below refuses that machinery in this file by name.
+#
+# `test_the_image_cases_cannot_be_dropped_except_by_the_pre_build_caller`
+# below is the tripwire that holds this contract.
+# ---------------------------------------------------------------------------
 
 # Every rail is a `game/*/game.toml` dir — derived from the tree rather than
 # listed, so a new rail is covered the day it lands (`make rail-registered`'s
@@ -154,6 +189,7 @@ def _image(stem: str) -> bytes:
     return rom.read_bytes()
 
 
+@pytest.mark.needs_linked_images
 @pytest.mark.parametrize("stem", RAILS + EXTRA)
 def test_rom_size_byte_tells_the_truth(stem):
     """$FFD7 declares 2^N KB and the image really is that many bytes."""
@@ -166,6 +202,7 @@ def test_rom_size_byte_tells_the_truth(stem):
         f"the byte comes from the linker config's SF_LD_ROM_SIZE export.")
 
 
+@pytest.mark.needs_linked_images
 @pytest.mark.parametrize("stem", RAILS + EXTRA)
 def test_destination_byte_is_the_declared_default(stem):
     """$FFD9 is $01 (North America) on every image in this tree.
@@ -179,6 +216,58 @@ def test_destination_byte_is_the_declared_default(stem):
     assert _image(stem)[OFF_DEST] == 0x01
 
 
+def test_the_destination_byte_can_be_overridden(built, tmp_path):
+    """The `.ifndef SF_HDR_DEST` hatch, exercised — docs/94 R0's "a build
+    declares the region it targets".
+
+    Every image in this tree takes the $01 default, so the hatch is the only
+    thing that makes $FFD9 a DECLARATION rather than a constant — and until
+    this case existed, nothing in the tree touched it. A mis-spelled `.ifndef`,
+    or the `.byte` drifting above its guard, would have left every image at $01
+    and been invisible: the audit proved the hatch works BY HAND and filed the
+    absence of this case as the reason R0's third clause reads PARTIAL
+    (`docs/audit/region_r0_review.md` F5).
+
+    The toy is assembled and linked TWICE into tmp_path with the same ca65 /
+    ld65 invocation the Makefile uses — once plain, once with
+    `-D SF_HDR_DEST=$02` (Europe). `tools/fix_checksum.py` is deliberately NOT
+    run on either arm, so both carry the unfilled checksum pair and the
+    comparison is not polluted by a recomputed one.
+
+    The part that makes this more than "the byte we set came back": the two
+    images must differ AT $FFD9 AND NOWHERE ELSE. That is what says the hatch
+    reaches the destination byte and only the destination byte."""
+    def link(stem, *extra):
+        obj, sfc = tmp_path / f"{stem}.o", tmp_path / f"{stem}.sfc"
+        r = subprocess.run(
+            ["ca65", "--cpu", "65816", *extra, "-I", str(BUILD), "-I", str(VROM),
+             "-o", str(obj), "engine/toy/main.asm"],
+            cwd=SUPERFORGE, capture_output=True, text=True)
+        assert r.returncode == 0, f"ca65 failed:\n{r.stdout}{r.stderr}"
+        r = subprocess.run(
+            ["ld65", "-C", str(VROM / "lorom_32k.cfg"), "-o", str(sfc), str(obj)],
+            cwd=SUPERFORGE, capture_output=True, text=True)
+        assert r.returncode == 0, f"ld65 failed:\n{r.stdout}{r.stderr}"
+        return sfc.read_bytes()
+
+    control = link("dest_default")
+    override = link("dest_europe", "-D", "SF_HDR_DEST=$02")
+
+    assert control[OFF_DEST] == 0x01, (
+        f"the control arm reads ${control[OFF_DEST]:02X} at $FFD9 — the "
+        f"default itself has moved, so this case proves nothing about the hatch")
+    assert override[OFF_DEST] == 0x02, (
+        f"SF_HDR_DEST = $02 did not reach $FFD9 (found "
+        f"${override[OFF_DEST]:02X}) — the .ifndef hatch is not wired, and "
+        f"every image would silently declare North America")
+    moved = [i for i in range(len(control)) if control[i] != override[i]]
+    assert moved == [OFF_DEST], (
+        f"the override moved bytes other than $FFD9: "
+        f"{[hex(i) for i in moved]} — the hatch is reaching further than the "
+        f"destination byte")
+
+
+@pytest.mark.needs_linked_images
 def test_no_image_declares_32k_unless_it_is_32k():
     """The regression this change exists to prevent, stated as a property.
 
@@ -216,3 +305,75 @@ def test_the_build_step_refuses_a_lying_rom_size_byte(built, tmp_path):
     assert "declaration lies" in (r.stdout + r.stderr)
     # ...and it REFUSED rather than silently patching: the bytes are untouched.
     assert victim.read_bytes() == bytes(buf)
+
+
+def _logical_line(text: str, head: str) -> str:
+    """The `head` line of a Makefile with its backslash continuations joined."""
+    lines = text.splitlines()
+    for i, ln in enumerate(lines):
+        if ln.startswith(head):
+            out = [ln]
+            while out[-1].rstrip().endswith("\\"):
+                i += 1
+                out.append(lines[i])
+            return " ".join(x.rstrip().rstrip("\\") for x in out)
+    raise AssertionError(f"no {head!r} line in the Makefile")
+
+
+def test_the_image_cases_cannot_be_dropped_except_by_the_pre_build_caller():
+    """The tripwire on the marker contract at the top of the FIELDS section.
+
+    A marker is only safe while the deselection lives at ONE known call site.
+    The moment it also lives inside the cases, or inside the suite runner, the
+    75 image cases can report nothing and read as a pass — which is exactly the
+    state `tools/setup.sh` was in when `make bare-check` died at its `setup`
+    step in 19 seconds. So the contract is asserted, not trusted, and it is
+    asserted by READING THE TOOLS, which is the primary source for what our own
+    tools do (CLAUDE.md, "if you are about to state what a tool does, open the
+    tool").
+
+    Four clauses:
+
+      1. this file holds no skip machinery, so nothing here can stand a case
+         down on a missing image — `_image` fails, by design;
+      2. `tools/setup.sh` drops them by DESELECTING THE MARKER, not by ignoring
+         the module — ignoring it would silently take the four checksum cases
+         and the override case with it, and those need no build;
+      3. the suite's entry point (`make test`) never names the marker, so a
+         normal run collects every case;
+      4. `toy` and `probe_vblank` — the two non-rail images these cases read —
+         are guaranteed by that same entry point's prerequisites. The 37 rails
+         are `make rail-registered`'s site 12 and are not re-asserted here; the
+         same fact at two sites rots at one of them."""
+    src = Path(__file__).read_text()
+    # Spelled by concatenation so this case does not trip over itself.
+    for token in ("pytest." + "skip", "skip" + "if", "import" + "orskip"):
+        assert token not in src, (
+            f"{token} appeared in {Path(__file__).name}. These cases must FAIL "
+            f"on a missing image, never stand down: a skip goes green in a "
+            f"fresh clone and green again on a broken build, and 75 cases then "
+            f"report nothing while reading as a pass. The pre-build caller "
+            f"deselects by marker instead — see the FIELDS section header.")
+
+    setup_sh = (SUPERFORGE / "tools" / "setup.sh").read_text()
+    assert '-m "not needs_linked_images"' in setup_sh, (
+        "tools/setup.sh no longer deselects the image cases by marker. It runs "
+        "before anything is linked, so if it stopped deselecting them it is "
+        "either red on a fresh clone again, or it dropped the module wholesale")
+    assert "--ignore" not in setup_sh and "--ignore-glob" not in setup_sh, (
+        "tools/setup.sh drops a test module wholesale. The marker exists so "
+        "the cases that need no build (the checksum cases, the $FFD9 override) "
+        "keep running there")
+
+    makefile = (SUPERFORGE / "Makefile").read_text()
+    recipe = _logical_line(makefile, "\t@$(PY) -m pytest tests/")
+    assert "needs_linked_images" not in recipe, (
+        f"the suite runner names the marker, so a normal run deselects the "
+        f"image cases:\n{recipe}")
+
+    prereqs = set(_logical_line(makefile, "test:").split()[1:]) - {"|"}
+    for target in ("toy", "probes"):
+        assert target in prereqs, (
+            f"`make test` no longer takes `{target}` as a prerequisite, so "
+            f"{'build/toy.sfc' if target == 'toy' else 'build/probe_vblank.sfc'} "
+            f"is not guaranteed to exist when these cases read it")
