@@ -150,7 +150,7 @@ truthful image must still be accepted, and idempotently — `microzero`'s md5 pi
 depends on it).
 
 **Stated limit.** `probe_cpu.sfc` / `probe_cpu_step.sfc` are linked against
-`vendor/probe_ref/lorom_512k.cfg` with the quarry's own vendored
+`vendor/probe_ref/lorom_512k.cfg` with that probe's own vendored
 `vendor/probe_ref/inc/header.inc` (which declares `.byte $08`), and their
 Makefile recipes patch `$7FD7` to `$09` post-link. Those two recipes do not run
 `fix_checksum.py`, so the gate does not cover them; the patch already makes
