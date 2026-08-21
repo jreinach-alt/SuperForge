@@ -41,8 +41,15 @@
 #   save        -- this rail persists nothing across power cycles: the battle
 #                  loop re-inits from constants, so there is nothing an SRAM
 #                  claim would hold.
+# REGION + TICK_SCALE (docs/94 R0, docs/96 §4). Same shape as `boss` and for
+# the same three reasons — arena.asm's "THE BATTLE IN TWO REGIONS" — plus one
+# this rail adds: the LUNGE, the retreat and the death spin are also baked
+# per-frame tracks, and the beam and card cadences are counted in the same
+# state timer. `tick` runs the star scroll and the state machine 1 or 2 times
+# per frame and draws ONCE.
 globals = ["scene_mgr", "input", "fade", "oam_sprites",
-           "m7_affine", "m7_track", "pool", "audio", "tad_rom", "sau_rom"]
+           "m7_affine", "m7_track", "pool", "audio", "tad_rom", "sau_rom",
+           "region", "tick_scale"]
 
 [[scene]]
 id = "arena"

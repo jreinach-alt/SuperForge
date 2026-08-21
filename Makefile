@@ -2013,7 +2013,8 @@ SAU_INC := -I $(SAU_MAP) -I $(VROM) -I $(SAU) \
            -I engine/features/pool -I engine/features/m7_affine \
            -I engine/features/m7_track -I engine/features/sau_floor \
            -I engine/features/sau_obj \
-           -I vendor/tad -I assets/audio/export
+           -I vendor/tad -I assets/audio/export \
+           -I engine/features/region -I engine/features/tick_scale
 
 $(BUILD)/boss_saucer.sfc: $(SAU_ASM) $(SAU)/saucer.inc \
 		$(SAU_MAP)/engine_state_globals.inc $(SAU_ASSETS) \

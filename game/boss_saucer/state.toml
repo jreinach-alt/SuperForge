@@ -106,3 +106,18 @@ frame = "u16@dp"         # free-running frame counter; read ONLY for its parity
                          #   Persistent, so the scene's `enter` seeds it ONCE
                          #   (rule 5) — deliberately not battle_init, which
                          #   re-runs on every loop RESET
+
+# --- the timebase (engine/features/tick_scale, composed in game.toml) ------
+# ONE WORD, because what this rail scales is the STATE STEP and not a distance:
+# `tick` runs stars_update + state_update the number of times TS_STEP
+# publishes, so the four baked tracks, the spin, the star scroll, the bolts,
+# the beam and every cadence advance off one clock. arena.asm's "THE BATTLE IN
+# TWO REGIONS" derives why the step and not the pixel. The published count is
+# consumed immediately in the loop, so there is no second word to hold it.
+ts_acc = "u16@dp"        # the carried fraction of the scaled state step.
+                         #   Seeded in `enter` and NOT in battle_init: it is
+                         #   the console's clock, not the battle's, so the
+                         #   RESET loop must not restart it.
+                         # TICK: ok — a carried FRACTION, the thing that
+                         # REMOVES the frame coupling rather than one that
+                         # holds it. It has no meaning in frames.
