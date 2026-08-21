@@ -193,6 +193,38 @@ DECEL     = ACCEL / 2                ; bled per coasting frame, toward rest
 SPEED_CAP = ACCEL * 20               ; $0140 = +1.25 px/frame forward
 SPEED_REV = (0 - SPEED_CAP) & $FFFF  ; ...and its negative, the reverse cap
 
+; =============================================================================
+; THE SAME FIVE NUMBERS FOR THE OTHER CONSOLE (engine/features/tick_scale)
+; =============================================================================
+; A PAL frame lasts r = 1 + TS_GAIN_NUM/TS_GAIN_DEN = 1.2018039 NTSC frames, so
+; the exponent each constant takes is decided by its DIMENSION:
+;
+;   SPEED_CAP is px per frame -> r. It is 8.8, so the conversion is a
+;     build-time constant and the rounding is 1/256 px (320 -> 385).
+;   ACCEL and DECEL are px per frame PER FRAME -> r SQUARED. Getting this
+;     wrong is invisible at the cap and visible in how long the ramp takes.
+;     ca65 evaluates in 32 bits, so the square is applied as the gain twice.
+;   TURN_STEP and PATROL_SPEED are integers and are NOT twinned here — an
+;     integer step of 1 has no correct x1.2018 (round-to-nearest is 1 and
+;     changes nothing, round-up is 2 and overshoots by 66%), so they go
+;     through TS_STEP's accumulator instead.
+;
+; STATED RESIDUAL: the two accelerations round to whole 8.8 LSBs — ACCEL 16 ->
+; 23 against a true 23.11 (-0.4%) and DECEL 8 -> 12 against 11.55 (+3.9%).
+; Both are ramp TRANSIENTS of about twenty frames against a held throttle that
+; then sits at the cap, so neither reaches the measured rate; `mode7_chamber`
+; carries the fraction because there the ramp IS the motion.
+;
+; TICK: ok — this block is the region compensator's derivation for this rail;
+;   naming the NTSC frame beside the PAL one is its subject rather than a
+;   coupling in it, exactly as in tick_scale.asm.
+.define DG_RGAIN(v)  ((((v) * (TS_GAIN_DEN + TS_GAIN_NUM)) + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
+ACCEL_PAL     = DG_RGAIN(DG_RGAIN(ACCEL))       ; 16 -> 23
+DECEL_PAL     = DG_RGAIN(DG_RGAIN(DECEL))       ; 8  -> 12
+SPEED_CAP_PAL = DG_RGAIN(SPEED_CAP)             ; 320 -> 385 (1.504 px/frame)
+TURN_BASE     = TURN_STEP * TS_ONE              ; the TS_STEP base: 1 unit/frame
+PATROL_BASE   = PATROL_SPEED * TS_ONE           ; ...and one world px/frame
+
 ; --- the pad --------------------------------------------------------------
 ; The auto-joypad word input_read latches into ES_INP_CUR ($4218's layout).
 ; Written as BIT POSITIONS, following room_logic.asm:27 — and not only for
@@ -267,6 +299,12 @@ enter:
     stz z:US_GRACE                  ;   are what the tests read, so a random
     stz z:US_PAUSED                 ;   power-on value here would be a fail
     stz z:US_PREV_START             ;   that looks like a logic bug
+    stz z:US_TS_TURN_ACC            ; the two integer rates' carried fractions
+    stz z:US_TS_TURN                ;   and this frame's published steps,
+    stz z:US_TS_PAT_ACC             ;   written before anything reads one
+    stz z:US_TS_PAT
+    jsr region_rates                ; ACCEL / DECEL / SPEED_CAP, in the units
+                                    ;   of the console that is actually running
 
     ; ---- the enemies: the ROM seeds become live state ---------------------
     ; A straight copy, because `enemy_world` and US_ENE_POS have the SAME
@@ -341,9 +379,61 @@ enter:
 ;     Draw first and every sprite is placed with LAST frame's camera while the
 ;     floor renders with this one's — a one-frame skid that reads as the cast
 ;     sliding across the floor rather than standing on it.
+; =============================================================================
+; region_rates — the throttle's three numbers, in the running console's units
+; =============================================================================
+; In/out: A16/I16, DB=0. Clobbers A. Called ONCE, from `enter`.
+;
+; One region test and four words instead of a test at each of the six sites in
+; do_throttle. The REVERSE cap is negated from the forward one rather than
+; twinned, so "its negative" stays true by construction on both machines
+; instead of by two constants agreeing.
+;
+; WIDTH-RISK: A16/I16 in and out; no sep/rep. `@pal` is reached A16 by branch
+; and `@ntsc` A16 by fall-through.
+region_rates:
+    .a16
+    .i16
+    lda z:ES_RGN_PAL
+    bne @pal
+    lda #ACCEL                      ; NTSC: today's constants, to the LSB
+    sta z:US_R_ACCEL
+    lda #DECEL
+    sta z:US_R_DECEL
+    lda #SPEED_CAP
+    sta z:US_R_CAP
+    bra @rev
+@pal:
+    .a16
+    .i16
+    lda #ACCEL_PAL                  ; r^2 — an acceleration
+    sta z:US_R_ACCEL
+    lda #DECEL_PAL                  ; r^2
+    sta z:US_R_DECEL
+    lda #SPEED_CAP_PAL              ; r   — a velocity
+    sta z:US_R_CAP
+@rev:
+    .a16
+    .i16
+    lda #0                          ; ...and its negative, on either machine
+    sec
+    sbc z:US_R_CAP
+    sta z:US_R_REV
+    rts
+
+; =============================================================================
+; tick — one game frame
+; =============================================================================
 tick:
     .a16
     .i16
+    ; This frame's two integer steps, published once. On NTSC both are the
+    ; constant they replace, to the unit; on PAL each is 1 or 2 in the pattern
+    ; that averages 1.2018, with the fraction carried between frames.
+    TS_STEP z:US_TS_TURN_ACC, TURN_BASE
+    sta z:US_TS_TURN
+    TS_STEP z:US_TS_PAT_ACC, PATROL_BASE
+    sta z:US_TS_PAT
     jsr do_pause                    ; START toggles; A = the pause flag
     bne @render                     ; paused: the world and the cast freeze,
                                     ;   but the frame still draws and the NMI
@@ -417,7 +507,7 @@ do_turn:
     beq @no_left
     lda z:US_HEADING
     clc
-    adc #TURN_STEP
+    adc z:US_TS_TURN
     and #$00FF
     sta z:US_HEADING
 @no_left:
@@ -428,7 +518,7 @@ do_turn:
     beq @no_right
     lda z:US_HEADING
     sec
-    sbc #TURN_STEP
+    sbc z:US_TS_TURN
     and #$00FF
     sta z:US_HEADING
 @no_right:
@@ -468,7 +558,7 @@ do_throttle:
     beq @done                       ; already at rest
     bmi @coast_neg
     sec
-    sbc #DECEL
+    sbc z:US_R_DECEL
     bpl @store                      ; still moving forward
     lda #0                          ; ...or it just crossed zero: stop there
     bra @store
@@ -476,7 +566,7 @@ do_throttle:
     .a16
     .i16
     clc
-    adc #DECEL
+    adc z:US_R_DECEL
     bmi @store                      ; still moving backward
     lda #0
     bra @store
@@ -485,25 +575,26 @@ do_throttle:
     .i16
     lda z:US_SPEED
     clc
-    adc #ACCEL
-    cmp #(SPEED_CAP + 1)            ; UNSIGNED — see the header. This is the
-    bcc @store                      ;   trap, not an oversight.
-    lda #SPEED_CAP
+    adc z:US_R_ACCEL
+    cmp z:US_R_CAP                  ; UNSIGNED — see the header. This is the
+    beq @store                      ;   trap, not an oversight. The `+ 1` the
+    bcc @store                      ;   immediate carried is a `beq` here,
+    lda z:US_R_CAP                  ;   because the bound is now a word.
     bra @store
 @rev:
     .a16
     .i16
     lda z:US_SPEED
     sec
-    sbc #ACCEL
+    sbc z:US_R_ACCEL
     ; Both operands are negative here, so the clamp is a SIGNED comparison
     ; done as a subtraction: (A - SPEED_REV) < 0 means A undershot the cap.
     pha
     sec
-    sbc #SPEED_REV
-    bpl @rev_ok
-    pla                             ; discard the candidate...
-    lda #SPEED_REV                  ; ...and take the cap
+    sbc z:US_R_REV                  ; the reverse cap, NEGATED from the forward
+    bpl @rev_ok                     ;   word so the symmetry cannot depend on
+    pla                             ;   two constants agreeing
+    lda z:US_R_REV                  ; ...and take the cap
     bra @store
 @rev_ok:
     .a16
@@ -729,7 +820,25 @@ do_patrol:
     lda z:US_IDX
     asl                             ; *2 — the direction-table stride
     tax
-    lda z:US_ENE_DIR, x             ; the signed step
+    ; THE SIGN IS THE STATE, THE MAGNITUDE IS THE TIMEBASE'S. US_ENE_DIR still
+    ; holds +/-PATROL_SPEED and the wall reversal still flips it; what is read
+    ; off it here is only which way this enemy is facing, and how far it walks
+    ; is this frame's published step — one world pixel on NTSC, one or two on
+    ; PAL averaging 1.2018. A two-pixel step still probes its candidate through
+    ; the same footprint test, so it cannot tunnel a wall two tiles thick.
+    lda z:US_ENE_DIR, x             ; the paced direction — read for its SIGN
+    bmi @pat_neg
+    lda z:US_TS_PAT
+    bra @pat_have
+@pat_neg:
+    .a16
+    .i16
+    lda #0
+    sec
+    sbc z:US_TS_PAT
+@pat_have:
+    .a16
+    .i16
     ldy z:US_IDX
     cpy #PATROL_AXIS_Y
     beq @axis_y

@@ -27,6 +27,34 @@ posy = "u32@dp"          #   fraction is what lets a sub-pixel speed move at all
 speed = "u16@dp"         # SIGNED 8.8 px/frame. B/UP accelerates forward, Y/DOWN
                          #   reverses, release coasts toward 0.
 
+# --- the timebase (engine/features/tick_scale, composed in game.toml) ------
+# TWO SHAPES. The throttle's three numbers are 8.8 and convert to a BUILD-TIME
+# constant chosen once at scene enter — the fixed point is the accumulator, so
+# there is nothing to carry. The heading and the patrol are INTEGERS of one
+# unit a frame, which have no correct x1.2018, so both go through TS_STEP.
+# dungeon.asm's region_rates and the two TS_STEP sites are where each lands.
+ts_turn_acc = "u16@dp"   # the heading step's carried fraction
+                         # TICK: ok — a carried FRACTION. It exists to REMOVE
+                         # a frame coupling and has no meaning in frames.
+ts_turn = "u16@dp"       # ...and this frame's answer, in whole heading units
+                         # TICK: ok — the OUTPUT of the scaler.
+ts_pat_acc = "u16@dp"    # the patrol step's carried fraction
+                         # TICK: ok — as ts_turn_acc.
+ts_pat = "u16@dp"        # ...and this frame's answer, in whole world px
+                         # TICK: ok — as ts_turn.
+r_accel = "u16@dp"       # ACCEL for THIS console: 16 LSB/frame NTSC, 23 PAL —
+                         #   an acceleration, so it takes the frame ratio
+                         #   SQUARED
+                         # TICK: ok — the word exists so acceleration per REAL
+                         # second squared is the same number on both machines.
+r_decel = "u16@dp"       # ...and DECEL, 8 -> 12
+                         # TICK: ok — as r_accel.
+r_cap = "u16@dp"         # ...and SPEED_CAP, 320 -> 385: a velocity, so r once
+                         # TICK: ok — as r_accel.
+r_rev = "u16@dp"         # ...and the reverse cap, NEGATED from r_cap at enter
+                         #   rather than twinned
+                         # TICK: ok — as r_accel.
+
 # --- one frame's motion, and the candidate it proposes --------------------
 # Write-before-read within a single tick: the step is computed from the matrix
 # and the speed, then move_x / move_y turn it into a candidate that collision
