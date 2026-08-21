@@ -122,7 +122,8 @@ MASTER_HZ = {"ntsc": 21_477_270, "pal": 21_281_370}
 #
 # `gate` (optional) narrows the DENOMINATOR: a rate is numerator / seconds,
 # and `gate=(sym, width, value)` counts only the seconds in which that word
-# holds that value. A fourth element flips the test — `gate=(sym, width, 0,
+# holds that value. `sym` may be a `(symbol, byte offset)` pair when the word
+# lives inside a multi-field claim. A fourth element flips the test — `gate=(sym, width, 0,
 # "ne")` counts the seconds in which the word is NOT that value, which is how
 # a rail whose "airborne" is `height != 0` rather than a flag says so. It exists because of a measured trap, and the trap is
 # worth stating: a jump driven by a real-time input script lands at the
@@ -1487,6 +1488,77 @@ RAILS = {
             # through the same TS_STEP publication.
         ],
     ),
+    # ------------------------------------------- PHYSICS OVER A STREAMED WORLD
+    "platformer_stream": dict(
+        rom="build/platformer_stream.sfc", map="build/pfs/symbol_map.json",
+        scene="play",
+        klass="physics / streaming",
+        # BOUNCE IN PLACE on the spawn column, and both halves of that are
+        # measured rather than chosen. Three seconds of NO INPUT first: this
+        # world is four screens tall and the hero falls about five of them
+        # from spawn to bedrock, so the window has to open after the arrival
+        # or it averages one long fall with fifteen hops.
+        #
+        # NO HORIZONTAL INPUT AT ALL, and that is the half that took two
+        # drafts. The bedrock carries 8 px blocks, and a hero that walks
+        # while it hops lands on a DIFFERENT one in each region — not because
+        # the motion is wrong but because it is right to within a pixel and a
+        # block edge is a knife edge. Measured on the shuttle draft: NTSC
+        # flew 12 arcs of 35 frames and one of 24, PAL flew 10 of 29, two of
+        # 28, one of 20 and TWO OF SIX, the short ones resting at y = 952
+        # instead of 960 — one tile up, on a block. `arc_rate` is an integer
+        # count over ~15 arcs, so two flipped landings are 13%, and the
+        # observable reported 1.17 for a rail whose arcs match to 1%.
+        # Standing still removes the sensitivity instead of averaging over
+        # it. The horizontal rate is measured on this rail by the streaming
+        # demand instead — the worst camera step per axis and the staged-line
+        # histogram, both in the change report.
+        #
+        # A IS HELD FOR 0.7 s OF EVERY 0.9 s, not tapped. `pl_jump` CUTS the
+        # rise on every frame A is not held, so a short real-time tap buys a
+        # different number of rise frames in each region and the ratio would
+        # measure the cut rather than the engine (the trap `platformer`
+        # alternates two buttons to dodge; this rail has one jump button, so
+        # the answer is to hold it past the 0.6 s flight). Released at 0.7 s
+        # the hero is already descending, where the cut is a no-op.
+        script=([(0.0, {})]
+                + [(3.0 + 0.9 * k + (0.7 if odd else 0.0),
+                    {} if odd else {"a": True})
+                   for k in range(24) for odd in (0, 1)]),
+        #
+        # THE WINDOW IS ALIGNED TO THE DRIVE, and that is the third thing the
+        # numbers forced. `arc_rate` is an integer `edges` count and 12 s
+        # holds only ~13 arcs, so a window that opens or closes MID-FLIGHT
+        # charges the numerator a whole landing for part of a flight — 2.6%
+        # of the denominator, per end, differently in each region because the
+        # flights are different lengths. warm 5.55 s and window 12.6 s (14
+        # whole 0.9 s cycles) both fall in the GROUNDED gap between a landing
+        # and the next launch on BOTH machines, so every arc inside is a
+        # whole one. Measured on the unaligned 5.0/12.0 window: 1.068 with
+        # the NTSC halves 1.806 / 1.502, for a rail whose arcs are 35 frames
+        # NTSC and 29 PAL — which is 1.003.
+        warmup_s=5.55, window_s=12.6, guard=[],
+        observables=[
+            dict(name="arc_rate", kind="edges", unit="arcs / airborne s",
+                 mem="wram", fields=[("ES_PFS_PLAYER", 10, 2, 65536)],
+                 gate=(("ES_PFS_PLAYER", 10), 2, 0),
+                 why="0 -> non-0 on the player block's `grounded` word is the "
+                     "frame the hero TOUCHES DOWN, over the seconds it is "
+                     "OFF the ground. 'How fast does one ballistic arc "
+                     "complete', in flight-seconds. The gate names the "
+                     "SAME word at +10: grounded is 0 exactly while "
+                     "airborne."),
+            dict(name="fall_speed", kind="distance", unit="world px per air s",
+                 mem="wram", fields=[("ES_PFS_PLAYER", 2, 2, 65536)],
+                 gate=(("ES_PFS_PLAYER", 10), 2, 0),
+                 why="the hero's world y — the 16-bit INTEGER half of the "
+                     "16.8 split this rail keeps position in, and the word "
+                     "`pl_camera` and `pl_draw` both read — accumulated over "
+                     "airborne seconds. This world is four screens tall, so "
+                     "the vertical axis is a real degree of freedom rather "
+                     "than a decoration."),
+        ],
+    ),
 }
 
 
@@ -1592,11 +1664,14 @@ def worker(args):
               for g in rail.get("guard", [])]
     guard_break = None
 
-    gates = [(_sym(jmap, ob["gate"][0], rail["scene"])["start"],
-              ob["gate"][1], ob["gate"][2],
-              (ob["gate"][3] if len(ob["gate"]) > 3 else "eq"))
-             if ob.get("gate") else None
-             for ob, _ in plan]
+    def _gate(g):
+        # The gate names a WORD, and a word inside a multi-field claim needs
+        # an offset — `("ES_PFS_PLAYER", 10)` is "the grounded flag", not the
+        # claim's first word. A bare string keeps meaning offset 0.
+        who = g[0] if isinstance(g[0], tuple) else (g[0], 0)
+        return (_sym(jmap, who[0], rail["scene"])["start"] + who[1],
+                g[1], g[2], (g[3] if len(g) > 3 else "eq"))
+    gates = [_gate(ob["gate"]) if ob.get("gate") else None for ob, _ in plan]
 
     c_start = master_clock(lib)
     prev = [[read(a, w, ob["mem"]) for a, w, _ in addrs] for ob, addrs in plan]

@@ -232,6 +232,8 @@ enter:
     rep #$20
     .a16
     jsr pl_arm                      ; the OBJ half: hero CHR, OBJ palette, OBSEL
+    jsr ts_arm                      ; the timebase's accumulators, and the
+                                    ;   region's three velocity constants
     jsr pfs_spawn                   ; every byte of both player DP claims
     jsr rg_arm                      ; the dusk ramp's three COLDATA channels
     ; ---- mode + layers: the five registers pfs_bg opens to scene code -----
