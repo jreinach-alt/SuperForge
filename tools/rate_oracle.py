@@ -883,6 +883,34 @@ RAILS = {
                      "commands directly."),
         ],
     ),
+    "boss_saucer": dict(
+        rom="build/boss_saucer.sfc", map="build/sau/symbol_map.json",
+        scene="arena",
+        klass="mode7",
+        # Same drive as `boss` and for the same two reasons: a held direction
+        # parks the ship against its clamp, and a held A kills the saucer
+        # inside the window. The warmup clears the reveal and the hold; the
+        # guard requires FIGHT and covers both ways this rail can leave it.
+        script=[(0.0, {})]
+               + [(2.0 + 0.4 * k, {"left": True} if k % 2 == 0
+                  else {"right": True}) for k in range(40)],
+        warmup_s=2.2, window_s=4.0, guard=[("US_B_STATE", 2, 3)],
+        observables=[
+            dict(name="star_near", kind="distance", unit="scroll units",
+                 mem="wram", fields=[("US_STAR_NEAR", 0, 2, 65536)],
+                 why="the near star band's scroll. `stars_update` advances it "
+                     "at a rate read off the fight's own PHASE and draw_frame "
+                     "turns it into the star sprites' OAM positions, so this "
+                     "is the sky sliding behind the fight — and it is the one "
+                     "observable that keeps moving whatever the player does."),
+            dict(name="player_x", kind="distance", unit="screen px",
+                 mem="oam", fields=[("ES_O_PLAYER", 0, 1, 256)],
+                 why="the player ship's OAM X byte, read out of the sprite "
+                     "table the PPU draws from — rendered output, not the "
+                     "variable behind it. Screen pixels per second here is the "
+                     "strafe, the one rate the player commands directly."),
+        ],
+    ),
     "m7_dungeon": dict(
         rom="build/m7_dungeon.sfc", map="build/m7dg/symbol_map.json",
         scene="dungeon",

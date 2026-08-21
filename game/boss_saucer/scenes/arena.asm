@@ -66,6 +66,10 @@ enter:
                                     ;   it is seeded HERE, not per battle)
     stz z:US_STAR_FAR               ; the two star-band scrolls, same reason:
     stz z:US_STAR_NEAR              ;   the sky must not snap home on the loop
+    stz z:US_TS_ACC                 ; ...and the timebase's carried fraction,
+                                    ;   for the same reason: it is the
+                                    ;   CONSOLE's clock, not the battle's, so
+                                    ;   the RESET loop must not restart it
     jsr battle_init                 ; full battle state + reveal[0] + ST_REVEAL
 
     ; ---- the scene's base display (sau_floor's scene_writes) --------------
@@ -157,6 +161,39 @@ battle_init:
 ; where the player is not holding a controller anyway.
 ;
 ; In/out: A16/I16, DB=0. Clobbers A, X, Y.
+; =============================================================================
+; THE BATTLE IN TWO REGIONS (engine/features/tick_scale)
+; =============================================================================
+; THE STATE STEP IS THE UNIT, and this rail has four separate reasons where
+; `boss` has three:
+;
+;  * the REVEAL, LUNGE, RETREAT and DEATH tracks are BAKED ONE ENTRY PER FRAME.
+;    Playing a baked track faster means walking its INDEX faster; the tables
+;    stay byte-identical and only the playhead moves.
+;  * the state TIMER is the playhead for two of those tracks, so stepping the
+;    machine steps the cursor with no second variable to keep in step.
+;  * the bolts and the beam carry PER-SLOT INTEGER velocities, with no
+;    fractional part to scale and no room for per-slot accumulators.
+;  * the death spin is SAU_DEATH_SPIN headings a frame and the star bands
+;    scroll at a rate read off the fight's PHASE — both runtime values, and
+;    TS_STEP takes a build-time constant.
+;
+; So `tick` runs `stars_update` + `state_update` 1 or 2 times per frame and
+; `draw_frame` ONCE. On NTSC the count is exactly 1 for ever, which is why the
+; NTSC picture cannot move.
+;
+; THE PAUSE GATE IS OUTSIDE THE LOOP, deliberately: a freeze means nothing
+; advances, and a console-dependent number of steps of nothing is still
+; nothing. START's own edge is read once per frame either way, so a doubled
+; step cannot toggle the pause twice.
+;
+; STATED RESIDUAL: US_FRAME is NOT scaled — a free-running heartbeat read only
+; for its parity classes (the blink and the flicker), which is brawler's
+; US_BLINK exactly.
+;
+; TICK: ok — this block is the region compensator's derivation for this rail;
+;   naming the NTSC frame beside the PAL one is its subject rather than a
+;   coupling in it, exactly as in tick_scale.asm.
 tick:
     .a16
     .i16
@@ -169,11 +206,33 @@ tick:
 @no_toggle:
     .a16
     lda z:US_PAUSED
-    bne @frozen
+    ; `tick_draw`, NOT a cheap local: TS_STEP below expands two `.local` labels,
+    ; and a non-cheap label RESETS ca65's cheap-local scope — so a `@frozen`
+    ; referenced from here and defined past the macro are two different symbols
+    ; and the build stops with "Symbol '@frozen' is undefined". A scope-level
+    ; label is visible across the expansion.
+    bne tick_draw
+    ; THIS FRAME'S STATE STEPS: 1, or 2. See "THE BATTLE IN TWO REGIONS" above.
+    ; The star scroll is INSIDE the loop with the state machine, because it
+    ; reads its rate off that machine's own phase — a sky sliding at a
+    ; different number of steps from the fight it is behind would say the two
+    ; are on different clocks.
+    TS_STEP z:US_TS_ACC, TS_ONE
+    beq tick_draw                   ; unreachable on either machine, and the
+                                    ;   loop must not run 65,536 times if that
+                                    ;   ever stops being true
+@again:
+    .a16
+    .i16
+    pha
     jsr stars_update
     jsr state_update
-@frozen:
+    pla
+    dec a
+    bne @again
+tick_draw:
     .a16
+    .i16
     jsr draw_frame
     lda z:US_FRAME
     inc a
