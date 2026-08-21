@@ -29,7 +29,19 @@
 #   col_map   -- the player's world clamp is two compares against assemble-
 #                time constants, not a tile probe.
 #   audio     -- this rail is silent: nothing queues music or SFX.
-globals = ["scene_mgr", "fade", "input", "oam_sprites", "cf_rom"]
+# REGION + TICK_SCALE: what makes this cart one cart on both machines.
+#   region      reads $213F bit 4 once at boot and publishes ES_RGN_PAL.
+#   tick_scale  turns a per-frame delta into a REGION-CORRECT one, carrying
+#               the fraction between frames. It `depends = ["region"]`, so the
+#               allocator pulls `region` in with it; listing both here is
+#               documentation rather than a requirement.
+# ONE RATE. CF_SPEED moves the PLAYER, and everything else on this rail is
+# DERIVED from him inside the same frame — the camera is clamp(player -
+# half-screen), the sprite is world - camera. So scaling the one rate scales
+# the scroll and the actor together, which is exactly the property the rail
+# exists to demonstrate, now stated in time as well as in space.
+globals = ["scene_mgr", "fade", "input", "oam_sprites", "cf_rom",
+           "region", "tick_scale"]
 
 [[scene]]
 id = "world"

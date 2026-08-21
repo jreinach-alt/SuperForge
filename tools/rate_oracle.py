@@ -149,6 +149,69 @@ def _shuttle(period_s, run_s, jump_every_s, jump_hold_s, start_s, n=60):
     return out
 
 
+def _axis_shuttle(half_s, first, second, start_s=None, n=200, hold=None,
+                  lead_s=0.0, tap=None, span_s=60.0):
+    """A one-axis pad script that REVERSES on a fixed real-time half-period.
+
+    Written in SECONDS like every script here, so each region converts it
+    with its own frame period and neither machine is handed more input than
+    the other. It exists because most rails CLAMP — a screen edge, a world
+    edge, a maze wall — and an actor parked against a clamp reads zero
+    progress, which measures the wall rather than the rail. Reversing before
+    the wall keeps the axis moving for the whole window, and it costs
+    nothing: `kind="distance"` sums |delta|, so a reversal is not a gap.
+
+    `start_s` presses START once (a rail behind a title screen). `lead_s`
+    holds `first` for that long before the shuttle begins, for a rail whose
+    interesting band is not where it spawns. `hold` is a pad state held for
+    the whole run on top of the alternating direction. `tap` is
+    (button, period_s, hold_s) — a button pressed on its own real-time beat,
+    for a rail whose action is EDGE-triggered and which therefore cannot be
+    driven by holding anything.
+
+    The three streams are merged onto ONE timeline rather than concatenated,
+    because `_script_at` takes the last entry at or before t and each entry
+    is a WHOLE pad state: an event that carried only the tap would silently
+    release the direction.
+    """
+    marks = set()
+    if start_s is not None:
+        marks |= {0.0, start_s, start_s + 0.3}
+        t0 = start_s + 0.6
+    else:
+        t0 = 0.0
+    marks.add(t0)
+    for k in range(n):
+        marks.add(t0 + lead_s + k * half_s)
+    if tap:
+        _b, per, hold_s = tap
+        k = 0
+        while t0 + k * per < span_s:
+            marks.add(t0 + k * per)
+            marks.add(t0 + k * per + hold_s)
+            k += 1
+    hold = hold or {}
+
+    def _pad(t):
+        if start_s is not None and t < start_s:
+            return {}
+        if start_s is not None and start_s <= t < start_s + 0.3:
+            return {"start": True}
+        if t < t0:
+            return {}
+        p = dict(hold)
+        d = t - t0
+        p[first if d < lead_s else
+          (first if int((d - lead_s) // half_s) % 2 == 0 else second)] = True
+        if tap:
+            b, per, hold_s = tap
+            if (d % per) < hold_s - 1e-9:
+                p[b] = True
+        return p
+
+    return [(t, _pad(t)) for t in sorted(marks)]
+
+
 RAILS = {
     # ---------------------------------------------------------------- SCROLL
     "scroller": dict(
@@ -274,6 +337,310 @@ RAILS = {
                      "physics actually keeps, and the finest-grained progress "
                      "measure on this rail: 8.8 px, so a 1% difference is "
                      "hundreds of counts, not one."),
+        ],
+    ),
+    # ======================================================================
+    # --- fleet lane A ---
+    # ======================================================================
+    # Ten more rails — the walkers, the scrollers and the shooters. Every
+    # entry below follows the four rules the registry above established, and
+    # the two that cost the most to learn are worth restating here:
+    #
+    #  * THE OBSERVABLE IS GAME-VISIBLE PROGRESS, never a frame counter. A
+    #    scroll word the PPU renders from, a world position the sprite is
+    #    drawn at, an OAM byte read straight out of the table the PPU draws.
+    #    Each one carries the sentence that says why it is fair for its rail.
+    #  * THE DRIVE IS INDEXED ON SECONDS AND IT MUST NOT HIT A WALL. Most of
+    #    these rails CLAMP (a screen edge, a world edge, a maze wall), and a
+    #    clamped axis reads zero progress in whichever region reaches the
+    #    clamp first — which is a measurement of the wall, not of the rail.
+    #    `_axis_shuttle` reverses on a real-time half-period chosen so the
+    #    actor stays inside its bounds in BOTH regions, and `kind="distance"`
+    #    (sum of |delta|) is direction-blind, so reversing costs nothing.
+    #    `--halves` is the check: a drive that touches a wall shows up as two
+    #    halves that disagree.
+
+    # ------------------------------------------------------------- SCROLL
+    "camera_follow": dict(
+        rom="build/camera_follow.sfc", map="build/cf/symbol_map.json",
+        scene="world",
+        klass="scrolling",
+        # A horizontal shuttle inside the 512 px world. The player spawns at
+        # the world centre (256) and CF_PLAYER_MAX_X is 504, so a 0.8 s
+        # half-period (96 px at the NTSC rate) never reaches either clamp in
+        # either region — measured: the halves agree to the printed digit.
+        script=_axis_shuttle(0.8, "right", "left"),
+        warmup_s=2.0, window_s=12.0, guard=[],
+        observables=[
+            dict(name="cam_x", kind="distance", unit="world px",
+                 mem="wram", fields=[("ES_CF_CAM", 0, 2, 65536)],
+                 why="cf_bg's NMI commit writes BG1HOFS straight from this "
+                     "word (cf_bg.asm:201). Mid-world the camera tracks the "
+                     "player exactly, so world px/s here IS the speed the "
+                     "picture slides at — and it is the rail's SUBJECT, "
+                     "because the sprite holds screen centre while this "
+                     "moves."),
+            dict(name="player_x", kind="distance", unit="world px",
+                 mem="wram", fields=[("US_PWX", 0, 2, 65536)],
+                 why="the player's own world x, the word the camera is a "
+                     "pure function of. It is the other half of the rail's "
+                     "two-space split, and reading both says the scroll and "
+                     "the actor move at one rate rather than two."),
+        ],
+    ),
+    "scroll_run": dict(
+        rom="build/scroll_run.sfc", map="build/sr/symbol_map.json",
+        scene="run",
+        klass="scrolling",
+        # A horizontal shuttle. The world is 512 px and the runner spawns at
+        # x=16, so the LEFT clamp is 16 px away — the shuttle therefore opens
+        # by running RIGHT for a full half-period and reverses on a 0.6 s
+        # beat (72 px at the NTSC rate), which keeps him between roughly 16
+        # and 160 in both regions.
+        script=_axis_shuttle(0.6, "right", "left"),
+        warmup_s=2.0, window_s=12.0, guard=[],
+        observables=[
+            dict(name="cam_x", kind="distance", unit="world px",
+                 mem="wram", fields=[("ES_SR_CAM", 0, 2, 65536)],
+                 why="sr_bg's VBlank commit writes BG1HOFS from this word "
+                     "(sr_bg.asm's srb_nmi_commit). It is the scroll the PPU "
+                     "renders with, so world px/s is the speed the level "
+                     "slides past."),
+            dict(name="run_x", kind="distance", unit="world px",
+                 mem="wram", fields=[("US_PX", 0, 2, 65536)],
+                 why="the runner's world x — what the camera follows and "
+                     "what the level's geometry is authored against."),
+            dict(name="fall_y", kind="distance", unit="px/256",
+                 mem="wram", fields=[("US_PYF", 0, 2, 65536)],
+                 why="the runner's 8.8 vertical position, the integrator "
+                     "output the sprite Y is derived from. THIS ONE IS THE "
+                     "NON-VACUITY CONTROL: the ballistic arc is NOT scaled "
+                     "(see the rail's own note), so it must still read the "
+                     "frame ratio while run_x reads parity. An instrument "
+                     "that showed both at parity would be measuring itself."),
+        ],
+    ),
+    # ------------------------------------------------------------- WALKERS
+    "maze": dict(
+        rom="build/maze.sfc", map="build/maze/symbol_map.json",
+        scene="room",
+        klass="walking",
+        # A VERTICAL shuttle in the open left chamber. Horizontal is the
+        # wrong axis here: interior wall A stands 48 px right of the spawn,
+        # and a drive that walks into it measures the wall. The chamber runs
+        # from y=8 to y=208 at the spawn column, and the spawn is y=100, so a
+        # 0.5 s half-period (60 px at the NTSC rate) stays clear of both.
+        script=_axis_shuttle(0.5, "down", "up"),
+        warmup_s=2.0, window_s=12.0, guard=[],
+        observables=[
+            dict(name="player_oam_y", kind="distance", unit="OAM px",
+                 mem="oam", fields=[("ES_O_PLAYER", 1, 1, 256)],
+                 why="byte 1 of the player's OAM entry is the Y the PPU "
+                     "draws the sprite at — rendered output, not the word "
+                     "behind it. The room is one screen with scroll pinned "
+                     "(maze_bg), so OAM px/s IS the walking speed a player "
+                     "sees."),
+            dict(name="player_y", kind="distance", unit="world px",
+                 mem="wram", fields=[("US_PY", 0, 2, 65536)],
+                 why="the game's own y, the word the per-axis move-check "
+                     "commits only when col_map says the 8x8 box is clear. "
+                     "Reading it beside the OAM byte says the collision "
+                     "gate, not just the draw, runs at the measured rate."),
+        ],
+    ),
+    "sprite_game": dict(
+        rom="build/sprite_game.sfc", map="build/sprg/symbol_map.json",
+        scene="play",
+        klass="walking",
+        # Hold RIGHT for the whole run. This rail has NO CLAMP at all — the
+        # player wraps as an unsigned 16-bit word and sprg_obj re-derives X9
+        # every frame — so there is no wall to shuttle away from and the
+        # simplest drive is also the most uniform one.
+        script=[(0.0, {"right": True})],
+        warmup_s=2.0, window_s=12.0, guard=[],
+        observables=[
+            dict(name="player_oam_x", kind="distance", unit="OAM px",
+                 mem="oam", fields=[("ES_O_PLAYER", 0, 1, 256)],
+                 why="byte 0 of the player's OAM entry — the X the PPU draws "
+                     "him at, taken out of the sprite table itself. The "
+                     "modulus is 256 because that is what the byte holds; "
+                     "the 2 px step makes the unwrap unambiguous."),
+            dict(name="player_x", kind="distance", unit="world px",
+                 mem="wram", fields=[("US_PX", 0, 2, 65536)],
+                 why="the game's own x, which sprg_obj turns into that OAM "
+                     "byte plus its X9 bit. It is the full-width word, so it "
+                     "sees the wrap the byte cannot."),
+        ],
+    ),
+    "hud_game": dict(
+        rom="build/hud_game.sfc", map="build/hud/symbol_map.json",
+        scene="play",
+        klass="walking",
+        # A horizontal shuttle. The player spawns at screen centre (124) and
+        # is clamped to [0, 248]; a 0.7 s half-period is 84 px at the NTSC
+        # rate, so he swings between roughly 124 and 208 and never parks.
+        script=_axis_shuttle(0.7, "right", "left"),
+        warmup_s=2.0, window_s=12.0, guard=[],
+        observables=[
+            dict(name="player_oam_x", kind="distance", unit="OAM px",
+                 mem="oam", fields=[("ES_O_PLAYER", 0, 1, 256)],
+                 why="byte 0 of the player's OAM entry — the X the PPU draws "
+                     "him at. This rail's picture is a sprite over a static "
+                     "text line, so the sprite's motion is the whole of the "
+                     "visible progress."),
+            dict(name="player_x", kind="distance", unit="screen px",
+                 mem="wram", fields=[("US_PX", 0, 2, 65536)],
+                 why="the game's own x, clamped to the screen by the tick. "
+                     "It is what hud_obj_place turns into the OAM byte."),
+        ],
+    ),
+    "patrol": dict(
+        rom="build/patrol.sfc", map="build/pat/symbol_map.json",
+        scene="play",
+        klass="walking",
+        # A horizontal shuttle on the ground floor. The player spawns at
+        # x=200 and the run is a per-axis move-check against col_map, so a
+        # half-period that reaches a wall would measure the wall: 0.5 s is
+        # 60 px at the NTSC rate, which stays on open floor.
+        script=_axis_shuttle(0.5, "left", "right"),
+        warmup_s=2.0, window_s=12.0, guard=[],
+        observables=[
+            dict(name="player_x", kind="distance", unit="world px",
+                 mem="wram", fields=[("US_PX", 0, 2, 65536)],
+                 why="the player's x, committed only when pat_solid_box "
+                     "says the 8x8 box at the tentative position is clear. "
+                     "The room is one screen with scroll pinned, so this is "
+                     "also the screen px the sprite is drawn at."),
+            dict(name="e1_x", kind="distance", unit="world px",
+                 mem="wram", fields=[("US_E1X", 0, 2, 65536)],
+                 why="the ground enemy's x. It is driven by the rail's OTHER "
+                     "rate (PAT_PATROL_SPEED, half the player's) and by no "
+                     "input at all — a beat that walks itself, so it is the "
+                     "one observable here that no drive script can pace."),
+            dict(name="fall_y", kind="distance", unit="px/256",
+                 mem="wram", fields=[("US_PYF", 0, 2, 65536)],
+                 why="the player's 8.8 vertical position. THIS ONE IS THE "
+                     "NON-VACUITY CONTROL: the ballistic arc is NOT scaled "
+                     "(see the rail's own note), so it must still read the "
+                     "frame ratio while the two horizontal rates read "
+                     "parity."),
+        ],
+    ),
+    "room": dict(
+        rom="build/room.sfc", map="build/rm/symbol_map.json",
+        scene="room",
+        klass="walking",
+        # START clears the title, then a horizontal shuttle. room_logic
+        # CLAMPS the hero to [8, 232]; he spawns at 120, and a 0.7 s
+        # half-period is 84 px at the NTSC rate, so he swings between roughly
+        # 120 and 204 without ever parking against a wall.
+        script=_axis_shuttle(0.7, "right", "left", start_s=0.5),
+        warmup_s=3.0, window_s=12.0, guard=[],
+        observables=[
+            dict(name="hero_oam_x", kind="distance", unit="OAM px",
+                 mem="oam", fields=[("ES_O_HERO", 0, 1, 256)],
+                 why="byte 0 of the lantern-bearer's OAM entry — the X the "
+                     "PPU draws him at. The room is one screen and does not "
+                     "scroll, so his OAM px/s IS the walking speed."),
+            dict(name="hero_x", kind="distance", unit="screen px",
+                 mem="wram", fields=[("US_PX", 0, 2, 65536)],
+                 why="the hero's own x. The window_iris lantern is centred "
+                     "on it every frame, so this word is also the rate the "
+                     "LIGHT moves across the room — the rail's subject."),
+        ],
+    ),
+    # ------------------------------------------------------------- SHOOTERS
+    "shmup": dict(
+        rom="build/shmup.sfc", map="build/sh/symbol_map.json",
+        scene="play",
+        klass="shooting",
+        # START clears the title, then a horizontal shuttle with A held down
+        # so the ship also fires. SHIP_MIN_X/MAX_X are 8 and 224 and the ship
+        # spawns at 120; a 0.6 s half-period is 72 px at the NTSC rate, which
+        # keeps it off both clamps. A is held rather than tapped because the
+        # bullet observable wants the pool busy, and the fire gate is a
+        # per-frame pool spawn rather than a press edge.
+        script=_axis_shuttle(0.6, "right", "left", start_s=0.5,
+                             hold={"a": True}),
+        warmup_s=3.0, window_s=12.0,
+        guard=[("US_GOVER", 2, 0), ("US_LIVES", 2, 3)],
+        observables=[
+            dict(name="field_scroll", kind="distance", unit="BG px",
+                 mem="wram", fields=[("ES_SHM_SCROLL", 0, 2, 256)],
+                 why="shmup_bg's shadow of BG1VOFS, committed to the PPU "
+                     "every VBlank (shmup_bg.asm's shm_vblank_scroll). The "
+                     "planet field IS the sense of flying, so BG px per "
+                     "second is the speed the world comes at the player. "
+                     "The modulus is the map's own 256 px height, which is "
+                     "what shm_drift masks to."),
+            dict(name="ship_oam_x", kind="distance", unit="OAM px",
+                 mem="oam", fields=[("ES_O_SHIP", 0, 1, 256)],
+                 why="byte 0 of the ship's OAM entry — where the PPU draws "
+                     "it. The playfield does not scroll horizontally, so "
+                     "this is the ship's speed as the player sees it."),
+            dict(name="ship_y", kind="distance", unit="screen px",
+                 mem="wram", fields=[("US_PY", 0, 2, 65536)],
+                 why="the ship's own y. It is the axis the shuttle does NOT "
+                     "drive, so it moves only when the drive's held "
+                     "direction changes nothing about it — kept as the "
+                     "cross-check that the tick is doing per-axis work."),
+        ],
+    ),
+    "breaker": dict(
+        rom="build/breaker.sfc", map="build/bk/symbol_map.json",
+        scene="play",
+        klass="shooting",
+        # START clears the title; A launches the ball off the paddle; then a
+        # horizontal shuttle runs the bat. The bat is clamped to [8, 224] and
+        # starts at 116, so a 0.5 s half-period (90 px at the NTSC rate)
+        # stays inside. A is re-tapped on the shuttle's beat so a LOST ball
+        # relaunches rather than leaving the window measuring a dead rail —
+        # the guard below is what makes that visible if it fails anyway.
+        script=_axis_shuttle(0.5, "right", "left", start_s=0.5,
+                             hold={"a": True}),
+        warmup_s=3.0, window_s=10.0,
+        guard=[("US_GSTATE", 2, 1)],
+        observables=[
+            dict(name="paddle_oam_x", kind="distance", unit="OAM px",
+                 mem="oam", fields=[("ES_O_PADDLE", 0, 1, 256)],
+                 why="byte 0 of the bat's leftmost OAM entry — where the PPU "
+                     "draws it. The arena does not scroll, so OAM px/s is "
+                     "the bat's speed exactly as the player feels it under "
+                     "the d-pad."),
+            dict(name="ball_path", kind="path2d", unit="screen px",
+                 mem="wram",
+                 fields=[("US_BX", 0, 2, 65536), ("US_BY", 0, 2, 65536)],
+                 why="the ball's 2-D path length. The ball is the only "
+                     "actor here that NO drive script can pace — it is a "
+                     "billiard integrating its own velocity — so its "
+                     "distance per real second is the purest progress "
+                     "measure on the rail. The guard requires the round to "
+                     "still be live, because a ball sitting on the bat in "
+                     "WAIT contributes zero to the numerator and real "
+                     "seconds to the denominator."),
+        ],
+    ),
+    # --------------------------------------------------------------- MODE 7
+    "rpg": dict(
+        rom="build/rpg.sfc", map="build/rpg/symbol_map.json",
+        scene="overworld",
+        klass="mode7",
+        # Hold RIGHT for the whole run. The overworld is a 1024 px TORUS, so
+        # there is no clamp anywhere and a held direction walks for ever —
+        # the grid slide simply re-arms itself every STEP_FRAMES frames.
+        script=[(0.0, {"right": True})],
+        warmup_s=3.0, window_s=12.0, guard=[],
+        observables=[
+            dict(name="m7_path", kind="path2d", unit="world px",
+                 mem="wram",
+                 fields=[("ES_M7ORG", 0, 2, 1024), ("ES_M7ORG", 2, 2, 1024)],
+                 why="ES_M7ORG +0/+2 are the Mode 7 camera's world x/y, "
+                     "committed to the PPU by mode7_persp's NMI hook every "
+                     "VBlank. The floor is drawn FROM this point, so the "
+                     "path it traces is the ground the player covers. The "
+                     "modulus is the 128x128-tile world's 1,024 px torus, "
+                     "not 65,536 — a 16-bit unwrap would read the world "
+                     "wrap as a 1,016 px jump."),
         ],
     ),
 }

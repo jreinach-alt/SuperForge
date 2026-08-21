@@ -25,6 +25,24 @@
 
 .scope world
 
+; =============================================================================
+; THE ONE BASE RATE tick_scale SCALES (docs/96 §4, docs/97 §3)
+; =============================================================================
+; CF_SPEED is still the one number to reach for when tuning how this rail
+; feels; what changed is that it is now a RATE rather than a per-frame
+; immediate. On NTSC TS_STEP publishes it to the pixel, so the picture cannot
+; move; on PAL it publishes 2 or 3 in the pattern that averages 2.4036.
+;
+; SCALING THE PLAYER SCALES THE WHOLE RAIL, and that falls out of the two-space
+; split rather than needing a second accumulator: the camera is recomputed as
+; clamp(player - half-screen) every tick and the sprite as world - camera, so
+; both are pure functions of a position this rate is the only writer of. The
+; oracle reads that directly — cam_x and player_x move at one rate, not two.
+;
+; NOTHING ELSE HERE IS COUNTED IN FRAMES except `frames`, the free-running
+; heartbeat, which is left alone deliberately: it drives nothing.
+TS_MOVE_BASE = CF_SPEED * TS_ONE
+
 ; --- enter ----------------------------------------------------------------
 ; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
 enter:
@@ -38,6 +56,10 @@ enter:
     lda #CF_BOOT_Y
     sta z:US_PWY
     stz z:US_FRAMES
+    stz z:US_TS_ACC                 ; the timebase's carried fraction, and this
+    stz z:US_TS_STEP                ;   frame's step: both written before read.
+                                    ;   The tick republishes the step at its
+                                    ;   top, but enter's own follow runs first.
     ; ---- run the follow + subtraction ONCE, then stage the sprite, so the
     ; first committed frame is the real picture: camera (128, 112), sprite at
     ; screen (128, 112) — not cf_arm's zeroed camera and a parked sprite.
@@ -73,6 +95,11 @@ tick:
     .a16
     .i16
     inc z:US_FRAMES
+    ; This frame's player step, once. Computed here rather than inside
+    ; move_player so all four axis moves read ONE answer — compute once per
+    ; frame per rate, consume as many times as the frame needs.
+    TS_STEP z:US_TS_ACC, TS_MOVE_BASE
+    sta z:US_TS_STEP
     jsr move_player
     jsr clamp_player
     jsr follow_camera
@@ -98,7 +125,7 @@ move_player:
     beq @no_right
     lda z:US_PWX
     clc
-    adc #CF_SPEED
+    adc z:US_TS_STEP
     sta z:US_PWX
 @no_right:
     .a16
@@ -108,7 +135,7 @@ move_player:
     beq @no_left
     lda z:US_PWX
     sec
-    sbc #CF_SPEED
+    sbc z:US_TS_STEP
     sta z:US_PWX
 @no_left:
     .a16
@@ -118,7 +145,7 @@ move_player:
     beq @no_down
     lda z:US_PWY
     clc
-    adc #CF_SPEED
+    adc z:US_TS_STEP
     sta z:US_PWY
 @no_down:
     .a16
@@ -128,7 +155,7 @@ move_player:
     beq @no_up
     lda z:US_PWY
     sec
-    sbc #CF_SPEED
+    sbc z:US_TS_STEP
     sta z:US_PWY
 @no_up:
     .a16

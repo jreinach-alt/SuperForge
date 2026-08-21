@@ -16,3 +16,21 @@ score = "u16@dp"         # catches so far, plain binary +1 per catch. Nothing
                          # prints it, so no BCD — the rendered output of a
                          # catch is the dot's JUMP
 dot_idx = "u16@dp"       # which preset the dot sits on (0-3, wraps by mask)
+
+# --- the TIMEBASE's per-consumer state (engine/features/tick_scale) ---------
+#
+# ONE RATE, ONE PAIR. Everything that moves on this rail moves at SPRG_SPEED —
+# the player is the only actor with a velocity, and the dot teleports between
+# four preset spots rather than travelling. A second rate would declare a
+# second pair; two consumers on the SAME base may share one, because what the
+# pair carries is a property of the RATE and not of the thing being moved.
+ts_acc = "u16@dp"        # the carried fraction, 8.8. It is what makes a
+                         # non-integer per-frame step exact over time instead
+                         # of re-quantised every frame.
+                         # TICK: ok — this word EXISTS to remove a frame
+                         # coupling, not to express one; it is the fraction the
+                         # scaler carries and has no meaning in frames.
+ts_step = "u16@dp"       # this frame's whole-unit step in screen px, published
+                         # once by TS_STEP and consumed by the four axis moves.
+                         # TICK: ok — the OUTPUT of the scaler; it is already
+                         # expressed against the declared tick.
