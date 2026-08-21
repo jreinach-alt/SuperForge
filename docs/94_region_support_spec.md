@@ -53,8 +53,16 @@ wording. "Boots on both" is already true and is not what this spec asks for.
 > spanning two frames. The re-tuning surface is **185 named sites**, 30 of them
 > integer countdowns with no correct 5/6. R2 is also the only tier that can
 > break a rail that works today.
-> The other two clauses are unaffected and R1 stands. Until this is decided,
-> R2 is not authorised.*
+> The other two clauses are unaffected and R1 stands.
+>
+> **DECIDED 2026-08-20 — the clause stands; R2 is authorised as tooling
+> first.** The owner's ruling: running slower is not an acceptable answer, and
+> the 16-bit era's habit of shipping it is the reason not to. What `docs/95`
+> refuted is ONE SCHEME, not the goal. The authorised work is therefore the
+> instrument and the mechanism — a rate oracle that can adjudicate any
+> candidate scheme, a lint that turns the 185 sites into a tracked baseline,
+> and a prototype timebase evaluated behind a flag. **The 185-site retune is
+> NOT authorised by this ruling** and no default behaviour changes.*
 
 ## 3. Tiers, and what each must prove
 
