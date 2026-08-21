@@ -14,6 +14,81 @@
 .scope play
 .include "engine_state_play.inc"    ; GENERATED — this scene's map
 
+; =============================================================================
+; THE REGION-CORRECT UNITS — an arc takes TWO scales, not one
+; =============================================================================
+; A PAL frame must carry r = 1.2018039 of the distance an NTSC frame carries
+; (engine/features/tick_scale carries that derivation and is the only place
+; the ratio lives). A VELOCITY is px per frame and scales by r. A GRAVITY is
+; px per frame SQUARED and scales by r SQUARED — and doing only the first is
+; the classic half-conversion: the fall accelerates at NTSC's rate through
+; frames that are 20% longer, the arc flattens, the apex drops and the hop
+; stops clearing the pit it was tuned to clear. docs/95 §3.3 names this rail
+; as the one needing the two-constant treatment; this is it.
+;
+; The pair preserves the arc's SHAPE, not merely its speed:
+;
+;     apex        = v0^2 / 2g   ->  (v0*r)^2 / (2*g*r^2)   = the same apex
+;     flight time = 2*v0/g frames -> (2*v0/g)/r frames, which at 50.007 fps
+;                   is the same number of REAL SECONDS as it was at 60.099
+;
+; TS_R(v) is TS_STEP's own PAL arm written as a build-time expression, which
+; is what lets a per-frame-SQUARED quantity be scaled TWICE (once here into
+; the base, once by the macro). It is NOT a second copy of the ratio:
+; TS_GAIN_NUM / TS_GAIN_DEN are tick_scale's and single-sourced, and this only
+; applies them. The `+ DEN/2` is the macro's own rounding, kept identical so
+; the two arms cannot disagree by a count.
+; (the parameter is `v`, not `x`: ca65 reads a bare `x` in a define's
+;  parameter list as the index REGISTER and refuses the definition.)
+.define TS_R(v) ((v) + ((v) * TS_GAIN_NUM + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
+
+; --- the three rates on one r: the walk, the ghosts, the animation clock ---
+; PLF_WALK is still the one number to reach for when tuning how the hero
+; feels; what changed is that it is a RATE rather than a per-frame immediate.
+TS_WALK_BASE = PLF_WALK * TS_ONE
+; THE GHOSTS' BEAT. gh_step moves one pixel a frame — it is written as an
+; `inc a`/`dec a` rather than as a constant, which is why the base is spelled
+; here and not in platformer.inc. It stays a separate pair from the animation
+; clock even though the two bases are numerically equal: they are different
+; QUANTITIES (world px against animation units) and a shared accumulator
+; would couple them the day either is tuned.
+TS_GHOST_BASE = 1 * TS_ONE
+; ONE ANIMATION UNIT. The DIVIDER (PLF_ANIM_RATE) is untouched — scaling a
+; small integer divider is docs/95 §5.2's class C and has no correct answer —
+; so what is scaled is the amount the CLOCK advances by.
+TS_ANIM_BASE = TS_ONE
+
+; --- gravity: the r^2 site, and the only one on this rail ------------------
+; TS_STEP applies exactly one r, so the other one goes into the BASE — on the
+; PAL arm only, which is why the tick branches on ES_RGN_PAL BEFORE the macro
+; instead of after it. Both arms share one accumulator: a console cannot
+; change region, so only one of them is ever taken.
+TS_GRAV_BASE   = PLF_GRAVITY * TS_ONE
+TS_GRAV_BASE_R = TS_R(TS_GRAV_BASE)
+
+; --- the three velocities: one r each, chosen once at enter ----------------
+; The two negative ones are scaled as MAGNITUDES and negated, so the rounding
+; happens on the number the physics means rather than on a two's complement.
+PLF_JUMP_MAG   = (1 << 16) - PLF_JUMP_VEL
+PLF_CUT_MAG    = (1 << 16) - PLF_JUMP_CUT
+PLF_JUMP_VEL_R = (1 << 16) - TS_R(PLF_JUMP_MAG)
+PLF_JUMP_CUT_R = (1 << 16) - TS_R(PLF_CUT_MAG)
+PLF_MAX_FALL_R = TS_R(PLF_MAX_FALL)
+
+; The bounds the SCALED constants have to keep, asserted rather than trusted.
+; A region scale is exactly the kind of change that walks a tuned constant
+; through a bound nobody re-checked.
+;   * do_physics' landing snap is derived from the SURFACE's row, so it holds
+;     at any speed — but only while a single frame's step cannot cross more
+;     than one tile row, which is PLF_BOX px;
+;   * gh_step probes ONE PIXEL past the leading edge and then moves, so a
+;     step of 2 px can put the ghost 1 px into the wall it turns at on the
+;     next frame. Bounded, and bounded by this assert: with a base of 1 px
+;     the published step is 1 or 2 and never 3.
+.assert PLF_MAX_FALL_R <= PLF_BOX * 256, error, "the PAL-scaled PLF_MAX_FALL crosses more than one tile row in a frame — the landing snap's no-tunnel bound does not cover it"
+.assert TS_R(PLF_JUMP_MAG) <= PLF_BOX * 256, error, "the PAL-scaled jump velocity crosses more than one tile row in a frame"
+.assert TS_R(TS_GHOST_BASE) < 2 * TS_ONE, error, "the PAL-scaled ghost step can reach 3 px — gh_step's one-pixel lookahead would let a ghost walk 2 px into a wall"
+
 ; BG3 2bpp tile attr for the HUD (palette 7, priority — the HUD sits above the
 ; level, the sky and the sprites)
 PLAY_TXT_ATTR = (7 << 10) | (1 << 13)
@@ -165,6 +240,37 @@ round_reset:
     sta z:US_LIVES
     lda #PLF_GRACE
     sta z:US_HURT               ; spawn grace i-frames
+    ; ---- the timebase's eight words, and the three region-selected feel
+    ;      constants. WRAM is random at power-on, so these stores ARE the
+    ;      write-before-read contract too. -------------------------------
+    lda #0
+    sta z:US_TSW_ACC
+    sta z:US_TSW
+    sta z:US_TSG_ACC
+    sta z:US_TSG
+    sta z:US_TSA_ACC
+    sta z:US_TSA
+    sta z:US_TSH_ACC
+    sta z:US_TSH
+    lda z:ES_RGN_PAL
+    beq :+
+    lda #PLF_MAX_FALL_R
+    sta z:US_VMAX
+    lda #PLF_JUMP_VEL_R
+    sta z:US_VJUMP
+    lda #PLF_JUMP_CUT_R
+    sta z:US_VCUT
+    bra :++
+:   .a16
+    .i16
+    lda #PLF_MAX_FALL           ; today's constants, to the bit
+    sta z:US_VMAX
+    lda #PLF_JUMP_VEL
+    sta z:US_VJUMP
+    lda #PLF_JUMP_CUT
+    sta z:US_VCUT
+:   .a16
+    .i16
     ; ---- the two ghosts ---------------------------------------------------
     lda #1
     sta z:US_E1ALIVE
@@ -243,6 +349,34 @@ exit:
 tick:
     .a16
     .i16
+    ; ---- this frame's four region-correct steps, published once ----------
+    ; BEFORE the pause and game-over gates, deliberately: a step word that
+    ; stops being republished is a stale word waiting to be read, and nothing
+    ; below MOVES on a frozen frame anyway — the freeze is that the readers do
+    ; not run, never that a rate was zeroed (platformer_bg/feature.toml).
+    ; On NTSC each publishes the constant platformer.inc authored, to the
+    ; unit, and the carried fraction stays 0 for ever.
+    TS_STEP z:US_TSW_ACC, TS_WALK_BASE
+    sta z:US_TSW
+    TS_STEP z:US_TSH_ACC, TS_GHOST_BASE
+    sta z:US_TSH
+    TS_STEP z:US_TSA_ACC, TS_ANIM_BASE
+    sta z:US_TSA
+    ; Gravity is per-frame-SQUARED: the second r rides the BASE, so the arm
+    ; is chosen BEFORE the macro rather than after it. ANONYMOUS LABELS, not
+    ; `@cheap` ones: TS_STEP's `.local` labels are plain symbols, so expanding
+    ; it between a `@label` and its use RESETS the cheap-local scope and the
+    ; branch target goes undefined.
+    lda z:ES_RGN_PAL
+    beq :+
+    TS_STEP z:US_TSG_ACC, TS_GRAV_BASE_R
+    bra :++
+:   .a16
+    .i16
+    TS_STEP z:US_TSG_ACC, TS_GRAV_BASE
+:   .a16
+    .i16
+    sta z:US_TSG
     jsr do_msg                  ; the banner drains whatever the state is
     ; ---- START toggles a full freeze -------------------------------------
     lda z:US_GOVER
@@ -310,10 +444,24 @@ tick:
 do_anim:
     .a16
     .i16
+    ; THE CLOCK ADVANCES BY US_TSA, NOT BY ONE. That is this rail's answer to
+    ; docs/95 §5.2's class C: a frame-rate divider is a small integer with no
+    ; correct x5/6, so PLF_ANIM_RATE is left alone and what the clock ADVANCES
+    ; BY is scaled instead — 1 unit per NTSC frame, 1.2018 per PAL frame,
+    ; the fraction carried by tick_scale. On NTSC US_TSA is exactly 1 every
+    ; frame, so this is `inc a` in behaviour.
     lda z:US_ATICK
-    inc a
+    clc
+    adc z:US_TSA
     cmp #PLF_ANIM_RATE
     bcc @store
+    ; CARRY THE OVERSHOOT rather than zeroing. On NTSC the clock arrives at
+    ; the divider EXACTLY (it steps by 1 from 0), so tick - rate = 0 and this
+    ; is the `lda #0` it replaces; on PAL a 2-unit frame can cross the divider
+    ; by one, and dropping that one is a bias nothing downstream can see.
+    sec
+    sbc #PLF_ANIM_RATE
+    sta z:US_ATICK
     lda z:US_AFRAME
     inc a
     cmp #PLF_ANIM_STEPS
@@ -322,7 +470,7 @@ do_anim:
 :   .a16
     .i16
     sta z:US_AFRAME
-    lda #0
+    rts
 @store:
     .a16
     .i16
@@ -409,7 +557,7 @@ do_walk:
     beq @left
     lda z:US_PX
     clc
-    adc #PLF_WALK
+    adc z:US_TSW
     cmp #(PLF_WORLD_W - PLF_BOX)
     bcs @left                   ; the world's right edge
     sta z:US_AX
@@ -429,7 +577,7 @@ do_walk:
     beq @done
     lda z:US_PX
     sec
-    sbc #PLF_WALK
+    sbc z:US_TSW
     cmp #PLF_BOX
     bcc @done                   ; the world's left edge
     sta z:US_AX
@@ -461,7 +609,7 @@ do_jump:
     beq @cut
     lda z:US_GROUNDED
     beq @cut
-    lda #PLF_JUMP_VEL
+    lda z:US_VJUMP
     sta z:US_VY
     lda #0
     sta z:US_GROUNDED
@@ -475,9 +623,9 @@ do_jump:
     bne @done                   ; still held -> keep rising
     lda z:US_VY
     bpl @done                   ; falling -> nothing to cut
-    cmp #PLF_JUMP_CUT
+    cmp z:US_VCUT
     bcs @done                   ; already slower than the cut
-    lda #PLF_JUMP_CUT
+    lda z:US_VCUT
     sta z:US_VY
 @done:
     .a16
@@ -499,11 +647,11 @@ do_physics:
     ; ---- gravity, clamped at terminal velocity ---------------------------
     lda z:US_VY
     clc
-    adc #PLF_GRAVITY
+    adc z:US_TSG
     bmi @store_v                ; still rising: no terminal clamp applies
-    cmp #(PLF_MAX_FALL + 1)
-    bcc @store_v
-    lda #PLF_MAX_FALL
+    cmp z:US_VMAX               ; >= terminal -> clamp to it. The `+ 1`
+    bcc @store_v                ;   the immediate form carried is folded
+    lda z:US_VMAX               ;   into the compare: A = VMAX clamps to VMAX
 @store_v:
     .a16
     .i16
@@ -749,14 +897,16 @@ gh_step:
     lda z:US_TMP2
     beq @go_west
     lda z:US_AX
-    inc a
-    sta z:US_AX
+    clc
+    adc z:US_TSH                ; the beat's px this frame: 1 on NTSC, 1 or 2
+    sta z:US_AX                 ;   on PAL, averaging 1.2018
     rts
 @go_west:
     .a16
     .i16
     lda z:US_AX
-    dec a
+    sec
+    sbc z:US_TSH
     sta z:US_AX
     rts
 @turn:
@@ -895,7 +1045,7 @@ gh_contact:
 stomp_bounce:
     .a16
     .i16
-    lda #PLF_JUMP_CUT           ; half a jump — enough to read as a bounce
+    lda z:US_VCUT               ; half a jump — enough to read as a bounce
     sta z:US_VY
     lda #0
     sta z:US_GROUNDED

@@ -36,6 +36,14 @@ NMI:
 .include "fade.asm"
 .include "bg_text.asm"
 .include "oam_sprites.asm"
+.include "region.asm"               ; $213F bit 4 -> ES_RGN_PAL, once at boot
+.include "tick_scale.asm"           ; TS_STEP: the macro play.asm's tick uses.
+                                    ; INCLUDED BEFORE THE SCENE, and it must
+                                    ; be -- a ca65 macro has to be defined
+                                    ; before the line that expands it, and the
+                                    ; scene's region-scaled constants are built
+                                    ; from TS_GAIN_NUM/TS_GAIN_DEN, which this
+                                    ; file is the only source of.
 .include "save.asm"
 
 ; --- text_dp boot init (the text engine's global DP block) ------------------
@@ -158,6 +166,9 @@ MAIN:
     jsr play::plf_q_init        ; the coin queue's count byte — its VBlank
                                 ;   reader runs in EVERY scene, so this is the
                                 ;   write-before-read contract for it
+    jsr region_init             ; the console's own region line, once. It is
+                                ;   game-lifetime state: a console does not
+                                ;   change region between scenes.
     jsr oam_park_all            ; whole shadow written before its first DMA
     ; ---- audio boot (TAD contract, tad-audio.inc): interrupts are DISABLED
     ; here by construction — init.inc leaves NMI off and $4200 is written only
