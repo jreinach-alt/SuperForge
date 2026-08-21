@@ -22,12 +22,48 @@
 
 .scope demo
 
+; =============================================================================
+; THE REGION-CORRECT UNITS (engine/features/tick_scale)
+; =============================================================================
+; A PAL frame must carry r = 1.2018039 of the distance an NTSC frame carries.
+; Both of this rail's rates are VELOCITIES — px per frame — so both take one r
+; and neither needs the r^2 arm a ballistic rail does: nothing here
+; accelerates. SVD_CAM_SPD and the seam's one px stay the numbers to reach for
+; when tuning how the rail feels; what changed is that they are RATES rather
+; than per-frame immediates.
+; (the parameter is `v`, not `x`: ca65 reads a bare `x` in a define's
+;  parameter list as the index REGISTER and refuses the definition.)
+.define TS_R(v) ((v) + ((v) * TS_GAIN_NUM + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
+TS_CAM_BASE  = SVD_CAM_SPD * TS_ONE
+TS_SEAM_BASE = 1 * TS_ONE
+
+; The two cameras SHARE one accumulator and the seam has its own, which is
+; tick_scale's rule rather than thrift: the fraction is carried per RATE, so
+; two consumers on the same base may share one pair and two on different bases
+; may not.
+SVD_TSC_A = ES_SVD_CAM + 6
+SVD_TSC   = ES_SVD_CAM + 8
+SVD_TSS_A = ES_SVD_CAM + 10
+SVD_TSS   = ES_SVD_CAM + 12
+.assert SVD_TSS + 2 - ES_SVD_CAM = ES_SVD_CAM_SIZE, error, "the svd_cam field layout does not fill its DP claim"
+
+; The seam clamp only holds while a frame's sweep cannot jump the bound it is
+; tested against: both tests are `cmp` + a single-step move, so a step of 2 can
+; sit one px past SEAM_HI. Bounded, and bounded by this assert.
+.assert TS_R(TS_SEAM_BASE) < 2 * TS_ONE, error, "the PAL-scaled seam sweep can reach 3 px a frame — the clamp's single-step test would let it overshoot by 2"
+
 ; --- enter ------------------------------------------------------------------
 ; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
 enter:
     .a16
     .i16
     jsr svd_arm                     ; stage, palette, layers, window, channel
+    ; ---- the timebase's four words. Power-on DP is RANDOM (rule 5), so
+    ; these stores ARE the write-before-read contract. -------------------
+    stz z:SVD_TSC_A
+    stz z:SVD_TSC
+    stz z:SVD_TSS_A
+    stz z:SVD_TSS
     jsr svd_obj_arm                 ; marker CHR, palette, OBSEL, tile/attr/y
     sep #$20
     .a8
@@ -52,6 +88,13 @@ enter:
 tick:
     .a16
     .i16
+    ; ---- this frame's two region-correct steps, published once ----------
+    ; On NTSC each publishes the constant split_v_demo.inc authored, to the
+    ; unit, and the carried fraction stays 0 for ever.
+    TS_STEP z:SVD_TSC_A, TS_CAM_BASE
+    sta z:SVD_TSC
+    TS_STEP z:SVD_TSS_A, TS_SEAM_BASE
+    sta z:SVD_TSS
     jsr cam_a
     jsr cam_b
     jsr seam_move
@@ -75,7 +118,7 @@ cam_a:
     beq :+
     lda z:ES_SVD_CAM + 0
     clc
-    adc #SVD_CAM_SPD
+    adc z:SVD_TSC
     and #255
     sta z:ES_SVD_CAM + 0
 :   lda z:ES_INP_CUR
@@ -83,7 +126,7 @@ cam_a:
     beq :+
     lda z:ES_SVD_CAM + 0
     sec
-    sbc #SVD_CAM_SPD
+    sbc z:SVD_TSC
     and #255
     sta z:ES_SVD_CAM + 0
 :   rts
@@ -100,7 +143,7 @@ cam_b:
     beq :+
     lda z:ES_SVD_CAM + 2
     clc
-    adc #SVD_CAM_SPD
+    adc z:SVD_TSC
     and #255
     sta z:ES_SVD_CAM + 2
 :   lda z:ES_INP2_CUR
@@ -108,7 +151,7 @@ cam_b:
     beq :+
     lda z:ES_SVD_CAM + 2
     sec
-    sbc #SVD_CAM_SPD
+    sbc z:SVD_TSC
     and #255
     sta z:ES_SVD_CAM + 2
 :   rts
@@ -130,7 +173,8 @@ seam_move:
     lda z:ES_SVD_CAM + 4
     cmp #SVD_SEAM_HI
     bcs :+
-    inc a
+    clc
+    adc z:SVD_TSS
     sta z:ES_SVD_CAM + 4
 :   lda z:ES_INP_CUR
     and #JOY_L
@@ -138,7 +182,8 @@ seam_move:
     lda z:ES_SVD_CAM + 4
     cmp #SVD_SEAM_LO + 1
     bcc :+
-    dec a
+    sec
+    sbc z:SVD_TSS
     sta z:ES_SVD_CAM + 4
 :   rts
 

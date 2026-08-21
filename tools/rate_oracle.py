@@ -628,6 +628,55 @@ RAILS = {
                      "than a decoration."),
         ],
     ),
+    # ------------------------------------------------ THE VERTICAL WINDOW RIG
+    "split_v_demo": dict(
+        rom="build/split_v_demo.sfc", map="build/svd/symbol_map.json",
+        scene="demo",
+        klass="scrolling / 2-player",
+        # THE ONE RIG IN THE SPLIT FAMILY THAT TAKES THE TIMEBASE, so it is
+        # the one with an oracle line. Pad 1 holds RIGHT for camera A and
+        # alternates the SHOULDERS on a 1 s period for the seam; pad 2 holds
+        # LEFT for camera B. Three rates, three observables, one drive.
+        #
+        # Nothing clamps. The two cameras are masked to a byte — the stage map
+        # is 256 px periodic, so a camera walked off either end WRAPS into the
+        # world rather than pinning — and the seam starts centred at 128 with
+        # 1 s legs of 60 px, inside its [64, 192] bounds with 4 px to spare.
+        # A pinned frame is lost distance the ratio would report as a rate
+        # difference, and this rail has two ways to pin.
+        script=[(k, dict(right=True, **({"r": True} if k % 2 == 0
+                                        else {"l": True})))
+                for k in range(24)],
+        script2=[(0.0, {"left": True})],
+        warmup_s=2.0, window_s=12.0, guard=[],
+        observables=[
+            dict(name="cam_a", kind="distance", unit="world px",
+                 mem="wram", fields=[("ES_SVD_CAM", 0, 2, 256)],
+                 why="camera A — the word `svd_bg`'s VBlank commit writes "
+                     "BG1HOFS from, so it is the scroll the PPU renders the "
+                     "LEFT half of the split with. World px per second here "
+                     "IS the speed that half slides at. The modulus is 256, "
+                     "not 65,536: the stage is 256 px periodic and the camera "
+                     "is masked to a byte, so a 16-bit unwrap would read "
+                     "every wrap as a 255 px jump."),
+            dict(name="cam_b", kind="distance", unit="world px",
+                 mem="wram", fields=[("ES_SVD_CAM", 2, 2, 256)],
+                 why="camera B, the RIGHT half's scroll, driven by the second "
+                     "pad. It is measured beside camera A rather than assumed "
+                     "to match it because the two cameras SHARE one "
+                     "accumulator — the rail's claim is that they move "
+                     "independently, and a shared pair that had coupled them "
+                     "would show here."),
+            dict(name="seam", kind="distance", unit="screen px",
+                 mem="wram", fields=[("ES_SVD_CAM", 4, 2, 65536)],
+                 why="the seam's screen x, which `svd_bg` turns into the "
+                     "window edge registers every VBlank — the divider the "
+                     "player is actually moving. It is the rail's SECOND "
+                     "rate on a different base (one px a frame against the "
+                     "cameras' two), so it carries its own accumulator and "
+                     "this is the observable that checks the split."),
+        ],
+    ),
 }
 
 

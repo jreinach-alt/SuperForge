@@ -59,6 +59,12 @@
 #   audio       -- silent, deliberately: nothing here is timed to sound, and a
 #                  "prettify the demo" addition buys picture at the cost of the
 #                  signal.
+# REGION PARITY IS NOT THIS RAIL'S SUBJECT, so it does not compose `region` +
+# `tick_scale`. Its central claim is a PER-FRAME structural one — drive one
+# axis and the other band's pixels must not move IN THE SAME FRAME — and its
+# -DSHP_AUTODEMO build makes the heading literally the frame counter mod 64.
+# Both are statements about a frame, and a region-scaled step is a statement
+# about a second.
 globals = ["scene_mgr", "fade", "input", "shp_rom"]
 
 [[scene]]

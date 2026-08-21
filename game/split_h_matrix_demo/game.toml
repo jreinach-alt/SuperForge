@@ -57,6 +57,13 @@
 # demonstration into a state cycle a test can walk in BOTH directions and hold
 # still on. `input` is composed for exactly that and `shm_cam`'s shm_zoom_step
 # is its only reader.
+# REGION PARITY IS NOT THIS RAIL'S SUBJECT, so it does not compose `region` +
+# `tick_scale`. The rail's whole signal is a STATIC property of two constant
+# matrices — the 8-vs-32 px on-screen checker period — and the only thing that
+# moves is a pad-held zoom, which is a manipulator for exploring the mechanism
+# rather than a speed anyone experiences. Composing a timebase would also put a
+# per-frame publish into a rail whose headline is "zero per-frame CPU unless
+# the pad is held".
 globals = ["scene_mgr", "fade", "input", "shm_rom"]
 
 [[scene]]

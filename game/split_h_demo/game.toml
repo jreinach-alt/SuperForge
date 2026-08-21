@@ -43,6 +43,13 @@
 #
 # ONE SCENE, no edges — scroller / hud_game / camera_follow / jumper / scroll_run
 # shape: one RESET and one loop.
+# REGION PARITY IS NOT THIS RAIL'S SUBJECT, so it does not compose `region` +
+# `tick_scale`. The spin is a STRESS CADENCE chosen against a capture window —
+# the -DSHD_AUTODEMO build steps the heading once every four frames because
+# `pose_rom` has 64 of them and that is "a full turn in 256 frames, slow enough
+# to read and fast enough to exercise every pose within a capture window"
+# (scenes/cockpit.asm). What is under test is split_band's frame-wide ownership
+# of BGMODE while the matrix rebuilds, not how fast the camera turns.
 globals = ["scene_mgr", "fade", "input", "text_dp", "font_rom", "enter_scr",
            "world_rom", "pose_rom"]
 

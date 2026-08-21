@@ -27,6 +27,11 @@
 # here, because THIS rail is where its band count stops being a parameter: its
 # four matrix claims declare `band = [0,112]` and `[112,224]`, so a third band
 # is an edit to the feature rather than an argument to it.
+# REGION PARITY IS NOT THIS RAIL'S SUBJECT, so it does not compose `region` +
+# `tick_scale` — identical reasoning to the two-band rail's, and identical for
+# the same reason the rest of this file is: the PAIR is the evidence, so a
+# difference between them would have to be about the band count. The signal is
+# the static 8/16/32 px checker periods; the only motion is a pad-held zoom.
 globals = ["scene_mgr", "fade", "input", "shm_rom"]
 
 [[scene]]
