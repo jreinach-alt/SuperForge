@@ -27,7 +27,86 @@ M7F_FP        = 8                       ; the 8.8 fixed point's fraction bits
 M7F_ACCEL     = 1 << (M7F_FP - 4)       ; $0010: +1/16 px/frame per frame of B
 M7F_DECEL     = 1 << (M7F_FP - 5)       ; $0008: the coast bleed toward hover
 M7F_SPEED_CAP = 3 << M7F_FP             ; $0300: 3 px/frame forward
-M7F_SPEED_REV = (0 - (2 << M7F_FP)) & $FFFF   ; $FE00: -2 px/frame reverse
+M7F_SPEED_MAG = 2 << M7F_FP             ; the reverse cap's MAGNITUDE, 2 px/f
+M7F_SPEED_REV = (0 - M7F_SPEED_MAG) & $FFFF   ; $FE00: -2 px/frame reverse
+
+; =============================================================================
+; THE FLIGHT MODEL IN TWO REGIONS (engine/features/tick_scale)
+; =============================================================================
+; A PAL frame lasts r = 1 + TS_GAIN_NUM/TS_GAIN_DEN = 1.2018039 NTSC frames.
+; Four numbers here and each takes the exponent its DIMENSION asks for:
+;
+;   a CAP is px per frame           -> r    768 -> 923, 512 -> 615
+;   an ACCELERATION is px per frame
+;     PER frame                     -> r^2  16 -> 23, 8 -> 12
+;
+; All four are 8.8, which is docs/95 §5.2's cheap class — the fixed point
+; absorbs the ratio, so the conversion is a build-time constant chosen once at
+; scene enter and there is nothing per-frame to carry. The REVERSE cap is
+; negated from its own magnitude on both machines rather than twinned, so
+; "$FE00 is minus $0200" cannot become false on one of them.
+;
+; The two INTEGER rates in this file — the heading and the altitude index, both
+; one unit per held frame — are NOT twinned. An integer step of 1 has no
+; correct x1.2018 (round-to-nearest is 1 and changes nothing; round-up is 2 and
+; overshoots by 66%), so they read US_TS_TICK, which sky.asm publishes once per
+; frame through TS_STEP with the fraction carried.
+;
+; STATED RESIDUAL: the accelerations round to whole 8.8 LSBs — ACCEL 16 -> 23
+; against a true 23.11 (-0.4%) and DECEL 8 -> 12 against 11.55 (+3.9%). Both
+; are transients against a throttle that reaches its cap in twenty frames and
+; then sits there.
+;
+; TICK: ok — this block is the region compensator's derivation for this rail;
+;   naming the NTSC frame beside the PAL one is its subject rather than a
+;   coupling in it, exactly as in tick_scale.asm.
+.define M7F_RGAIN(v)  ((((v) * (TS_GAIN_DEN + TS_GAIN_NUM)) + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
+M7F_ACCEL_PAL     = M7F_RGAIN(M7F_RGAIN(M7F_ACCEL))
+M7F_DECEL_PAL     = M7F_RGAIN(M7F_RGAIN(M7F_DECEL))
+M7F_SPEED_CAP_PAL = M7F_RGAIN(M7F_SPEED_CAP)
+M7F_SPEED_MAG_PAL = M7F_RGAIN(M7F_SPEED_MAG)
+
+; --- m7f_region_rates: the four numbers, in the running console's units -----
+; In/out: A16/I16, DB=0. Clobbers A. Called ONCE, from the scene's `enter`,
+; before the first armed VBlank and before anything reads one.
+;
+; WIDTH-RISK: A16/I16 in and out; no sep/rep. `@pal` is reached A16 by branch,
+; `@ntsc` A16 by fall-through, `@rev` A16 from both.
+m7f_region_rates:
+    .a16
+    .i16
+    lda z:ES_RGN_PAL
+    bne @pal
+    lda #M7F_ACCEL                  ; NTSC: today's constants, to the LSB
+    sta z:US_R_ACCEL
+    lda #M7F_DECEL
+    sta z:US_R_DECEL
+    lda #M7F_SPEED_CAP
+    sta z:US_R_CAP
+    lda #M7F_SPEED_MAG
+    bra @rev
+@pal:
+    .a16
+    .i16
+    lda #M7F_ACCEL_PAL              ; r^2 — an acceleration
+    sta z:US_R_ACCEL
+    lda #M7F_DECEL_PAL              ; r^2
+    sta z:US_R_DECEL
+    lda #M7F_SPEED_CAP_PAL          ; r   — a velocity
+    sta z:US_R_CAP
+    lda #M7F_SPEED_MAG_PAL
+@rev:
+    .a16
+    .i16
+    ; A holds the reverse cap's MAGNITUDE; the stored word is its negative, so
+    ; the symmetry is arithmetic on both machines rather than two constants
+    ; that have to agree.
+    sta z:US_R_REV
+    lda #0
+    sec
+    sbc z:US_R_REV
+    sta z:US_R_REV
+    rts
 
 ; --- which bit of the latched JOY word is which -----------------------------
 ; $4218 delivers one 16-bit word: B Y Select Start Up Down Left Right in the
@@ -69,7 +148,8 @@ m7f_turn:
     bit #M7F_JOY_LEFT
     beq :+
     lda z:M7F_HEAD
-    inc a
+    clc
+    adc z:US_TS_TICK                ; one heading unit per TICK, not per frame
     and #M7F_HEAD_MASK
     sta z:M7F_HEAD
 :
@@ -78,8 +158,9 @@ m7f_turn:
     bit #M7F_JOY_RIGHT
     beq :+
     lda z:M7F_HEAD
-    dec a
-    and #M7F_HEAD_MASK          ; -1 wraps to 255 under the mask
+    sec
+    sbc z:US_TS_TICK            ; ...and back the other way; the mask wraps it
+    and #M7F_HEAD_MASK
     sta z:M7F_HEAD
 :
     .a16
@@ -108,14 +189,14 @@ m7f_throttle:
     beq @done
     bmi @coast_neg
     sec
-    sbc #M7F_DECEL
+    sbc z:US_R_DECEL
     bpl @store                  ; still positive
     lda #0
     bra @store
 @coast_neg:
     .a16
     clc
-    adc #M7F_DECEL
+    adc z:US_R_DECEL
     bmi @store                  ; still negative
     lda #0
     bra @store
@@ -123,24 +204,25 @@ m7f_throttle:
     .a16
     lda z:M7F_SPEED
     clc
-    adc #M7F_ACCEL
-    cmp #(M7F_SPEED_CAP + 1)
+    adc z:US_R_ACCEL
+    cmp z:US_R_CAP                  ; the bound is a word now, so the `+ 1` the
+    beq @store                      ;   immediate carried is this `beq`
     bcc @store
-    lda #M7F_SPEED_CAP
+    lda z:US_R_CAP
     bra @store
 @rev:
     .a16
     lda z:M7F_SPEED
     sec
-    sbc #M7F_ACCEL
+    sbc z:US_R_ACCEL
     ; Clamp to SPEED_REV. Both are negative, so the signed test is a subtract
     ; and a sign check — `cmp` alone would be the unsigned one.
     pha
     sec
-    sbc #M7F_SPEED_REV          ; (A - SPEED_REV); negative => A < SPEED_REV
+    sbc z:US_R_REV              ; (A - SPEED_REV); negative => A < SPEED_REV
     bpl @rev_ok
     pla
-    lda #M7F_SPEED_REV
+    lda z:US_R_REV
     bra @store
 @rev_ok:
     .a16
@@ -159,26 +241,50 @@ m7f_throttle:
 ; levels traversed end-to-end in 80 held frames (1.33 s), smooth by
 ; construction. Both ends CLAMP rather than wrap: no crash into the ground and
 ; no break through the ceiling, so the rail has no fail state.
+; NAMED LOCAL LABELS, NOT ANONYMOUS ONES, and this was a live bug rather than
+; a style note. Each arm now needs a label of its OWN for the clamp, and an
+; anonymous one lands between the arm's guard `beq :+` and the label that guard
+; meant — so with R released the routine fell straight into `sta M7F_ALTIDX`
+; with the JOYPAD WORD still in A. The altitude index became $0000 or $0010,
+; the band length derived from it became nonsense, and m7f_compose_timed then
+; overran the frame so badly that the main loop ran at one iteration per thirty
+; VBlanks. The oracle read it as the whole rail stopping; nothing went red and
+; width-check was clean, because every annotation was true. sh2_cam.asm's
+; SH2_CAM_PAD carries the same warning for the same reason.
 m7f_altitude:
     .a16
     .i16
     lda z:ES_INP_CUR
     bit #M7F_JOY_R
-    beq :+
+    beq @no_climb
+    ; CLAMPED RATHER THAN GUARDED, because the step can be 2 on PAL and a
+    ; "one below the ceiling" test would let it land one above.
     lda z:M7F_ALTIDX
-    cmp #M7F_ALT_MAXIDX
-    bcs :+                      ; already at the ceiling
-    inc a
-    sta z:M7F_ALTIDX
-:
+    clc
+    adc z:US_TS_TICK
+    cmp #(M7F_ALT_MAXIDX + 1)
+    bcc @climb_store
+    lda #M7F_ALT_MAXIDX
+@climb_store:
     .a16
+    .i16
+    sta z:M7F_ALTIDX
+@no_climb:
+    .a16
+    .i16
     lda z:ES_INP_CUR
     bit #M7F_JOY_L
-    beq :+
+    beq @no_dive
     lda z:M7F_ALTIDX
-    beq :+                      ; already on the floor
-    dec a
-    sta z:M7F_ALTIDX
-:
+    sec
+    sbc z:US_TS_TICK
+    bcs @dive_store             ; no borrow — still above the floor
+    lda #0                      ; ...or it just crossed it: stop there
+@dive_store:
     .a16
+    .i16
+    sta z:M7F_ALTIDX
+@no_dive:
+    .a16
+    .i16
     rts

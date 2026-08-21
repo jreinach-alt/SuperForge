@@ -44,7 +44,26 @@
 #                   picture is the HUD.
 #   audio        -- this rail composes no audio at all. Adding a soundtrack
 #                   would be content it does not have.
-globals = ["scene_mgr", "input", "fade", "oam_sprites", "m7f_rom"]
+# REGION + TICK_SCALE (docs/94 R0, docs/96 §4). This rail has all four shapes
+# the lane meets, and each takes a different mechanism — m7f_logic.asm's
+# "THE FLIGHT MODEL IN TWO REGIONS" is the derivation:
+#
+#   8.8 VELOCITIES (the speed cap, the reverse cap, the cloud wind) take the
+#     frame ratio r once, as a build-time constant chosen at scene enter.
+#   8.8 ACCELERATIONS (throttle, coast bleed) take r SQUARED.
+#   INTEGER RATES OF ONE UNIT A FRAME (the heading, the altitude index) go
+#     through TS_STEP and carry a fraction. They share ONE accumulator with the
+#     propeller clock, because they are not three rates — they are one, the
+#     TICK, read three times.
+#   The PROPELLER DIVIDER is left the integer its sheet authored (docs/95 §5.2
+#     class C, "no correct x5/6") and what is scaled is the amount the CLOCK
+#     advances by, with the overshoot carried.
+#
+# The DAY/NIGHT clock is scaled too, and that is a judgment: its full cycle is
+# 34 s on NTSC and would be 41 s on PAL, and a sunset arriving a fifth late is
+# pacing the player sees. It is one constant with no structural cost.
+globals = ["scene_mgr", "input", "fade", "oam_sprites", "m7f_rom",
+           "region", "tick_scale"]
 
 #   rgb_gradient IS COMPOSED (below), and the reason this list now names it is
 #   that the sky was a FLAT BACKDROP WORD — the whole top third of the screen

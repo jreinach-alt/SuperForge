@@ -372,6 +372,12 @@ obj_draw:
 M7F_CLOUD_N     = 4
 M7F_CLOUD_H     = 16                    ; the sprite box, and the wrap margin
 M7F_CLOUD_WIND  = $0020                 ; 8.8: 1/8 px per frame
+; ...and the same drift for a PAL frame. A wind is a VELOCITY, so it takes the
+; frame ratio once; 8.8 is fine enough that the conversion is a build-time
+; constant and the rounding is 1/256 px per frame.
+; TICK: ok — the twin exists so the drift per REAL second is the same number
+;   on both machines. It is the removal of a frame coupling, not one.
+M7F_CLOUD_WIND_PAL = (((M7F_CLOUD_WIND * (TS_GAIN_DEN + TS_GAIN_NUM)) + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
 M7F_CLOUD_PAR   = 2                     ; px per heading unit
 M7F_CLOUD_SPAN  = 256 + M7F_CLOUD_H     ; the wrap period: on at -16, off at 256
 M7F_CLOUD_HEADM = $00FF                 ; the heading axis is 256 units round
@@ -417,6 +423,24 @@ cloud_arm:
     sta z:M7F_CLOUD_LASTH
     rts
 
+; --- obj_region_rates: the cloud drift, in the running console's units ------
+; In/out: A16/I16, DB=0. Clobbers A. Called ONCE, from the scene's `enter`.
+;
+; WIDTH-RISK: A16/I16 in and out; no sep/rep. `@pal` is reached A16 by branch
+; and the store below A16 from both arms.
+obj_region_rates:
+    .a16
+    .i16
+    lda #M7F_CLOUD_WIND
+    ldx z:ES_RGN_PAL
+    beq :+
+    lda #M7F_CLOUD_WIND_PAL
+:
+    .a16
+    .i16
+    sta z:US_R_WIND
+    rts
+
 ; --- cloud_tick: the two motions, into one accumulator ----------------------
 ; In/out: A16/I16, DB=0. Clobbers A. Called from the scene tick AFTER the state
 ; step, so the heading delta is this frame's turn.
@@ -452,7 +476,7 @@ cloud_tick:
     sta z:M7F_CLOUD_LASTH
     lda z:M7F_CLOUD_X
     clc
-    adc #M7F_CLOUD_WIND         ; wind forward...
+    adc z:US_R_WIND             ; wind forward, at THIS console's drift...
     sec
     sbc z:M7F_CLOUD_TMP         ; ...parallax back. The sign IS the illusion.
     sta z:M7F_CLOUD_X
@@ -543,18 +567,33 @@ cloud_draw:
 
 ; --- obj_prop_tick: the two-frame propeller clock ---------------------------
 ; In/out: A16/I16, DB=0. Clobbers A.
+; THE DIVIDER IS UNTOUCHED AND THE CLOCK IS WHAT MOVES. M7F_PROP_RATE is a
+; small integer with no correct x1.2018 — docs/95 §5.2's class C — so it stays
+; the eight the sheet was authored against, and the clock counts down by THIS
+; FRAME'S TICKS instead of by one. On NTSC US_TS_TICK is exactly 1 every frame,
+; so this is `dec a` to the cycle in behaviour.
+;
+; AND THE OVERSHOOT IS CARRIED rather than the reload being a constant: a
+; 2-tick PAL frame can cross zero by one, and dropping that one is a bias
+; nothing upstream can see. `adc` of the rate to a 0 or -1 leaves 8 or 7, which
+; is the reload the original did plus the remainder.
 obj_prop_tick:
     .a16
     .i16
     lda z:US_PROP_T
-    dec a
+    sec
+    sbc z:US_TS_TICK
+    beq @flip                   ; landed exactly on the flip
+    bcc @flip                   ; ...or crossed it, by one
     sta z:US_PROP_T
-    bne :+
-    lda #M7F_PROP_RATE
+    rts
+@flip:
+    .a16
+    .i16
+    clc
+    adc #M7F_PROP_RATE          ; the divider, plus whatever was overshot
     sta z:US_PROP_T
     lda z:US_PROP_F
     eor #1
     sta z:US_PROP_F
-:
-    .a16
     rts
