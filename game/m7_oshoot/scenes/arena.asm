@@ -110,8 +110,12 @@ enter:
     stz z:US_KILLS                  ;   here would be a fail that looks like a
     stz z:US_SCORE                  ;   logic bug
     stz z:US_SPAWN_IX
-    stz z:US_CHASE_T                ; the chase's parity counter — persistent, so
-                                    ;   it is seeded here and not in the tick
+    stz z:US_CHASE_T                ; the chase's step accumulator — persistent,
+                                    ;   so it is seeded here and not in the tick
+    stz z:US_TS_TURN_ACC            ; the turn's carried fraction...
+    stz z:US_TS_TURN                ;   ...and this frame's published step
+    jsr region_rates                ; the 8.8 rates, in the units of THIS
+                                    ;   console, before anything reads one
     lda #MO_SPAWN_PERIOD
     sta z:US_SPAWN_T                ; the first wave beat is a full period away
 
@@ -159,12 +163,61 @@ exit:
     rts
 
 ; =============================================================================
+; region_rates — the four 8.8 numbers, in the units of the running console
+; =============================================================================
+; In/out: A16/I16, DB=0. Clobbers A. Called ONCE, from `enter`.
+;
+; The 8.8 rates are docs/95 §5.2's cheap class: a per-frame velocity in a fixed
+; point fine enough that the region conversion is a build-time constant and the
+; rounding is 1/256 of a pixel. No accumulator, no per-frame branch and no
+; second copy of the ratio — m7_oshoot.inc derives the twins from tick_scale's
+; own TS_GAIN_NUM/DEN.
+;
+; The REVERSE and LEFT directions are NEGATED from the forward words rather
+; than twinned, which is what keeps "reverse, symmetric" true by construction
+; on both machines instead of by two constants agreeing.
+;
+; WIDTH-RISK: A16/I16 in and out; no sep/rep. `@pal` is reached A16 by branch,
+; `@ntsc` A16 by fall-through.
+region_rates:
+    .a16
+    .i16
+    lda z:ES_RGN_PAL
+    bne @pal
+    lda #MO_MOVE_SPEED              ; NTSC: today's constants, to the LSB
+    sta z:US_R_MOVE
+    lda #MO_STRAFE_SPEED
+    sta z:US_R_STRAFE
+    lda #MO_BUL_SPEED
+    sta z:US_R_BUL
+    lda #MO_BUL_LIFE
+    sta z:US_R_BUL_LIFE
+    rts
+@pal:
+    .a16
+    .i16
+    lda #MO_MOVE_SPEED_PAL          ; r   — a velocity
+    sta z:US_R_MOVE
+    lda #MO_STRAFE_SPEED_PAL        ; r
+    sta z:US_R_STRAFE
+    lda #MO_BUL_SPEED_PAL           ; r
+    sta z:US_R_BUL
+    lda #MO_BUL_LIFE_PAL            ; 1/r — the TTL is the bolt's RANGE
+    sta z:US_R_BUL_LIFE
+    rts
+
+; =============================================================================
 ; tick — one game frame
 ; =============================================================================
 ; In/out: A16/I16, DB=0. Clobbers A, X, Y.
 tick:
     .a16
     .i16
+    ; This frame's heading step: MO_TURN_STEP to the unit on NTSC, 3 or 4 on
+    ; PAL in the pattern that averages 3.605. An integer step has no correct
+    ; x1.2018 (docs/95 §5.2), so the fraction is carried rather than rounded.
+    TS_STEP z:US_TS_TURN_ACC, MO_TURN_BASE
+    sta z:US_TS_TURN
     jsr do_turn                     ; LEFT/RIGHT -> US_HEADING, continuously
     jsr do_throttle                 ; UP/DOWN    -> US_SPEED  (along the facing)
     jsr do_strafe                   ; L/R        -> US_STRAFE (across it)
@@ -243,7 +296,7 @@ do_turn:
     beq @no_left
     lda z:US_HEADING
     clc
-    adc #MO_TURN_STEP
+    adc z:US_TS_TURN
     and #$00FF
     sta z:US_HEADING
 @no_left:
@@ -254,7 +307,7 @@ do_turn:
     beq @no_right
     lda z:US_HEADING
     sec
-    sbc #MO_TURN_STEP
+    sbc z:US_TS_TURN
     and #$00FF
     sta z:US_HEADING
 @no_right:
@@ -281,7 +334,7 @@ do_throttle:
     lda z:ES_INP_CUR
     bit #MO_JOY_UP
     beq @not_fwd
-    lda #MO_MOVE_SPEED
+    lda z:US_R_MOVE
     sta z:US_SPEED
     rts
 @not_fwd:
@@ -290,7 +343,9 @@ do_throttle:
     lda z:ES_INP_CUR
     bit #MO_JOY_DOWN
     beq @idle
-    lda #MO_MOVE_REV
+    lda #0                          ; reverse, NEGATED from the forward word so
+    sec                             ;   the symmetry cannot depend on two
+    sbc z:US_R_MOVE                 ;   constants agreeing
     sta z:US_SPEED
     rts
 @idle:
@@ -316,7 +371,7 @@ do_strafe:
     lda z:ES_INP_CUR
     bit #MO_JOY_R
     beq @not_right
-    lda #MO_STRAFE_SPEED
+    lda z:US_R_STRAFE
     sta z:US_STRAFE
     rts
 @not_right:
@@ -325,7 +380,9 @@ do_strafe:
     lda z:ES_INP_CUR
     bit #MO_JOY_L
     beq @idle
-    lda #MO_STRAFE_LEFT
+    lda #0                          ; ...and the same for the left slide
+    sec
+    sbc z:US_R_STRAFE
     sta z:US_STRAFE
     rts
 @idle:
@@ -589,14 +646,14 @@ do_fire:
     sta f:ES_MO_ACTORS_LONG + MO_BUL_WX, x
     lda z:US_POSY + 2
     sta f:ES_MO_ACTORS_LONG + MO_BUL_WY, x
-    lda #MO_BUL_LIFE
+    lda z:US_R_BUL_LIFE             ; 90 NTSC frames, 75 PAL — the same 270 px
     sta f:ES_MO_ACTORS_LONG + MO_BUL_TTL, x
     ; ---- ...and travels along the facing, NEGATED -------------------------
     ; The coefficients come out of the matrix shadow this tick already set, so
     ; the bolt leaves along the heading the floor is rendering — the same
     ; source do_integrate reads for the hero's own step.
     lda z:ES_M7AFF + 2              ; sin(heading)
-    ldy #MO_BUL_SPEED
+    ldy z:US_R_BUL
     jsr ::m7p_mul
     lda z:ES_M7P + M7P_ACC + 2      ; the integer px/frame of the x step
     eor #$FFFF
@@ -604,7 +661,7 @@ do_fire:
     ldx z:US_IDX
     sta f:ES_MO_ACTORS_LONG + MO_BUL_VX, x
     lda z:ES_M7AFF + 0              ; cos(heading)
-    ldy #MO_BUL_SPEED
+    ldy z:US_R_BUL
     jsr ::m7p_mul
     lda z:ES_M7P + M7P_ACC + 2
     eor #$FFFF
@@ -759,14 +816,16 @@ do_chase:
     ; separation and contact re-fired the frame it expired, forever. Stepping
     ; every other frame puts the hero ahead on every heading.
     ;
-    ; The counter is free-running and read only for its parity, so it needs no
-    ; wrap: US_CHASE_T rolls over at $FFFF -> $0000, and both are even.
-    lda z:US_CHASE_T
-    inc a
-    sta z:US_CHASE_T
-    lsr                             ; bit 0 -> C, and A is dead after this
-    bcc @step
-    rts                             ; odd frame — every chaser holds its ground
+    ; ONE PIXEL PER HALF-TICK, CARRIED. This used to be a parity counter — the
+    ; chasers stepped on even frames — and the two are the same test on NTSC,
+    ; where MO_CHASE_BASE is exactly half a unit and TS_STEP publishes 0, 1, 0,
+    ; 1 for ever. On PAL it publishes a 1 on 60.09% of frames instead of 50%,
+    ; which is the same one pixel per REAL 1/30 s. The base is under a whole
+    ; unit, so the published value is never 2 and the step below stays the one
+    ; pixel MO_ENE_SPEED names.
+    TS_STEP z:US_CHASE_T, MO_CHASE_BASE
+    bne @step
+    rts                             ; not this frame — every chaser holds ground
 @step:
     .a16
     .i16

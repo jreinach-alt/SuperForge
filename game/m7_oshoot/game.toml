@@ -39,8 +39,27 @@
 #                   rendered pixels and OAM.
 #   audio        -- this rail composes no audio at all; adding a soundtrack
 #                   would be content it does not have.
+# REGION + TICK_SCALE (docs/94 R0, docs/96 §4). This rail's rates split cleanly
+# into two classes and each takes a different mechanism, which is why the note
+# is here rather than in one .asm:
+#
+#   FIXED POINT (8.8 px/frame): the throttle, the strafe and the bolt. These
+#     are docs/95 §5.2's class A — "scales cleanly; the sub-pixel accumulator
+#     absorbs the fraction" — so the region-correct value is a BUILD-TIME
+#     constant chosen once at scene enter. No accumulator: the 8.8 point IS
+#     the accumulator, and rounding 320 to 385 is a 1/256 px error.
+#   INTEGER (heading units per frame, chaser pixels per frame): the turn and
+#     the chase. An integer step has no correct x1.2018 — docs/95 §5.2's
+#     "only a rounding policy" — so these go through TS_STEP and carry their
+#     fraction between frames.
+#
+# The bolt's TTL is scaled DOWN by the same ratio, because MO_BUL_SPEED x
+# MO_BUL_LIFE is the bolt's RANGE in world pixels and the range is geometry,
+# not a duration. Scaling the speed alone would give PAL a bolt that reaches
+# 324 px where NTSC's reaches 270.
 globals = ["scene_mgr", "input", "fade", "oam_sprites",
-           "m7_affine", "m7_project", "pool", "mo_rom"]
+           "m7_affine", "m7_project", "pool", "mo_rom",
+           "region", "tick_scale"]
 
 [[scene]]
 id = "arena"

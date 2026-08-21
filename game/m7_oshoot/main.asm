@@ -48,6 +48,12 @@ NMI:
 .include "fade.asm"
 .include "input.asm"
 .include "oam_sprites.asm"
+.include "region.asm"               ; $213F bit 4 -> ES_RGN_PAL, once at boot
+.include "tick_scale.asm"           ; TS_STEP: the macro the arena tick counts
+                                    ;   its heading and chase steps with.
+                                    ;   INCLUDED BEFORE THE SCENE — a ca65
+                                    ;   macro must be defined before the line
+                                    ;   that expands it.
 
 ; --- the ROM claim sites ---------------------------------------------------
 ; Each site .asserts its blob's linker placement against the allocator's emitted
@@ -170,6 +176,9 @@ MAIN:
     ; ---- boot init contracts (each feature zeroes exactly its claims) -----
     jsr sm_init
     jsr input_init
+    jsr region_init             ; the console's own region line, once. It is
+                                ;   game-lifetime state: a console does not
+                                ;   change region between scenes.
     jsr fade_init
     jsr oam_park_all            ; whole shadow written before its first DMA
     ; ---- enter the boot scene (id 0 = arena) under forced blank ----------

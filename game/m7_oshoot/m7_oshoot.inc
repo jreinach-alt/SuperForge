@@ -191,6 +191,40 @@ MO_CHASE_HALF   = 1     ; the rule: step when (frame & this) == 0 — see above
 ; cycles across the 40-frame window. The hit FRAME ITSELF is dark (40 & 4 == 0),
 ; so the feedback lands on the frame the player is hit rather than four later.
 MO_BLINK_MASK   = 4     ; the hero is drawn iff (US_GRACE & this) != 0
+
+; =============================================================================
+; THE SAME NUMBERS FOR THE OTHER CONSOLE (engine/features/tick_scale)
+; =============================================================================
+; `tick_scale` publishes the measured ratio between the two machines' frames as
+; a GAIN: a PAL frame lasts r = 1 + TS_GAIN_NUM/TS_GAIN_DEN = 1.2018039 NTSC
+; frames. A rate in px per frame therefore takes r to keep px per SECOND, and
+; a RANGE expressed as a frame count takes 1/r to keep world pixels.
+;
+; Only the 8.8 rates are twinned here. The integer ones — MO_TURN_STEP and the
+; chaser's one pixel per other frame — have no correct x1.2018 and go through
+; TS_STEP's accumulator in arena.asm instead.
+;
+; TICK: ok — this block is the region compensator's derivation for this rail;
+;   naming the NTSC frame beside the PAL one is its subject rather than a
+;   coupling in it, exactly as in tick_scale.asm.
+.define MO_RGAIN(v)  ((((v) * (TS_GAIN_DEN + TS_GAIN_NUM)) + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
+.define MO_RSHRINK(v) (((v) * TS_GAIN_DEN + (TS_GAIN_DEN + TS_GAIN_NUM) / 2) / (TS_GAIN_DEN + TS_GAIN_NUM))
+
+MO_MOVE_SPEED_PAL   = MO_RGAIN(MO_MOVE_SPEED)       ; 320 -> 385 (1.504 px/f)
+MO_STRAFE_SPEED_PAL = MO_RGAIN(MO_STRAFE_SPEED)     ; 192 -> 231
+MO_BUL_SPEED_PAL    = MO_RGAIN(MO_BUL_SPEED)        ; 768 -> 923
+MO_BUL_LIFE_PAL     = MO_RSHRINK(MO_BUL_LIFE)       ; 90 frames -> 75: the
+                                                    ;   same 270 px of range
+
+; The two INTEGER rates, as TS_STEP bases in the 8.8 unit that macro takes.
+; TS_STEP publishes whole units and carries the remainder, which is the only
+; honest answer for a step of 3 (round-to-nearest is 4 and overshoots by 11%,
+; round-down is 3 and changes nothing).
+MO_TURN_BASE  = MO_TURN_STEP * TS_ONE       ; 3 heading units per NTSC frame
+; ...and the chase, at HALF a unit per frame: one pixel every other frame on
+; NTSC, exactly as the parity counter it replaced.
+MO_CHASE_BASE = TS_ONE / (MO_CHASE_HALF + 1)
+.assert MO_CHASE_BASE * 2 <= TS_ONE, error, "m7_oshoot: the chase base can publish 2 — the step below only moves one pixel"
 ; --- the death flash, and the score ------------------------------------------
 ; A KILL MUST NOT LOOK LIKE A DESPAWN. A bolt hit no longer frees
 ; the chaser's slot on the spot: it sets MO_ENE_DYING and the slot stays alive-
