@@ -179,7 +179,18 @@ The ratio is stored as a GAIN — the step **plus** 0.2018039 of it — rather t
 as 1.2018039×. Arithmetically identical, and it raises the largest base ca65
 can scale at build time from ~7.0 to ~166 units/frame inside 32-bit expression
 arithmetic. `TS_BASE_MAX` asserts the bound instead of leaving it to be
-discovered by a silently wrapped constant.
+discovered by a silently wrapped constant — and the assert was tried rather
+than believed: setting `scroller`'s `TS_CAM_BASE` to `TS_BASE_MAX + 1` and
+building gives
+
+```
+game/scroller/scenes/world.asm(94): Error: TS_STEP: base step too large — the
+build-time PAL scale would overflow ca65's 32-bit expression arithmetic
+make: *** [Makefile:1048: build/scroller.sfc] Error 1
+```
+
+after which `build/scroller.sfc` rebuilds to `1cc6f10974bcc9c06a60ec434ad0ce02`
+unchanged.
 
 ### 3.2 What it claims: nothing, and that is the design
 
