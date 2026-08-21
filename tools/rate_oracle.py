@@ -714,6 +714,30 @@ RAILS = {
         # DOWN moves it 106. The north/south axis is open at the spawn in
         # both directions, and a 1.0 s half-period keeps the walk inside the
         # ground that was probed.
+        #
+        # THIS RAIL IS MEASURED AND NOT CONVERTED, and the reading is what
+        # says why. 53.43 px/s at 60.0988 fps is 8 px every 9 frames, which
+        # is the GRID SLIDE exactly: `try_step` commits the destination TILE
+        # (RPG_CAM_TX/TY) up front and arms RPG_STEP_N = STEP_FRAMES = 8,
+        # and `advance_step` then adds +-1 px to ES_M7ORG and decrements that
+        # counter once a frame, so 8 frames of 1 px land the camera origin on
+        # the tile the index already says it is at. The two are WELDED: scale
+        # the pixel delta and after 8 frames the origin is 9.6 px along while
+        # the index says 8, and the floor and the avatar drift apart a little
+        # more on every step. This is docs/95 §5.1 #11's hard-integer class
+        # verbatim.
+        # The other way round — counting the slide in PIXELS REMAINING rather
+        # than frames — works arithmetically and re-defines RPG_STEP_N, which
+        # is a byte inside `rpg_logic`'s declared 18-byte `rpg_hot` claim
+        # whose layout that feature.toml documents, beside RPG_TOWN_REP.
+        # That is surgery on a feature's declared claim, not a rate expressed
+        # through TS_STEP.
+        # The TOWN has no rate to express at all: its avatar renders only at
+        # tile*8 (town.asm's read_step says so in as many words — "NOT a
+        # per-frame pixel slide, because the town avatar renders only at
+        # tile*8 and has no sub-tile pixel state a slide could drive"), so
+        # its walk IS an integer frame throttle and 8/1.2018 = 6.66 has no
+        # correct answer.
         script=_axis_shuttle(1.0, "down", "up"),
         warmup_s=3.0, window_s=12.0, guard=[],
         observables=[
