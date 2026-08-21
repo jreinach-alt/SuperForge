@@ -789,6 +789,56 @@ RAILS = {
                      "camera at 512..3,576 so it never reaches one."),
         ],
     ),
+    "m7_oshoot": dict(
+        rom="build/m7_oshoot.sfc", map="build/mo/symbol_map.json",
+        scene="arena",
+        klass="mode7",
+        # UP and LEFT together: the throttle drives forward along the facing
+        # while the facing turns, so the hero walks a constant-radius circle
+        # and BOTH observables are exercised at once. The guard is what makes
+        # the position half honest — a chaser contact TELEPORTS him back to
+        # spawn (arena.asm's @hit), which is a 500 px step no path measure
+        # should be allowed to average into a walking speed.
+        # THE WINDOW IS SHORT AND THE GUARD IS WHY. Measured: the first chaser
+        # reaches him at t = 4.03 s on NTSC and 4.84 s on PAL, and after that
+        # the position measure is averaging 500 px teleports. Three seconds of
+        # circling is 340 world px and 540 heading units — 1% is three px and
+        # five units, which is resolution enough, and it is honest resolution
+        # rather than a longer window with a dead rail inside it.
+        script=[(0.0, {"up": True, "left": True})],
+        warmup_s=0.8, window_s=2.2, guard=[("US_HITS", 2, 0)],
+        observables=[
+            dict(name="heading", kind="distance", unit="heading units",
+                 mem="wram", fields=[("US_HEADING", 0, 1, 256)],
+                 why="the hero's heading, 0..255. `m7a_set_heading` turns it "
+                     "into the affine matrix the VBlank commit writes, so the "
+                     "WHOLE FLOOR rotates by it — heading units per second is "
+                     "the rate the arena turns under the player, which no "
+                     "position measure captures. It is also the observable "
+                     "that survives a knockback: @hit clears the speed and "
+                     "the strafe and leaves the facing alone."),
+            dict(name="hero_path", kind="path2d", unit="px/65536",
+                 mem="wram",
+                 fields=[("US_POSX", 0, 4, 1 << 32),
+                         ("US_POSY", 0, 4, 1 << 32)],
+                 why="the hero's 16.16 world position, read WHOLE — the pair "
+                     "m7a_set_center re-pins the affine pivot from every "
+                     "frame, which is what keeps him at screen centre while "
+                     "the arena slides under him. Path length here is the "
+                     "ground he covers.\n"
+                     "  READ AT 16.16 AND NOT AT THE INTEGER HALF, and the "
+                     "difference is 2.4 points of ratio. Summing hypot() over "
+                     "INTEGER per-frame deltas measures the quantiser as much "
+                     "as the rail: a 1.25 px/frame step lands as a 1-or-2 px "
+                     "delta and a 1.50 px/frame step lands as a different mix, "
+                     "so the two regions are charged different rounding. "
+                     "Measured both ways on the same binary: 0.97168 at the "
+                     "integer half against 1.00103 at 16.16, with the rail's "
+                     "own step exactly 385/320 = 1.203125 either way. The "
+                     "modulus is the word's own 2^32; the hero circles inside "
+                     "a 17 px radius and never approaches the world wrap."),
+        ],
+    ),
     "mode7_chamber": dict(
         rom="build/mode7_chamber.sfc", map="build/m7c/symbol_map.json",
         scene="chamber",

@@ -57,6 +57,36 @@ idx2 = "u16@dp"          # the INNER cursor of the bolt x chaser scan. Two are
                          #   neither can live in X across a call
 
 # --- the wave director ----------------------------------------------------
+# --- the timebase (engine/features/tick_scale, composed in game.toml) ------
+# TWO SHAPES, and the split is the classification. The 8.8 rates below are
+# CONSTANTS chosen once at scene enter — the fixed point absorbs the ratio, so
+# there is nothing to accumulate. The heading step is an INTEGER 3 units a
+# frame and the chase is one pixel every OTHER frame; neither has a correct
+# x1.2018, so both go through TS_STEP and carry a fraction. arena.asm's
+# region_rates and the two TS_STEP sites are where each lands.
+ts_turn_acc = "u16@dp"   # the heading step's carried fraction
+                         # TICK: ok — a carried FRACTION. It exists to REMOVE
+                         # a frame coupling and has no meaning in frames.
+ts_turn = "u16@dp"       # ...and this frame's answer, in whole heading units
+                         # TICK: ok — the OUTPUT of the scaler, already
+                         # expressed against the declared tick.
+r_move = "u16@dp"        # the throttle's 8.8 px/frame on THIS console
+                         # TICK: ok — the word exists so that px per REAL
+                         # second is the same number on both machines; it is
+                         # the removal of the coupling, not one.
+r_strafe = "u16@dp"      # ...the strafe's
+                         # TICK: ok — as r_move.
+r_bul = "u16@dp"         # ...and the bolt's
+                         # TICK: ok — as r_move.
+r_bul_life = "u16@dp"    # the bolt's TTL on this console: 90 NTSC frames, 75
+                         #   PAL. MO_BUL_SPEED x this is the bolt's RANGE in
+                         #   world px, which is geometry — so the TTL takes
+                         #   1/r while the speed takes r and the product holds
+                         #   at 270 px.
+                         # TICK: ok — it is a frame count BY CONSTRUCTION and
+                         # the pair of it with r_bul is what makes the range
+                         # region-independent.
+
 spawn_t = "u16@dp"       # frames until the next wave beat (the shmup cadence)
 spawn_ix = "u16@dp"      # ring-offset cursor, 0..MO_RING_N-1 — successive waves
                          #   arrive from the eight compass directions
