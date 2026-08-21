@@ -14,10 +14,32 @@ depends = ["mode7_persp", "mode7_stream", "col_map"]
 
 [[claims.dp]]
 name = "rc_hot"
-bytes = 16               # +0 mag +2 sign +4 acc +6 |u| +8 step +10 t
+bytes = 36               # +0 mag +2 sign +4 acc +6 |u| +8 step +10 t
                          # +12 probe (+14 spare) — the 16x16 magnitude product
                          # needs scratch: the hardware multiplier is 8x8, so
                          # the kernel decomposes and accumulates here
+                         #
+                         # THE TIMEBASE (engine/features/tick_scale), from
+                         # +16. Three (accumulator, published step) pairs and
+                         # four region-picked constants. They live in THIS
+                         # claim rather than in the game's state.toml because
+                         # the physics is the feature's and so is its clock.
+                         # TICK: ok — every word below EXISTS to remove a
+                         # frame coupling rather than to express one. The
+                         # accumulators hold a carried FRACTION with no
+                         # meaning in frames; the steps and the constants are
+                         # the scaler's OUTPUT, already expressed against the
+                         # declared tick.
+                         # +16 tsa_acc throttle accel: carried fraction
+                         # +18 tsa ...and this frame's 8.8 counts
+                         # +20 tsd_acc coast decel: carried fraction
+                         # +22 tsd ...and this frame's 8.8 counts
+                         # +24 tsh_acc steering: carried fraction
+                         # +26 tsh ...and this frame's whole POSES
+                         # +28 vcap top speed, region-scaled
+                         # +30 vgrass off-road crawl speed, region-scaled
+                         # +32 vdrag off-road bleed per frame, region-scaled
+                         # +34 vbar speed-bar step, region-scaled
 
 [init]
 zero = ["rc_hot"]        # scratch is write-before-read within each kernel,

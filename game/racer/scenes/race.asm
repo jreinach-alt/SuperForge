@@ -283,6 +283,11 @@ tod_tick:
 tick:
     .a16
     .i16
+    jsr rc_ts_publish           ; this frame's region-correct steps, once.
+                                ;   BEFORE the pause gate, deliberately: a
+                                ;   step word that stops being republished is
+                                ;   a stale word waiting to be read, and a
+                                ;   frozen frame reads none of them anyway
     jsr rc_pause
     beq @racing
     rts                         ; frozen: the whole body is skipped

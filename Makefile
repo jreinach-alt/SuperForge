@@ -1628,6 +1628,7 @@ RC_INC := -I $(RC_MAP) -I $(VROM) -I $(RC) \
           -I engine/features/rc_grad -I engine/features/rc_kart \
           -I engine/features/rc_logic -I engine/features/sky_band \
           -I engine/features/col_map \
+          -I engine/features/region -I engine/features/tick_scale \
           -I vendor/tad -I assets/audio/export
 
 # $(RC)/world.inc: NAMED here for the reason microzero names its own at :115 —

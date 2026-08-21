@@ -46,9 +46,29 @@
 #                   font_rom/vwf_rom follow them out.
 #   backdrop     -- mode7_floor pins CGRAM word 0 (Mode 7 8bpp pixel value IS
 #                   the CGRAM index), so colour 0 has exactly one owner.
+#
+# REGION + TICK_SCALE, and this is the rail docs/97 §3.3 held back as "R2 work,
+# not foundation work" because compensating its speed was expected to push the
+# streaming demand past a clamp whose own header forbids snapping. MEASURED,
+# the concern does not reach this rail: docs/95 §5.1 #8's "8 tiles/axis/frame
+# against 48 px/frame" is `gen_move_lut`'s declared max for MICROZERO, and
+# this circuit's own cap is RC_SPEED_CAP = 15.0 px/frame. Read off the staged
+# counters at the park point, flat out on the straight, the worst frame stages
+# TWO rows against a clamp of EIGHT — before compensation and after it.
+#
+#   region      reads $213F bit 4 once at boot and publishes ES_RGN_PAL.
+#   tick_scale  turns a per-frame delta into a region-correct one, carrying
+#               the fraction. It `depends = ["region"]`.
+#
+# A speed takes r and an ACCELERATION takes r^2, which on this rail preserves
+# the RAMP as well as the top speed: cap/accel frames becomes (cap*r) /
+# (accel*r^2), the same number of real seconds. NOT scaled: RC_TOD_HOLD 128
+# and RC_TOD_STEP 16, the day-night clock's two countdowns — docs/95 §5.2's
+# class B, an integer with no correct x5/6 and only a rounding policy, which
+# is a pacing decision rather than a speed one.
 globals = ["scene_mgr", "input", "fade", "oam_sprites", "enter_scr",
            "world_rom", "pose_rom", "col_map_rom", "rc_rom",
-           "audio", "tad_rom"]
+           "audio", "tad_rom", "region", "tick_scale"]
 
 [[scene]]
 id = "race"
