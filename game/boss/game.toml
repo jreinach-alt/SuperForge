@@ -31,8 +31,24 @@
 #   bg_text/vwf -- BG3 does not exist in Mode 7; the HP HUD is sprites.
 #   audio       -- this rail composes no audio at all; the TAD variant is
 #                  boss_saucer's.
+# REGION + TICK_SCALE (docs/94 R0, docs/96 §4). What is scaled on this rail is
+# THE STATE STEP: `tick` runs `state_update` 1 or 2 times per frame, the count
+# TS_STEP publishes for a base of one tick per frame. arena.asm's "THE BATTLE
+# IN TWO REGIONS" is the derivation, and the short form is that the alternative
+# does not reach half of this rail:
+#
+#   * the reveal and death TRACKS are baked one entry per frame, and the way to
+#     play a baked track faster is to walk its INDEX faster — the table stays
+#     byte-identical and the playhead moves;
+#   * the attack rain carries a PER-SLOT signed integer velocity, drawn at
+#     random on spawn. There is no fractional velocity to scale and no room for
+#     a per-slot accumulator, so the only thing left to multiply is how many
+#     times the integrator runs;
+#   * the boss's spin is +1, +2, +3 or +4 headings per frame BY PHASE, so its
+#     base is not a build-time constant and TS_STEP cannot take it.
 globals = ["scene_mgr", "input", "fade", "oam_sprites",
-           "m7_affine", "m7_track", "pool", "bs_rom"]
+           "m7_affine", "m7_track", "pool", "bs_rom",
+           "region", "tick_scale"]
 
 [[scene]]
 id = "arena"
