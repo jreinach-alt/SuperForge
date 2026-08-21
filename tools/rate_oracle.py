@@ -149,6 +149,37 @@ def _shuttle(period_s, run_s, jump_every_s, jump_hold_s, start_s, n=60):
     return out
 
 
+def _hop_shuttle(half_ms, jump_every_ms, jump_hold_ms, total_ms,
+                 first="left", t0_ms=0, step_ms=25):
+    """A pad script that paces LEFT/RIGHT on a real-time half-period and taps
+    JUMP on another, both written in REAL TIME so each region converts them
+    with its own frame period and neither machine is handed more input than
+    the other (the module header's load-bearing rule). Marks begin at
+    `t0_ms`, so a caller can prepend a lead-in that walks the actor somewhere
+    before the shuttle starts. Consecutive identical pad states are
+    collapsed, so the returned list is the state CHANGES.
+
+    EVERY PERIOD IS AN INTEGER NUMBER OF MILLISECONDS and every division here
+    is integer division, which is not fussiness — it is a measured defect in
+    the first draft, which did the same arithmetic in float seconds. `0.4 //
+    0.2` is 1.0 and `0.6 // 0.2` is 2.0, so alternate legs came out 0.25 s
+    and 0.15 s: a systematic 12 px LEFT drift per leg pair that walked the
+    player 76 px out of the corridor the drive was written to keep it in,
+    onto a platform, and mixed two arc lengths into one number (the `jumper`
+    entry's halves read 1.717 / 2.096 and the diagnostic put x at [92, 152]
+    against an intended [144, 168]). A drive script that quietly drifts is
+    measuring itself."""
+    other = "right" if first == "left" else "left"
+    out = []
+    for k in range(0, total_ms - t0_ms + 1, step_ms):
+        pad = {first if (k // half_ms) % 2 == 0 else other: True}
+        if k % jump_every_ms < jump_hold_ms:
+            pad["a"] = True
+        if not out or out[-1][1] != pad:
+            out.append(((t0_ms + k) / 1000.0, pad))
+    return out
+
+
 RAILS = {
     # ---------------------------------------------------------------- SCROLL
     "scroller": dict(
@@ -274,6 +305,86 @@ RAILS = {
                      "physics actually keeps, and the finest-grained progress "
                      "measure on this rail: 8.8 px, so a 1% difference is "
                      "hundreds of counts, not one."),
+        ],
+    ),
+
+    # =================================================== fleet lane C =======
+    # --- fleet lane C ---
+    # The physics and streaming tail. Every entry below states the same two
+    # things its neighbours above do: what GAME-VISIBLE progress the observable
+    # is, and why that is a fair measure of it for this rail.
+    #
+    # A PHYSICS RAIL GETS A PER-ARC MEASURE, and it is gated. The registry's
+    # own note above says why: a jump driven by a real-time input script lands
+    # at the SCRIPT'S cadence in both regions, so "landings per second" reads
+    # PARITY while the rail runs 17% slow. Gating the denominator on
+    # "airborne" turns it into "arcs completed per second OF FLIGHT", which is
+    # a property of gravity and the impulse alone. Every arc observable below
+    # carries that gate.
+    # ------------------------------------------------------------ PHYSICS
+    "jumper": dict(
+        rom="build/jumper.sfc", map="build/jr/symbol_map.json",
+        scene="sky",
+        klass="physics / jump",
+        # RIGHT for one second with no A, then pace LEFT/RIGHT on a 0.2 s
+        # half-period and tap A every 0.25 s.
+        #
+        # THE CORRIDOR IS CHOSEN, not incidental, and the lead-in is what
+        # reaches it. This rail's 40.5 px apex can land on exactly ONE of its
+        # three platforms -- plat1, row 22, cols 8..12 -- and can bonk the
+        # overhang at cols 28..30; either would mix two arc lengths into one
+        # number. The band BETWEEN them, x in [104, 215], is free of both,
+        # 111 px wide, and the ground under it is unbroken. One second of
+        # RIGHT puts the player at x = 168 at 120 px/s and x = 148 at the
+        # uncompensated 100, and 0.2 s legs (24 px) keep the shuttle inside
+        # [124, 192] from either -- with ~20 px of margin left over for the
+        # turnaround PHASE drift, which is real: a 0.2 s leg is 12.02 NTSC
+        # frames, so legs alternate 12 and 13 and the centre random-walks.
+        # A narrow corridor turns that drift into frames PINNED against a
+        # wall, which is lost distance the ratio then reports as a rate
+        # difference. (Measured on the first draft, which used the 47 px
+        # strip left of plat1: `run` read 0.842 against a frame ratio of
+        # 0.832 with the halves 3% apart.)
+        #
+        # The A cadence is 0.25 s against a 0.6 s flight, so a fresh press
+        # edge always arrives soon after a landing in BOTH regions -- and the
+        # ground dwell it buys is outside the gated denominator, so it cannot
+        # reach the ratio. There is no jump CUT on this rail (do_jump takes
+        # off on the press edge and nothing clamps the rise), so a fixed
+        # real-time hold flies the same full-height arc in both regions --
+        # the trap `platformer` alternates A and B to dodge does not exist
+        # here.
+        script=([(0.0, {"right": True})]
+                + _hop_shuttle(200, 250, 80, 20000, first="left", t0_ms=1000)),
+        warmup_s=3.0, window_s=12.0, guard=[],
+        observables=[
+            dict(name="arc_rate", kind="edges", unit="arcs / airborne s",
+                 mem="wram", fields=[("US_GROUNDED", 0, 2, 65536)],
+                 gate=("US_GROUNDED", 2, 0),
+                 why="0 -> non-0 on US_GROUNDED is the frame the player "
+                     "TOUCHES DOWN (phys_step's landing snap and its standing "
+                     "probe are the only writers of the 1), and the "
+                     "denominator counts only the seconds it is OFF the "
+                     "ground. So this is 'how fast does one ballistic arc "
+                     "complete', in flight-seconds -- the r-and-r-squared "
+                     "pair's whole subject, because an arc that keeps its "
+                     "shape keeps this number."),
+            dict(name="fall_speed", kind="distance", unit="px/256 per air s",
+                 mem="wram", fields=[("US_PYF", 0, 2, 65536)],
+                 gate=("US_GROUNDED", 2, 0),
+                 why="the player's 8.8 world y -- the integrator output the "
+                     "drawn sprite row is derived from (sky.asm refreshes "
+                     "US_PYI from its high byte and jr_obj_draw stages that) "
+                     "-- accumulated over airborne seconds. 8.8 px is the "
+                     "finest-grained progress this rail has, so a 1% "
+                     "difference is hundreds of counts rather than one."),
+            dict(name="run", kind="distance", unit="world px",
+                 mem="wram", fields=[("US_PX", 0, 2, 65536)],
+                 why="the player's world x, which jr_obj_draw turns into the "
+                     "OAM X the PPU draws from. World pixels per second is "
+                     "the run rate a player perceives, and it is the OTHER "
+                     "half of 'the same arc at the same speed' -- ungated on "
+                     "purpose, because the run does not stop in the air."),
         ],
     ),
 }
