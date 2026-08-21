@@ -1895,7 +1895,8 @@ M7F_INC := -I $(M7F_MAP) -I $(VROM) -I $(M7F) \
            -I engine/features/fade -I engine/features/oam_sprites \
            -I engine/features/m7f_cam -I engine/features/m7f_floor \
            -I engine/features/m7f_obj -I engine/features/m7f_logic \
-           -I engine/features/rgb_gradient
+           -I engine/features/rgb_gradient \
+           -I engine/features/region -I engine/features/tick_scale
 
 $(BUILD)/mode7_flight.sfc: $(M7F_ASM) $(M7F)/mode7_flight.inc \
 		$(M7F_MAP)/engine_state_globals.inc $(M7F_MAP)/m7f_join.inc \

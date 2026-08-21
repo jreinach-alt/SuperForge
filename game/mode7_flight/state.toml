@@ -17,3 +17,50 @@ prop_f = "u16@dp"        # 0 or 1: which of the two 32x32 airship frames is up.
                          #   Two frames, not a phase counter, because the sheet
                          #   holds exactly two and the OAM tile number is picked
                          #   from this word directly.
+
+# --- the timebase (engine/features/tick_scale, composed in game.toml) ------
+# ONE ACCUMULATOR FOR THREE CONSUMERS, and that is not the corner-cutting it
+# looks like. `brawler` keeps three pairs apart because its three rates are
+# three DIFFERENT bases (a walk, an enemy walk, an animation clock) and two
+# consumers on different bases cannot share a carried fraction. Here the
+# heading, the altitude index and the propeller clock all advance ONE UNIT PER
+# TICK — they are not three rates, they are one, read three times — so one
+# pair is the honest declaration and a second would be a copy that could drift.
+ts_acc = "u16@dp"        # the tick's carried fraction
+                         # TICK: ok — a carried FRACTION, the thing that
+                         # REMOVES the frame coupling. It has no meaning in
+                         # frames.
+ts_tick = "u16@dp"       # ...and this frame's answer: whole ticks, 1 on NTSC
+                         #   and 1 or 2 on PAL averaging 1.2018
+                         # TICK: ok — the OUTPUT of the scaler, already
+                         # expressed against the declared tick.
+
+# --- the flight model's numbers, in the units of the RUNNING console -------
+# m7f_logic.asm's "THE FLIGHT MODEL IN TWO REGIONS" derives which exponent of
+# the frame ratio each one takes; m7f_region_rates writes all four at enter.
+r_accel = "u16@dp"       # the throttle's rise, r^2:  16 LSB/frame -> 23
+                         # TICK: ok — the word exists so acceleration per REAL
+                         # second squared matches on both machines.
+r_decel = "u16@dp"       # ...the coast bleed, r^2:   8 -> 12
+                         # TICK: ok — as r_accel.
+r_cap = "u16@dp"         # ...the forward cap, r:     768 -> 923
+                         # TICK: ok — as r_accel.
+r_rev = "u16@dp"         # ...and the reverse cap, NEGATED from its own
+                         #   magnitude at enter rather than twinned
+                         # TICK: ok — as r_accel.
+r_wind = "u16@dp"        # the cloud drift, r: 32 -> 38 in 8.8 px per frame
+                         # TICK: ok — as r_accel.
+r_todf = "u16@dp"        # ...and the sub-unit remainder of that step, as a
+                         #   16-bit fraction: 0 on NTSC, 0.457 on PAL
+                         # TICK: ok — a carried FRACTION's rate. It exists so
+                         # the whole step need not be rounded to 38.
+tod_acc = "u16@dp"       # the remainder's running accumulator; its carry is
+                         #   what makes the phase step 38.457 rather than 38
+                         # TICK: ok — a carried FRACTION, the thing that
+                         # REMOVES the coupling. It has no meaning in frames.
+r_tod = "u16@dp"         # the day/night phase step per armed VBlank, r:
+                         #   32 -> 38. THE JUDGMENT: the cycle is 34 s of
+                         #   dawn-to-dusk on NTSC and would be 41 s on PAL,
+                         #   which is pacing the player sees, so it is scaled.
+                         # TICK: ok — the twin is what makes the cycle take the
+                         # same number of REAL seconds on both machines.

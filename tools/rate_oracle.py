@@ -789,6 +789,58 @@ RAILS = {
                      "camera at 512..3,576 so it never reaches one."),
         ],
     ),
+    "mode7_flight": dict(
+        rom="build/mode7_flight.sfc", map="build/m7f/symbol_map.json",
+        scene="sky",
+        klass="mode7",
+        # B and LEFT: the throttle ramps to its cap and holds there while the
+        # heading turns, so the airship flies a constant-radius circle over the
+        # plane. Nothing on this rail can die — the altitude clamps at both
+        # ends and there is no fail state — so no guard is declared.
+        # THE WINDOW IS 30 s BECAUSE ONE OBSERVABLE IS AN EVENT COUNT. `prop`
+        # changes about 7.5 times a second, so a 14 s window holds ~106 events
+        # and ONE event is 0.94% — the whole tolerance. Thirty seconds is ~225,
+        # where a single boundary event is 0.44%.
+        script=[(0.0, {"b": True, "left": True})],
+        warmup_s=3.0, window_s=30.0, guard=[],
+        observables=[
+            dict(name="cam_path", kind="path2d", unit="px/65536",
+                 mem="wram",
+                 fields=[("ES_M7F_POSE", 0, 4, 1024 << 16),
+                         ("ES_M7F_POSE", 4, 4, 1024 << 16)],
+                 why="M7F_POSX / M7F_POSY, the camera's 16.16 world position "
+                     "(m7f_cam.asm:135). m7f_origin derives M7X/M7Y and the "
+                     "screen origin from it and the NMI commits those to the "
+                     "PPU every VBlank, so the Mode 7 floor is drawn out of "
+                     "this pair — the path it traces is the ground flown "
+                     "over. Read WHOLE at 16.16 rather than at the integer "
+                     "half, because summing hypot() over integer deltas "
+                     "charges the two regions different rounding. The modulus "
+                     "is the plane's own period, M7F_WRAP + 1 = 1,024 px, "
+                     "scaled into 16.16: m7f_apply_step masks the integer word "
+                     "to exactly that."),
+            dict(name="prop", kind="transitions", unit="tile changes",
+                 mem="oam", fields=[("ES_O_SHIP", 2, 1, 256)],
+                 why="the airship's OAM TILE byte, read out of the sprite "
+                     "table the PPU draws from — rendered output, not the "
+                     "counter behind it. obj_draw picks M7F_SHIP_TILE_A or _B "
+                     "from US_PROP_F (m7f_obj.asm:257), so counting the frames "
+                     "on which the drawn tile CHANGES measures the propeller "
+                     "in the only place a viewer can perceive it. This is the "
+                     "observable that adjudicates the animation DIVIDER: "
+                     "M7F_PROP_RATE stays the 8 it was authored at and what "
+                     "moves is how fast the clock walks toward it."),
+            dict(name="daynight", kind="transitions", unit="palette steps",
+                 mem="wram", fields=[("ES_M7F_CLOCK", 2, 2, 65536)],
+                 why="M7F_TODROW — the day/night palette ROW tod_commit last "
+                     "wrote (m7f_floor.asm:62). It changes only on the frame "
+                     "the routine actually re-uploads sixteen CGRAM words, so "
+                     "counting its changes counts SUNSETS ARRIVING, not a "
+                     "phase accumulating. It is the observable the day/night "
+                     "judgment is answerable to: the full cycle is 64 of these "
+                     "steps, 34 s on NTSC."),
+        ],
+    ),
     "m7_dungeon": dict(
         rom="build/m7_dungeon.sfc", map="build/m7dg/symbol_map.json",
         scene="dungeon",

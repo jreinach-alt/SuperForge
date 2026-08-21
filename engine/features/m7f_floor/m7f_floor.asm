@@ -69,6 +69,31 @@ M7F_TOD_SEG_STEPS = M7F_TOD_STEPS / M7F_GRAD_SNAPS      ; ...16 per segment
 M7F_TOD_SHIFT   = 10                            ; step = phase >> 10
 M7F_TOD_STEP    = 1 << M7F_TOD_SHIFT            ; phase units per step
 M7F_TOD_RATE    = 32                            ; phase units per armed VBlank
+; ...and the same clock for a PAL frame. THE JUDGMENT, stated: world-time
+; pacing on this rail IS something the player sees — the phase wraps a whole
+; 16-bit cycle in 2,048 frames, which is 34 s of dawn-to-dusk on NTSC and would
+; be 41 s on PAL, so a sunset would arrive a fifth late. It is one constant
+; with no structural cost, so it is scaled. STATED RESIDUAL: 32 -> 38 against a
+; true 38.46, so a PAL step lasts 0.539 s against NTSC's 0.532 — 1.2% slow on a
+; 34-second cycle, which is below what a day/night ramp can show.
+; AND THE FRACTION IS CARRIED, because a whole-unit step is not accurate enough
+; here: 32 x 1.2018039 is 38.4577 and the nearest whole number is 38, which is
+; 1.2% slow — small on a 34-second ramp but measurable, and the fix is six
+; instructions and one word. The step is split into its whole part and a 16.16
+; remainder; the remainder accumulates in its own word and its carry is added
+; to the phase. On NTSC the remainder is ZERO, the accumulator never carries,
+; and the phase advances by exactly 32 for ever — which is why the NTSC picture
+; cannot move.
+;
+; TICK: ok — the twin exists so the cycle takes the same number of REAL
+;   seconds on both machines; it is the removal of a frame coupling, not one.
+M7F_TOD_PROD     = M7F_TOD_RATE * (TS_GAIN_DEN + TS_GAIN_NUM)
+M7F_TOD_RATE_PAL = M7F_TOD_PROD / TS_GAIN_DEN                       ; 38
+M7F_TOD_REM      = M7F_TOD_PROD - M7F_TOD_RATE_PAL * TS_GAIN_DEN    ; 114,432
+; The remainder as a 16-bit fraction, taken in two steps of 256 because
+; REM * 65536 leaves ca65's 32-bit expression arithmetic. 117/256 = 0.45703
+; against a true 0.457728: the whole step is 38.45703, which is 0.0018% under.
+M7F_TOD_FRAC_PAL = ((M7F_TOD_REM * 256) / TS_GAIN_DEN) * 256
 M7F_TOD_LONG    = (ES_R_M7F_TOD_BANK << 16) | ES_R_M7F_TOD_ADDR
 M7F_TODPAL_LONG = (ES_R_M7F_TODPAL_BANK << 16) | ES_R_M7F_TODPAL_ADDR
 .assert M7F_TOD_STEPS * M7F_TOD_ROW = ES_R_M7F_TOD_SIZE, error, "the day/night table disagrees with the m7f_tod claim"
@@ -316,6 +341,37 @@ sky_arm:
 ;
 ; Unconditional: comparing against the last value would cost more than the
 ; single store it guards.
+; --- floor_region_rates: the day/night phase step, per console -------------
+; In/out: A16/I16, DB=0. Clobbers A, X. Called ONCE, from the scene's `enter`,
+; which runs with NMI masked — so the word is written before tod_commit's first
+; armed VBlank reads it (rule 5).
+;
+; WIDTH-RISK: A16/I16 in and out; no sep/rep. The anonymous label below is
+; reached A16 by branch and A16 by fall-through.
+floor_region_rates:
+    .a16
+    .i16
+    stz z:US_TOD_ACC            ; the remainder accumulator starts empty
+    lda z:ES_RGN_PAL
+    bne @is_pal                 ; NOT `@pal`: `tod_commit` below already has a
+                                ;   cheap local of that name, and while ca65
+                                ;   scopes the two apart at the next global
+                                ;   label, width_lint reads the file without
+                                ;   that scoping and reports the pair as one
+                                ;   label with contradictory arrivals
+    lda #M7F_TOD_RATE           ; NTSC: 32 phase units a frame, exactly...
+    sta z:US_R_TOD
+    stz z:US_R_TODF             ;   ...and no remainder, ever
+    rts
+@is_pal:
+    .a16
+    .i16
+    lda #M7F_TOD_RATE_PAL       ; PAL: 38 whole units...
+    sta z:US_R_TOD
+    lda #M7F_TOD_FRAC_PAL       ;   ...and 0.457 of one more
+    sta z:US_R_TODF
+    rts
+
 ; --- tod_commit: advance the day/night clock, IN VBLANK --------------------
 ; In/out: A8/I16, DB=0 — the sm_nmi_hook contract. Clobbers A, X.
 ;
@@ -338,9 +394,16 @@ tod_commit:
     .i16
     rep #$20
     .a16
-    lda f:M7F_CLOCK
+    ; The remainder FIRST, so its carry lands in the phase add below. `sta`
+    ; does not touch the carry, so the two are one 32-bit addition written as
+    ; two 16-bit ones. On NTSC US_R_TODF is 0, the accumulator never carries,
+    ; and this is `adc #32` to the cycle in behaviour.
+    lda z:US_TOD_ACC
     clc
-    adc #M7F_TOD_RATE
+    adc z:US_R_TODF
+    sta z:US_TOD_ACC
+    lda f:M7F_CLOCK
+    adc z:US_R_TOD              ; this console's phase step per armed VBlank
     sta f:M7F_CLOCK             ; 16-bit: wraps through the cycle by itself
     ; ---- has the STEP changed? ----------------------------------------------
     ; The rows below are 34 bytes of port writes and they only ever differ

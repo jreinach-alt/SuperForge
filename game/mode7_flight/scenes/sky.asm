@@ -103,6 +103,15 @@ enter:
     sta z:US_PROP_T
     stz z:US_PROP_F
 
+    ; ---- the timebase, before anything reads one of its words -------------
+    stz z:US_TS_ACC                     ; the tick's carried fraction...
+    stz z:US_TS_TICK                    ;   ...and this frame's whole ticks
+    jsr m7f_region_rates                ; the four throttle numbers
+    jsr obj_region_rates                ; ...the cloud drift...
+    jsr floor_region_rates              ; ...and the day/night phase step, which
+                                        ;   tod_commit reads from the FIRST
+                                        ;   armed VBlank onward
+
     ; ---- the pose tables FIRST, then the plane, the sky split and the cast -
     ; THE ORDER IS A CONTRACT, not a preference, and the uninit-read detector
     ; is what named it: under the moving horizon the sky split's first count
@@ -174,6 +183,11 @@ enter:
 tick:
     .a16
     .i16
+    ; THIS FRAME'S TICKS, published once and read by the heading, the altitude
+    ; and the propeller. On NTSC it is 1 every frame to the unit; on PAL it is
+    ; 1 or 2 in the pattern that averages 1.2018, with the fraction carried.
+    TS_STEP z:US_TS_ACC, TS_ONE
+    sta z:US_TS_TICK
     jsr m7f_tick_state          ; turn, throttle, altitude, integrate
     jsr m7f_compose_timed       ; the join: this frame's 160-line band table,
                                 ;   bracketed by its own SLHV cost latch
