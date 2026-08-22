@@ -1378,7 +1378,8 @@ SR_INC := -I $(SR_MAP) -I $(VROM) -I $(SR) \
           -I engine/features/scene_mgr -I engine/features/input \
           -I engine/features/oam_sprites -I engine/features/fade \
           -I engine/features/bg_text -I engine/features/col_map \
-          -I engine/features/sr_bg -I engine/features/sr_obj
+          -I engine/features/sr_bg -I engine/features/sr_obj \
+          -I engine/features/region -I engine/features/tick_scale
 
 $(BUILD)/scroll_run.sfc: $(SR_ASM) $(SR)/scroll_run.inc \
 		$(SR_MAP)/engine_state_globals.inc $(SR_ASSETS) \

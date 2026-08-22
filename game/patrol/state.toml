@@ -44,13 +44,12 @@ frames = "u16@dp"        # frames since enter. Drives nothing — the
 
 # --- the TIMEBASE's per-consumer state (engine/features/tick_scale) ---------
 #
-# TWO RATES, TWO PAIRS — the player's run and the enemies' patrol beat. They
-# are different bases (2 px/frame against 1), so they cannot share a carried
-# fraction even in principle.
-#
-# THERE IS NO THIRD PAIR FOR THE JUMP, and that is the rail's stated limit
-# rather than an omission: a ballistic arc needs velocity x r and gravity
-# x r^2, and tick_scale supplies one gain. game.toml carries the argument.
+# THREE RATES, THREE PAIRS — the player's run, the enemies' patrol beat and
+# the gravity the jump falls under. The first two are different bases
+# (2 px/frame against 1), so they cannot share a carried fraction even in
+# principle; the third is a per-frame-SQUARED quantity and feeds TS_STEP a
+# base that already carries one r on the PAL arm (scenes/play.asm is the only
+# place that arithmetic is spelled).
 tsr_acc = "u16@dp"       # the player's run: PAT_SPEED px per frame
                          # TICK: ok — the carried FRACTION of a scaled rate.
                          # It exists to remove a frame coupling, not to hold
@@ -63,3 +62,19 @@ tse_acc = "u16@dp"       # the patrol beat: PAT_PATROL_SPEED px per frame,
                          # TICK: ok — as tsr_acc.
 tse = "u16@dp"           # ...and this frame's answer, in whole px
                          # TICK: ok — as tsr.
+tsg_acc = "u16@dp"       # gravity: PAT_GRAVITY of 8.8 velocity per frame
+                         # TICK: ok — as tsr_acc.
+tsg = "u16@dp"           # ...and this frame's answer, in whole 8.8 counts
+                         # TICK: ok — as tsr.
+
+# --- the two velocity constants, region-selected once at enter --------------
+# These are ASSIGNMENTS rather than accumulations — a take-off writes one and
+# the terminal clamp writes the other — so there is no fraction to carry and
+# no accumulator to declare. What they need is the region's answer, and a
+# console cannot change region, so the pair is chosen once at enter and every
+# site reads the word.
+vmax = "u16@dp"          # terminal fall speed, 8.8 (PAT_MAX_FALL * r)
+                         # TICK: ok — a VELOCITY already expressed against the
+                         # declared tick; it is the scaler's output, not a
+                         # frame count.
+vjump = "u16@dp"         # take-off velocity, 8.8 two's complement

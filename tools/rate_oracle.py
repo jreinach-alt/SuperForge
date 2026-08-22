@@ -477,16 +477,31 @@ RAILS = {
         #    655 of 700 frames blocked against a wall he is meant to jump.
         #    The level is authored around the arc.
         #
-        # THAT LAST FACT IS WHY THIS RAIL IS MEASURED AND NOT CONVERTED. Its
-        # traversal rate is the run AND the arc together, and tick_scale's
-        # single gain expresses r but not the gravity r^2 an arc needs, so
-        # scaling the run alone stretches every jump a fifth further on PAL
-        # and changes what the runner can clear. The numbers are in the
-        # ledger: uncompensated cam_x reads 0.86321, and a run-only
-        # conversion read 0.97471 with PAL halves of 105.7 and 120.2 — the
-        # drive itself goes non-uniform, because the fraction of the window
-        # the runner spends blocked or airborne stops being the same in the
-        # two regions.
+        # THAT LAST FACT IS WHY THE WHOLE ARC IS SCALED HERE and not just the
+        # run. The traversal rate is the run AND the arc together, so a
+        # run-only conversion stretches every jump a fifth further on PAL and
+        # changes what the runner can clear — measured at 0.97471 with PAL
+        # halves of 105.7 and 120.2, the drive itself going non-uniform
+        # because the fraction of the window spent blocked or airborne
+        # stopped being the same in the two regions. The rail now takes
+        # velocity x r AND gravity x r^2 (scenes/run.asm), and the halves
+        # track each other again.
+        #
+        # WHAT THIS DRIVE MEASURES, AND WHAT IT CANNOT SEPARATE. The shuttle
+        # sits in x = [215, 309], the platform-rich middle of the level: the
+        # runner is airborne 53% of the window in BOTH regions and spends it
+        # beside the row-20 and row-22 platform edges. A horizontal move here
+        # is a WHOLE-STEP probe that is rejected outright when the tentative
+        # 8x8 box is solid, so a coarser step loses more against an edge —
+        # measured, 26 rejected frames on NTSC against 29 on PAL, which is 18
+        # px of the 22 px the 12 s window separates them by. That residue is
+        # the level's 8 px collision grid meeting a 2.4036 px average step and
+        # not the timebase: the same binary driven on the CLEAR floor strip
+        # left of the col-14 pillar, no jumps and nothing overhead, reads
+        # 120.352 px/s NTSC against 120.325 PAL — 0.99978, with ZERO rejected
+        # frames in either region. Removing the residue would mean changing
+        # what a step DOES (probing per pixel rather than per step), which
+        # moves the NTSC picture, so it stays and is stated here.
         script=_axis_shuttle(0.6, "right", "left", lead_s=2.0,
                              tap=("a", 0.9, 0.2)),
         warmup_s=3.0, window_s=12.0, guard=[],
@@ -501,14 +516,32 @@ RAILS = {
                  mem="wram", fields=[("US_PX", 0, 2, 65536)],
                  why="the runner's world x — what the camera follows and "
                      "what the level's geometry is authored against."),
+            dict(name="arc_rate", kind="edges", unit="arcs / airborne s",
+                 mem="wram", fields=[("US_GROUNDED", 0, 2, 65536)],
+                 gate=("US_GROUNDED", 2, 0),
+                 why="0 -> non-0 on US_GROUNDED is the frame the runner "
+                     "TOUCHES DOWN (phys_step's landing snap and its "
+                     "standing probe are its only writers), and the "
+                     "denominator counts only the seconds he is OFF the "
+                     "ground. So this is 'how fast does one ballistic arc "
+                     "complete', in flight-seconds — the per-arc measure a "
+                     "physics rail owes, and the one number a run-rate "
+                     "observable cannot contain. Ungated it would be paced "
+                     "by the drive's own 0.9 s tap beat (the registry "
+                     "header's trap), which is why the gate is not "
+                     "optional."),
             dict(name="fall_y", kind="distance", unit="px/256",
                  mem="wram", fields=[("US_PYF", 0, 2, 65536)],
                  why="the runner's 8.8 vertical position, the integrator "
                      "output the sprite Y is derived from — the arc itself, "
                      "in the units the physics keeps. On this rail it is not "
                      "a control but the SUBJECT: the level cannot be crossed "
-                     "without it, which is what puts scroll_run out of "
-                     "tick_scale's reach."),
+                     "without it, which is why the conversion had to reach "
+                     "the arc and not only the run. Ungated on purpose, "
+                     "beside the gated `arc_rate`: this one carries the "
+                     "airborne FRACTION as well as the arc, so the two "
+                     "together say whether the runner spends the same share "
+                     "of a real second off the ground."),
         ],
     ),
     # ------------------------------------------------------------- WALKERS

@@ -40,8 +40,42 @@
 #   audio    -- this rail is silent; the level shape is the whole subject.
 #   backdrop -- sr_bg owns CGRAM word 0 + BGMODE/TM (scroller's verbatim CGRAM
 #               refusal covers the class).
+# REGION + TICK_SCALE: what makes this cart one cart on both machines.
+#   region      reads $213F bit 4 once at boot and publishes ES_RGN_PAL.
+#   tick_scale  turns a per-frame delta into a REGION-CORRECT one, carrying
+#               the fraction between frames. It `depends = ["region"]`, so the
+#               allocator pulls `region` in with it.
+#
+# THE WHOLE ARC IS SCALED, and on this rail nothing less would have been
+# honest. The level is authored AROUND the jump — measured, holding RIGHT from
+# the spawn advances the runner to x = 104 and then stops, 655 of 700 frames
+# blocked against a wall he is meant to clear — so the traversal rate IS the
+# run and the arc together, and scaling the run alone stretches every jump a
+# fifth further on PAL and changes what he can clear. That is why this rail
+# was measured and deferred while `tick_scale` supplied one gain.
+#
+# It no longer does only that. A VELOCITY is px per frame and takes r; a
+# GRAVITY is px per frame SQUARED and takes r^2, and the second r rides the
+# BASE on the PAL arm — TS_STEP's own PAL arm written as a build-time
+# expression over tick_scale's TS_GAIN_NUM / TS_GAIN_DEN, so the RATIO stays
+# single-sourced in that feature and nothing here is a second copy of it.
+# `tick_scale` itself is UNTOUCHED.
+#
+#   x r      SR_SPEED (the run), SR_JUMP_VEL (take-off), SR_MAX_FALL (the
+#            terminal clamp)
+#   x r^2    SR_GRAVITY
+#   not scaled  nothing else moves on this rail: US_FRAMES is the
+#            free-running heartbeat and the win latch is an event.
+#
+# The pair together preserve the arc's SHAPE rather than merely its speed:
+# apex = v0^2/2g becomes (v0*r)^2/(2*g*r^2), the same apex, so a PAL runner
+# clears the same pillar and lands on the same platform and only the frame
+# COUNT differs. scroll_run.inc's own <= 8 px/frame bound is re-asserted on
+# the SCALED pair in scenes/run.asm, because a region scale is exactly the
+# kind of change that walks a tuned constant through a bound nobody
+# re-checked.
 globals = ["scene_mgr", "fade", "input", "oam_sprites", "text_dp", "font_rom",
-           "sr_rom"]
+           "sr_rom", "region", "tick_scale"]
 
 [[scene]]
 id = "run"
