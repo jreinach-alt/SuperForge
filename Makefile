@@ -137,6 +137,7 @@ $(BUILD)/microzero.sfc: $(MZ_ASM) $(MZ)/world.inc \
 		-I engine/features/oam_sprites -I engine/features/player_car \
 		-I engine/features/race_logic -I engine/features/sky_band \
 		-I engine/features/vwf -I engine/features/col_map \
+		-I engine/features/region -I engine/features/tick_scale \
 		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/microzero.o $(MZ)/main.asm
 	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/microzero.o

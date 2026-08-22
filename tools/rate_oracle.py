@@ -1608,6 +1608,54 @@ RAILS = {
                      "this is the observable that checks the split."),
         ],
     ),
+    # --------------------------------------------------------- microzero
+    "microzero": dict(
+        rom="build/microzero.sfc", map="build/mz/symbol_map.json",
+        scene="race",
+        klass="mode7",
+        # START off the title, then B (throttle) + LEFT held for the rest of
+        # the run: the kart accelerates to its cap and settles into a
+        # constant-radius circle, which is the most precise motion this rail
+        # can be asked to produce (48 px and 1 pose per frame, both the
+        # declared maxima). The Mode 7 camera integrator, the VBlank pose
+        # retarget and the streamer are all on the frame path throughout.
+        #
+        # LEFT AND NOT RIGHT, and the difference is the whole reason the
+        # window means anything. The circle's centre sits 489 px to the side
+        # the turn curves toward; from the CAM0 spawn (3652, 2052) heading
+        # north, LEFT puts it at (3163, 2052) and the whole circle inside
+        # x = 2674..3652 — EAST of the ring centre for every frame, so the
+        # lap machine only ever sees sectors 0 and 3, its checkpoint mask
+        # never fills, and no lap can score. RIGHT puts the centre at
+        # (45, 2052), the circle wraps the world's x edge into the west half,
+        # all four sectors get visited and the rail banks a lap about every
+        # 64 frames — three of them inside four seconds, after which the race
+        # scene requests `results` and the observables measure a menu.
+        script=[(0.0, {}), (0.5, {"start": True}),
+                (0.8, {"b": True, "left": True})],
+        warmup_s=4.0, window_s=12.0, guard=[("US_LAP", 1, 0)],
+        observables=[
+            dict(name="m7_path", kind="path2d", unit="world px",
+                 mem="wram",
+                 fields=[("ES_M7ORG", 0, 2, 4096), ("ES_M7ORG", 2, 2, 4096)],
+                 why="ES_M7ORG +0/+2 are M7X/M7Y — the camera's world pixel "
+                     "x/y, which race_logic's rl_integrate writes and "
+                     "mode7_persp's persp_commit_origin hands to the PPU "
+                     "every VBlank. The floor is drawn FROM this point, so "
+                     "the path length it traces is exactly the ground the "
+                     "player covers. The modulus is the streamed world's "
+                     "4,096 px, not 65,536: rl_integrate masks with #4095, "
+                     "so a 16-bit unwrap would read the world wrap as a "
+                     "4,056 px jump."),
+            dict(name="heading", kind="distance", unit="heading units",
+                 mem="wram", fields=[("US_HEADING", 0, 1, 64)],
+                 why="the kart's heading, 0..63. The NMI hook retargets "
+                     "mode7_persp's pose LUTs from it, so the WHOLE FLOOR "
+                     "rotates by it — heading units per second is the rate "
+                     "the world turns under the player, which no position "
+                     "measure captures."),
+        ],
+    ),
 }
 
 

@@ -262,7 +262,7 @@ def test_claimless_microzero_keeps_a_no_sram_header_and_its_md5(tmp_path):
     assert r.returncode == 0, f"make microzero failed:\n{r.stderr}"
     img = (SUPERFORGE / "build" / "microzero.sfc").read_bytes()
     assert img[OFF_CART_TYPE] == 0x00 and img[OFF_SRAM_SIZE] == 0x00
-    assert hashlib.md5(img).hexdigest() == "e45ddeabac4218cd71709da7b9fcc849", \
+    assert hashlib.md5(img).hexdigest() == "dea58053943943d693d85f89506a2bba", \
         "microzero.sfc moved — the measurement reference is a pinned md5"
 
 

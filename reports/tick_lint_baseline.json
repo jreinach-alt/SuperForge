@@ -260,7 +260,7 @@
   },
   {
     "file": "engine/features/race_logic/race_logic.asm",
-    "line": 70,
+    "line": 219,
     "rule": "tick-routine",
     "message": "`rl_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
@@ -1198,14 +1198,14 @@
   },
   {
     "file": "game/microzero/scenes/race.asm",
-    "line": 315,
+    "line": 330,
     "rule": "tick-routine",
     "message": "`cm_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
   },
   {
     "file": "game/microzero/scenes/race.asm",
-    "line": 382,
+    "line": 397,
     "rule": "tick-routine",
     "message": "`vwf_dialog_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
@@ -1226,14 +1226,14 @@
   },
   {
     "file": "game/microzero/state.toml",
-    "line": 19,
+    "line": 39,
     "rule": "tick-state",
     "message": "`vel` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
   },
   {
     "file": "game/microzero/state.toml",
-    "line": 21,
+    "line": 41,
     "rule": "tick-state",
     "message": "`sub_px` is declared in a frame unit ('8.8'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"

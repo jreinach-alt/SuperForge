@@ -16,6 +16,11 @@
 
 TXT_ATTR   = (7 << 10) | (1 << 13)  ; palette 7, priority (as title/race)
 TALLY_STEP = 5                      ; score units per frame
+; ...and the same number as a RATE the timebase can scale, so the count-up
+; takes the same real second on both machines. On NTSC TS_STEP publishes 5 to
+; the unit and the carried fraction stays 0 for ever, so the digits step
+; exactly as they always did.
+TS_TALLY_BASE = TALLY_STEP * TS_ONE
 TALLY_CELL = ES_V_TEXT_MAP + 12 * 32 + 18   ; the 4 live hex digits
 
 ; --- enter: forced blank + NMI masked (scene_mgr contract) ------------------
@@ -26,6 +31,10 @@ enter:
     ; ---- scene init contract: this scene's user state ---------------------
     lda #0
     sta f:US_TALLY_LONG
+    stz z:US_TST_ACC            ; the timebase's carried fraction and this
+    stz z:US_TST                ;   frame's step: power-on DP is RANDOM
+                                ;   (rule 5), so these stores ARE the
+                                ;   write-before-read contract
     sep #$20
     .a8
     sta f:US_R_DONE_LONG
@@ -119,6 +128,9 @@ exit:
 tick:
     .a16
     .i16
+    ; ---- this frame's region-correct tally step, published once -----------
+    TS_STEP z:US_TST_ACC, TS_TALLY_BASE
+    sta z:US_TST
     sep #$20
     .a8
     lda f:US_R_DONE_LONG
@@ -128,7 +140,7 @@ tick:
     ; ---- step the tally toward the score ----------------------------------
     lda f:US_TALLY_LONG
     clc
-    adc #TALLY_STEP
+    adc z:US_TST
     cmp f:US_SCORE_LONG
     bcc @store                  ; still below: keep counting
     lda f:US_SCORE_LONG         ; caught up: clamp and latch done

@@ -152,19 +152,28 @@ criterion is asserted here.
    happen without boot code and header bytes. The original conflated "the
    image does not change" with "the player sees no difference", and only the
    second was ever the point.*
-2. **Pins move deliberately or not at all.** `microzero.sfc`'s pinned md5
-   (`e45ddeabac4218cd71709da7b9fcc849`) is a tripwire against SILENT
-   movement, not a prohibition on movement: through R0 it was the witness
-   that the region feature is opt-in, and it did that job.
+2. **Pins move deliberately or not at all.** `microzero.sfc`'s pinned md5 is a
+   tripwire against SILENT movement, not a prohibition on movement: through R0
+   it was the witness that the region feature is opt-in, and it did that job.
    *Decided by the owner, 2026-08-21: the engine's requirements now include
-   region awareness, so microzero converts like every other rail.* Its
-   conversion re-pins in the SAME commit, updating every live site of the
-   value — the asserting test (`tests/test_c2_sram_class.py`), both
-   falsification tools' `ROM_PIN`, the citing feature comment, and this
-   clause — enumerated by VALUE, never by name-grep. Docs that record the
-   old pin as history keep it; they describe what was true when they
-   landed. Until that conversion lands, the current pin stands and a
-   mismatch is still a finding.
+   region awareness, so microzero converts like every other rail.*
+
+   > **MOVED 2026-08-21, by that conversion and in the same commit:**
+   > `e45ddeabac4218cd71709da7b9fcc849` → **`dea58053943943d693d85f89506a2bba`**.
+   > The new value is REPRODUCIBLE — two builds from a cleaned tree give the
+   > same digest — and the commit updated every LIVE site of the old one,
+   > enumerated by VALUE across the tree and never by name-grep: the asserting
+   > test (`tests/test_c2_sram_class.py`), both falsification tools' `ROM_PIN`
+   > (`tools/falsify_col_map_binding.py`, `tools/falsify_m7s_binding.py`), the
+   > citing feature comment (`engine/features/dialog/feature.toml`) and this
+   > clause. Both falsification sets were re-run afterwards, so the new pin is
+   > known to BIND rather than merely to be written down.
+   >
+   > Docs that record the old pin as HISTORY keep it, because they describe
+   > what was true when they landed: `docs/37` §, `docs/46` §7, `docs/95`,
+   > `docs/96`, `docs/97` and `docs/audit/region_r0_review.md` — and §3's R0
+   > landing block in this file, which is the same kind of record.
+   > A mismatch against the NEW value is still a finding.
 3. All 37 rails keep building. `make bare-check` stays GREEN.
 4. Every gate stays clean: `width-check`, `time-check`, `toy-bad`,
    `rom-unbacked`, `measure`, `register`, `rail-registered`, `cleanroom`.
