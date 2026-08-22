@@ -160,16 +160,30 @@ def test_region_is_opt_in_and_a_rail_that_does_not_compose_it_has_no_flag():
     """The reversibility property, read off the allocator's own output.
 
     docs/95 §7 rejected R0-b (read $213F unconditionally in `init.inc`) because
-    it moves the image on all 37 rails including `microzero`, whose md5 is
-    pinned by docs/94 §4.2. A DECLARED feature cannot do that: a rail that does
-    not compose it has no claim, no symbol and no boot call."""
-    mz = json.loads((BUILD / "mz" / "symbol_map.json").read_text())
-    syms = {p["sym"] for p in mz["globals"]}
-    for scene in mz["scenes"].values():
+    a DECLARED feature must leave every non-composing rail with no claim, no
+    symbol and no boot call — that is what makes composing it reversible.
+
+    THE WITNESS RAIL MOVED ONCE, deliberately. This case first held
+    `microzero` up as the non-composer, back when its pinned md5 was the
+    R0-era control (docs/94 §4.2 as then written). The owner then ruled the
+    engine's requirements include region awareness, the flagship converted,
+    and the pin moved with it (docs/98 §3) — so the old witness now composes
+    the feature and CORRECTLY carries the flag. The durable witness is
+    `split_v_seamtrial`: exempt BY DESIGN, with the reason stated in its own
+    game.toml ("region parity is not this rail's subject" — its sweep is
+    frame-indexed on purpose, and its tests are absolute-frame picture
+    claims). If THIS rail ever grows a region claim, either the exemption was
+    deliberately revisited (update the witness and its reason here) or
+    something really is allocating the flag unconditionally."""
+    svs = json.loads((BUILD / "svs" / "symbol_map.json").read_text())
+    syms = {p["sym"] for p in svs["globals"]}
+    for scene in svs["scenes"].values():
         syms |= {p["sym"] for p in scene["placements"]}
     assert "ES_RGN_PAL" not in syms, (
-        "microzero has a region claim — it does not compose the feature, so "
-        "something is allocating it unconditionally")
+        "split_v_seamtrial has a region claim — it is exempt by design and "
+        "does not compose the feature, so either the exemption was revisited "
+        "(move this witness deliberately) or something is allocating the "
+        "flag unconditionally")
 
     scr_map = json.loads((BUILD / "scr" / "symbol_map.json").read_text())
     assert "ES_RGN_PAL" in {p["sym"] for p in scr_map["globals"]}
