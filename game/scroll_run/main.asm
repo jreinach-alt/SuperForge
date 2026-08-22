@@ -42,6 +42,12 @@ NMI:
 .include "input.asm"
 .include "bg_text.asm"
 .include "oam_sprites.asm"
+.include "region.asm"               ; $213F bit 4 -> ES_RGN_PAL, once at boot
+.include "tick_scale.asm"           ; TS_STEP: the macro the run scene's
+                                    ; publisher expands. INCLUDED BEFORE THE
+                                    ; SCENE, and it must be — a ca65 macro has
+                                    ; to be defined before the line that
+                                    ; expands it.
 
 ; --- text_dp boot init (the text engine's global DP block) ------------------
 text_dp_init:
@@ -134,6 +140,9 @@ MAIN:
     jsr sm_init
     jsr input_init
     jsr fade_init
+    jsr region_init             ; the console's own region line, once. It is
+                                ;   game-lifetime state: a console does not
+                                ;   change region between scenes.
     jsr text_dp_init
     jsr oam_park_all                ; whole shadow written before its first DMA
     ; ---- enter the boot scene (id 0 = run) under forced blank -------------

@@ -53,16 +53,57 @@ CM_FLAGS             = ::pat_flags_bin
 ; the picture cannot move.
 TS_RUN_BASE   = PAT_SPEED * TS_ONE
 TS_BEAT_BASE  = PAT_PATROL_SPEED * TS_ONE
+
+; =============================================================================
+; THE ARC — a VELOCITY takes r, a GRAVITY takes r SQUARED
+; =============================================================================
+; PAT_GRAVITY, PAT_JUMP_VEL and PAT_MAX_FALL are a ballistic arc, and
+; preserving one in real time needs BOTH factors: the apex is v^2/2g, so a
+; single factor changes the arc's SHAPE rather than its speed. Doing only the
+; velocity is the classic half-conversion — the fall accelerates at NTSC's
+; rate through frames a fifth longer, the arc flattens and the hop stops
+; clearing what it was tuned to clear. With the pair,
 ;
-; THE JUMP IS NOT HERE, and that is a stated limit rather than an oversight.
-; PAT_GRAVITY, PAT_JUMP_VEL and PAT_MAX_FALL are a ballistic arc: preserving
-; it in real time needs the take-off velocity times r AND gravity times r
-; SQUARED, because the apex is v^2/2g and a single factor changes the SHAPE
-; rather than the speed. tick_scale supplies exactly one gain, so r goes
-; through TS_STEP and r^2 does not — and a second gain is surgery on a feature
-; other rails compose. game.toml carries the full argument; the oracle's
-; fall_y observable is the non-vacuity control that keeps it honest, reading
-; the frame ratio in the same run where player_x and e1_x read parity.
+;     apex        = v0^2 / 2g   ->  (v0*r)^2 / (2*g*r^2)   = the same apex
+;     flight time = 2*v0/g frames -> (2*v0/g)/r frames, which at 50.007 fps
+;                   is the same number of REAL SECONDS as at 60.099
+;
+; so the jump takes the same real time on both machines and only the frame
+; COUNT differs. (It used to be 34 frames in both regions — the same count,
+; 566 ms on NTSC against 680 on PAL, which is the frame ratio showing through
+; an unscaled arc.)
+;
+; HOW r^2 IS REACHED WITHOUT TOUCHING SHARED MACHINERY, which is what this
+; rail's earlier note said could not be done. TS_STEP applies exactly one r
+; and no linear combination of its outputs can apply two, so the second r
+; rides the BASE — on the PAL arm only, chosen BEFORE the macro rather than
+; after it. The formula is TS_STEP's own PAL arm written as a build-time
+; expression over tick_scale's TS_GAIN_NUM / TS_GAIN_DEN: the RATIO stays
+; single-sourced in that feature, `tick_scale` itself is untouched, and
+; nothing here is a second copy of it.
+; (the parameter is `v`, not `x`: ca65 reads a bare `x` in a define's
+;  parameter list as the index REGISTER and refuses the definition.)
+.define TS_R(v) ((v) + ((v) * TS_GAIN_NUM + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
+
+TS_GRAV_BASE   = PAT_GRAVITY * TS_ONE
+TS_GRAV_BASE_R = TS_R(TS_GRAV_BASE)
+
+; --- the two velocities: one r each, chosen once at enter ------------------
+PAT_MAX_FALL_R = TS_R(PAT_MAX_FALL)
+PAT_JUMP_VEL_R = TS_R(PAT_JUMP_VEL)
+PAT_JUMP_UP_R  = (256 * 256) - PAT_JUMP_VEL_R   ; the two's complement, as the
+                                                ;   algebra it is (patrol.inc)
+
+; The 8x8 box probe and the row-top snaps only cover an 8 px step in either
+; direction: a faster fall embeds in floors and a faster take-off tunnels
+; ceilings. patrol.inc never wrote that bound down; a region scale is exactly
+; the kind of change that walks a tuned constant through a bound nobody
+; re-checked, so it is asserted here on the SCALED pair AND on the authored
+; one (jumper.inc's and scroll_run.inc's shape).
+.assert PAT_MAX_FALL <= 8 << 8, error, "PAT_MAX_FALL > 8 px/frame breaks the landing snap / no-tunnel bound"
+.assert PAT_JUMP_VEL <= 8 << 8, error, "PAT_JUMP_VEL > 8 px/frame can tunnel through ceilings"
+.assert PAT_MAX_FALL_R <= 8 << 8, error, "the PAL-scaled PAT_MAX_FALL exceeds 8 px/frame — the landing snap / no-tunnel bound does not cover it"
+.assert PAT_JUMP_VEL_R <= 8 << 8, error, "the PAL-scaled PAT_JUMP_VEL exceeds 8 px/frame — a take-off that fast can tunnel a ceiling"
 
 ; BG3 2bpp tile attr: palette 7 (claim pins CGRAM words 28..31), priority set
 ; so the HUD line draws over the actors where they overlap — BGMODE bit 3
@@ -279,6 +320,23 @@ enter:
     stz z:US_TSR                ;   two published steps: written before any of
     stz z:US_TSE_ACC            ;   them is read (enter's own place runs first)
     stz z:US_TSE
+    stz z:US_TSG_ACC            ; ...and the arc's pair, on the same contract
+    stz z:US_TSG
+    lda z:ES_RGN_PAL            ; the two region-selected feel constants: a
+    beq :+                      ;   console cannot change region, so once
+    lda #PAT_MAX_FALL_R
+    sta z:US_VMAX
+    lda #PAT_JUMP_UP_R
+    sta z:US_VJUMP
+    bra :++
+:   .a16
+    .i16
+    lda #PAT_MAX_FALL           ; today's constants, to the bit
+    sta z:US_VMAX
+    lda #PAT_JUMP_UP
+    sta z:US_VJUMP
+:   .a16
+    .i16
     ; ---- the HUD, printed under the blank where a whole string is legal ---
     lda #TXT_ATTR
     sta z:ES_TXT_TMP
@@ -323,6 +381,22 @@ tick:
     sta z:US_TSR
     TS_STEP z:US_TSE_ACC, TS_BEAT_BASE
     sta z:US_TSE
+    ; Gravity is per-frame-SQUARED: the second r rides the BASE, so the arm is
+    ; chosen BEFORE the macro rather than after it. Both arms share one
+    ; accumulator — a console cannot change region, so only one is ever taken.
+    ; ANONYMOUS LABELS, not `@cheap` ones: TS_STEP's `.local` labels are plain
+    ; symbols, so expanding it between a `@label` and its use RESETS the
+    ; cheap-local scope and the branch target goes undefined.
+    lda z:ES_RGN_PAL
+    beq :+
+    TS_STEP z:US_TSG_ACC, TS_GRAV_BASE_R
+    bra :++
+:   .a16
+    .i16
+    TS_STEP z:US_TSG_ACC, TS_GRAV_BASE
+:   .a16
+    .i16
+    sta z:US_TSG
     lda z:US_PYF
     xba
     and #$00FF
@@ -395,8 +469,9 @@ do_jump:
     beq @done
     lda z:US_GROUNDED
     beq @done                   ; can't jump in mid-air
-    lda #PAT_JUMP_UP
-    sta z:US_VY                 ; -PAT_JUMP_VEL, two's complement
+    lda z:US_VJUMP
+    sta z:US_VY                 ; -PAT_JUMP_VEL (region-scaled), two's
+                                ;   complement — enter picked the arm
     stz z:US_GROUNDED
 @done:
     .a16
@@ -447,10 +522,10 @@ pat_physics:
     ; ---- gravity, clamped to terminal fall speed --------------------------
     lda z:US_VY
     clc
-    adc #PAT_GRAVITY
-    cmp #PAT_MAX_FALL
+    adc z:US_TSG
+    cmp z:US_VMAX
     bcc @noclamp
-    lda #PAT_MAX_FALL
+    lda z:US_VMAX
 @noclamp:
     .a16
     .i16
@@ -496,7 +571,7 @@ phys_rising:
     stz z:US_GROUNDED
     lda z:US_VY                 ; gravity (no clamp needed while negative)
     clc
-    adc #PAT_GRAVITY
+    adc z:US_TSG
     sta z:US_VY
     lda z:US_PYF
     clc

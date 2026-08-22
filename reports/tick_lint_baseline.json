@@ -1723,7 +1723,7 @@
   },
   {
     "file": "game/scroll_run/scenes/run.asm",
-    "line": 362,
+    "line": 467,
     "rule": "tick-routine",
     "message": "`phys_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"

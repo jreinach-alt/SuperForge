@@ -46,6 +46,64 @@ CM_WORLD_BLOB_CHUNKS = (::ES_R_SR_WORLD_SIZE + 32767) / 32768
 CM_FLAGS             = ::sr_flags_bin
 .include "col_map.asm"
 
+; =============================================================================
+; THE REGION-CORRECT UNITS — an arc takes TWO scales, not one
+; =============================================================================
+; A PAL frame must carry r = 1.2018039 of the distance an NTSC frame carries
+; (engine/features/tick_scale carries that derivation and is the only place
+; the ratio lives). A VELOCITY is px per frame and scales by r. A GRAVITY is
+; px per frame SQUARED and scales by r SQUARED — and doing only the first is
+; the classic half-conversion: the fall accelerates at NTSC's rate through
+; frames that are 20% longer, so the arc flattens, the apex drops and the hop
+; stops clearing what it was tuned to clear.
+;
+; ON THIS RAIL THAT IS NOT A REFINEMENT, IT IS THE WHOLE CONVERSION. The level
+; is authored around the arc — measured, a runner holding RIGHT from the spawn
+; reaches x = 104 and stops, 655 of 700 frames blocked against a wall he is
+; meant to jump — so the traversal rate is the run AND the arc together, and a
+; run-only scale changes what he can clear. game.toml carries that argument.
+;
+; The pair is what preserves the arc's SHAPE rather than merely its speed:
+;
+;     apex        = v0^2 / 2g   ->  (v0*r)^2 / (2*g*r^2)   = the same apex
+;     flight time = 2*v0/g frames -> (2*v0/g)/r frames, which at 50.007 fps
+;                   is the same number of REAL SECONDS as 2*v0/g at 60.099
+;
+; TS_R(v) is TS_STEP's own PAL arm written as a build-time expression, which
+; is what lets a per-frame-SQUARED quantity be scaled TWICE (once here into
+; the base, once by the macro). It is NOT a second copy of the ratio:
+; TS_GAIN_NUM / TS_GAIN_DEN are tick_scale's and single-sourced, and this only
+; applies them. The `+ DEN/2` is the macro's own rounding, kept identical so
+; the two arms cannot disagree by a count.
+; (the parameter is `v`, not `x`: ca65 reads a bare `x` in a define's
+;  parameter list as the index REGISTER and refuses the definition.)
+.define TS_R(v) ((v) + ((v) * TS_GAIN_NUM + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
+
+; --- the run: one r, an ordinary consumer pair -----------------------------
+; SR_SPEED is still the one number to reach for when tuning how this rail
+; feels; what changed is that it is a RATE rather than a per-frame immediate.
+TS_RUN_BASE = SR_SPEED * TS_ONE
+
+; --- gravity: the r^2 site, and the only one on this rail ------------------
+; TS_STEP applies exactly one r, so the other one goes into the BASE — on the
+; PAL arm only, which is why the tick branches on ES_RGN_PAL BEFORE the macro
+; instead of after it. Both arms share one accumulator: a console cannot
+; change region, so only one of them is ever taken.
+TS_GRAV_BASE   = SR_GRAVITY * TS_ONE
+TS_GRAV_BASE_R = TS_R(TS_GRAV_BASE)
+
+; --- the two velocities: one r each, chosen once at enter ------------------
+SR_MAX_FALL_R     = TS_R(SR_MAX_FALL)
+SR_JUMP_VEL_R     = TS_R(SR_JUMP_VEL)
+SR_NEG_JUMP_VEL_R = (1 << 16) - SR_JUMP_VEL_R
+
+; scroll_run.inc's own bound, re-asserted on the SCALED pair. The 8x8 box
+; probe and the row-top snaps only cover an 8 px step in either direction, and
+; a region scale is exactly the kind of change that walks a tuned constant
+; through a bound nobody re-checked.
+.assert SR_MAX_FALL_R <= 8 << 8, error, "the PAL-scaled SR_MAX_FALL exceeds 8 px/frame — the landing snap / no-tunnel bound does not cover it"
+.assert SR_JUMP_VEL_R <= 8 << 8, error, "the PAL-scaled SR_JUMP_VEL exceeds 8 px/frame — a take-off that fast can tunnel a ceiling"
+
 ; --- enter ------------------------------------------------------------------
 ; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
 enter:
@@ -101,6 +159,28 @@ enter:
     stz z:US_GROUNDED
     stz z:US_STATE
     stz z:US_FRAMES
+    ; ---- the timebase's four words, and the two region-selected feel
+    ;      constants. Power-on DP is RANDOM (rule 5), so these stores ARE the
+    ;      write-before-read contract, not defensive initialisation.
+    stz z:US_TSR_ACC
+    stz z:US_TSR
+    stz z:US_TSG_ACC
+    stz z:US_TSG
+    lda z:ES_RGN_PAL
+    beq :+
+    lda #SR_MAX_FALL_R
+    sta z:US_VMAX
+    lda #SR_NEG_JUMP_VEL_R
+    sta z:US_VJUMP
+    bra :++
+:   .a16
+    .i16
+    lda #SR_MAX_FALL                ; today's constants, to the bit
+    sta z:US_VMAX
+    lda #SR_NEG_JUMP_VEL
+    sta z:US_VJUMP
+:   .a16
+    .i16
     lda #SR_SPAWN_Y
     sta z:US_PYI
     lda #SR_SPAWN_X                 ; boot camera is 0 (sr_arm), so scrx = px
@@ -146,6 +226,31 @@ tick:
     .a16
     .i16
     inc z:US_FRAMES
+    ; ---- this frame's two region-correct steps, published once ------------
+    ; On NTSC each publishes the constant scroll_run.inc authored, to the
+    ; unit, and the carried fraction stays 0 for ever — which is why the NTSC
+    ; picture cannot move.
+    ; BEFORE THE WIN GATE, deliberately: a step word that stops being
+    ; republished is a stale word waiting to be read, and a frozen frame reads
+    ; none of them anyway.
+    TS_STEP z:US_TSR_ACC, TS_RUN_BASE
+    sta z:US_TSR
+    ; Gravity is per-frame-SQUARED: the second r rides the BASE, so the arm is
+    ; chosen BEFORE the macro rather than after it. Both arms share one
+    ; accumulator — a console cannot change region, so only one is ever taken.
+    ; ANONYMOUS LABELS, not `@cheap` ones: TS_STEP's `.local` labels are plain
+    ; symbols, so expanding it between a `@label` and its use RESETS the
+    ; cheap-local scope and the branch target goes undefined.
+    lda z:ES_RGN_PAL
+    beq :+
+    TS_STEP z:US_TSG_ACC, TS_GRAV_BASE_R
+    bra :++
+:   .a16
+    .i16
+    TS_STEP z:US_TSG_ACC, TS_GRAV_BASE
+:   .a16
+    .i16
+    sta z:US_TSG
     lda z:US_STATE
     beq @playing
     jmp @draw                       ; won: input frozen, camera holds
@@ -191,7 +296,7 @@ move_horizontal:
     beq @no_right
     lda z:US_NEWX
     clc
-    adc #SR_SPEED
+    adc z:US_TSR
     sta z:US_NEWX
 @no_right:
     .a16
@@ -201,7 +306,7 @@ move_horizontal:
     beq @no_left
     lda z:US_NEWX
     sec
-    sbc #SR_SPEED
+    sbc z:US_TSR
     sta z:US_NEWX
 @no_left:
     .a16
@@ -248,7 +353,7 @@ do_jump:
     beq @done
     lda z:US_GROUNDED
     beq @done
-    lda #SR_NEG_JUMP_VEL
+    lda z:US_VJUMP
     sta z:US_VY
     stz z:US_GROUNDED
 @done:
@@ -447,10 +552,10 @@ phys_step:
     ; ---- gravity, clamped to terminal fall speed --------------------------
     lda z:US_VY
     clc
-    adc #SR_GRAVITY
-    cmp #SR_MAX_FALL
+    adc z:US_TSG
+    cmp z:US_VMAX
     bcc @noclamp
-    lda #SR_MAX_FALL
+    lda z:US_VMAX
 @noclamp:
     .a16
     .i16
@@ -572,7 +677,7 @@ phys_step:
     stz z:US_GROUNDED
     lda z:US_VY                     ; gravity (no clamp needed while negative)
     clc
-    adc #SR_GRAVITY
+    adc z:US_TSG
     sta z:US_VY
     lda z:US_PYF
     clc
