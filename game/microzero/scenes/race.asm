@@ -24,6 +24,21 @@ VWF_ROW_CELL  = ES_V_TEXT_MAP + 3 * 32 + 2
 ; 4 frames = 15 chars/s — a comfortable reading pace for a dialog crawl. Powers
 ; of two so the tick costs two masks and no division, and so the schedule is
 ; exactly reproducible from ES_SM_FRAME by a test.
+;
+; NOT REGION-SCALED, and the sentence above is the reason rather than an
+; oversight. Everything else this rail measures in frames is a rate the player
+; reads as SPEED and takes r or r^2 (game.toml carries that ledger); this one
+; is an INSTRUMENT. The schedule is declared to be exactly reproducible from
+; ES_SM_FRAME, and tests/test_vwf_render.py reads the rendered strip THROUGH
+; that declaration — it steps to `frame % 128 == 0` and asserts the composited
+; proportional advance of the four messages there. A playhead of its own would
+; hold only on NTSC, so the price of a crawl that reads 20% faster on PAL is a
+; proof that only works on one machine. Two mechanical facts say the same
+; thing from the other side: ES_SM_FRAME is `scene_mgr`'s, so scaling it is a
+; change to shared machinery every rail composes; and a scaled playhead
+; advancing 1 or 2 SKIPS values, so `& 3 == 0` would drop glyphs and
+; `& 127 == 0` could miss a whole message (meteor_event's measured trap, where
+; an equality test on a scaled timer had to become a `bcc`).
 VWF_SLOT_MASK = 127                 ; frame & this == 0 -> open the next message
 VWF_TICK_MASK = 3                   ; frame & this == 0 -> reveal one glyph
 

@@ -1,8 +1,73 @@
 # microzero — the tiny complete game: title + race (static Mode 7 floor) +
 # results, and the edges between them.
+#
+# REGION + TICK_SCALE: what makes this cart one cart on both machines.
+#   region      reads $213F bit 4 once at boot and publishes ES_RGN_PAL.
+#   tick_scale  turns a per-frame delta into a REGION-CORRECT one, carrying
+#               the fraction between frames. It `depends = ["region"]`, so the
+#               allocator pulls `region` in with it.
+#
+# WHAT IS SCALED, and by which power of the frame ratio r = 1.2018039:
+#   x r      the two VELOCITY CAPS (MZ_VEL_MAX, MZ_VEL_MIN), the STEERING
+#            (one pose a frame, through TS_STEP with the fraction carried) and
+#            the RESULTS TALLY (5 score units a frame — a counter the player
+#            watches count up, so it paces the picture)
+#   x r^2    the four ACCELERATIONS — MZ_ACCEL, MZ_BRAKE, MZ_REVERSE and
+#            MZ_FRICTION. A cap is px per frame and an acceleration is px per
+#            frame SQUARED, and taking only the first is the half-conversion
+#            that leaves the ramp a fifth long: cap/accel frames becomes
+#            (cap*r)/(accel*r^2) = the same number of REAL SECONDS from rest
+#            to flat out.
+#
+# WHAT IS NOT, each for a reason that is about the number's dimension:
+#   the lap, sector and checkpoint machine   counts and events, not rates
+#   RACE_LAPS 3, LIVES_START 3, RACE_LAP_SCORE 100   the rules
+#   the title heartbeat US_T_FRAMES          free-running, drives nothing
+#   the VWF dialog schedule                  scenes/race.asm carries the
+#            argument: that schedule is DECLARED to be exactly reproducible
+#            from ES_SM_FRAME, and a test reads the rendered strip through
+#            that declaration. It is an instrument for a proof rather than a
+#            speed anybody times.
+#   `fade`'s INIDISP ramp                    shared engine machinery every
+#            rail composes; a rate that belongs to the whole tree is not one
+#            rail's to re-time.
+#
+# THE STREAMING QUOTA WAS MEASURED, NOT ASSUMED, because the cap's r raises
+# the very number the clamp was sized against. `mode7_stream` stages at most
+# 8 tiles per axis per frame and NEVER SNAPS — a frame it cannot finish leaves
+# the rest for the next one — and its header sizes that 8 against "the
+# declared max 6 tiles/frame", which is this rail's 48 px/frame. The cap's r
+# takes that to 57.69, and 57.69 px is not 7.21 tiles in the worst frame: a
+# step lands on an arbitrary sub-tile phase, so the crossings it can make are
+# floor((7 + 58) / 8) = 8.
+#
+# READ OFF THE STAGED COUNTERS AT THE PARK POINT (scanline 224 — the
+# main-thread stage has run, the VBlank drain that zeroes them has not), 900
+# frames flat out on the straight and again in a constant-radius circle that
+# sweeps every heading:
+#
+#   ntsc  before  top speed 48.00 px/f  worst axis step 48 px  worst 6 / 6
+#   pal   before  top speed 48.00 px/f  worst axis step 48 px  worst 6 / 6
+#   ntsc  after   top speed 48.00 px/f  worst axis step 48 px  worst 6 / 6
+#   pal   after   top speed 57.69 px/f  worst axis step 58 px  worst 8 / 8
+#
+# EIGHT AGAINST A CLAMP OF EIGHT: it fits, and the margin is gone rather than
+# thin. What proves "fits" is not the count but the DEFERRAL — CAM minus LAST
+# at the park is exactly the tiles a frame could not stage, and it reads 0 on
+# every one of those 3,600 frames, in both regions, before and after. The
+# arithmetic says the same thing and says it is a bound: the 8.8 cap is
+# 14,768, so a whole-pixel step is at most (255 + 14768) >> 8 = 58 px and a
+# tile crossing at most 8. race_logic asserts that bound at build time.
+# Worst rows+cols in one frame is 12 against the `mzs` claim's declared 16
+# transfers, and the frame loop keeps up: 0 of 862 frames at top speed moved
+# 0 px on PAL.
+#
+# `mode7_stream` IS UNTOUCHED — no clamp raised, no snap introduced — which is
+# what keeps this a rail-local conversion rather than surgery on a feature
+# `racer` and `mode7_explore` also compose.
 globals = ["scene_mgr", "input", "fade", "text_dp", "font_rom", "enter_scr",
            "world_rom", "pose_rom", "oam_sprites", "car_rom", "vwf_rom",
-           "col_map_rom"]
+           "col_map_rom", "region", "tick_scale"]
 
 [[scene]]
 id = "title"

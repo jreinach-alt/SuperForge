@@ -44,6 +44,12 @@ SB_TM_TOP   = $16               ; BG2 (sky_band's ramp) + BG3 (HUD) + OBJ
 SB_TM_BOT   = $11               ; BG1 (the Mode 7 floor) + OBJ (the car)
 .include "split_band.asm"
 .include "oam_sprites.asm"
+.include "region.asm"               ; $213F bit 4 -> ES_RGN_PAL, once at boot
+.include "tick_scale.asm"           ; TS_STEP: the macro race_logic's publisher
+                                    ; and the results tally both expand.
+                                    ; INCLUDED BEFORE THE SCENES, and it must
+                                    ; be -- a ca65 macro has to be defined
+                                    ; before the line that expands it.
 
 ; --- text_dp boot init (the text engine's global DP block) ------------------
 text_dp_init:
@@ -190,6 +196,9 @@ MAIN:
     jsr sm_init
     jsr input_init
     jsr fade_init
+    jsr region_init             ; the console's own region line, once. It is
+                                ;   game-lifetime state: a console does not
+                                ;   change region between scenes.
     jsr text_dp_init
     jsr oam_park_all            ; whole shadow written before its first DMA
     ; ---- game-lifetime user state (game logic owns these values) ----------

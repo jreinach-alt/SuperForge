@@ -5,12 +5,32 @@ lives = "u8"
 
 [scene.title]
 t_frames = "u16"         # frames on title (drives the blink)
+                         # NOT region-scaled, and NOT stamped either: this is
+                         # the free-running heartbeat, the one word on this
+                         # rail that is honestly counted in frames, and it
+                         # stays a tracked finding because that is what the
+                         # baseline is for. It is not a rate — nothing reads
+                         # it, so there is no pace for a scale to preserve.
+                         # `jumper`'s US_FRAMES and `breaker`'s blink are the
+                         # same class and are left the same way.
 
 [scene.results]
 tally = "u16"            # the score digits currently shown, counting up to
                          # the global score — scene-scoped, and it proves
                          # scene-byte reuse in BOTH directions against race
 r_done = "u8"            # 1 once the tally has caught up (START then exits)
+# The TIMEBASE's one consumer pair on this scene (engine/features/tick_scale).
+# The tally is a RATE — 5 score units a frame — and it is a rate a player
+# WATCHES: the digits counting up are the whole of what this scene does while
+# it runs, so a count-up that took a fifth longer on PAL would be pacing the
+# picture. Scaled, with the fraction carried, so the count-up takes the same
+# real second on both machines.
+tst_acc = "u16@dp"       # the carried FRACTION of the scaled rate
+                         # TICK: ok — it exists to remove a frame coupling,
+                         # not to hold one, and it has no meaning in frames.
+tst = "u16@dp"           # ...and this frame's answer, in whole score units
+                         # TICK: ok — the OUTPUT of the scaler; already
+                         # expressed against the declared tick.
 
 [scene.race]
 heading = "u8"           # desired pose heading, 0..63 (steer writes it)

@@ -11,10 +11,34 @@ depends = ["mode7_persp", "mode7_stream"]
 
 [[claims.dp]]
 name = "rl_hot"
-bytes = 16               # +0 mag +2 sign +4 acc +6 |vel| +8 vel_neg
-                         # +10 step +12 t (+14 spare) — the 16x16 magnitude
+bytes = 34               # +0 mag +2 sign +4 acc +6 |vel| +8 vel_neg
+                         # +10 step_x +12 step_y +14 t — the 16x16 magnitude
                          # product needs scratch: the hardware multiplier is
                          # 8x8, so the kernel decomposes and accumulates here
+                         #
+                         # THE TIMEBASE (engine/features/tick_scale), from
+                         # +16. Two (accumulator, published step) pairs and
+                         # five region-picked constants. They live in THIS
+                         # claim rather than in game/microzero/state.toml
+                         # because the physics is the feature's and so is its
+                         # clock; what stays user state there is what a
+                         # player's game IS — the position, the velocity, the
+                         # laps.
+                         # TICK: ok — every word below EXISTS to remove a
+                         # frame coupling rather than to express one. The
+                         # accumulators hold a carried FRACTION with no
+                         # meaning in frames; the steps and the constants are
+                         # the scaler's OUTPUT, already expressed against the
+                         # declared tick.
+                         # +16 tsh_acc steering: carried fraction
+                         # +18 tsh ...and this frame's whole POSES
+                         # +20 tsf_acc coast friction: carried fraction
+                         # +22 tsf ...and this frame's 8.8 counts
+                         # +24 vmax forward cap, region-scaled
+                         # +26 vmin reverse cap, region-scaled
+                         # +28 vacc throttle accel, region-scaled
+                         # +30 vbrk brake decel, region-scaled
+                         # +32 vrev reverse accel, region-scaled
 
 [init]
 zero = ["rl_hot"]        # scratch is write-before-read within each kernel,
