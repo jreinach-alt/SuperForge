@@ -170,7 +170,7 @@ criterion is asserted here.
    > known to BIND rather than merely to be written down.
    >
    > Docs that record the old pin as HISTORY keep it, because they describe
-   > what was true when they landed: `docs/37` §, `docs/46` §7, `docs/95`,
+   > what was true when they landed: `docs/37`, `docs/46` §7, `docs/95`,
    > `docs/96`, `docs/97` and `docs/audit/region_r0_review.md` — and §3's R0
    > landing block in this file, which is the same kind of record.
    > A mismatch against the NEW value is still a finding.
