@@ -369,17 +369,15 @@ def test_the_absorbed_assert_survives_the_arithmetic_and_is_still_REFUSED():
     assert u.text.count('test "$size" -eq 524288') == 4
 
 
-def test_a_healthy_workflow_passes_the_step_shape_check():
-    """The pair. A check that refuses everything reads like one that works."""
-    ok, detail = bu.validate(
-        (SUPERFORGE / ".github" / "workflows" / "ci.yml").read_text(),
-        Path("ci.yml"))
-    assert ok, detail
-    assert "ROM step(s), all assert their size" in detail, detail
-    # and it looked at the whole workflow, not at nothing
-    n = len(bu.ci_rom_steps(
-        (SUPERFORGE / ".github" / "workflows" / "ci.yml").read_text()))
-    assert n > 20, f"the step-shape check only found {n} ROM steps"
+# The positive arm used to be a separate test that ran the shape check over
+# the repo's own `.github/workflows/ci.yml` and asserted it found more than 20
+# ROM steps. That file was deleted on 2026-08-22 when the hosted workflow was
+# retired, and there is no whole-workflow text left in this repository to read.
+# The pair property — a check that refuses everything reads like one that works
+# — is still carried by the test below, which runs the same check over three
+# real ci.yml-shaped unions and requires ok on all of them. What is gone is the
+# reach assertion: nothing now shows the check scaling past a three-step
+# excerpt.
 
 
 def test_the_three_recorded_drop_fixtures_still_pass_the_shape_check():

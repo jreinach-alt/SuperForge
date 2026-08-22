@@ -25,12 +25,15 @@
 #
 # Deliberately NOT here: make test, make measure, ROM builds. A push gate that
 # costs minutes gets bypassed out of habit; one that costs a second gets kept.
-# The minutes-scale sequence is `make gates` (and CI runs it on every push).
+# The minutes-scale sequence is `make gates`, and `make bare-check` runs that
+# block in a clone of HEAD. Nothing runs either of them for you: the hosted
+# workflow was retired on 2026-08-22 (docs/44 §6).
 #
 # BYPASS — this is a guardrail, not a prison: `git push --no-verify` skips
 # this hook entirely. Use it deliberately (e.g. pushing a WIP branch whose
-# census you already know is mid-edit) and expect CI to report the red you
-# chose to ship.
+# census you already know is mid-edit), and know that NOTHING downstream will
+# report the red you chose to ship — `make bare-check` on the tip is the only
+# thing that would, and only if you run it.
 #
 # Wiring: hooks do not clone with the repo, so tools/setup.sh installs this
 # directory via `git config core.hooksPath tools/git-hooks`. That config is

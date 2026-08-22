@@ -150,8 +150,64 @@ is an independent observation, on the exact commit, that is quotable rather
 than remembered — and what that observation cannot see is written into the
 artifact it produces.
 
+## 6. 2026-08-22 — the workflow file is gone
+
+Until this date the repository still carried `.github/workflows/ci.yml`. It no
+longer fired on push, but the file was there and `workflow_dispatch` could
+still be pointed at it by hand. **That file is now deleted**, `.github/` with
+it, and there is no hosted alternative anywhere in the tree.
+
+The owner's reasons, recorded because they are the whole justification:
+
+1. **The project regularly blew through the available Actions usage.** Hosted
+   minutes were not an abstract budget; they ran out.
+2. **Failures did not report back into the working session.** A red run
+   somewhere else is a red you have to go and look for, and the session that
+   caused it is long gone by the time you do.
+3. **The benefit was not worth the friction of repeated failure emails.**
+
+§1–§5 above were written for a world where the hatch existed; nothing in them
+changes except that "still runs the real thing on demand" is no longer true of
+anything. **`make bare-check` is the gate of record and it is now the only
+gate of record.** The residue in §3 is therefore permanent rather than
+provisional: a genuinely different machine, a genuinely absent toolchain, a
+different OS image and full git history are not bought by anything this
+repository ships. When a change's failure mode is *"works here, not on a clean
+machine"*, building it on a genuinely clean machine before landing is now the
+only way to know — §3's closing paragraph, promoted from advice to the whole
+of the answer.
+
+### What the deletion cost, beyond the runs
+
+`ci.yml` was a **registration site** of `make rail-registered` (site 4 of
+twelve, as it was numbered), so it went out as gate surgery, not housekeeping.
+The gate now checks **eleven** sites; the count moved by this decision, and
+its disarm guard still refuses any run in which fewer than all eleven checks
+execute, so a genuinely disarmed gate still reads as disarmed.
+
+Retired with the site: the **ci.yml ROM-step sweep**. That check ran per-STEP
+rather than per-rail — any workflow step that built a ROM and measured it had
+to assert its size — and it existed because the eleven sites all start from the
+`game/` census and therefore cannot see a target that no `game/` dir backs. It
+caught exactly that once: `svd-nowin`, a variant control ROM, lost its size
+assert to the following step in a merge and was measured nowhere.
+
+**The failure mode did not retire with the check — it moved, and a gap is now
+open.** Every remaining measurement list is rail-scoped (`bare_check.sh`'s
+size list, `bare_check.sh`'s rom_md5 tuple, the Makefile `gates:` md5 loop)
+while `make gates`'s own `run <target>;` build list is not. Eight
+variant/control ROMs that `make gates` builds — `svd_nowin`, `shd_autodemo`,
+`shp_autodemo`, `rs_probe`, `sit_origin`, `sit_mistime`, `shg_nograd`,
+`shg_origin` — were measured **only** in ci.yml. As of this change their size
+is asserted nowhere and their bytes are pinned nowhere. This is named rather
+than closed: closing it means deciding which list is the authority — the
+build list or the measured list — and that is a decision for whoever takes it,
+not a cleanup to slip into a deletion.
+
 ## See also
 
 - `tools/bare_check.sh` — the implementation, and why each step is there.
 - `tests/test_bare_check.py` — the plants: it is not a gate until it has been
   broken on purpose.
+- `tools/rail_registered.py` — its docstring carries the site census and the
+  same gap statement from the gate's side.

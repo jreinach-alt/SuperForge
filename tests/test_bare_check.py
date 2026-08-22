@@ -196,7 +196,7 @@ def _plant_broken_no_literals(repo):
 
 
 def test_a_stale_artifact_hides_a_broken_build_locally_and_bare_check_finds_it(repo):
-    """ci.yml's own comment, reproduced end to end.
+    """The `NO STALE TREE` claim in bare_check.sh's own header, end to end.
 
     Both halves are asserted, because only the pair is the claim: the local
     build must be GREEN on the stale tree (or this is not the defect), and

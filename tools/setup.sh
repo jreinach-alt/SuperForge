@@ -119,9 +119,11 @@ fi
 # and the two modules that plant into this repo's own working tree hold an
 # exclusive lock, so their save/write/restore windows cannot overlap.
 #
-# No longer optional: CI runs the suite in parallel (`make test XDIST=N` in
-# .github/workflows/ci.yml). A local `make test` is still single-threaded —
-# XDIST unset is the default.
+# Not optional: `make bare-check` runs the suite in its clone with XDIST set
+# (default 2, `make bare-check XDIST=4` to raise it), and that is the landing
+# gate — the hosted workflow that used to run it in parallel was deleted on
+# 2026-08-22. A local `make test` is still single-threaded — XDIST unset is
+# the default.
 echo "2. Checking Python dependencies..."
 PYTHON_PKGS_NEEDED=""
 python3 -c "from PIL import Image" >/dev/null 2>&1 || PYTHON_PKGS_NEEDED="Pillow"

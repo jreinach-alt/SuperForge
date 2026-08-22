@@ -386,8 +386,11 @@ def test_asserts_before_the_incbin_are_accepted():
     ("tools/git-hooks/pre-push",
      re.compile(r"^for gate in(?:\s+[\w-]+)*\s+rom-unbacked\b", re.M),
      "the pre-push hook's gate loop"),
-    (".github/workflows/ci.yml", "run: make rom-unbacked",
-     "CI's own step (it was covered only through the ~8 min `make test`)"),
+    # There was a fourth row here — the hosted workflow's own step. The
+    # workflow was retired on 2026-08-22 and the row went with the file it
+    # read. The surface it stood for is now `make gates` (and `make
+    # bare-check`, which runs the gate block inside its clone), which reaches
+    # `rom-unbacked` through the `gates:` list rather than a restated step.
     ("tools/setup.sh", "make rom-unbacked",
      "tools/setup.sh's bring-up proof on a fresh clone"),
 ])
@@ -400,7 +403,7 @@ def test_rom_unbacked_is_wired_where_toy_bad_is(path, needle, what):
 
     Textual on purpose: running `make push` would push, and running the hook
     would need a remote. What is being checked is the WIRING, and the wiring
-    is text in these four files.
+    is text in these three files.
     """
     text = (SUPERFORGE / path).read_text()
     assert "toy-bad" in text, f"{path}: toy-bad's own wiring moved — update this test"

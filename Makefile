@@ -2683,8 +2683,10 @@ rail-registered:
 # `HEAD` resolves to the current branch, so this stays a
 # push of what you are on; on a branch that already has an upstream it is the
 # same push with the tracking ref reasserted. Emergency bypass, for a
-# deliberately-red WIP push: `git push --no-verify` (guardrail, not a prison —
-# CI will still report the red you chose to ship).
+# deliberately-red WIP push: `git push --no-verify` (guardrail, not a prison).
+# Nothing downstream will catch what you skipped: since 2026-08-22 there is no
+# hosted workflow (docs/44 §6), so `make bare-check` on the tip is the only
+# thing that reports the red you chose to ship, and only if you run it.
 push: register width-check time-check toy-bad rom-unbacked
 	git push -u origin HEAD
 
@@ -2818,27 +2820,29 @@ bare-check:
 #
 # XDIST=N runs the suite on N pytest-xdist workers: `make test XDIST=3`.
 # UNSET IS THE DEFAULT and stays single-threaded, so a local `make test` is
-# the command it has always been — CI opts in explicitly, in one place, where
-# the choice is reviewable next to the number that justified it.
+# the command it has always been — the landing gate opts in explicitly, in one
+# place (`tools/bare_check.sh` passes XDIST into the gate block it runs in its
+# clone), where the choice is reviewable next to the number that justified it.
 #
 # Two things make the suite safe to parallelise, and both are load-bearing:
 # each worker gets its own Mesen home (tests/conftest.py, so no two workers
 # share a Screenshots/ or a Saves/*.srm), and the modules that plant into this
 # repo's working tree hold an exclusive lock (also tests/conftest.py). The
 # tree must also be PRE-BUILT — several fixtures shell out to `make`, and on a
-# cold tree two workers race the same object file. CI builds toy, microzero,
-# room and probes in earlier steps for exactly this reason; locally,
+# cold tree two workers race the same object file. That is what the `test:`
+# prerequisite list below is for, and it is why the hosted workflow built toy,
+# microzero, room and probes in earlier steps while it existed; locally,
 # `make toy microzero room` first.
 XDIST ?=
 PYTEST_DIST := $(if $(strip $(XDIST)),-n $(strip $(XDIST)),)
 
 # `-rs` prints the REASON for every skip in the short summary. AGENTS.md says
 # "read the skip count as a defect signal" — but the surface everyone actually
-# reads (`-q`'s last line, and the CI step's tail) prints a bare NUMBER, and a
-# number cannot be read as a signal. CI reported "3 skipped" against a tree
-# that reports 0 locally, and answering "which three?" took a git unshallow, a
-# decorator census and a run of the CI logs. With `-rs` the run answers it
-# itself. Costs three lines of output on a green run.
+# reads (`-q`'s last line, and a captured run's tail) prints a bare NUMBER, and
+# a number cannot be read as a signal. A run on a bare clone once reported
+# "3 skipped" against a tree that reports 0 locally, and answering "which
+# three?" took a git unshallow, a decorator census and a trawl of the logs.
+# With `-rs` the run answers it itself. Costs three lines on a green run.
 #
 # THE PREREQUISITE LIST IS THE DEFUSAL OF THE MISATTRIBUTING xdist CRASH
 # (pre-existing). The "PRE-BUILT" precondition

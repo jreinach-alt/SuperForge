@@ -4,12 +4,12 @@ batch_union.py — resolve a batch landing's conflicts as a KEEP-BOTH union,
                  and prove the result still parses.
 
 WHY THIS EXISTS. Landing a batch of rail ports means merging N branches that
-each appended themselves to the same handful of registration files —
-`.github/workflows/ci.yml`, the `Makefile`, `tests/conftest.py`,
-`tools/bare_check.sh`, `docs/09_feature_register.md`. Every one of those
-conflicts has the same correct resolution: KEEP BOTH SIDES. It is mechanical,
-so it gets done with a throwaway script, and the throwaway script is where the
-damage happens.
+each appended themselves to the same handful of registration files — the
+`Makefile`, `tests/conftest.py`, `tools/bare_check.sh`,
+`docs/09_feature_register.md`, and (until the hosted workflow was retired on
+2026-08-22) `.github/workflows/ci.yml`. Every one of those conflicts has the
+same correct resolution: KEEP BOTH SIDES. It is mechanical, so it gets done
+with a throwaway script, and the throwaway script is where the damage happens.
 
 THE THREE DROPS THIS TOOL EXISTS FOR: three consecutive landings lost a
 ci.yml rail step's
@@ -19,9 +19,10 @@ ci.yml rail step's
 line, because it sat at a hunk boundary — patrol's in the sprite_game merge,
 jumper's in the stomper merge, stomper's in the scroll_run merge. The line is
 the ONLY thing in a CI step that fails on a truncated link, so losing it turns
-the step into "make it and hope". `make rail-registered` named each drop (site
-4, by rail) which is why they were caught at all; that is a backstop, not a
-reason to keep generating them.
+the step into "make it and hope". `make rail-registered` named each drop (its
+ci.yml site, by rail) which is why they were caught at all; that is a backstop,
+not a reason to keep generating them — and it is a backstop that no longer
+exists, since the site went out with the workflow file (docs/44 §6).
 
 The boundary shape is worth naming, because it is not a freak alignment. Every
 rail step in ci.yml ends with an assert line and is followed by a blank line
@@ -81,7 +82,7 @@ must also assert its size, and this refuses the union if one does not.
 USAGE
     tools/batch_union.py FILE...            union in place, then validate
     tools/batch_union.py --check FILE...    validate only; writes nothing
-    tools/batch_union.py --check .github/workflows/ci.yml Makefile
+    tools/batch_union.py --check Makefile tests/conftest.py
 
 Recovery, if a union comes out wrong: `git checkout --merge -- FILE` restores
 the conflicted state, markers and all.
@@ -109,7 +110,8 @@ THEIRS_MARK = ">>>>>>>"
 RAIL_REMINDER = (
     "reminder: a parse is not a registration. `make rail-registered` is the "
     "authoritative shape check for a rail landing — it is what named all "
-    "three of the ci.yml assert lines this tool exists to stop dropping.")
+    "three of the assert lines this tool exists to stop dropping, back when "
+    "they lived in a workflow file it read.")
 
 
 class ConflictError(Exception):
@@ -276,11 +278,18 @@ def _validate_python(text: str, _path: Path) -> tuple[bool, str]:
 # the landings actually violate: a step that builds and measures a ROM must
 # assert its size, in its own block, after the stat that feeds `$size`. It is
 # deliberately the same condition `tools/rail_registered.py`'s ROM-step sweep
-# uses, so the two tools cannot disagree about what a ROM step is — this one
-# catches it at UNION time, before the commit; that one catches it at GATE
-# time, after. Neither subsumes the other: this file is only run on a
-# conflicted landing, and the gate is only run on a tree that already has the
-# damage committed.
+# used, so the two tools could not disagree about what a ROM step is — this
+# one caught it at UNION time, before the commit; that one caught it at GATE
+# time, after.
+#
+# THAT PAIRING IS OVER as of 2026-08-22. The hosted workflow was retired and
+# `.github/workflows/ci.yml` deleted, so the gate-time sweep went with the
+# file it read (docs/44 §6) and this repository no longer contains a workflow
+# for this check to fire on. It is kept because the check is dispatched on the
+# FILENAME, not on a path: it still runs over `tests/fixtures/batch_union/`'s
+# recorded conflicts, and it would still run over any `ci.yml` a future
+# landing put back. What is gone is the gate-time half — nothing catches this
+# shape after the commit any more.
 #
 # PLAIN STRING OPS ONLY, like everything else here. No `re` import (the module
 # docstring says why, and `tests/test_batch_union.py` asserts it).

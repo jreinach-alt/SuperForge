@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # `make bare-check` — the local replacement for the push-triggered CI run.
 #
-# WHY THIS EXISTS. `.github/workflows/ci.yml` runs on manual dispatch only —
-# hosted CI minutes are a budget. But a hosted run was not just a notification:
-# it bought three properties that a local `make gates` structurally cannot
-# have, and this script exists to buy them back without spending the budget.
+# WHY THIS EXISTS. The push trigger came off first, and on 2026-08-22 the
+# workflow file itself was deleted (docs/44 §6) — hosted minutes ran out
+# repeatedly, a red run never reported back into the working session, and the
+# failure mail was not worth what the runs bought. But a hosted run was not
+# just a notification: it bought three properties that a local `make gates`
+# structurally cannot have, and this script exists to buy them back.
 #
 #   1. BARE-RUNNER ISOLATION. A CI runner builds with no sibling checkouts on
 #      disk, which is what keeps anything outside this repository from silently
@@ -33,8 +35,10 @@
 #   - a genuinely different machine (this runs on the dev box)
 #   - a genuinely absent toolchain (ca65/Mesen are reused; see "TOOLCHAIN")
 #   - a different OS image
-#   `workflow_dispatch` on .github/workflows/ci.yml still runs the real thing
-#   on demand.
+#   There is no longer any escape hatch behind this: the hosted workflow was
+#   deleted on 2026-08-22, so nothing in this tree buys those three. When a
+#   change's failure mode is "works here, not on a clean machine", build it on
+#   a clean machine by hand and say so in the landing note.
 #
 # TOOLCHAIN. The clone runs its OWN tools/setup.sh, so the "does a fresh clone
 # come up" path is exercised for real — but setup.sh is a VERIFY-THEN-INSTALL
@@ -134,11 +138,22 @@ if [ "${1:-}" = "--inside" ]; then
         printf 'gates\tskipped\n' >> "$PARTS/steps.tsv"
     fi
 
-    # --- CI's own extra assertions ----------------------------------------
-    # These live in ci.yml's steps, NOT in `make gates`, so they have to be
-    # restated here or they are lost with the workflow. Sizes first: a ROM that
-    # links but comes out the wrong size is a mapping bug the md5 pin cannot
-    # name.
+    # --- the extra assertions the workflow used to carry -------------------
+    # These lived in ci.yml's steps, NOT in `make gates`, and were restated
+    # here so they would survive the workflow. They did: ci.yml was deleted on
+    # 2026-08-22 and this is now the only place they run. Sizes first: a ROM
+    # that links but comes out the wrong size is a mapping bug the md5 pin
+    # cannot name.
+    #
+    # STATED GAP (docs/44 §6): this list is rail-scoped, and `make gates`'s
+    # build list is not. Eight variant/control ROMs the block builds were
+    # measured ONLY in ci.yml — svd_nowin, shd_autodemo, shp_autodemo,
+    # rs_probe, sit_origin, sit_mistime, shg_nograd, shg_origin — so as of
+    # 2026-08-22 they are measured nowhere. (`sh2-variants` is unnamed here
+    # too, but it was never in ci.yml either — that one is older than this
+    # change.) Do not quietly widen the list to "fix" it: which list is the
+    # authority is the open question, and a silent widening answers it by
+    # accident.
     # ...but only when the full block actually ran. A substituted gate block
     # (tests/test_bare_check.py) builds one target, so "microzero.sfc is not
     # 524288 bytes" would be true and meaningless — a gate that fails for a

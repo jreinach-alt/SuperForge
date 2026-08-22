@@ -6,8 +6,8 @@ meta-test, not an iteration loop: to answer one question, select one node.
 
 Every other gate test in this suite invokes the underlying *script*
 (`tools/gen_register.py --check`, `allocator/allocate.py`) and calls that "the
-gate". It is not. Humans, `tools/setup.sh` and
-`.github/workflows/ci.yml` all run the **target**, and the target is where the
+gate". It is not. Humans, `tools/setup.sh`, `make gates` and `make bare-check`
+all run the **target**, and the target is where the
 wiring lives: the inversion, the flag, the redirect, the grep of the
 diagnostic. A Makefile-level break — wrong flag, wrong path, `register`
 aliased to `register-write`, a recipe that cannot report the failure it names —
@@ -58,7 +58,7 @@ TOY_BAD = SUPERFORGE / "engine" / "toy_bad"
 
 
 def make(*args) -> subprocess.CompletedProcess:
-    """A target exactly as CI, tools/setup.sh and a human invoke it.
+    """A target exactly as `make gates`, tools/setup.sh and a human invoke it.
 
     MAKEFLAGS is cleared. Under `make test` the suite runs inside a make
     recipe, so these become RECURSIVE makes: they inherit MAKEFLAGS, print
