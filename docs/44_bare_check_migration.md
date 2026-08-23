@@ -145,7 +145,7 @@ run `make test` alongside it** — bare-check runs a suite of its own.
 **`make bare-check` green on the exact tip, with the result cited.**
 
 Cite it from `build/bare_check.json` — the SHA, the UTC timestamp, the per-gate
-verdicts, the suite summary line and the eight ROM md5s. The point of the rule
+verdicts, the suite summary line and the ROM census (§7). The point of the rule
 is an independent observation, on the exact commit, that is quotable rather
 than remembered — and what that observation cannot see is written into the
 artifact it produces.

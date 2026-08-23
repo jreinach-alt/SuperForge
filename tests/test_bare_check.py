@@ -1,9 +1,12 @@
 """`make bare-check`, tried against real violations.
 
-runtime: ~30-42 s per clone-and-run case, measured — each test clones this
-repo into tmp, and the clone is what dominates. That is only affordable
+runtime: ~47 s for the whole module, measured (9 cases) — each test clones
+this repo into tmp, and the clone is what dominates. That is only affordable
 because of the gate-block substitution below; without it this module would be
-half an hour.
+half an hour. It was ~30-42 s over 6 cases before the three census cases
+landed on 2026-08-23; those three run a real (if tiny) gate block, so they
+cost more than a substituted one and the number was re-measured rather than
+extrapolated.
 
 AGENTS.md: "when you add a gate, prove it fails on a real violation before
 believing it." bare-check stands where a CI push trigger otherwise would, so

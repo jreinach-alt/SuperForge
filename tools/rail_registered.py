@@ -471,7 +471,7 @@ def expected_images() -> dict[str, str]:
             # some other target that merely takes it as a prerequisite
             found.setdefault(img, []).append(
                 (0 if img == target else 1,
-                 f"`make {target}` — its rule names $(BUILD)/{img}.sfc"))
+                 f"`make {target}` -- its rule names $(BUILD)/{img}.sfc"))
         for script in sorted(set(_VARIANT_SCRIPT.findall(rule))):
             path = REPO / "tools" / script
             if not path.exists():
@@ -480,7 +480,7 @@ def expected_images() -> dict[str, str]:
             for img in sorted(variant_script_outputs(path.read_text())):
                 found.setdefault(img, []).append(
                     (0 if img == target.replace("-", "_") else 1,
-                     f"`make {target}` — tools/{script} builds it"))
+                     f"`make {target}` -- tools/{script} builds it"))
     out = {img: min(why)[1] for img, why in found.items()}
     if not out:
         raise RailError(
@@ -1090,7 +1090,10 @@ def main(argv=None) -> int:
         if args.expected_images:
             # Machine-read by tools/bare_check.sh: `<name><space><reason>`,
             # one per line, name first so a consumer can cut at the first
-            # space and never has to parse the prose.
+            # space and never has to parse the prose. ASCII ONLY, unlike the
+            # human report above — this crosses a pipe and a file on its way
+            # to the artifact, and a box whose locale is not coerced to UTF-8
+            # would turn an em-dash into a decode error in the landing gate.
             for img, why in sorted(expected_images().items()):
                 print(f"{img} {why}")
             return 0

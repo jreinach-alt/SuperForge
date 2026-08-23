@@ -288,9 +288,12 @@ These are rules the tree is held to by a gate, not intentions.
   worst-case 60 fps frame of 305,348 master clocks are *measured* numbers in
   `allocator/substrate.toml`; `make measure` re-measures and fails on drift.
 - **Landing evidence is a citable artifact, not a badge.** Most recent:
-  `make bare-check` **GREEN** — every gate in `make gates`, 38 ROM sizes exact,
-  the full ~2,000-test suite green, both game-ROM md5 pins unmoved, all from
-  a fresh clone of HEAD. Recorded, with its SHA, in `build/bare_check.json`.
+  `make bare-check` **GREEN** — every gate in `make gates`, 63 ROM images
+  measured against their own headers (53 of them *demanded* by a set derived
+  from what the gate block builds, so an image that stops being built goes red
+  by name), the full ~2,000-test suite green, both game-ROM md5 pins unmoved,
+  all from a fresh clone of HEAD. Recorded, with its SHA, in
+  `build/bare_check.json`.
 
 ## The library
 
