@@ -211,6 +211,21 @@ what remains. Perspective at ~0–1% instead of a software rebuild's measured
 query. Music at 438. These are line items, not boasts, and `make measure`
 fails the build if one drifts.
 
+**One number up there is regional.** 357,368 master clocks is the *NTSC*
+frame. A PAL console's is 425,568 — 19.1% longer — and it arrives 50.007 times
+a second against NTSC's 60.099 (`docs/93_pal_region_investigation.md` §3.1).
+The 16-bit era's usual answer was to ship the NTSC game unchanged and let PAL
+play it at 83.2% speed. This kit's answer is that a game declares its
+per-frame rates against a **tick**, and the tick is scaled to whichever
+console the cart wakes up on: `engine/features/region` +
+`engine/features/tick_scale`, opt-in, composed by 28 of the 37 games and
+measured at a real-time band of 0.994–1.027 against that 0.832
+(`docs/98_region_fleet_landing.md`). The compensation costs 0.15% of a PAL
+frame (`docs/96_region_timebase_tooling.md` §0). What it does **not** buy is
+the taller PAL picture: the active area is 224 lines in both regions here, so
+a PAL television shows those lines with borders top and bottom — designed and
+unbuilt (`docs/95_region_support_design.md`).
+
 Also worth saying: most ideas are not frame-pressured at all. Turn-based
 play, walkers, menus and dialog barely tax this machine. The real risk in an
 ambitious idea is **composition** — two features that each work alone and
