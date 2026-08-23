@@ -452,6 +452,49 @@ The full rule is CLAUDE.md #2. What it means in practice here:
   compiler-refused in SFX at the pin); song persistence across scenes = the
   *absence* of `Tad_LoadSong`. Content pipeline: `assets/audio/README.md`
   (procedural samples, checked-in ca65-export, documented regen).
+- **Region-correct rates: declare the rate against the tick, and let the
+  timebase carry the region arm.** A new rail composes `region` + `tick_scale`
+  in `globals` and expresses each per-frame rate as a BASE fed to
+  `TS_STEP <accumulator>, <base>` (`engine/features/tick_scale/tick_scale.asm`),
+  which publishes this frame's whole units — today's constant exactly on NTSC
+  (the scale is 1, the carried fraction stays 0 forever, so the NTSC picture
+  cannot move) and on PAL the same distance per REAL second. Measured band
+  across the tree: 0.994–1.027, against the 0.832 an uncompensated rail reads
+  (docs/98 §1).
+  **The dependency is an auto-include, not a refusal** — read in
+  `resolve_features` (`allocator/allocate.py:422`), not inferred from the
+  manifest: it walks `depends` depth-first and emits the dependency ahead of
+  the feature naming it, raising only on a cycle or an unknown name. So
+  `tick_scale`'s `depends = ["region"]` means listing only `tick_scale` in
+  `globals` builds the same bytes as listing both. What makes a silent scale
+  of 1 unreachable is the other end: with `region` out of the composition
+  altogether, `tick_scale.asm`'s read of `ES_RGN_PAL` is an undefined symbol
+  and ca65 stops the build.
+  **What the consumer declares** is two `u16@dp` per scaled RATE in its own
+  `state.toml` — the carried fraction and this frame's published whole-unit
+  step. `game/jumper/state.toml` is the worked case and declares two pairs,
+  because an arc has two rates. Two consumers on the same base may share a
+  pair; on different bases they may not (they cannot share a carried
+  fraction). `tick_scale` itself claims nothing.
+  **Classify each number by its DIMENSION, not by where it sits** (docs/98
+  §2): velocity (px/frame) × r once; acceleration (px/frame²) × r², and since
+  `TS_STEP` applies exactly one r the second goes into the BASE on the PAL arm
+  — `game/jumper/scenes/sky.asm` is the only place that arithmetic is spelled,
+  and it re-asserts the rail's own no-tunnel bound on the SCALED constants
+  rather than assuming a tuned number survives a scale; a playhead into a
+  baked per-frame table scales the CURSOR and leaves the table byte-identical
+  (`brawler`'s animation divider is untouched — what is scaled is how fast the
+  clock advances, docs/97 §3.3); an integer countdown or duration stays an
+  integer and the consequence is DISCLOSED rather than rounded away (a PAL
+  swing window is 20% wider); an event per button press is not a rate at all
+  and never scales.
+  **Two build-time backstops.** `TS_BASE_MAX` refuses an over-large base with
+  a named error instead of letting the build-time PAL scale wrap silently in
+  ca65's 32-bit expression arithmetic. And `make tick-check` holds the
+  frame-assumption surface at its baseline — a NEW raw frame-rate assumption
+  is a finding; the `TICK: ok — <reason>` override is for a site that REMOVES
+  a coupling (an accumulator, a scaler's output), not one that expresses one,
+  and a bare stamp is itself a finding.
 - **Engine routines document their clobbers — read them.** Bracket calls that
   clobber A/X/Y with `phx`/`plx` when you hold a live index.
 - **`no_literals` idioms**: decimal and character literals (`#127`, `#' '`) for
