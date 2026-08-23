@@ -134,6 +134,7 @@ Capability → proving game(s) → feature(s). Features live under
 | **Transitions** | fades everywhere (`scene_mgr` phases); mosaic wipes: `mode7_explore`, `rpg`; freeze/capture/restore: `meteor_event` | `fade`, `mosaic`, scene edges |
 | **Day/night + gradients** | `racer` (COLDATA day-night cycle), `mode7_flight` (free-running clock + horizon fog), `mode7_chamber` (vignette), `split_h_irq_grad_demo` (per-scanline COLDATA); `rgb_gradient` composed by 6 games | `rgb_gradient`, `rc_grad`, `shg_grad`, `met_glow` |
 | **Camera regimes** | `scroller` (free scroll), `camera_follow` (follow + world clamp), `scroll_run` (clamp + page seam), `platformer`/`platformer_stream` (side-view), `racer` (steerable kart), `mode7_flight` (flight), `m7_oshoot` (rotate-to-face), the split line (two at once) | per-rail; the split `*_cam` features |
+| **Region parity** — the same ROM at the same REAL-TIME speed on NTSC and PAL, opt-in per rail | 28 of the 37 compose it — every playable rail — at a measured band of **0.994–1.027** against the **0.832** an uncompensated rail reads (`docs/98` §1). The other 9 decline in their own `game.toml`: 7 determinism trials whose frame-indexed sweeps are the thing under test, and 2 deferred with the measurement that defers them. NTSC is pixel-identical against every pre-change image | `region` (reads the console's region line once at boot, publishes `ES_RGN_PAL`) + `tick_scale` (the `TS_STEP` macro; no claims of its own, `depends = ["region"]`). Part 3 item 7 is what a consumer still has to decide |
 
 ---
 
@@ -267,6 +268,28 @@ contract (`col_map.asm`: "entered A16/I16, EXITS A8/I16"). These markers are
 load-bearing, not decoration: the width lint cannot see cross-file callers
 (CLAUDE.md rule 6), so the marker is the only statement of the contract your
 call site must satisfy — and the emulator test is the only check.
+
+**7. `tick_scale` scales a RATE — and what a number *means* decides whether it
+is one.** Composing `region` + `tick_scale` does not make a rail
+region-correct; it hands you `TS_STEP`, and you still classify every number you
+feed it — by DIMENSION, not by where it sits (`docs/98` §2). A **velocity**
+(px per frame) takes the ratio once. An **acceleration** (px per frame²) takes
+it twice, and since `TS_STEP` applies exactly one, the second goes into the
+BASE on the PAL arm — `game/jumper/scenes/sky.asm` is the one place that
+arithmetic is spelled, and it re-asserts the rail's own no-tunnel bound on the
+*scaled* constants rather than assuming a tuned number survives a scale. A
+**playhead** into a baked per-frame table scales the cursor and leaves the
+table byte-identical (`brawler`'s animation divider is untouched; what is
+scaled is how fast the clock advances — `docs/97` §3.3). An **integer countdown
+or duration** stays an integer and its consequence is disclosed rather than
+rounded away — a PAL swing window is 20% wider. An **event per button press**
+is not a rate at all, and is never scaled. What a consumer declares is two
+`u16@dp` per scaled rate — the carried fraction and this frame's published
+whole-unit step — in its own `state.toml` (`game/jumper/state.toml` is the
+worked two-rate case, one pair for the run and one for gravity); `tick_scale`
+claims nothing itself, and its `depends = ["region"]` makes the allocator
+auto-include the flag, so listing only `tick_scale` in `globals` builds the
+same bytes as listing both.
 
 ### Reading order for a new composition
 
