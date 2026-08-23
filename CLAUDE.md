@@ -67,8 +67,16 @@ company or hardware-brand name except through an allowlist entry with a
 written reason — `tools/cleanroom_check.sh`. A FLOOR, not a guarantee — a
 wordlist can never be complete, and the high-risk artifacts are guarded by
 NOTICE and the per-pack READMEs under `vendor/art/`, not by grep) ·
-`make bare-check` (all of the above except `tick-check`, from a clone of
-HEAD — the landing gate).
+`make determinism` (the lockstep property: one module run TWICE in fresh
+processes, every recorded `Machine` read and every PNG hash BIT-IDENTICAL —
+not merely green twice. `MODULE=` picks it, `FALSIFY=1` runs the planted
+sensitivity control, and the polarity is `toy-bad`'s: exit 0 says the
+property held, so a reproducibly-RED module with identical manifests passes
+and the summary says so. Like `falsify`, it is **outside `gates` and
+`bare-check`** — it runs a pytest module of its own, twice, and must not
+race a live suite — docs/53) ·
+`make bare-check` (all of the above except `tick-check` and `determinism`,
+from a clone of HEAD — the landing gate).
 
 ## Critical rules (non-negotiable)
 

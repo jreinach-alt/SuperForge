@@ -289,7 +289,7 @@ These are rules the tree is held to by a gate, not intentions.
   `allocator/substrate.toml`; `make measure` re-measures and fails on drift.
 - **Landing evidence is a citable artifact, not a badge.** Most recent:
   `make bare-check` **GREEN** — every gate in `make gates`, 38 ROM sizes exact,
-  the full ~1,900-test suite green, both game-ROM md5 pins unmoved, all from
+  the full ~2,000-test suite green, both game-ROM md5 pins unmoved, all from
   a fresh clone of HEAD. Recorded, with its SHA, in `build/bare_check.json`.
 
 ## The library

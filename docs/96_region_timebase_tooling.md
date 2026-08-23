@@ -642,8 +642,14 @@ up:
   > `docs/97` §3.2 says why: the only two things such a claim could hold are
   > the region flag (`engine/features/region` owns it, and a second copy is
   > the duplicated-constant defect) and a shared accumulator (which the
-  > sentence above rules out). It `depends = ["region"]` instead, so taking
-  > the arithmetic without the flag it branches on is a refusal.
+  > sentence above rules out). It `depends = ["region"]` instead, and that
+  > AUTO-INCLUDES the flag rather than refusing a composition without it:
+  > `resolve_features` (`allocator/allocate.py`) expands `depends` before
+  > placement, so a rail listing only `tick_scale` builds the same bytes as
+  > one listing both. What rules out a silent scale of 1 is that with
+  > `region` absent altogether there is no `ES_RGN_PAL` and ca65 stops on the
+  > undefined symbol — [`docs/97`](97_region_r0_landing.md) §3.2 carries the
+  > correction and the mechanism.
   > Consumers: `scroller` (0.83208 → **0.99919**) and `brawler`, picked for
   > its MOTION CLASS — `knight_tile` 0.82831 → **0.99969** read out of the
   > OAM tile byte, `px` 0.83208 → **0.99909**. `brawler` is also where the

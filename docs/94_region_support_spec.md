@@ -142,6 +142,22 @@ reads rendered output, per CLAUDE.md rule 2.
 - The tolerance is the investigation's to propose with evidence; this spec
   does not invent one.
 
+> **LANDED 2026-08-22 — both clauses, and the tolerance is now a measured
+> number rather than an open question.**
+> [`docs/98`](98_region_fleet_landing.md). **28 of the 37 rails compose
+> `region` + `tick_scale`** — every playable game in the tree — and the
+> measured band across `tools/rate_oracle.py`'s registry is **0.994–1.027**
+> against an uncompensated 0.832, with every shortfall from 1.000 attributed
+> to a named mechanism (integer-step quantisation, a semi-implicit
+> integrator's half-step sampling, a level's own collision probes) rather
+> than left as noise. All four motion classes are covered by converted rails,
+> which is what the first clause asked for. **7 rails are exempt by design** —
+> the determinism rigs, whose frame-indexed sweeps are their own subject —
+> each stating its reason in its `game.toml`; **2 stay deferred with their
+> measurements** (`rpg`, `split_h_2p_demo`), enumerated in `docs/98` §4 so
+> the decision is not re-litigated from scratch. `microzero.sfc`'s pin moved
+> with the flagship, per §4.2's amended clause. NTSC is untouched everywhere.
+
 **R3 — audio tracks the game.** Scope and feasibility are §5 questions; no
 criterion is asserted here.
 
