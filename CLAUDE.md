@@ -47,13 +47,28 @@ Gates — keep clean: `make width-check` · `make time-check` (the
 TIME-COUPLING lint: no wall-clock waits in `tests/`/`tools/`, override
 `# WALL-CLOCK: ok — <reason>`, baseline empty — docs/45; it does NOT know
 whether a capture lands on an absolute frame, so read its §4) ·
+`make tick-check` (the FRAME-ASSUMPTION lint, the third sibling — the class
+the allocator cannot see: no NEW site that assumes ONE TICK IS ONE FRAME,
+override `TICK: ok — <reason>`, baseline holds 356 — docs/96. A finding is
+not a defect, which is why this one is deliberately **not** in `gates` or
+`bare-check` until its baseline is driven down) ·
 `make toy-bad` (the allocator must refuse; the target itself is **not**
 inverted — it exits 0 when it did) ·
 `make rom-unbacked` (same polarity: every `rom` claim has an `.incbin` that
 actually fills it — docs/37) · `make measure` (the pinned budgets) ·
 `make register` (the feature register agrees with the tree;
-`make register-write` regenerates it) · `make bare-check` (all of the above,
-from a clone of HEAD — the landing gate).
+`make register-write` regenerates it) ·
+`make rail-registered` (every rail under `game/` is named at all eleven of
+its registration sites, derived from the tree rather than listed —
+`tools/rail_registered.py`; the summary prints how many site checks actually
+ran, so a disarmed pass reads as disarmed) ·
+`make cleanroom` (the name tripwire: no committed file carries a retail game,
+company or hardware-brand name except through an allowlist entry with a
+written reason — `tools/cleanroom_check.sh`. A FLOOR, not a guarantee — a
+wordlist can never be complete, and the high-risk artifacts are guarded by
+NOTICE and the per-pack READMEs under `vendor/art/`, not by grep) ·
+`make bare-check` (all of the above except `tick-check`, from a clone of
+HEAD — the landing gate).
 
 ## Critical rules (non-negotiable)
 
@@ -154,3 +169,4 @@ writing your first test.
 - **Provenance** — what in this tree is not ours, and how that was established → [`docs/92`](docs/92_provenance_audit.md)
 - **Region speed** — the rate oracle, the frame-assumption lint (`make tick-check`), and a prototype timebase measured at 0.99919 parity → [`docs/96`](docs/96_region_timebase_tooling.md)
 - **Region support** — the region flag, the two header corrections, and the timebase promoted to a composable feature (R0 landed) → [`docs/97`](docs/97_region_r0_landing.md)
+- **Region parity across the tree** — the 28 rails of 37 that compose `region` + `tick_scale`, the measured 0.994–1.027 band, the 7 rails exempt by design and the 2 deferred with their measurements → [`docs/98`](docs/98_region_fleet_landing.md)
