@@ -390,7 +390,7 @@ def test_the_win_cycle_recede_and_loop(tmp_path):
 def test_the_dying_capture_is_smaller_than_one_frames_spin(tmp_path):
     """The dying capture's whole point, held to account on both surfaces. Pass 1
     (no captures — Machine.screenshot itself costs one emulated frame,
-    machine.py:590, so a capture inside a per-frame scan halves the sample
+    machine.py:600, so a capture inside a per-frame scan halves the sample
     rate): during DYING the heading walks +4 mod 256 EVERY frame; the final
     correction to the death track's start is < 4; the shadow at the first
     DEATH park is EXACTLY ring[0] == death[0]. Pass 2 replays the identical

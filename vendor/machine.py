@@ -584,6 +584,16 @@ class Machine:
         is an observable, not a race the host's load runs (the legacy
         parked path measured a 0.4%-under-load wrong-frame residual; this
         path's frame choice is deterministic).
+
+        THAT ONE FRAME IS SPENT, so a capture MOVES THE FRAME COUNTER: a
+        machine driven to frame N and then screenshotted is at frame N+1,
+        and a screenshot taken between two frame-indexed reads shifts every
+        read after it by one. The consequence for a test is a rule, not a
+        caution — take the frame-sensitive reads FIRST and capture after
+        them, or count the capture into the frame arithmetic explicitly.
+        Interleaving captures with `boot_to_frame`/`advance` counting and
+        then reasoning about absolute frames is how a picture ends up one
+        frame away from the assertion it is supposed to illustrate.
         """
         self._check_live()
         _mr.READ_LOG.log_screenshot()
@@ -602,7 +612,10 @@ class Machine:
         return out
 
     def screenshot(self, output_path: str) -> str:
-        """Alias of take_screenshot (the brief's short name)."""
+        """Alias of take_screenshot (the brief's short name), including its
+        cost: the capture spends ONE emulated frame and moves the frame
+        counter. See take_screenshot for what that means for a test that
+        also asserts on absolute frames."""
         return self.take_screenshot(output_path)
 
     # --- teardown ---------------------------------------------------------

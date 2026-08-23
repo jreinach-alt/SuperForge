@@ -18,7 +18,7 @@ eight HP pips all dim, which is what "the boss is dead" looks like in OAM.
 LOCKSTEP, so the renders are a pure function of (rom md5, seed, input
 script): two runs photograph the same instants and a visual diff means
 something. No wall-clock anywhere. NOTE Machine.screenshot itself costs one
-emulated frame (machine.py:590), so the frame numbers below are the drive's
+emulated frame (machine.py:600), so the frame numbers below are the drive's
 own arithmetic, not free-standing timestamps.
 """
 import sys

@@ -54,6 +54,26 @@ opens when the two fighters separate past SV_MERGE_DX, so a one-pad drive
 leaves the mechanism the rail exists to show completely still.
 
 --------------------------------------------------------------------------
+THE CLOSED-LOOP ALTERNATIVE — `drive`, and the bias it can reintroduce
+--------------------------------------------------------------------------
+
+A rail may declare `drive` INSTEAD of `script`: a callable invoked once per
+frame as `drive(frame_index, machine)`, returning that frame's pad state (or
+None for no input). It exists for the drive a static list cannot express —
+one that has to READ the machine to decide, because the rail's interesting
+band is behind a state the script cannot predict the arrival time of.
+
+USE IT TO REACT, NOT TO PACE. A callback indexed on the frame counter is
+exactly the frame-indexed script the section above rejects: hold RIGHT for
+120 frames and PAL gets two real seconds where NTSC got one point nine, so
+the harness throttles the input and the rail measures slow because of the
+harness. A `drive` that paces off `frame_index` has reintroduced that bias;
+one that paces off `machine`'s own state, or off nothing, has not.
+
+A rail declares exactly one of the two — `_driver` refuses both or neither.
+`script2` is unchanged either way: pad 2 stays seconds-indexed.
+
+--------------------------------------------------------------------------
 THE ONE-PROCESS CONSTRAINT
 --------------------------------------------------------------------------
 
@@ -257,7 +277,38 @@ def _hop_shuttle(half_ms, jump_every_ms, jump_hold_ms, total_ms,
     onto a platform, and mixed two arc lengths into one number (the `jumper`
     entry's halves read 1.717 / 2.096 and the diagnostic put x at [92, 152]
     against an intended [144, 168]). A drive script that quietly drifts is
-    measuring itself."""
+    measuring itself.
+
+    IT ALIASES AGAINST THE FRAME GRID, AND THAT IS NOT REMOVABLE HERE. The
+    marks this returns are real-time instants; `_script_at` applies the last
+    mark at or before the frame's own timestamp, so every mark is quantised
+    UP to the next frame boundary. The two grids are incommensurable with
+    the millisecond one: a frame is 16.6394 ms on NTSC and 19.9972 ms on PAL
+    (tick_scale.asm's rates and frame lengths, 21,477,270/357,368 and
+    21,281,370/425,568), and neither divides 1 ms, so no integer period sits
+    on both. A leg written as `half_ms` is therefore DELIVERED as `half_ms`
+    plus up to one frame, the sign and size of that remainder walk with the
+    beat between the two grids rather than averaging out over a few legs,
+    and the remainder is region-ASYMMETRIC because a PAL frame is 1.2 NTSC
+    frames wide. Over a short window a ratio can carry some of that beat
+    instead of the rail's rate.
+
+    What a measurement author does about it, in order of effect:
+
+      * make every period LONG relative to a frame. The error is one frame
+        per leg however long the leg is, so it is ±12% of a 160 ms leg and
+        ±2.5% of an 800 ms one. Periods below ~100 ms are mostly beat;
+      * keep every period a whole multiple of `step_ms`, so the mark grid
+        does not add a second beat of its own on top of the frame grid;
+      * measure over a window long enough for the beat to complete many
+        cycles — the registry's 12 s windows are ~600 PAL frames — and READ
+        `--halves`, which reports the two half-windows separately and is
+        exactly the instrument for seeing a drive that has not averaged out;
+      * where the motion must land on exact frames rather than near them,
+        the shuttle is the wrong tool: a `drive` callback is frame-indexed
+        by construction. Read the module header's warning first — pacing
+        input by frame index is its own 5/6 bias, and trading a few percent
+        of beat for that is a worse measurement, not a better one."""
     other = "right" if first == "left" else "left"
     out = []
     for k in range(0, total_ms - t0_ms + 1, step_ms):
@@ -1716,6 +1767,34 @@ def _script_at(script, t):
     return pad or None
 
 
+def _driver(rail):
+    """The rail's per-frame pad source, as `f(frame_index, t, machine)`.
+
+    A rail declares EXACTLY ONE of `script` (the seconds-indexed list, the
+    default and the one the module header argues for) or `drive` (a callable
+    invoked once per frame as `drive(frame_index, machine)` and returning
+    that frame's pad, or None). Both or neither is refused here rather than
+    silently resolved, because either mistake produces a measurement that
+    looks finished: a rail with both would report whichever the resolver
+    happened to prefer, and a rail with neither would drive no input at all
+    and read a rail standing still as a rail that is slow.
+
+    The header's warning applies at the call site, not here: `drive` gets the
+    frame index because a closed-loop drive needs to know how long it has
+    been running, not so it can PACE input by it. Pacing by frame index is
+    the 5/6 harness throttle the seconds rule exists to prevent.
+    """
+    drive, script = rail.get("drive"), rail.get("script")
+    if (drive is None) == (script is None):
+        raise SystemExit(
+            "rate_oracle: a rail declares exactly one of `script` "
+            "(seconds-indexed) or `drive` (a per-frame callback); this one "
+            "declares " + ("both" if drive is not None else "neither"))
+    if drive is not None:
+        return lambda frame, t, machine: drive(frame, machine)
+    return lambda frame, t, machine: _script_at(script, t)
+
+
 def _unwrap(prev, cur, modulus):
     """The smallest-magnitude delta consistent with a value that wraps at
     `modulus`. Sampling EVERY frame is what makes this safe: no rail moves
@@ -1814,10 +1893,13 @@ def worker(args):
     shots = []
 
     t = 0.0
+    frame = 0
+    pad1_for = _driver(rail)
     while t < total_s:
-        m.advance(1, pad1=_script_at(rail["script"], t),
+        m.advance(1, pad1=pad1_for(frame, t, m),
                   pad2=(_script_at(rail["script2"], t)
                         if rail.get("script2") else None))
+        frame += 1
         c_now = master_clock(lib)
         dt, t = (c_now - c_prev) / hz, (c_now - c_start) / hz
         c_prev = c_now

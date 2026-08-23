@@ -150,7 +150,7 @@ def run():
 
         THE CAPTURE ITSELF COSTS ONE FRAME, and consecutive samples therefore
         come from calling `screenshot()` again with NO advance between them.
-        `Machine.take_screenshot` (vendor/machine.py:592) writes the frame that
+        `Machine.take_screenshot` (vendor/machine.py:602) writes the frame that
         was current at call time and then `advance(1)`s the core, so a loop
         that advanced as well would step TWO frames per sample. That is not a
         cosmetic error here: it silently HALVES every observed rate, and the
