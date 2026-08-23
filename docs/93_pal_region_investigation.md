@@ -48,6 +48,24 @@ It is a question about the machine, and CLAUDE.md rule 1 says a question about
 the machine is measured on the emulator, never reasoned out of the ASM. This
 document is that measurement.
 
+> **ADDENDUM 2026-08-23 — the page itself was read, and all eight are now
+> recorded.** The jam is hosted at
+> <https://itch.io/jam/snes-dev-game-jam-2026>; its "Technical restrictions"
+> list holds exactly eight items, quoted: (1) "Game is done by yourself (no
+> hacks, ripped musics or graphics). The use of free assets is allowed";
+> (2) "Team projects are allowed, please state every member that contributed
+> and how they contributed"; (3) "Game is Lorom"; (4) "Game has max. size of
+> 512KB"; (5) "Game uses no special chips (SA-1, Super FX etc.)"; (6) "Game
+> uses no SRAM"; (7) "Game works on real hardware"; (8) "Game works on NTSC
+> and PAL". The two this document originally left unrecorded are (1) and
+> (2) — authorship rules, neither file-checkable nor machine-checkable, which
+> is why a measurement pass had nothing to hold them against. The exact
+> wording of (6) also settles the phrasing question this section left open:
+> the rule is flat "no SRAM", not a size or battery constraint — `JAM.md`
+> row 4 carries the consequence. Same page: only playable games are valid
+> entries, and judging is on Graphics, Music/Sound, Technical Implementation,
+> Controls, and Gameplay/Creativity.
+
 ## 2. Three prior claims, checked before anything was built on them
 
 | claim | verdict | evidence |
