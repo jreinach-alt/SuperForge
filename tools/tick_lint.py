@@ -98,9 +98,11 @@ lints take any override within three lines of a finding, and that is wrong
 for this one: this tree writes its frame-unit declarations in TIGHT RUNS
 (`tsp_acc` / `tsp` / `tse_acc` / `tse`, one declaration every two lines), so
 a three-line window reaches straight over a neighbour and silences a site
-its reason was never written for. Sixteen live sites were being carried that
-way — including four whose OWN reasoned override had drifted out of the
-window and was landing on the declaration next door instead.
+its reason was never written for. Measured against the live tree: ELEVEN
+sites were being silenced by an override that is not their binder, and
+THIRTEEN reasoned overrides had their own site outside the window — each one
+landing on the declaration next door instead of the word it was written
+about.
 
 So the binding follows the SHAPE OF THE COMMENT the override is written in,
 which is the shape this tree already uses to say what a comment is about:

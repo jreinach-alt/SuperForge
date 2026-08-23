@@ -2395,14 +2395,14 @@
   },
   {
     "file": "tools/tick_lint.py",
-    "line": 150,
+    "line": 152,
     "rule": "tick-substrate",
     "message": "the NTSC frame's master-cycle count as a literal. A PAL frame is 425,568 mc (measured); every percent-of-frame and modulo built on this number means 'the NTSC frame' where it reads as 'the frame'.",
     "severity": "error"
   },
   {
     "file": "tools/tick_lint.py",
-    "line": 213,
+    "line": 215,
     "rule": "tick-substrate",
     "message": "the NTSC frame's master-cycle count as a literal. A PAL frame is 425,568 mc (measured); every percent-of-frame and modulo built on this number means 'the NTSC frame' where it reads as 'the frame'.",
     "severity": "error"
