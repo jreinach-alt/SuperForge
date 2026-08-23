@@ -57,10 +57,10 @@ messenger, not the problem.
 
 ## 4. Registration: run the gate and follow the list
 
-A new rail must be named at eleven sites — Makefile lists (`.PHONY`,
+A new rail must be named at ten sites — Makefile lists (`.PHONY`,
 gates, md5s, `test:`/`determinism:` prerequisites), `tests/conftest.py`'s two
-map dicts, `tools/bare_check.sh`'s two lists, the freshness-guard dict,
-and AGENTS.md's build block. **Do not memorize them.**
+map dicts, the landing gate's derived expected-image set, the freshness-guard
+dict, and AGENTS.md's build block. **Do not memorize them.**
 
 ```bash
 make rail-registered

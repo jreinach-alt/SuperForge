@@ -288,8 +288,19 @@ def _validate_python(text: str, _path: Path) -> tuple[bool, str]:
 # for this check to fire on. It is kept because the check is dispatched on the
 # FILENAME, not on a path: it still runs over `tests/fixtures/batch_union/`'s
 # recorded conflicts, and it would still run over any `ci.yml` a future
-# landing put back. What is gone is the gate-time half — nothing catches this
-# shape after the commit any more.
+# landing put back. What is gone is the gate-time half in the form it had:
+# nothing catches this SHAPE after the commit any more.
+#
+# THE FAILURE IT PROTECTED AGAINST IS COVERED AGAIN as of 2026-08-23, by a
+# different mechanism and one worth knowing about before writing another
+# shape check. `tools/bare_check.sh` no longer carries a list of ROMs at all:
+# it measures every `build/*.sfc` the gate block leaves behind, takes each
+# image's expected length from that image's own header, and demands the set
+# `tools/rail_registered.py --expected-images` derives from the `gates:`
+# run-list. `build/svd_nowin.sfc` is in that set, so the descendant of the
+# recorded defect — a variant ROM that stops being built or comes out the
+# wrong length — goes RED by name at gate time (docs/44 §7). What this tool
+# still uniquely offers is UNION time, before the commit.
 #
 # PLAIN STRING OPS ONLY, like everything else here. No `re` import (the module
 # docstring says why, and `tests/test_batch_union.py` asserts it).

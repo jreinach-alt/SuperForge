@@ -2651,7 +2651,11 @@ register-write:
 # checked all eleven. A TWELFTH landed with the prerequisite
 # change: the `test:` prerequisite list, which is what now
 # makes "the tree must be pre-built" a fact of the build rather than a
-# sentence in a comment. Same shape as `register`: derived from
+# sentence in a comment. The count then came DOWN twice by decision: to
+# eleven on 2026-08-22 with the retired hosted workflow, and to TEN on
+# 2026-08-23 when bare_check.sh's two hand-maintained ROM lists were replaced
+# by derivation and the two sites that read them collapsed into one (docs/44
+# §7). Same shape as `register`: derived from
 # the tree (rails are the game.toml dirs; a rail's map comes from the
 # Makefile's own allocate.py invocation), read-only, seconds-scale, it names
 # WHICH site is missing for WHICH rail, and its summary prints the count of
@@ -2801,8 +2805,14 @@ gates: | $(BUILD)
 # nothing outside the clone.
 #
 # It writes build/bare_check.json: the SHA, the per-gate verdicts, the suite
-# summary and the eight ROM md5s. That file is the citable result the landing
-# rule now asks for, in place of a CI run id.
+# summary and the ROM CENSUS — every build/*.sfc the block left behind, each
+# sized against its own $FFD7 header byte and md5'd (recorded, not pinned),
+# plus the derived set it demanded be present. That file is the citable result
+# the landing rule now asks for, in place of a CI run id.
+#
+# THE MD5 LOOP IN `gates:` ABOVE IS DELIBERATELY STILL RAIL-SCOPED. It is a
+# DISPLAY — the two-game glance the summary offers — not the artifact of
+# record, and widening it would only duplicate the census bare-check writes.
 #
 # XDIST is passed through to the suite inside the clone (default 2). It runs a
 # suite of its own: do not run `make test` at the same time.

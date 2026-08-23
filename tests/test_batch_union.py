@@ -306,8 +306,15 @@ def test_validating_a_makefile_does_not_touch_the_repos_build_dir():
 # step. Every line survived, the count matched, the YAML parsed, `make
 # rail-registered` was green (its ci.yml site was rail-scoped and `svd-nowin`
 # is a variant target), and `build/svd_nowin.sfc`'s 524,288 bytes were asserted
-# NOWHERE — bare_check's size list is rail-scoped too (the recorded drop).
+# NOWHERE — bare_check's size list was rail-scoped too (the recorded drop).
 # Fifth instance across waves, first uncaught.
+#
+# Gate-time cover was restored on 2026-08-23 by derivation rather than by a
+# shape check: bare_check.sh measures every `build/*.sfc` against its own
+# header and demands a set derived from `make gates`'s run-list, so
+# `svd_nowin` is measured and its absence is named (docs/44 §7). These cases
+# still hold the UNION-time half, which is the half that fires before a
+# commit exists.
 #
 # Test surface: the tool's own verdict over the two shapes the defect really
 # takes — the resolved file a landing-side hand repair leaves behind (no

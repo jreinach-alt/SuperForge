@@ -181,33 +181,89 @@ of the answer.
 
 `ci.yml` was a **registration site** of `make rail-registered` (site 4 of
 twelve, as it was numbered), so it went out as gate surgery, not housekeeping.
-The gate now checks **eleven** sites; the count moved by this decision, and
-its disarm guard still refuses any run in which fewer than all eleven checks
-execute, so a genuinely disarmed gate still reads as disarmed.
+The gate checked **eleven** sites after the deletion and checks **ten** now
+(see §7); the count moved by decision both times, and its disarm guard still
+refuses any run in which fewer than all of them execute, so a genuinely
+disarmed gate still reads as disarmed.
 
 Retired with the site: the **ci.yml ROM-step sweep**. That check ran per-STEP
 rather than per-rail — any workflow step that built a ROM and measured it had
-to assert its size — and it existed because the eleven sites all start from the
+to assert its size — and it existed because the sites all start from the
 `game/` census and therefore cannot see a target that no `game/` dir backs. It
 caught exactly that once: `svd-nowin`, a variant control ROM, lost its size
 assert to the following step in a merge and was measured nowhere.
 
-**The failure mode did not retire with the check — it moved, and a gap is now
-open.** Every remaining measurement list is rail-scoped (`bare_check.sh`'s
-size list, `bare_check.sh`'s rom_md5 tuple, the Makefile `gates:` md5 loop)
-while `make gates`'s own `run <target>;` build list is not. Eight
-variant/control ROMs that `make gates` builds — `svd_nowin`, `shd_autodemo`,
-`shp_autodemo`, `rs_probe`, `sit_origin`, `sit_mistime`, `shg_nograd`,
-`shg_origin` — were measured **only** in ci.yml. As of this change their size
-is asserted nowhere and their bytes are pinned nowhere. This is named rather
-than closed: closing it means deciding which list is the authority — the
-build list or the measured list — and that is a decision for whoever takes it,
-not a cleanup to slip into a deletion.
+**The failure mode did not retire with the check — it moved, and for a day a
+gap was open.** Every remaining measurement list was rail-scoped
+(`bare_check.sh`'s size list, `bare_check.sh`'s rom_md5 tuple, the Makefile
+`gates:` md5 loop) while `make gates`'s own `run <target>;` build list is not.
+Eight variant/control ROMs that `make gates` builds — `svd_nowin`,
+`shd_autodemo`, `shp_autodemo`, `rs_probe`, `sit_origin`, `sit_mistime`,
+`shg_nograd`, `shg_origin` — were measured **only** in ci.yml, so their size
+was asserted nowhere and their bytes recorded nowhere. Seven more (the `sh2_*`
+variants) had never been measured anywhere at all. That gap was named rather
+than closed at the time, because closing it meant deciding which list is the
+authority — the build list or the measured list — and that is a decision, not
+a cleanup to slip into a deletion.
+
+## 7. The gap, closed by derivation (2026-08-23)
+
+The decision the deletion deferred was taken, and the answer is **neither
+list**. The gate block's own build list is the authority, and both ends of the
+measurement now read it instead of restating it. `bare_check.sh` carries no
+list of ROMs any more:
+
+| question | old answer | answer now |
+|---|---|---|
+| which images get measured? | a hand-written `rom:size` list, rail-scoped | **every `build/*.sfc` the gate block left behind** |
+| how big should each one be? | the size written beside it in that list | **its own `$FFD7` header byte**, decoded by `fix_checksum.declared_size` |
+| whose bytes get recorded? | a hand-written `for rom in (...)` tuple, rail-scoped | every image measured |
+| what must be present at all? | *nothing checked this* | **`tools/rail_registered.py --expected-images`** — derived from the `gates:` `run <target>;` list plus the `tools/build_*.sh` variant scripts' own output names |
+
+The header is usable as a per-image authority because `tools/fix_checksum.py`
+**refuses** to patch a checksum over a declaration that is not true, and it
+runs on every linked image on every build (docs/94 R0's fourth clause). A
+lying header stops the build, so a truthful one can be trusted by the gate
+that comes after it.
+
+The last row is the one that restores what the sweep uniquely had: an image
+that stops being built goes **RED by name** — `EXPECTED IMAGE ABSENT —
+build/<name>.sfc`, with the reason it was expected — instead of dropping out
+of the census unnoticed. The summary line and `bare_check.json` both carry the
+**measured count**, so a census that shrinks reads as shrunken.
+
+**Nothing new is pinned.** The md5s are *recorded*, not asserted: variants move
+with their parents by design, and a pin on them would be a gate that fires on
+every legitimate change to the rail they are cut from. The two pins that exist
+— `probe_cpu`'s md5 here, and the game-ROM pins in the suite — are unchanged.
+
+Cost to the registration gate: `rail-registered`'s sites 6 and 7 were "the rail
+is named in `bare_check.sh`'s size list" and "...in its rom_md5 list". Both
+lists are gone, so the two collapsed into **one** site — "the landing gate's
+derived expected-image set contains this rail's image" — and the count went
+from eleven to ten. That site is not a restatement of site 2 (`the rail is in
+the gates run-list`): the set is built by resolving each target to the
+`$(BUILD)/X.sfc` its own rule names, so a rail can be in the run-list and
+still resolve to no image, and its plant in `tests/test_rail_registered.py` is
+exactly that shape.
+
+**Stated limits.** The expected set is a *minimum*, not an inventory: images
+that arrive through `make test`'s prerequisites (the probes) are measured
+without being demanded, and nothing here claims to know everything the block
+builds — only what it must not stop building. The variant-script leg reads
+each script's `build_variant`/`build_one` call sites, which over-approximates
+per target for the two scripts that dispatch on `$1` (`make sit-origin` alone
+builds one of two images); `make gates` runs both arms, and erring toward one
+expected image too many fails closed, which is the safe direction for an
+absence check.
 
 ## See also
 
 - `tools/bare_check.sh` — the implementation, and why each step is there.
 - `tests/test_bare_check.py` — the plants: it is not a gate until it has been
   broken on purpose.
-- `tools/rail_registered.py` — its docstring carries the site census and the
-  same gap statement from the gate's side.
+- `tools/rail_registered.py` — its docstring carries the site census, the
+  same closure from the gate's side, and `expected_images()`, which is the
+  derivation §7's last row names.
+- `tools/fix_checksum.py` — `declared_size`, the one decoding of `$FFD7` in
+  this tree, and the refusal that makes the byte trustworthy.

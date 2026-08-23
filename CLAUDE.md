@@ -58,10 +58,12 @@ inverted — it exits 0 when it did) ·
 actually fills it — docs/37) · `make measure` (the pinned budgets) ·
 `make register` (the feature register agrees with the tree;
 `make register-write` regenerates it) ·
-`make rail-registered` (every rail under `game/` is named at all eleven of
+`make rail-registered` (every rail under `game/` is named at all ten of
 its registration sites, derived from the tree rather than listed —
 `tools/rail_registered.py`; the summary prints how many site checks actually
-ran, so a disarmed pass reads as disarmed) ·
+ran, so a disarmed pass reads as disarmed. Eleven until 2026-08-23, when the
+landing gate's two hand-maintained ROM lists were replaced by derivation and
+the two sites that read them collapsed into one — docs/44 §7) ·
 `make cleanroom` (the name tripwire: no committed file carries a retail game,
 company or hardware-brand name except through an allowlist entry with a
 written reason — `tools/cleanroom_check.sh`. A FLOOR, not a guarantee — a

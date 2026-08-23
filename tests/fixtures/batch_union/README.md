@@ -46,6 +46,13 @@ with `bare_check.sh`'s size list being rail-scoped too,
 `build/svd_nowin.sfc`'s 524,288 bytes were asserted **nowhere**. Fifth
 instance of the drop class across waves; first not caught.
 
+Since 2026-08-23 the gate-time end is covered again, by derivation rather than
+by a shape check: `bare_check.sh` measures every `build/*.sfc` the gate block
+leaves behind against that image's own header, and demands the set derived
+from `make gates`'s own run-list — `svd_nowin` included (docs/44 §7). These
+fixtures hold the **union-time** half, which fires before there is a commit
+to gate.
+
 - **`ci_svd_nowin_f1.yml`** is the file as it landed — **no conflict markers**,
   because the real damage was a landing-side hand repair applied after the
   union. It is the shape a reviewer actually sees, and
