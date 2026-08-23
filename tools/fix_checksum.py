@@ -29,6 +29,11 @@ drifting apart again. This is the only build step that reads the finished
 image, so it is the only place that can compare the declaration to the truth
 — and a tool that patched a checksum over a lying header would be certifying
 the lie.
+
+That refusal is what makes the byte usable as an AUTHORITY rather than just a
+field, so `declared_size` below is public: `tools/bare_check.sh` asks each
+built image how long it says it is instead of carrying a hand-maintained list
+of expected sizes. One decoding, two readers.
 """
 import sys
 from pathlib import Path
@@ -101,6 +106,22 @@ def _validate_layout(image: bytes, path: Path) -> None:
     _check_rom_size(image, path)
 
 
+def declared_size(image: bytes) -> int | None:
+    """The image length $FFD7 declares, in bytes — 2^N KB, or None if N is
+    out of range.
+
+    THE ONE DECODING OF THAT BYTE IN THIS TREE, and it is public because it
+    has two readers. `_check_rom_size` below compares it to the truth on
+    every linked image on every build; `tools/bare_check.sh`'s census uses it
+    as the PER-IMAGE expected size, in place of the hand-maintained list of
+    `rom:size` pairs the landing gate carried until 2026-08-23. Both read the
+    format from here, so neither can drift into an opinion of its own about
+    where the byte lives or what it means.
+    """
+    n = image[OFF_ROMSIZE]
+    return 1024 << n if n < 32 else None
+
+
 def _check_rom_size(image: bytes, path: Path) -> None:
     """$FFD7 declares 2^N KB. Refuse an image whose declaration is not true.
 
@@ -118,7 +139,7 @@ def _check_rom_size(image: bytes, path: Path) -> None:
     declaration and the truth. A tool that patched a checksum over a lying
     header would be certifying the lie."""
     n = image[OFF_ROMSIZE]
-    declared = 1024 << n if n < 32 else None
+    declared = declared_size(image)
     if declared != len(image):
         shown = f"{declared} B" if declared is not None else f"2^{n} KB"
         raise SystemExit(

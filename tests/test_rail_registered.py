@@ -21,17 +21,29 @@ like verdicts:
 
   * `test_the_live_tree_is_registered` fails if the gate refuses a healthy
     tree;
-  * the twelve plant tests fail if it accepts a broken one (eleven sites;
-    site 10 carries two, one per shape of its demand condition).
+  * the eleven plant tests fail if it accepts a broken one (ten sites;
+    site 9 carries two, one per shape of its demand condition).
 
 Together they force the exit status to be a function of the tree.
 
-The count was THIRTEEN plants over TWELVE sites until 2026-08-22, when the
-hosted workflow was retired and the `.github/workflows/ci.yml` site went with
-it (site 4 as it was numbered then; every site after it moved down one). The
-plants for that site and for its companion ROM-step sweep were removed with
-the checks they exercised — see `tools/rail_registered.py`'s docstring for
-what the sweep covered and what is now covered nowhere.
+THE COUNT HAS MOVED TWICE, and the plants moved with it:
+
+  * THIRTEEN plants over TWELVE sites until 2026-08-22, when the hosted
+    workflow was retired and the `.github/workflows/ci.yml` site went with it
+    (site 4 as it was numbered then; every site after it moved down one). The
+    plants for that site and for its companion ROM-step sweep were removed
+    with the checks they exercised.
+  * TWELVE over ELEVEN until 2026-08-23. Sites 6 and 7 read `bare_check.sh`'s
+    two hand-maintained rail lists; both lists were replaced by derivation and
+    the pair collapsed into one site — the landing gate's derived
+    expected-image set. Its plant is a DIFFERENT SHAPE from the two it
+    replaces, and deliberately so: removing the rail from the `gates:` run-list
+    would fire site 2 as well, so the plant instead leaves the rail in the
+    run-list and breaks the target's resolution to an image. That is what makes
+    site 6 more than a restatement of site 2.
+
+See `tools/rail_registered.py`'s docstring for the sweep the ci.yml site
+carried, and for how the hole it left was closed.
 
 Test surface (CLAUDE.md rule 2): the output region read is the gate's own
 stderr report and exit status over a REAL tree — a skeleton carrying the
@@ -68,13 +80,22 @@ def skeleton(tmp_path_factory) -> Path:
     root = tmp_path_factory.mktemp("railtree")
     (root / "tools").mkdir()
     shutil.copy2(TOOL, root / "tools" / "rail_registered.py")
-    # sites 6+7 read the landing gate's two lists; site 9 reads AGENTS.md;
-    # site 10 reads the determinism gate (its `--falsify` plant hardcodes a
+    # site 6 asks whether the landing gate still CONSUMES the derived
+    # expected-image set, so bare_check.sh is read (its two hand-maintained
+    # rail lists are gone — see the module docstring); site 8 reads AGENTS.md;
+    # site 9 reads the determinism gate (its `--falsify` plant hardcodes a
     # rail's ROM, which `make determinism FALSIFY=1` needs for every module)
     shutil.copy2(SUPERFORGE / "tools" / "bare_check.sh",
                  root / "tools" / "bare_check.sh")
     shutil.copy2(SUPERFORGE / "tools" / "determinism_gate.py",
                  root / "tools" / "determinism_gate.py")
+    # site 6's expected-image set has a leg that reads the VARIANT SCRIPTS'
+    # own call sites — the images no `game/` dir backs. Copy them all: which
+    # ones the derivation reaches is decided by the Makefile, not here, and a
+    # skeleton that carried a chosen subset would be a second opinion about
+    # that.
+    for script in sorted((SUPERFORGE / "tools").glob("build_*.sh")):
+        shutil.copy2(script, root / "tools" / script.name)
     shutil.copy2(SUPERFORGE / "AGENTS.md", root / "AGENTS.md")
     shutil.copy2(SUPERFORGE / "Makefile", root / "Makefile")
     shutil.copytree(SUPERFORGE / "tests", root / "tests",
@@ -149,47 +170,58 @@ def test_the_skeleton_itself_is_clean(skeleton):
 
 
 # --------------------------------------------------------------------------
-# the twelve plants — one registration removed, one site named
+# the eleven plants — one registration removed, one site named
 # --------------------------------------------------------------------------
 #
-# Sites 1-9 and 11 plant against `breaker` (a legacy rail, present at every
-# unconditional site). Site 10's demand condition is "a Machine-driving
+# Sites 1-8 and 10 plant against `breaker` (a legacy rail, present at every
+# unconditional site). Site 9's demand condition is "a Machine-driving
 # module names this rail's ROM or map anywhere, or the falsify plant
 # hardcodes it", which breaker's module does not satisfy — so its plants
 # remove rails the condition actually derives. It gets TWO rows, one per shape — see
 # the comment on the second.
 
 SITES = [
-    ("1/11", "breaker", "Makefile", "gates breaker shmup", "gates shmup",
+    ("1/10", "breaker", "Makefile", "gates breaker shmup", "gates shmup",
      False, "`.PHONY`"),
-    ("2/11", "breaker", "Makefile", "run room; run breaker; run shmup",
+    # This one now names TWO sites for breaker, and correctly: the derived
+    # expected-image set is built FROM the run-list, so a rail dropped from it
+    # is also a rail the landing gate stops demanding. The assertion below
+    # rejects collateral on OTHER rails, not a second true finding on this one.
+    ("2/10", "breaker", "Makefile", "run room; run breaker; run shmup",
      "run room; run shmup", False, "gates: rail list"),
-    ("3/11", "breaker", "Makefile", "for rom in microzero room breaker shmup",
+    ("3/10", "breaker", "Makefile", "for rom in microzero room breaker shmup",
      "for rom in microzero room shmup", False, "gates: md5 list"),
-    ("4/11", "breaker", "tests/conftest.py",
+    ("4/10", "breaker", "tests/conftest.py",
      '    "build/bk/symbol_map.json": (\n'
      '        "breaker",\n'
      '        ["--game", "game/breaker", "--features-dir", '
      '"engine/features"]),\n', "", False, "conftest.MAPS"),
-    ("5/11", "breaker", "tests/conftest.py",
+    ("5/10", "breaker", "tests/conftest.py",
      '               "bk": "build/bk/symbol_map.json",\n', "", False,
      "conftest._SUBDIR_MAP"),
-    ("6/11", "breaker", "tools/bare_check.sh", " breaker:524288", "", False,
-     "bare_check.sh size list"),
-    ("7/11", "breaker", "tools/bare_check.sh", '"breaker", ', "", False,
-     "bare_check.sh rom_md5 list"),
-    ("8/11", "breaker", "tests/test_map_freshness_guard.py",
+    # Site 6's plant is deliberately NOT "drop breaker from the gates run
+    # list" — that is site 2's plant, and it would fire both. This one leaves
+    # the rail in the run-list and breaks what the target RESOLVES TO: the
+    # derivation reads each gates target's own rule for the
+    # `$(BUILD)/X.sfc` it names, so a rule pointed at a different image drops
+    # `breaker.sfc` out of the set the landing gate demands while site 2 stays
+    # green. It is the shape a careless rename takes, and it is the whole
+    # reason site 6 is a site rather than a restatement.
+    ("6/10", "breaker", "Makefile",
+     "breaker: $(BUILD)/breaker.sfc", "breaker: $(BUILD)/breaker_renamed.sfc",
+     False, "landing gate's derived expected-image set"),
+    ("7/10", "breaker", "tests/test_map_freshness_guard.py",
      '        "test_breaker.py": ["build/bk/symbol_map.json"],\n', "", False,
      "freshness-guard reviewed dict"),
     # replace-first is safe: the block is the FIRST " breaker" in AGENTS.md
     # (the prose mentions live far below the build-and-test fence)
-    ("9/11", "breaker", "AGENTS.md", " breaker", "", False,
+    ("8/10", "breaker", "AGENTS.md", " breaker", "", False,
      "AGENTS.md build-first block"),
-    ("10/11", "scroller", "Makefile",
+    ("9/10", "scroller", "Makefile",
      "determinism: split_h_2p_demo sh2-variants microzero hud_game scroller",
      "determinism: split_h_2p_demo sh2-variants microzero hud_game", False,
      "Makefile determinism prereqs"),
-    # Site 10 gets a SECOND row because its demand condition has two shapes
+    # Site 9 gets a SECOND row because its demand condition has two shapes
     # and the first row only exercises one. `scroller` above reads its map at
     # collection time, so it qualified under the OLD conjunction
     # (`collection-time reader ∧ Machine-driving`) too. `microzero` does not:
@@ -200,17 +232,17 @@ SITES = [
     # module (the falsify plant hardcodes build/microzero.sfc). That is
     # a later review, and this row is the regression fixture for it: it fails if
     # the two conjuncts are ever re-coupled.
-    ("10/11", "microzero", "Makefile",
+    ("9/10", "microzero", "Makefile",
      "determinism: split_h_2p_demo sh2-variants microzero hud_game scroller",
      "determinism: split_h_2p_demo sh2-variants hud_game scroller", False,
      "Makefile determinism prereqs (lazy-map rail)"),
-    # Site 11 is site 10's unconditional sibling: `make test` collects EVERY
+    # Site 10 is site 9's unconditional sibling: `make test` collects EVERY
     # module, so it must pre-build EVERY rail. Planted on `breaker` like the
     # other unconditional sites. Removing it from `test:` is exactly the
     # commit that would restore the recorded drop — a `make test XDIST=4`
     # that dies with `INTERNALERROR> ... assert not crashitem` naming
     # test_allocator.py, a pure-Python module with nothing to do with breaker.
-    ("11/11", "breaker", "Makefile",
+    ("10/10", "breaker", "Makefile",
      "test: toy microzero room probes breaker shmup",
      "test: toy microzero room probes shmup", False,
      "Makefile test prereqs"),
@@ -240,35 +272,41 @@ def test_a_missing_registration_names_that_site(skeleton, site, rail, rel,
 
 
 # --------------------------------------------------------------------------
-# the disarm guard — the mechanism that makes "all eleven" mean something
+# the disarm guard — the mechanism that makes "all ten" mean something
 # --------------------------------------------------------------------------
 
 # Deleting a site's check must not read as a PASS. `check()` records the site
 # numbers whose logic actually RAN, and `main()` refuses when that set is not
-# all eleven — so a gate someone quietly disarmed fails instead of printing
+# all ten — so a gate someone quietly disarmed fails instead of printing
 # "present at all N sites" from a constant. The expected count is derived from
 # `range()`, not typed, and the assertion below reads the two lists the refusal
-# prints, so the property survived the drop from twelve sites to eleven without
-# either half being restated.
+# prints, so the property has now survived TWO renumberings — twelve to eleven,
+# then eleven to ten — without either half being restated.
 #
 # This is a later review: the property was real
 # but nothing in the suite kept it that way, and it is precisely the kind of
 # guard that rots silently — its whole job is to fire on a tree nobody has
-# broken yet. Both shapes are planted: an UNCONDITIONAL site (7) and a
-# CONDITIONALLY-DEMANDED one (10, whose `evaluated.add` is
+# broken yet. Both shapes are planted: an UNCONDITIONAL site (6) and a
+# CONDITIONALLY-DEMANDED one (9, whose `evaluated.add` is
 # deliberately placed BEFORE its demand test so that "the check ran" cannot be
 # confused with "the check complained").
 
 DISARM_PLANTS = [
-    (7, """        evaluated.add(7)
-        if rail not in bare_md5:
+    (6, """        evaluated.add(6)
+        if rail not in measured:
             problems.append(
-                f"{rail}: site 7/11 -- absent from tools/bare_check.sh's "
-                f"rom_md5 list (the embedded `for rom in (...)` tuple). "
-                f"build/bare_check.json omits the rail's md5, so the one "
-                f"artifact the landing rule cites cannot pin its binary.")
+                f"{rail}: site 6/10 -- the LANDING gate's derived "
+                f"expected-image set does not contain `{rail}.sfc`, so "
+                f"bare-check would not notice if this rail's ROM stopped "
+                f"being built at all, and its size and md5 would silently "
+                f"leave build/bare_check.json. The set is derived from the "
+                f"`gates:` run-list: each target it runs contributes the "
+                f"`$(BUILD)/X.sfc` its own rule names, so the usual cause is "
+                f"a `{rail}:` rule that no longer names $(BUILD)/{rail}.sfc "
+                f"(site 2 would still be green -- the rail IS in the "
+                f"run-list, it just no longer resolves to an image).")
 """),
-    (10, """        evaluated.add(10)
+    (9, """        evaluated.add(9)
         drivers = determinism_demanding_modules(rail, subdir)
         in_plant = rail in plant_rails
         if (drivers or in_plant) and rail not in det_prereqs:
@@ -282,7 +320,7 @@ DISARM_PLANTS = [
                        "hardcodes its ROM, so `make determinism FALSIFY=1` "
                        "would die on it for EVERY module")
             problems.append(
-                f"{rail}: site 10/11 -- absent from the Makefile "
+                f"{rail}: site 9/10 -- absent from the Makefile "
                 f"`determinism:` prerequisite list, but {why}.")
 """),
 ]
@@ -356,14 +394,44 @@ def test_a_rail_with_no_test_module_is_not_asked_for_the_two_dicts(skeleton):
         r = run_gate(skeleton)
         out = r.stdout + r.stderr
         # no allocator recipe for it either, so site 0 is what fires —
-        # and crucially NOT sites 4/5/8 (nor any other per-rail site).
-        assert "zz_norails: site 0/11" in out, out
-        assert "zz_norails: site 4/11" not in out
-        assert "zz_norails: site 5/11" not in out
-        assert "zz_norails: site 8/11" not in out
+        # and crucially NOT sites 4/5/7 (nor any other per-rail site).
+        assert "zz_norails: site 0/10" in out, out
+        assert "zz_norails: site 4/10" not in out
+        assert "zz_norails: site 5/10" not in out
+        assert "zz_norails: site 7/10" not in out
     finally:
         shutil.rmtree(skeleton / "game" / "zz_norails")
     assert run_gate(skeleton).returncode == 0
+
+
+def test_a_landing_gate_that_stopped_consuming_the_derivation_is_named(
+        skeleton):
+    """Site 6's other half: the set is only worth deriving if it is READ.
+
+    `expected_images()` could be perfect and `tools/bare_check.sh` could have
+    gone back to carrying its own list of ROMs, and every per-rail site-6
+    check would still pass while the landing gate demanded nothing. That is
+    the fail-open shape the two retired lists had, arriving by a different
+    door — so the gate asks whether the landing gate still runs
+    `--expected-images` at all. Not a per-rail site: the answer is the same
+    for every rail, which is exactly why it is checked once.
+    """
+    # The INVOCATION, not the prose that explains it — the flag is named in
+    # the census block's comments too, and a plant that only took out the
+    # comment would leave the gate correctly green.
+    undo = plant(skeleton, "tools/bare_check.sh",
+                 '"--expected-images"], capture_output=True',
+                 '"--list"], capture_output=True')
+    try:
+        r = run_gate(skeleton)
+        out = r.stdout + r.stderr
+        assert r.returncode == 1, (
+            f"the gate ACCEPTED a landing gate that no longer consumes the "
+            f"derived expected-image set:\n{out}")
+        assert "no longer runs" in out and "--expected-images" in out, out
+    finally:
+        undo()
+    assert run_gate(skeleton).returncode == 0, "the undo did not restore"
 
 
 def test_the_gate_checks_its_own_registration(skeleton):

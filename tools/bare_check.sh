@@ -141,62 +141,110 @@ if [ "${1:-}" = "--inside" ]; then
     # --- the extra assertions the workflow used to carry -------------------
     # These lived in ci.yml's steps, NOT in `make gates`, and were restated
     # here so they would survive the workflow. They did: ci.yml was deleted on
-    # 2026-08-22 and this is now the only place they run. Sizes first: a ROM
-    # that links but comes out the wrong size is a mapping bug the md5 pin
-    # cannot name.
+    # 2026-08-22 and this is now the only place they run.
     #
-    # STATED GAP (docs/44 §6): this list is rail-scoped, and `make gates`'s
-    # build list is not. Eight variant/control ROMs the block builds were
-    # measured ONLY in ci.yml — svd_nowin, shd_autodemo, shp_autodemo,
-    # rs_probe, sit_origin, sit_mistime, shg_nograd, shg_origin — so as of
-    # 2026-08-22 they are measured nowhere. (`sh2-variants` is unnamed here
-    # too, but it was never in ci.yml either — that one is older than this
-    # change.) Do not quietly widen the list to "fix" it: which list is the
-    # authority is the open question, and a silent widening answers it by
-    # accident.
     # ...but only when the full block actually ran. A substituted gate block
-    # (tests/test_bare_check.py) builds one target, so "microzero.sfc is not
-    # 524288 bytes" would be true and meaningless — a gate that fails for a
-    # reason it did not test is noise, and noise is how a gate gets ignored.
+    # (tests/test_bare_check.py) builds one target, so "svd_nowin.sfc is
+    # absent" would be true and meaningless — a gate that fails for a reason
+    # it did not test is noise, and noise is how a gate gets ignored.
     if [ "$BARE_CHECK_GATES" != "make gates" ]; then
-        printf 'rom-sizes\tskipped\n' >> "$PARTS/steps.tsv"
+        printf 'rom-census\tskipped\n' >> "$PARTS/steps.tsv"
         printf 'probe-cpu-md5\tskipped\n' >> "$PARTS/steps.tsv"
         assert_isolated || exit 1
         printf 'isolated\t0\n' >> "$PARTS/steps.tsv"
         exit $overall
     fi
 
-    sizes_rc=0
-    for spec in toy:32768 microzero:524288 room:524288 breaker:524288 \
-                shmup:524288 platformer:524288 split_v_fight:524288 \
-                m7_dungeon:524288 split_h_2p_demo:524288 \
-                mode7_explore:524288 platformer_stream:524288 \
-                hud_game:524288 scroller:524288 camera_follow:524288 \
-                maze:524288 jumper:524288 patrol:524288 sprite_game:524288 \
-                stomper:524288 scroll_run:524288 \
-                brawler:524288 split_h_matrix_demo:524288 \
-                split_h_persp3_demo:524288 split_v_demo:524288 \
-                split_v_seamtrial:524288 split_h_demo:524288 \
-                split_h_persp_demo:524288 racer:524288 \
-                mode7_chamber:524288 railshooter:524288 m7_oshoot:524288 \
-                mode7_flight:524288 \
-                rpg:524288 boss:524288 boss_saucer:524288 \
-                meteor_event:524288 seam_irq_trial:524288 \
-                split_h_irq_grad_demo:524288; do
-        rom="${spec%%:*}"; want="${spec##*:}"
-        if [ -f "build/$rom.sfc" ]; then
-            got=$(stat -c%s "build/$rom.sfc")
-        else
-            got="(not built)"
-        fi
-        printf '%s\t%s\t%s\n' "$rom" "$want" "$got" >> "$PARTS/sizes.tsv"
-        if [ "$got" != "$want" ]; then
-            echo "bare-check: SIZE $rom.sfc expected $want, got $got"
-            sizes_rc=1
-        fi
-    done
-    printf 'rom-sizes\t%s\n' "$sizes_rc" >> "$PARTS/steps.tsv"
-    [ "$sizes_rc" -eq 0 ] || overall=1
+    # --- the ROM census: what got built, how big, and what it hashes to ----
+    # DERIVED at both ends, since 2026-08-23. Until then this step carried two
+    # hand-maintained rail-scoped lists — a `rom:size` sequence and, further
+    # down, a `for rom in (...)` md5 tuple — and `make gates`'s build list is
+    # not rail-scoped. Eight variant/control ROMs the block builds
+    # (svd_nowin, shd_autodemo, shp_autodemo, rs_probe, sit_origin,
+    # sit_mistime, shg_nograd, shg_origin) had their size asserted nowhere and
+    # their bytes recorded nowhere, and the seven `sh2_*` variants had never
+    # been measured at all. Both lists are gone. In their place:
+    #
+    #   WHAT IS MEASURED — every `build/*.sfc` the block left behind. A new
+    #   variant is measured the first time it is built, without being named
+    #   anywhere, which is the property a list can never have.
+    #
+    #   WHAT SIZE IS EXPECTED — each image's OWN header. $FFD7 declares
+    #   2^N KB, `tools/fix_checksum.py` REFUSES to patch a checksum over a
+    #   declaration that is not true, and it runs on every linked image on
+    #   every build — so the header is a per-image authority rather than a
+    #   field, and this reuses its decoder rather than re-deriving the format.
+    #
+    #   WHAT MUST BE PRESENT — `rail_registered.py --expected-images`, derived
+    #   from the `gates:` run-list and the variant scripts' own call sites.
+    #   This is the one property the retired ci.yml ROM-step sweep uniquely
+    #   had: a target that silently stops building its image goes RED by NAME
+    #   instead of quietly dropping out of the census.
+    #
+    # Nothing new is PINNED. The md5s are recorded, not asserted — variants
+    # move with their parents by design, and the two pins that exist (the
+    # probe_cpu md5 below, and the game-ROM pins in the suite) are unchanged.
+    census_rc=0
+    python3 - "$PARTS" <<'PY' || census_rc=1
+import hashlib, pathlib, subprocess, sys
+
+sys.path.insert(0, "tools")
+import fix_checksum as fx                                  # noqa: E402
+
+parts = pathlib.Path(sys.argv[1])
+build = pathlib.Path("build")
+rc = 0
+
+# WHAT MUST BE THERE — the same derivation `make rail-registered` checks
+# every rail against, run here against the tree that just built.
+p = subprocess.run([sys.executable, "tools/rail_registered.py",
+                    "--expected-images"], capture_output=True, text=True)
+if p.returncode != 0:
+    print("bare-check: the expected-image set could not be derived — the "
+          "absence check has nothing to demand:")
+    print(p.stdout + p.stderr)
+    sys.exit(1)
+expected = {}
+for line in p.stdout.splitlines():
+    name, _, why = line.partition(" ")
+    if name:
+        expected[name] = why
+parts.joinpath("expected.tsv").write_text(
+    "".join(f"{n}\t{w}\n" for n, w in sorted(expected.items())))
+
+# ABSENCE first. This is the failure the rail census structurally cannot see.
+for name in sorted(expected):
+    if not (build / f"{name}.sfc").exists():
+        print(f"bare-check: EXPECTED IMAGE ABSENT — build/{name}.sfc was not "
+              f"built by the gate block. Expected because: {expected[name]}")
+        rc = 1
+
+# ...then measure everything actually there, against its own header.
+rows = []
+for path in sorted(build.glob("*.sfc")):
+    image = path.read_bytes()
+    actual = len(image)
+    declared = (fx.declared_size(image)
+                if actual > fx.OFF_ROMSIZE else None)
+    shown = str(declared) if declared is not None else "(unreadable header)"
+    rows.append("\t".join((path.stem, shown, str(actual),
+                           hashlib.md5(image).hexdigest())))
+    if declared != actual:
+        print(f"bare-check: SIZE build/{path.name} is {actual} B but its own "
+              f"header (${fx.OFF_ROMSIZE:04X}) declares {shown}")
+        rc = 1
+parts.joinpath("census.tsv").write_text("".join(r + "\n" for r in rows))
+
+if not rows:
+    print("bare-check: the gate block left NO build/*.sfc behind at all — "
+          "the census is empty, which is a broken run, not a clean one")
+    rc = 1
+print(f"bare-check: measured {len(rows)} image(s); "
+      f"{len(expected)} demanded by derivation")
+sys.exit(rc)
+PY
+    printf 'rom-census\t%s\n' "$census_rc" >> "$PARTS/steps.tsv"
+    [ "$census_rc" -eq 0 ] || overall=1
 
     # The vendored-reference integrity pin: the fastest single check that
     # vendor/probe_ref still assembles to the bytes it always has. This is the
@@ -382,36 +430,31 @@ if gs.exists():
         if m:
             gates[m.group(1)] = "pass" if m.group(2) == "ok" else m.group(2)
 
-sizes = {}
-for ln in lines("sizes.tsv"):
+# The census, as phase 2 measured it. `expected` is the DERIVED minimum the
+# run demanded; `sizes` and `md5s` are what it actually found — every
+# build/*.sfc, not a list. See the census block above for why neither end is
+# written down any more.
+expected = {}
+for ln in lines("expected.tsv"):
     f = ln.split("\t")
-    if len(f) == 3:
-        sizes[f[0]] = {"expected": f[1], "actual": f[2],
-                       "ok": f[1] == f[2]}
+    if len(f) == 2:
+        expected[f[0]] = f[1]
+
+sizes, md5s = {}, {}
+for ln in lines("census.tsv"):
+    f = ln.split("\t")
+    if len(f) == 4:
+        sizes[f[0]] = {"expected": f[1], "actual": f[2], "ok": f[1] == f[2],
+                       "expected_from": "header"}
+        md5s[f[0]] = f[3]
+
+absent = sorted(n for n in expected if n not in sizes)
 
 probe = {}
 for ln in lines("probe.tsv"):
     f = ln.split("\t")
     if len(f) == 3:
         probe = {"expected": f[1], "actual": f[2], "ok": f[1] == f[2]}
-
-md5s = {}
-for rom in ("toy", "microzero", "room", "breaker", "shmup", "platformer",
-            "split_v_fight", "m7_dungeon", "split_h_2p_demo",
-            "mode7_explore", "platformer_stream", "hud_game", "scroller",
-            "camera_follow", "maze", "jumper", "patrol", "sprite_game",
-            "stomper", "scroll_run", "brawler",
-            "split_h_matrix_demo", "split_h_persp3_demo", "split_v_demo",
-            "split_v_seamtrial", "split_h_demo", "split_h_persp_demo",
-            "racer", "mode7_chamber", "railshooter", "m7_oshoot", "mode7_flight", "rpg",
-            "boss", "boss_saucer", "meteor_event", "seam_irq_trial",
-            "split_h_irq_grad_demo"):
-    p = clone / "build" / f"{rom}.sfc"
-    if p.exists():
-        md5s[rom] = subprocess.run(["md5sum", str(p)], capture_output=True,
-                                   text=True).stdout.split()[0]
-    else:
-        md5s[rom] = None
 
 # The suite summary line pytest prints last ("N passed, M skipped in T s").
 suite = None
@@ -443,6 +486,23 @@ doc = {
     },
     "steps": steps,
     "gates": gates,
+    "measurement": {
+        # Where each half of the census came from, so the numbers below can
+        # be read without opening the script that produced them.
+        "measured": "every build/*.sfc the gate block left behind",
+        "measured_count": len(sizes),
+        "expected_set_from": ("tools/rail_registered.py --expected-images "
+                              "(the Makefile `gates:` run-list, plus the "
+                              "tools/build_*.sh variant scripts' own "
+                              "output names)"),
+        "expected_count": len(expected),
+        "expected_size_from": ("header — each image's own $FFD7 ROM-size "
+                               "byte, decoded by "
+                               "fix_checksum.declared_size"),
+        "absent": absent,
+        "pinned": ("nothing new — the md5s here are RECORDED, not asserted; "
+                   "variants move with their parents by design"),
+    },
     "rom_sizes": sizes,
     "rom_md5": md5s,
     "probe_cpu_md5": probe,
@@ -467,6 +527,15 @@ else:
           f"{', '.join(bad) if bad else 'see the log above'} ({elapsed}s)")
 if suite:
     print(f"  suite: {suite}")
+# The COUNT, on the surface everyone reads. The census is derived, so a
+# shrunken one is the shape a silently-dropped build takes — and a number
+# that only lives in the JSON is a number nobody compares.
+if sizes or expected:
+    line = (f"  measured: {len(sizes)} image(s) in build/, "
+            f"{len(expected)} demanded by derivation")
+    if absent:
+        line += f" — ABSENT: {', '.join(absent)}"
+    print(line)
 print(f"  recorded: {report}")
 print("=" * 64)
 PY

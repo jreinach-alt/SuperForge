@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""superforge -- a new game rail must be REGISTERED in all eleven places, or it
+"""superforge -- a new game rail must be REGISTERED in all ten places, or it
 is half-wired and nothing says so.
 
-WHY THIS EXISTS. Adding a rail under `game/` is not one edit, it is eleven,
+WHY THIS EXISTS. Adding a rail under `game/` is not one edit, it is ten,
 and four of them have each been missed at least once across successive rail
 waves. The interesting one is silent AND points the wrong way: registering a
 rail's map in
@@ -22,19 +22,31 @@ census. A TWELFTH arrived with the prerequisite change: `make test` now takes
 the rail list as PREREQUISITES, which is what turns "the tree must be
 pre-built" from a comment into a fact of the build.
 
-WHY ELEVEN AND NOT TWELVE -- the count changed by DECISION, not by rot. Site 4
-used to be `.github/workflows/ci.yml`. On 2026-08-22 the owner retired the
-hosted workflow entirely, file and manual-dispatch hatch together: the project
-regularly blew through the available Actions usage, a failure there never
-reported back into the working session, and repeated failure mail was not
-worth what the runs bought. The workflow file was deleted, so the site it was
-went with it and every site after it moved down one. `make bare-check` is the
-gate of record and there is no hosted alternative in the tree. A reader
-counting eleven here and twelve in an older report is looking at that decision,
-not at a check somebody quietly dropped -- the disarm guard below still refuses
-any run in which fewer than all eleven checks execute.
+THE COUNT HAS CHANGED TWICE, BY DECISION BOTH TIMES, never by rot. The disarm
+guard below still refuses any run in which fewer than all TEN checks execute,
+so a reader counting a different number in an older report is looking at one of
+these two decisions rather than at a check somebody quietly dropped.
 
-THE ELEVEN SITES, and what each one being absent costs:
+  twelve -> eleven, 2026-08-22. Site 4 used to be
+  `.github/workflows/ci.yml`. The owner retired the hosted workflow entirely,
+  file and manual-dispatch hatch together: the project regularly blew through
+  the available Actions usage, a failure there never reported back into the
+  working session, and repeated failure mail was not worth what the runs
+  bought. The workflow file was deleted, so the site it was went with it and
+  every site after it moved down one. `make bare-check` is the gate of record
+  and there is no hosted alternative in the tree.
+
+  eleven -> ten, 2026-08-23. Sites 6 and 7 were "the rail is named in
+  `bare_check.sh`'s size-assert list" and "...in its rom_md5 list". BOTH LISTS
+  ARE GONE, replaced by derivation (see the next section), and with them the
+  question of whether a rail is written into them. What replaced the pair is
+  ONE site, and not a tautology of site 2: the derived expected-image set is
+  built by resolving each `gates:` target to the image its own rule names, so
+  a rail can be in the run-list (site 2 green) and still resolve to no image
+  (site 6 red). The two DID collapse into one, though, and saying so is more
+  honest than keeping a second check that could only ever repeat the first.
+
+THE TEN SITES, and what each one being absent costs:
 
   1. Makefile `.PHONY`                 a stale file named `breaker` in the
                                        tree makes the target a silent no-op
@@ -46,14 +58,15 @@ THE ELEVEN SITES, and what each one being absent costs:
                                        map at all
   5. tests/conftest.py `_SUBDIR_MAP`   the freshness guard checks the WRONG
                                        map (the toy fallback above)
-  6. tools/bare_check.sh size list     the LANDING gate never asserts the
-                                       rail's ROM links at its pinned size --
-                                       a truncated link passes bare-check
-  7. tools/bare_check.sh rom_md5 list  build/bare_check.json omits the
-                                       rail's md5, so the one artifact the
-                                       landing rule cites cannot pin the
-                                       rail's binary
-  8. tests/test_map_freshness_guard.py the hand-reviewed dict in
+  6. the LANDING gate's derived        `bare_check.sh` measures every
+     expected-image set                `build/*.sfc` the block leaves behind
+                                       and demands the derived set be
+                                       present. A rail outside that set has
+                                       its ROM's absence go unnoticed, and
+                                       its size and md5 quietly leave
+                                       build/bare_check.json -- the one
+                                       artifact the landing rule cites
+  7. tests/test_map_freshness_guard.py the hand-reviewed dict in
      reviewed dict                     `test_the_tree_agrees_with_the_rule`:
                                        missing an entry, the suite goes red
                                        minutes in, in a module the change
@@ -61,12 +74,12 @@ THE ELEVEN SITES, and what each one being absent costs:
                                        mentions neither the rail nor the
                                        site (two rails hit this
                                        independently)
-  9. AGENTS.md BUILD-FIRST block       the list that decides whether a cold
+  8. AGENTS.md BUILD-FIRST block       the list that decides whether a cold
                                        tree can run `make test` at all;
                                        missing, an xdist run dies with
                                        INTERNALERROR naming an innocent
                                        pure-Python test
- 10. Makefile `determinism:` prereqs   `make determinism MODULE=tests/
+  9. Makefile `determinism:` prereqs   `make determinism MODULE=tests/
                                        test_<rail>.py` dies on a missing
                                        ROM/map instead of running the
                                        module -- the gate's "module list"
@@ -74,7 +87,7 @@ THE ELEVEN SITES, and what each one being absent costs:
                                        of every rail whose ROM a
                                        Machine-driving module needs, WHEREVER
                                        in that module the need is written
- 11. Makefile `test:` prereqs          `make test` runs against an UNBUILT
+ 10. Makefile `test:` prereqs          `make test` runs against an UNBUILT
                                        rail, and the collection-time
                                        freshness guard refuses. Serially
                                        that names the rail and the fix in
@@ -83,9 +96,9 @@ THE ELEVEN SITES, and what each one being absent costs:
                                        `INTERNALERROR> ... assert not
                                        crashitem` naming an INNOCENT module
                                        -- test_allocator.py, which is pure
-                                       Python and passes alone. Site 10's
-                                       sibling: 10 keeps ONE module's rail
-                                       buildable, 11 keeps ALL of them
+                                       Python and passes alone. Site 9's
+                                       sibling: 9 keeps ONE module's rail
+                                       buildable, 10 keeps ALL of them
                                        buildable, because the suite
                                        collects every module. Found by
                                        review, and reproduced on the base
@@ -110,22 +123,29 @@ or of map subdirectories:
     path constant, and one level through a module-scope `import` of a sibling
     in `tests/` — the shape `test_platformer.py` uses, where the read lives in
     `tests/plf_drive.py`;
-  * site 8 is demanded per READER MODULE, and its condition is the freshness
+  * SITE 6's expected-image set is derived from `make gates` itself, in two
+    legs (`expected_images()` below): each target the `gates:` run-list
+    executes contributes the `$(BUILD)/X.sfc` its own rule names, and each
+    `tools/build_*.sh` one of those rules invokes contributes the images that
+    script's own call sites name. Leg 1 is what a rail arrives through; leg 2
+    is what a VARIANT or CONTROL image arrives through, and it is the leg no
+    rail census can have. Nothing about the set is written down anywhere;
+  * site 7 is demanded per READER MODULE, and its condition is the freshness
     guard's OWN scanner (`conftest.maps_named_in`), not this file's wider
     derivation above — deliberately: the reviewed dict must equal what that
     scanner sees (`test_the_tree_agrees_with_the_rule` asserts exactly that),
     so demanding an entry the scanner cannot see (e.g. `test_platformer.py`,
     whose read hides in a sibling import) would order an edit the guard's own
     test refuses;
-  * site 10 is demanded of every rail whose ROM some `tests/test_*.py`
+  * site 9 is demanded of every rail whose ROM some `tests/test_*.py`
     needs in order to run under `make determinism MODULE=` — that is, a
     module which DRIVES a `Machine` (imports `vendor/machine.py`) and names
     the rail's ROM or map ANYWHERE in its text — PLUS every rail the
     determinism gate's own `--falsify` plant hardcodes, which `make
     determinism FALSIFY=1` needs for EVERY module. Deliberately NOT the
-    collection-time condition sites 4/5/8 use, and here is why:
+    collection-time condition sites 4/5/7 use, and here is why:
     those sites are about the FRESHNESS GUARD, where a map nobody reads at
-    import time genuinely needs no registering, but site 10 is about the
+    import time genuinely needs no registering, but site 9 is about the
     ROM being BUILT, which a module needs whether its map read happens at
     collection or inside a test body. Under the old conjunction `microzero`
     — driven by `test_machine.py` and `test_replay_triple.py` and hardcoded
@@ -137,59 +157,83 @@ or of map subdirectories:
     read a symbol map at collection time. Extra prerequisites (fixture
     targets like `sh2-variants`) are fine; the check is presence of the
     demanded, not absence of others;
-  * sites 6, 7 and 9 are asked of EVERY rail, textually — 9 is prose
-    (AGENTS.md's build-first `make` block), and is stated as a textual check
-    rather than dressed up as anything sharper;
-  * site 11 is asked of EVERY rail UNCONDITIONALLY, and deliberately not
-    conditioned the way site 10 is. `make test` collects the WHOLE `tests/`
+  * sites 6 and 8 are asked of EVERY rail — 8 is prose (AGENTS.md's
+    build-first `make` block), and is stated as a textual check rather than
+    dressed up as anything sharper;
+  * site 10 is asked of EVERY rail UNCONDITIONALLY, and deliberately not
+    conditioned the way site 9 is. `make test` collects the WHOLE `tests/`
     tree in one process group, so every rail's ROM and map must exist before
     pytest starts — there is no per-module narrowing to derive against. It is
-    site 9's executable twin: 9 asks the PROSE list to name the rail so a
-    human building a cold tree by hand gets it right, 11 asks the BUILD to
+    site 8's executable twin: 8 asks the PROSE list to name the rail so a
+    human building a cold tree by hand gets it right, 10 asks the BUILD to
     enforce it so nobody has to. Extra prerequisites (`probes`,
-    `sh2-variants`) are fine, same rule as site 10.
+    `sh2-variants`) are fine, same rule as site 9.
 
 `engine/toy` and `vendor/probes/*` are NOT rails and are not asked for any of
 this -- they are fixtures with their own targets.
 
-WHAT WAS LOST WITH THE WORKFLOW, stated rather than quietly dropped. Site 4 had
-a companion that was NOT a site: a SWEEP over ci.yml's steps, running from the
-opposite end. The eleven sites all start from the rail census -- "for each dir
-under `game/`, is it named here?" -- and that framing has a structural blind
-spot. `svd-nowin` fell straight into it: it builds `build/svd_nowin.sfc` but is
-a VARIANT target, not a rail (no `game/svd_nowin/` exists), so when a union's
-shape repair went one line too high and moved that step's
-`test "$size" -eq 524288` into the FOLLOWING step, no per-rail site was ever
-asked about it. Nothing was deleted, the YAML stayed valid, a removed-line scan
-saw nothing, and the ROM's size ended up asserted NOWHERE. The sweep started
-from ci.yml's own steps instead: any step that ran make and stat'd a
+THE VARIANT BLIND SPOT -- WHAT IT WAS, AND HOW IT WAS CLOSED ON 2026-08-23.
+Keep the history: the hole is closed, the reason it existed is not obvious, and
+a reader who only sees the fix will re-open it.
+
+Site 4 used to have a companion that was NOT a site: a SWEEP over ci.yml's
+steps, running from the opposite end. Every site here starts from the rail
+census -- "for each dir under `game/`, is it named here?" -- and that framing
+has a structural blind spot. `svd-nowin` fell straight into it: it builds
+`build/svd_nowin.sfc` but is a VARIANT target, not a rail (no `game/svd_nowin/`
+exists), so when a union's shape repair went one line too high and moved that
+step's `test "$size" -eq 524288` into the FOLLOWING step, no per-rail site was
+ever asked about it. Nothing was deleted, the YAML stayed valid, a removed-line
+scan saw nothing, and the ROM's size ended up asserted NOWHERE. The sweep
+started from ci.yml's own steps instead: any step that ran make and stat'd a
 `build/*.sfc` had to carry a `test "$size" -eq N` after that stat.
 
-With the workflow gone the sweep has nothing to read, so it was removed with
-the site. THE FAILURE MODE IT COVERED DOES NOT GO WITH IT -- it moves. The
-remaining measurement lists are `tools/bare_check.sh`'s size list, its rom_md5
-tuple and the Makefile `gates:` md5 loop, and ALL THREE are rail-scoped, while
-`make gates`'s `run <target>;` list is not: it builds variant and control
-targets that no `game/` dir backs. Eight of those ROMs -- svd_nowin,
-shd_autodemo, shp_autodemo, rs_probe, sit_origin, sit_mistime, shg_nograd,
-shg_origin -- were measured ONLY in ci.yml, and as of this change their size is
-asserted nowhere and their bytes are pinned nowhere. No check here covers them,
-and none was added in passing: closing it means deciding which list is the
-authority (`make gates`'s build list against `bare_check.sh`'s measured list is
-the same shape the sweep had), and that is a decision, not a cleanup.
+The workflow was retired on 2026-08-22 and the sweep went with the file it
+read, which left the failure mode live and homeless for a day: every remaining
+measurement list -- `bare_check.sh`'s size list, its rom_md5 tuple, the
+Makefile `gates:` md5 loop -- was rail-scoped, while `make gates`'s `run
+<target>;` list is not. Eight ROMs the block builds (svd_nowin, shd_autodemo,
+shp_autodemo, rs_probe, sit_origin, sit_mistime, shg_nograd, shg_origin) had
+their size asserted nowhere and their bytes recorded nowhere, and seven more
+(the `sh2_*` variants) had never been measured at all.
+
+CLOSED BY DERIVATION on 2026-08-23, both ends at once, which is why the sweep
+is not coming back:
+
+  * WHAT IS MEASURED is no longer a list. `bare_check.sh` measures EVERY
+    `build/*.sfc` the gate block leaves behind, and takes each image's
+    expected length from that image's OWN header ($FFD7, decoded by
+    `fix_checksum.declared_size`) -- so a new variant is measured the day it
+    is first built, without being named anywhere;
+  * WHAT MUST BE THERE is `expected_images()` below, derived from `make
+    gates`'s own run-list and the variant scripts' own call sites. A variant
+    that silently stops being built goes RED as "expected image absent"
+    instead of vanishing from the census, which is precisely the property the
+    sweep uniquely had.
+
+The old question -- which list is the authority -- is answered: NEITHER. The
+gate block's build list is, and both ends now read it.
 
 DELIBERATE LIMIT, stated because a gate believed stronger than it is, is the
 wound CLAUDE.md rule 6 already carries: this checks that a rail is NAMED at
 each site, not that the site's recipe is correct. A rail listed in `.PHONY`
 does not prove its recipe builds anything, and a rail named in the `gates:`
 list does not prove its build passes. The build gates prove that; this one
-proves the wiring exists. With the sweep gone, NO arm of this gate reads a
-recipe's content any more — it is now a naming check end to end.
+proves the wiring exists. The one place that changed on 2026-08-23 is site 6,
+which now RESOLVES a target to the image its rule names rather than only
+reading a name off a list -- still not a claim that the recipe works, only
+that it is pointed at the right file.
 
 USAGE
-    tools/rail_registered.py            exit 1 + a per-rail, per-site report
-    tools/rail_registered.py --list     print the derived rail -> map table
-                                        (`make rail-registered`)
+    tools/rail_registered.py                   exit 1 + a per-rail, per-site
+                                               report (`make rail-registered`)
+    tools/rail_registered.py --list            the derived rail -> map table
+    tools/rail_registered.py --expected-images the derived image set `make
+                                               gates` must produce, one
+                                               `<name> <reason>` per line.
+                                               `tools/bare_check.sh` reads it
+                                               to decide what must be present
+                                               after the block has run.
 """
 from __future__ import annotations
 
@@ -304,30 +348,197 @@ def gates_md5_list(recipe: str) -> set[str]:
     return set(m.group(1).split())
 
 
+_RULE_HEADER = re.compile(r"^([^\s:=#][^:=#]*):(?!=)\s*(.*)$")
+
+
+def makefile_rules(text: str) -> dict[str, str]:
+    """target -> that rule's own text: the header line plus its recipe lines.
+
+    Every target of a multi-target rule (`sit-origin sit-mistime: ...`) maps
+    to the same text. Deliberately over the RAW text rather than
+    `_logical_lines` output: joining `\\` continuations is right for a LIST
+    written across several lines and wrong here, where the tab indent is what
+    says which lines belong to which rule.
+
+    First definition wins, matching make's own reading of a second recipe for
+    the same target as an override warning rather than a second rule.
+    """
+    rules: dict[str, str] = {}
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        ln = lines[i]
+        if ln.startswith("\t") or ln.lstrip().startswith("#"):
+            i += 1
+            continue
+        m = _RULE_HEADER.match(ln)
+        if not m:
+            i += 1
+            continue
+        body = [ln]
+        while body[-1].rstrip().endswith("\\") and i + 1 < len(lines):
+            i += 1
+            body.append(lines[i])
+        j = i + 1
+        while j < len(lines) and lines[j].startswith("\t"):
+            body.append(lines[j])
+            j += 1
+        blob = "\n".join(body)
+        for target in m.group(1).split():
+            rules.setdefault(target, blob)
+        i = j
+    return rules
+
+
 # --------------------------------------------------------------------------
-# tools/bare_check.sh — the landing gate's two rail lists (sites 6 + 7)
+# what `make gates` BUILDS — the derived expected-image set
 # --------------------------------------------------------------------------
+#
+# This is the derivation that closed the hole the retired ROM-step sweep used
+# to cover (see the docstring). It answers one question — "which .sfc images
+# must exist after the gate block has run?" — from the block itself, so a
+# variant target that silently stops being built goes RED as an ABSENT
+# EXPECTED IMAGE instead of vanishing from the measurement census.
+
+_SFC_IN_RULE = re.compile(r"\$[({]BUILD[)}]/([A-Za-z0-9_]+)\.sfc")
+_VARIANT_SCRIPT = re.compile(r"tools/(build_[A-Za-z0-9_]+\.sh)")
+
+
+def variant_script_outputs(text: str) -> set[str]:
+    """The image names a `tools/build_*.sh` emits, read from the script.
+
+    Every one of these scripts links through a helper that takes the image
+    name as its first positional and writes `$BUILD/$name.sfc`; the helper's
+    CALL SITES carry the names. So this finds the helper by what it links and
+    then collects what it is called with, rather than keeping a list of
+    variant names somewhere a script could drift away from — the same
+    discipline the rail census applies to `game/`.
+
+    Over-approximating per SCRIPT is deliberate. `build_seam_irq_variants.sh`
+    dispatches on `$1`, so `make sit-origin` alone emits one of its two
+    images; `make gates` runs BOTH arms, and the union is what the expected
+    set is compared against. Erring toward one expected image too many fails
+    CLOSED, which is the safe direction for an absence check.
+    """
+    emitters = {m.group(1) for m in re.finditer(
+        r"^([A-Za-z_][A-Za-z0-9_]*)\s*\(\)\s*\{(.*?)^\}", text, re.M | re.S)
+        if "$BUILD/$name.sfc" in m.group(2)}
+    if not emitters:
+        return set()
+    names: set[str] = set()
+    for ln in text.splitlines():
+        code = ln.split("#", 1)[0]
+        for fn in emitters:
+            names |= set(re.findall(
+                rf"(?<![A-Za-z0-9_]){re.escape(fn)}\s+([A-Za-z0-9_]+)", code))
+    return names
+
+
+def expected_images() -> dict[str, str]:
+    """image basename -> the one-line reason `make gates` must produce it.
+
+    TWO legs, both read from the tree, neither a list anybody maintains:
+
+      1. every `$(BUILD)/X.sfc` named in the OWN RULE of a target the
+         `gates:` run-list executes. That is how `toy` arrives
+         (`toy: no-literals $(BUILD)/toy.sfc`) and how every rail does
+         (`<rail>: $(BUILD)/<rail>.sfc`);
+      2. every image a `tools/build_*.sh` invoked by one of those rules
+         emits, read from that script's own call sites. That is how the
+         VARIANT and CONTROL images arrive — `svd_nowin`, `shd_autodemo`,
+         `shp_autodemo`, `rs_probe`, `sit_origin`, `sit_mistime`,
+         `shg_nograd`, `shg_origin` and the seven `sh2_*` — and it is the
+         leg no rail census can have, because no `game/` dir backs them.
+
+    The result is a MINIMUM, not an inventory: `tools/bare_check.sh` measures
+    every `build/*.sfc` the block leaves behind and uses this only to say
+    which of them must be there. A probe ROM that arrives through `make
+    test`'s prerequisites is measured without being demanded, which is the
+    honest shape — nothing here claims to know everything the block builds,
+    only what it must not stop building.
+    """
+    mk_text = MAKEFILE.read_text()
+    rules = makefile_rules(mk_text)
+    targets = gates_rail_list(gates_recipe(mk_text))
+    found: dict[str, list[tuple[int, str]]] = {}
+    for target in sorted(targets):
+        rule = rules.get(target)
+        if rule is None:
+            continue
+        for img in sorted(set(_SFC_IN_RULE.findall(rule))):
+            # rank 0 when the target builds its own namesake, so a reader
+            # chasing an absent image is pointed at `make <image>` and not at
+            # some other target that merely takes it as a prerequisite
+            found.setdefault(img, []).append(
+                (0 if img == target else 1,
+                 f"`make {target}` — its rule names $(BUILD)/{img}.sfc"))
+        for script in sorted(set(_VARIANT_SCRIPT.findall(rule))):
+            path = REPO / "tools" / script
+            if not path.exists():
+                raise RailError(f"Makefile target `{target}` runs "
+                                f"tools/{script}, which is missing")
+            for img in sorted(variant_script_outputs(path.read_text())):
+                found.setdefault(img, []).append(
+                    (0 if img == target.replace("-", "_") else 1,
+                     f"`make {target}` — tools/{script} builds it"))
+    out = {img: min(why)[1] for img, why in found.items()}
+    if not out:
+        raise RailError(
+            "no expected image could be derived from the Makefile `gates:` "
+            "run-list — that is the DERIVATION broken, not the tree, and it "
+            "would leave the landing gate's absence check with nothing to "
+            "demand")
+    return out
+
+
+# --------------------------------------------------------------------------
+# tools/bare_check.sh — that it CONSUMES the derivation (site 6's other half)
+# --------------------------------------------------------------------------
+#
+# Until 2026-08-23 this read the landing gate's two hand-maintained rail
+# lists — a `rom:size` size-assert loop and an embedded `for rom in (...)`
+# md5 tuple — and asked whether each rail was named in both. Both lists are
+# gone: the gate now measures every `build/*.sfc` the block leaves behind,
+# takes each image's expected size from its own header, and takes the set it
+# demands from `expected_images()` above. So the per-rail question moved with
+# them (site 6 below), and what is left here is the WIRING: a derivation
+# nothing consumes measures nothing, and would fail open in silence.
 
 BARE = REPO / "tools" / "bare_check.sh"
 
-
-def bare_check_sizes(text: str) -> set[str]:
-    """The `for spec in rom:size ...; do` size-assert list, names only."""
-    joined = re.sub(r"\\\n\s*", " ", text)
-    m = re.search(r"for\s+spec\s+in\s+([^;]+);\s*do", joined)
-    if not m:
-        raise RailError("tools/bare_check.sh has no `for spec in rom:size` "
-                        "size-assert loop")
-    return {tok.split(":")[0] for tok in m.group(1).split() if ":" in tok}
+EXPECTED_FLAG = "--expected-images"
+# The flag as an ARGV ELEMENT — quotes included. bare_check.sh names the flag
+# in three places: a comment, an argv list, and the artifact field that tells
+# a reader which command produced the set. Only the middle one runs, and only
+# that one carries the surrounding quotes, so this is what "wired" means here.
+EXPECTED_FLAG_TOKEN = f'"{EXPECTED_FLAG}"'
 
 
-def bare_check_md5s(text: str) -> set[str]:
-    """The embedded-Python `for rom in ("a", "b", ...)` md5 tuple."""
-    m = re.search(r"for\s+rom\s+in\s+\((.*?)\)\s*:", text, re.S)
-    if not m:
-        raise RailError("tools/bare_check.sh has no `for rom in (...)` "
-                        "rom_md5 tuple")
-    return set(re.findall(r'"([^"]+)"', m.group(1)))
+def derivation_wiring_problems(text: str) -> list[str]:
+    """Does the landing gate still ask this file what it must have built?
+
+    Not a per-rail site — the answer is the same for every rail — but it is
+    the load-bearing half of site 6. `expected_images()` could be perfect and
+    the landing gate could have gone back to carrying its own list, and every
+    per-rail check here would still pass while nothing measured anything.
+
+    IT LOOKS FOR THE ARGV ELEMENT, not the flag's name, and comment lines are
+    stripped first. Neither is a detail: bare_check.sh names the flag in a
+    comment and again in the artifact field that tells a reader which command
+    produced the set, so a plain substring search over the raw file is
+    satisfied by PROSE ABOUT an invocation that is no longer there. Both
+    weaker forms were written and both were caught by this check's own plant,
+    which removes the call and leaves the rest of the file alone.
+    """
+    code = "\n".join(ln for ln in text.splitlines()
+                     if not ln.lstrip().startswith("#"))
+    if EXPECTED_FLAG_TOKEN not in code:
+        return [f"tools/bare_check.sh no longer runs "
+                f"`rail_registered.py {EXPECTED_FLAG}`, so the landing gate "
+                f"is not consuming the derived expected-image set. Every "
+                f"site-6 check below would pass against a gate that demands "
+                f"nothing."]
+    return []
 
 
 # --------------------------------------------------------------------------
@@ -704,9 +915,7 @@ def check() -> tuple[list[str], list[str], set]:
     maps = rail_maps()
     if not BARE.exists():
         raise RailError("tools/bare_check.sh is missing")
-    bare_text = BARE.read_text()
-    bare_sizes = bare_check_sizes(bare_text)
-    bare_md5 = bare_check_md5s(bare_text)
+    measured = expected_images()
     reviewed = freshness_reviewed_dict()
     if not AGENTS.exists():
         raise RailError("AGENTS.md is missing")
@@ -716,13 +925,14 @@ def check() -> tuple[list[str], list[str], set]:
     plant_rails = falsify_plant_rails(rails())
 
     problems: list[str] = self_registration_problems(gates_rails)
+    problems += derivation_wiring_problems(BARE.read_text())
     notes: list[str] = []
     evaluated: set = set()
 
     for rail in rails():
         if rail not in maps:
             problems.append(
-                f"{rail}: site 0/11 -- the Makefile has no `allocate.py "
+                f"{rail}: site 0/10 -- the Makefile has no `allocate.py "
                 f"--game game/{rail} ... --out ...` recipe, so this rail has "
                 f"no map and none of the other sites can be checked")
             continue
@@ -731,53 +941,52 @@ def check() -> tuple[list[str], list[str], set]:
         evaluated.add(1)
         if rail not in phony:
             problems.append(
-                f"{rail}: site 1/11 -- absent from the Makefile's `.PHONY` "
+                f"{rail}: site 1/10 -- absent from the Makefile's `.PHONY` "
                 f"list. A stale file named `{rail}` makes the target a "
                 f"silent no-op.")
         evaluated.add(2)
         if rail not in gates_rails:
             problems.append(
-                f"{rail}: site 2/11 -- absent from the `gates:` rail list "
+                f"{rail}: site 2/10 -- absent from the `gates:` rail list "
                 f"(the `run {rail};` sequence). `make gates` never builds it.")
         evaluated.add(3)
         if rail not in gates_md5:
             problems.append(
-                f"{rail}: site 3/11 -- absent from the `gates:` md5 list (the "
+                f"{rail}: site 3/10 -- absent from the `gates:` md5 list (the "
                 f"`for rom in ...` loop -- a SEPARATE list from site 2). The "
                 f"summary omits its md5, so the render check has a hole.")
 
         evaluated.add(6)
-        if rail not in bare_sizes:
+        if rail not in measured:
             problems.append(
-                f"{rail}: site 6/11 -- absent from tools/bare_check.sh's "
-                f"size-assert list (the `for spec in rom:size ...` loop). "
-                f"The LANDING gate never checks the rail's ROM links at its "
-                f"pinned size -- a truncated link passes bare-check.")
-        evaluated.add(7)
-        if rail not in bare_md5:
-            problems.append(
-                f"{rail}: site 7/11 -- absent from tools/bare_check.sh's "
-                f"rom_md5 list (the embedded `for rom in (...)` tuple). "
-                f"build/bare_check.json omits the rail's md5, so the one "
-                f"artifact the landing rule cites cannot pin its binary.")
-        evaluated.add(9)
+                f"{rail}: site 6/10 -- the LANDING gate's derived "
+                f"expected-image set does not contain `{rail}.sfc`, so "
+                f"bare-check would not notice if this rail's ROM stopped "
+                f"being built at all, and its size and md5 would silently "
+                f"leave build/bare_check.json. The set is derived from the "
+                f"`gates:` run-list: each target it runs contributes the "
+                f"`$(BUILD)/X.sfc` its own rule names, so the usual cause is "
+                f"a `{rail}:` rule that no longer names $(BUILD)/{rail}.sfc "
+                f"(site 2 would still be green -- the rail IS in the "
+                f"run-list, it just no longer resolves to an image).")
+        evaluated.add(8)
         if rail not in build_first:
             problems.append(
-                f"{rail}: site 9/11 -- absent from AGENTS.md's BUILD-FIRST "
+                f"{rail}: site 8/10 -- absent from AGENTS.md's BUILD-FIRST "
                 f"`make` block. That list decides whether a cold tree can "
                 f"run the full suite at all: under xdist the missing ROM "
                 f"surfaces as INTERNALERROR naming an innocent pure-Python "
                 f"test (AGENTS.md's own paragraph; spot check M-3).")
-        evaluated.add(11)
+        evaluated.add(10)
         if rail not in suite_prereqs:
             problems.append(
-                f"{rail}: site 11/11 -- absent from the Makefile `test:` "
+                f"{rail}: site 10/10 -- absent from the Makefile `test:` "
                 f"prerequisite list, so `make test` can run against an "
                 f"UNBUILT {rail}. The suite collects EVERY module, so the "
                 f"collection-time freshness guard refuses; serially that "
                 f"names the rail and the fix, but under xdist the worker "
                 f"dies and pytest prints `INTERNALERROR> ... assert not "
-                f"crashitem` naming an INNOCENT module. Site 9 asks "
+                f"crashitem` naming an INNOCENT module. Site 8 asks "
                 f"AGENTS.md's prose to carry this list; "
                 f"this site asks the build to enforce it.")
 
@@ -787,7 +996,7 @@ def check() -> tuple[list[str], list[str], set]:
         # The module list IS the prerequisite list, and this demand is not
         # conditioned on a collection-time map read: the ROM must be BUILT
         # either way.
-        evaluated.add(10)
+        evaluated.add(9)
         drivers = determinism_demanding_modules(rail, subdir)
         in_plant = rail in plant_rails
         if (drivers or in_plant) and rail not in det_prereqs:
@@ -801,33 +1010,33 @@ def check() -> tuple[list[str], list[str], set]:
                        "hardcodes its ROM, so `make determinism FALSIFY=1` "
                        "would die on it for EVERY module")
             problems.append(
-                f"{rail}: site 10/11 -- absent from the Makefile "
+                f"{rail}: site 9/10 -- absent from the Makefile "
                 f"`determinism:` prerequisite list, but {why}.")
 
-        evaluated |= {4, 5, 8}
+        evaluated |= {4, 5, 7}
         if not readers:
             notes.append(
-                f"{rail}: sites 4+5+8 not required -- no test module reads "
+                f"{rail}: sites 4+5+7 not required -- no test module reads "
                 f"`{subdir}/symbol_map.json` at collection time "
                 f"(map {rel_map})")
             continue
 
         if rel_map not in MAPS:
             problems.append(
-                f"{rail}: site 4/11 -- `{rel_map}` is absent from "
+                f"{rail}: site 4/10 -- `{rel_map}` is absent from "
                 f"tests/conftest.py MAPS, but {', '.join(readers)} read(s) it "
                 f"at COLLECTION time. The freshness guard cannot check it.")
         else:
             target, argv = MAPS[rel_map]
             if target != rail:
                 problems.append(
-                    f"{rail}: site 4/11 -- conftest.MAPS['{rel_map}'] names "
+                    f"{rail}: site 4/10 -- conftest.MAPS['{rel_map}'] names "
                     f"make target '{target}', not '{rail}'. The guard's "
                     f"'minimal fix' line would tell a reader to run the "
                     f"wrong target.")
             if list(argv) != list(mk_argv):
                 problems.append(
-                    f"{rail}: site 4/11 -- conftest.MAPS['{rel_map}'] argv "
+                    f"{rail}: site 4/10 -- conftest.MAPS['{rel_map}'] argv "
                     f"{list(argv)} is not the Makefile's invocation "
                     f"{list(mk_argv)}. The guard would re-emit the map a "
                     f"different way than the build does, so 'STALE' would "
@@ -835,7 +1044,7 @@ def check() -> tuple[list[str], list[str], set]:
 
         if subdir not in SUBDIR:
             problems.append(
-                f"{rail}: site 5/11 -- '{subdir}' is absent from "
+                f"{rail}: site 5/10 -- '{subdir}' is absent from "
                 f"tests/conftest.py _SUBDIR_MAP. THIS ONE IS SILENT: "
                 f"`_map_of()` keys off _SUBDIR_MAP, so it falls back to "
                 f"build/symbol_map.json (the TOY map) -- "
@@ -844,14 +1053,14 @@ def check() -> tuple[list[str], list[str], set]:
                 f"reads as an unrelated prerequisite problem.")
         elif SUBDIR[subdir] != rel_map:
             problems.append(
-                f"{rail}: site 5/11 -- _SUBDIR_MAP['{subdir}'] is "
+                f"{rail}: site 5/10 -- _SUBDIR_MAP['{subdir}'] is "
                 f"'{SUBDIR[subdir]}', not '{rel_map}'.")
 
         for module in guard_visible_readers(rel_map):
             entry = reviewed.get(module)
             if entry is None or rel_map not in entry:
                 problems.append(
-                    f"{rail}: site 8/11 -- test_map_freshness_guard.py's "
+                    f"{rail}: site 7/10 -- test_map_freshness_guard.py's "
                     f"reviewed dict has no entry mapping {module} -> "
                     f"{rel_map}, but the guard's own scanner "
                     f"(conftest.maps_named_in) sees that module read it at "
@@ -866,6 +1075,9 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--list", action="store_true",
                     help="print the derived rail -> map table and exit 0")
+    ap.add_argument("--expected-images", action="store_true",
+                    help="print the derived `<image> <reason>` set `make "
+                         "gates` must produce, and exit 0")
     args = ap.parse_args(argv)
 
     try:
@@ -875,6 +1087,13 @@ def main(argv=None) -> int:
                 rel, argv_ = maps.get(rail, ("(no allocator recipe)", []))
                 print(f"  {rail:<16} {rel:<32} {' '.join(argv_)}")
             return 0
+        if args.expected_images:
+            # Machine-read by tools/bare_check.sh: `<name><space><reason>`,
+            # one per line, name first so a consumer can cut at the first
+            # space and never has to parse the prose.
+            for img, why in sorted(expected_images().items()):
+                print(f"{img} {why}")
+            return 0
         problems, notes, evaluated = check()
         n_rails = len(rails())
     except RailError as e:
@@ -883,10 +1102,10 @@ def main(argv=None) -> int:
 
     if problems:
         print("RAIL NOT REGISTERED: a rail under game/ is wired into some of "
-              "its eleven sites and not others.\n"
+              "its ten sites and not others.\n"
               "(Makefile .PHONY | gates rail list | gates md5 list | "
-              "conftest.MAPS | conftest._SUBDIR_MAP | bare_check.sh "
-              "size list | bare_check.sh rom_md5 list | freshness-guard "
+              "conftest.MAPS | conftest._SUBDIR_MAP | the landing gate's "
+              "derived expected-image set | freshness-guard "
               "reviewed dict | AGENTS.md build-first block | determinism "
               "prereqs | test prereqs)",
               file=sys.stderr)
@@ -894,7 +1113,7 @@ def main(argv=None) -> int:
             print(f"  {p}", file=sys.stderr)
         return 1
 
-    ALL_SITES = set(range(1, 12))
+    ALL_SITES = set(range(1, 11))
     if evaluated != ALL_SITES:
         print(f"RAIL REGISTRATION FAILED: only site checks "
               f"{sorted(evaluated)} ran (expected all of "
@@ -903,28 +1122,29 @@ def main(argv=None) -> int:
         return 1
 
     conftest_checked = n_rails - len(notes)
+    n_images = len(expected_images())
     print(f"rail-registered OK: {n_rails} rail(s) under game/ present at all "
           f"{len(evaluated)} sites "
           f"(.PHONY, gates rail list, gates md5 list, "
-          f"conftest.MAPS, conftest._SUBDIR_MAP, bare_check.sh size "
-          f"list, bare_check.sh rom_md5 list, freshness-guard reviewed dict, "
+          f"conftest.MAPS, conftest._SUBDIR_MAP, the landing gate's derived "
+          f"expected-image set, freshness-guard reviewed dict, "
           f"AGENTS.md build-first block, determinism prereqs, test prereqs); "
-          f"sites 4+5+8 demanded of {conftest_checked}/{n_rails} "
+          f"sites 4+5+7 demanded of {conftest_checked}/{n_rails} "
           f"(the rails whose test module reads their map at collection "
-          f"time), site 10 of the rails a Machine-driving module names "
-          f"anywhere plus the falsify plant's own, site 11 of every rail "
+          f"time), site 9 of the rails a Machine-driving module names "
+          f"anywhere plus the falsify plant's own, site 10 of every rail "
           f"(the suite collects every module, so `make test` must pre-build "
           f"all of them)")
     for n in notes:
         print(f"  note: {n}")
+    print(f"  site 6's set is DERIVED from `make gates` itself and holds "
+          f"{n_images} image(s) — every rail plus the variant and control "
+          f"images no `game/` dir backs. `tools/rail_registered.py "
+          f"--expected-images` prints it; the landing gate reads it.")
     print("  checked: the rail is NAMED at each site — not that the site's "
-          "recipe is correct. The build gates prove that.")
-    print("  NOT checked, since the hosted workflow was retired on 2026-08-22: "
-          "the ROM-step sweep that ran over ci.yml's steps and caught a VARIANT "
-          "target built-but-never-measured. Every remaining measurement list "
-          "(bare_check.sh sizes, bare_check.sh md5s, the gates md5 loop) is "
-          "rail-scoped, so eight variant/control ROMs `make gates` builds are "
-          "now measured nowhere — see this file's docstring.")
+          "recipe is correct. The build gates prove that. Site 6 is the one "
+          "arm that resolves a target to a FILE, which is still not a claim "
+          "that the recipe works.")
     return 0
 
 

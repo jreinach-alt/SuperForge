@@ -1,8 +1,9 @@
 """`make bare-check`, tried against real violations.
 
-runtime: ~30-42 s, measured (6 cases) — each clones this repo into tmp, and
-the clone is what dominates. That is only affordable because of the gate-block
-substitution below; without it this module would be half an hour.
+runtime: ~30-42 s per clone-and-run case, measured — each test clones this
+repo into tmp, and the clone is what dominates. That is only affordable
+because of the gate-block substitution below; without it this module would be
+half an hour.
 
 AGENTS.md: "when you add a gate, prove it fails on a real violation before
 believing it." bare-check stands where a CI push trigger otherwise would, so
@@ -30,9 +31,19 @@ clone, verify the tip, hide any configured sibling tree, run, record, propagate
 the exit code —
 which is the part that could silently stop having teeth. The gate block itself
 is proven by `make gates`' own tests and by running it for real.
+
+...WITH ONE EXCEPTION, and it is the reason `_plant_cheap_gates` exists. The
+ROM CENSUS step deliberately does NOT run under a substituted block: a
+substitute builds one target, so "svd_nowin.sfc is absent" would be true and
+meaningless, and a gate that fails for a reason it did not test is noise. The
+census plants therefore cannot use `BARE_CHECK_GATES` — they keep the gate
+command as `make gates` and replace what `gates:` DOES, with a stand-in that
+runs in seconds and still carries the two things the census reads: a `run
+<target>;` sequence for the derivation, and a summary file for the artifact.
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -40,6 +51,12 @@ from pathlib import Path
 import pytest
 
 SUPERFORGE = Path(__file__).resolve().parent.parent
+
+# The tools the landing gate RUNS, as opposed to the tree it checks. Each is
+# taken from the WORKING TREE into every planted clone for the same reason
+# bare_check.sh itself is (see the `repo` fixture): a change to any of them
+# must be under test before it is committed, not after.
+GATE_TOOLS = ("bare_check.sh", "rail_registered.py", "fix_checksum.py")
 
 
 def _git(repo, *args, check=True):
@@ -94,18 +111,47 @@ def repo(pristine, tmp_path):
     """A fresh copy of the pristine clone, per test."""
     dst = tmp_path / "repo"
     shutil.copytree(pristine, dst, symlinks=True)
-    # Test the script IN THE WORKING TREE, not the one in HEAD. The clone
-    # carries HEAD's copy, so without this an edit to bare_check.sh is tested
-    # only after it is committed — which is the wrong way round for a gate,
-    # and cost one 8-minute run to notice (the substituted gate block was
-    # silently ignored and the full block ran instead). Committed as part of
-    # the plant so the clone inside bare-check sees it too.
-    shutil.copy2(SUPERFORGE / "tools" / "bare_check.sh",
-                 dst / "tools" / "bare_check.sh")
-    _git(dst, "add", "tools/bare_check.sh")
-    _git(dst, "commit", "-qm", "test: use the working tree's bare_check.sh",
+    # Test the tools IN THE WORKING TREE, not the ones in HEAD. The clone
+    # carries HEAD's copies, so without this an edit to bare_check.sh is
+    # tested only after it is committed — which is the wrong way round for a
+    # gate, and cost one 8-minute run to notice (the substituted gate block
+    # was silently ignored and the full block ran instead). Committed as part
+    # of the plant so the clone inside bare-check sees it too.
+    for tool in GATE_TOOLS:
+        shutil.copy2(SUPERFORGE / "tools" / tool, dst / "tools" / tool)
+        _git(dst, "add", f"tools/{tool}")
+    _git(dst, "commit", "-qm", "test: use the working tree's gate tools",
          check=False)
     return dst
+
+
+_GATES_RULE = re.compile(r"^gates: \| \$\(BUILD\)\n(?:\t.*\n)*", re.M)
+
+
+def _plant_cheap_gates(repo, runs, *, post="", extra_rules=""):
+    """Swap `gates:` for a seconds-scale stand-in, and commit it.
+
+    `runs` is the `run <target>;` sequence — the thing `expected_images()`
+    derives the expected set from, so a plant controls what the census
+    demands by writing this. `post` is a shell fragment run after the
+    builds (how an image gets corrupted AFTER `fix_checksum.py` has had its
+    say — it refuses a lying header at build time, so the only way to plant
+    one is behind its back). `extra_rules` is appended after the stand-in.
+    """
+    mk = repo / "Makefile"
+    src = mk.read_text()
+    assert _GATES_RULE.search(src), "PLANT GUARD: Makefile lost `gates:`"
+    cheap = (
+        "gates: | $(BUILD)\n"
+        '\t@run() { $(MAKE) "$$1"; }; \\\n'
+        f"\t{runs} \\\n"
+        + (f"\t{post} \\\n" if post else "")
+        + "\tprintf '  toy          ok       exit 0\\n' "
+          "> $(BUILD)/gates_summary.txt\n")
+    mk.write_text(_GATES_RULE.sub(lambda _m: cheap + extra_rules, src,
+                                  count=1))
+    _git(repo, "add", "Makefile")
+    _git(repo, "commit", "-qm", "plant: a seconds-scale stand-in for gates:")
 
 
 # ---------------------------------------------------------------------------
@@ -281,7 +327,124 @@ def test_a_deleted_vendored_file_still_referenced_goes_red(repo):
 
 
 # ---------------------------------------------------------------------------
-# 3. the artifact — it is the citable result, so its shape is load-bearing
+# 3. the ROM census — derived at both ends, so both ends get a violation
+# ---------------------------------------------------------------------------
+#
+# Until 2026-08-23 the landing gate measured a hand-maintained, rail-scoped
+# list of ROMs, and `make gates`'s build list is not rail-scoped: eight
+# variant/control images the block builds were measured nowhere and seven more
+# had never been measured at all. Both ends are derived now — WHAT IS MEASURED
+# from `build/*.sfc`, WHAT MUST BE THERE from the `gates:` run-list — and each
+# end fails in its own way, so each gets its own plant.
+
+
+def test_an_expected_image_that_is_not_built_goes_red_by_name(repo):
+    """The property the retired ci.yml ROM-step sweep uniquely had.
+
+    A rail census asks "for each dir under game/, is it named here?" and so
+    cannot see a target that builds an image and then stops. This plant is
+    exactly that shape: a target whose rule names an image, whose recipe
+    succeeds, and which produces no file. The old measured list would have
+    said nothing — the image was never in it.
+    """
+    _plant_cheap_gates(
+        repo, "run toy; run ghost;",
+        extra_rules="ghost: $(BUILD)/ghost.sfc\n\n"
+                    "$(BUILD)/ghost.sfc:\n"
+                    "\t@true\n")
+
+    proc, doc = _run_bare_check(repo, gates="make gates")
+
+    combined = proc.stdout + proc.stderr
+    assert proc.returncode == 1, (
+        f"bare-check passed a gate block that stopped building an image it "
+        f"is supposed to build (exit {proc.returncode})\n{combined[-3000:]}")
+    assert doc["verdict"] == "RED", doc
+    assert "EXPECTED IMAGE ABSENT" in combined, combined[-3000:]
+    assert "build/ghost.sfc" in combined, (
+        f"red, but the run did not NAME the missing image:\n"
+        f"{combined[-3000:]}")
+    assert doc["steps"]["rom-census"].startswith("FAIL"), doc["steps"]
+    assert doc["measurement"]["absent"] == ["ghost"], doc["measurement"]
+
+
+def test_an_image_whose_header_lies_about_its_length_goes_red(repo):
+    """The other end: the expected SIZE now comes from the image itself.
+
+    `tools/fix_checksum.py` refuses to patch a checksum over a header that
+    declares the wrong length, and it runs on every linked image on every
+    build — which is what makes the header a per-image authority and let the
+    hand-maintained `rom:size` list retire. So the plant has to go in AFTER
+    the build, behind that refusal's back, which is also the only way this
+    could ever happen for real (a poked byte, a truncated copy).
+    """
+    _plant_cheap_gates(
+        repo, "run toy;",
+        # $7FD7 declares 2^N KB. toy links 32,768 B and declares $05; $06
+        # says 65,536 while the file stays 32,768.
+        post="$(PY) -c \"f=open('$(BUILD)/toy.sfc','r+b');"
+             "f.seek(0x7FD7);f.write(b'\\x06');f.close()\";")
+
+    proc, doc = _run_bare_check(repo, gates="make gates")
+
+    combined = proc.stdout + proc.stderr
+    assert proc.returncode == 1, (
+        f"bare-check passed an image whose header lies about its length "
+        f"(exit {proc.returncode})\n{combined[-3000:]}")
+    assert doc["verdict"] == "RED", doc
+    # BOTH numbers, or the reader cannot tell which end is wrong.
+    assert "build/toy.sfc" in combined and "32768" in combined \
+        and "65536" in combined, (
+        f"red, but the run did not name the file and both lengths:\n"
+        f"{combined[-3000:]}")
+    assert doc["steps"]["rom-census"].startswith("FAIL"), doc["steps"]
+    assert doc["rom_sizes"]["toy"]["ok"] is False, doc["rom_sizes"]["toy"]
+
+
+def test_the_census_records_every_image_and_says_where_it_got_its_numbers(
+        repo):
+    """The healthy arm — without it the two plants above are a constant.
+
+    Also the artifact's shape: the census is the thing the landing rule
+    quotes, so it has to carry the count, the md5s, and where each half of
+    the derivation came from.
+    """
+    _plant_cheap_gates(repo, "run toy;")
+
+    proc, doc = _run_bare_check(repo, gates="make gates")
+
+    assert proc.returncode == 0, f"{proc.stdout[-3000:]}{proc.stderr[-3000:]}"
+    assert doc["verdict"] == "GREEN", doc
+    assert doc["steps"]["rom-census"] == "pass", doc["steps"]
+
+    m = doc["measurement"]
+    assert m["absent"] == [], m
+    assert m["measured_count"] == len(doc["rom_sizes"]) >= 1, m
+    assert m["expected_count"] == 1, (
+        f"the stand-in runs one image-producing target, so exactly one "
+        f"image should be demanded: {m}")
+    assert "header" in m["expected_size_from"], m
+    assert "--expected-images" in m["expected_set_from"], m
+    # MEASURED is wider than DEMANDED, on purpose: setup.sh's own sanity
+    # test links microzero before the block runs, and the census counts it
+    # without anything having asked for it. A census that only counted what
+    # it demanded would be the old list wearing a derivation's clothes.
+    assert m["measured_count"] >= m["expected_count"], m
+
+    # toy is 32,768 B and its header says so; the md5 is RECORDED, not pinned.
+    assert doc["rom_sizes"]["toy"] == {
+        "expected": "32768", "actual": "32768", "ok": True,
+        "expected_from": "header"}, doc["rom_sizes"]["toy"]
+    assert re.fullmatch(r"[0-9a-f]{32}", doc["rom_md5"]["toy"]), doc["rom_md5"]
+    assert set(doc["rom_md5"]) == set(doc["rom_sizes"]), (
+        "the two census tables disagree about which images were measured")
+    # ...and the COUNT is on the surface a reader actually looks at.
+    assert f"measured: {m['measured_count']} image(s)" in proc.stdout, \
+        proc.stdout[-2000:]
+
+
+# ---------------------------------------------------------------------------
+# 4. the artifact — it is the citable result, so its shape is load-bearing
 # ---------------------------------------------------------------------------
 
 def test_a_green_run_records_the_sha_it_checked_and_what_it_did_not_hold(repo):
