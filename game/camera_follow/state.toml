@@ -42,10 +42,10 @@ ts_step = "u16@dp"       # this frame's whole-unit step in world px, published
                          # TICK: ok — the OUTPUT of the scaler; already
                          # expressed against the declared tick.
 # ---------------------------------------------------------------------------
-# (The blank run above is load-bearing: `make tick-check`'s override radius is
-# THREE LINES, so a `TICK: ok` sitting closer than that to the next
-# declaration silences ITS finding too. The heartbeat below is a real
-# frame-unit declaration and must keep being counted.)
+# (`make tick-check` binds an override to the ONE declaration whose comment
+# block holds it, so a reason written above cannot reach past this break onto
+# the word below. The heartbeat below is a real frame-unit declaration with no
+# override of its own, and it must keep being counted.)
 frames = "u16@dp"        # frames since enter. Drives nothing — the
                          # free-running heartbeat a test reads to tell "the
                          # tick is running" from "the tick is stuck" (the

@@ -78,3 +78,4 @@ vmax = "u16@dp"          # terminal fall speed, 8.8 (PAT_MAX_FALL * r)
                          # declared tick; it is the scaler's output, not a
                          # frame count.
 vjump = "u16@dp"         # take-off velocity, 8.8 two's complement
+                         # TICK: ok — as vmax.

@@ -1,0 +1,22 @@
+# The override binding, in the shape state.toml actually writes: one stamp,
+# one site. Declarations sit two lines apart, so a three-line window reached
+# straight over a neighbour.
+[scene.play]
+tsp_acc = "u16@dp"       # the carried fraction, 8.8
+                         # TICK: ok — the carried FRACTION of a scaled rate.
+tsp = "u16@dp"           # this frame's whole-px answer
+                         # TICK: ok — the OUTPUT of the scaler.
+tse_acc = "u16@dp"       # a second rate's carried fraction, 8.8
+                         # TICK: ok — as tsp_acc.
+hurt = "u16@dp"          # i-frames after a hit, and NOT tse_acc's business
+
+[scene.other]
+# TICK: ok — the word below indexes a table, not a clock.
+ok_head = "u16@dp"       # frames since enter
+
+[scene.third]
+near = "u16@dp"          # a countdown in frames
+                         # TICK: ok — a preload count. Three lines of reason
+                         # text follow this one, which is exactly what used to
+                         # push the window down onto the word below.
+neighbour = "u16@dp"     # a countdown in frames, with no reason of its own

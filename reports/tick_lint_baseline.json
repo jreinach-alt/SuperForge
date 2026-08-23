@@ -967,14 +967,14 @@
   },
   {
     "file": "game/m7_dungeon/scenes/dungeon.asm",
-    "line": 252,
+    "line": 253,
     "rule": "tick-constant",
     "message": "`PATROL_SPEED = 1` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
     "severity": "error"
   },
   {
     "file": "game/m7_dungeon/scenes/dungeon.asm",
-    "line": 260,
+    "line": 261,
     "rule": "tick-constant",
     "message": "`GRACE_FRAMES = 40` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
     "severity": "error"
@@ -1597,9 +1597,9 @@
   },
   {
     "file": "game/railshooter/state.toml",
-    "line": 18,
+    "line": 26,
     "rule": "tick-state",
-    "message": "`ts_acc` is declared in a frame unit ('clock'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
+    "message": "`cam_x` is declared in a frame unit ('frame'). One tick is one frame here; if that ever stops being true this word needs a rounding decision, and docs/95 \u00a75.2 measured that 39 of these have no correct x5/6.",
     "severity": "error"
   },
   {
@@ -2395,14 +2395,14 @@
   },
   {
     "file": "tools/tick_lint.py",
-    "line": 122,
+    "line": 150,
     "rule": "tick-substrate",
     "message": "the NTSC frame's master-cycle count as a literal. A PAL frame is 425,568 mc (measured); every percent-of-frame and modulo built on this number means 'the NTSC frame' where it reads as 'the frame'.",
     "severity": "error"
   },
   {
     "file": "tools/tick_lint.py",
-    "line": 185,
+    "line": 213,
     "rule": "tick-substrate",
     "message": "the NTSC frame's master-cycle count as a literal. A PAL frame is 425,568 mc (measured); every percent-of-frame and modulo built on this number means 'the NTSC frame' where it reads as 'the frame'.",
     "severity": "error"

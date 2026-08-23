@@ -224,9 +224,10 @@ DECEL_PAL     = DG_RGAIN(DG_RGAIN(DECEL))       ; 8  -> 12
 ; TICK: ok — SPEED_CAP_PAL is the region compensator's OWN output; naming the
 ;   frame it converts into is what the line is for.
 SPEED_CAP_PAL = DG_RGAIN(SPEED_CAP)             ; 320 -> 385 (1.504 px/frame)
-; TICK: ok — the two below are TS_STEP BASES, which is the unit that removes
-;   the coupling: what they name is the tick they convert out of.
+; TICK: ok — a TS_STEP BASE, which is the unit that removes the coupling:
+;   what it names is the tick it converts out of.
 TURN_BASE     = TURN_STEP * TS_ONE              ; the TS_STEP base: 1 unit/frame
+; TICK: ok — as TURN_BASE: a TS_STEP base, not a count of frames.
 PATROL_BASE   = PATROL_SPEED * TS_ONE           ; ...and one world px/frame
 
 ; --- the pad --------------------------------------------------------------

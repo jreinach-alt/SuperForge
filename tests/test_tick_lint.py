@@ -7,6 +7,12 @@ clean control. Three shapes matter most:
 
   * a violation must be REFUSED (the gate has teeth),
   * a BARE `TICK: ok` must itself be refused (the stamp is not the reason),
+  * an override must bind exactly ONE site. This tree declares its rates in
+    tight runs, so the superseded three-line window silenced neighbours whose
+    reason was written for the word next door; `binding_state.toml` and
+    `override_binding.asm` carry both shapes, and each fixture site is
+    checked to have been inside that window so the tests fail the day they
+    stop being regressions,
   * the two rules that separate a UNIT from a WORD must hold: `EDGE = 2
     ; frame line` is a border and `ROLL_FIX = 8 ; the 8.8 fraction width` is
     a shift, and neither is a clock. Those two false positives are why the
@@ -91,7 +97,63 @@ def test_ntsc_frame_constant_and_frame_ntsc_read_are_refused():
 
 def test_a_reasoned_override_suppresses():
     assert 13 not in lines_for("frame_state.toml", "tick-state")
-    assert 12 not in lines_for("frame_engine.asm", "tick-routine")
+    # `ok_step:` (line 13) with its reason on the indented line beneath it.
+    assert 13 not in lines_for("frame_engine.asm", "tick-routine")
+
+
+def _within_old_window(name, line, window=3):
+    """Would the SUPERSEDED three-line window have silenced this site? The
+    binding tests below are only regression fixtures if the answer is yes, so
+    the old rule is re-derived here rather than asserted from memory."""
+    lines = (FIX / name).read_text().splitlines()
+    return any(TL.RE_TICK_OK.search(lines[i])
+               for i in range(max(0, line - 1 - window),
+                              min(len(lines), line + window)))
+
+
+def test_an_override_binds_the_declaration_it_sits_under():
+    """The state.toml shape: the reason is written on the indented lines
+    beneath the word it is about, so it binds THAT word and no other."""
+    assert TL.override_anchor(
+        (FIX / "binding_state.toml").read_text().splitlines(), 6) == 5
+    for site in (5, 7, 9, 15, 18):
+        assert site not in lines_for("binding_state.toml", "tick-state")
+
+
+def test_an_override_no_longer_silences_the_declaration_beside_it():
+    """`hurt` sits one line under `tse_acc`'s reason and `neighbour` three
+    lines under `near`'s. Both were inside the old window and neither reason
+    was written for them; both are counted now."""
+    got = lines_for("binding_state.toml", "tick-state")
+    assert got == [11, 22]
+    for site in got:
+        assert _within_old_window("binding_state.toml", site), \
+            f"line {site} is not a regression fixture — the old window " \
+            f"would not have silenced it either"
+
+
+def test_a_column_zero_block_heads_one_declaration_and_does_not_reach_back():
+    """The assembly shape: a derivation block above the equate it derives.
+    It binds the FIRST declaration below it — not the second (`PATROL_BASE`),
+    and not the one above it (`MO_LIFE_FRAMES`)."""
+    lines = (FIX / "override_binding.asm").read_text().splitlines()
+    assert TL.override_anchor(lines, 3) == 4      # heads TURN_BASE
+    assert TL.override_anchor(lines, 9) == 10     # heads MO_LIFE_PAL
+    got = lines_for("override_binding.asm", "tick-constant")
+    assert got == [5, 7]
+    for site in got:
+        assert _within_old_window("override_binding.asm", site)
+
+
+def test_one_override_binds_at_most_one_site():
+    """The property the whole binding exists for, stated directly: no line
+    may be claimed by two different stamps, and no stamp may claim two."""
+    for name in ("binding_state.toml", "override_binding.asm",
+                 "frame_state.toml", "frame_engine.asm"):
+        lines = (FIX / name).read_text().splitlines()
+        anchors = [TL.override_anchor(lines, i + 1)
+                   for i, l in enumerate(lines) if TL.RE_TICK_OK.search(l)]
+        assert len(anchors) == len(set(anchors)), name
 
 
 def test_a_bare_override_is_itself_a_finding():

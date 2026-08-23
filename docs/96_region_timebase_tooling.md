@@ -247,9 +247,32 @@ site would have to be re-decided if the tick ever stopped being the frame.*
 # TICK: ok — <reason text>          (Python, TOML)
 ```
 
-within 3 lines, reason REQUIRED, separators em-dash / en-dash / `--` / ` - ` /
-`: ` — `width_lint`'s and `no_wallclock`'s grammar verbatim, not a third
-syntax. A bare stamp is itself a finding.
+Reason REQUIRED, separators em-dash / en-dash / `--` / ` - ` / `: ` —
+`width_lint`'s and `no_wallclock`'s grammar verbatim, not a third syntax. A
+bare stamp is itself a finding.
+
+**One override binds exactly ONE site**, and that is where this gate departs
+from its two siblings. They take any override within three lines of a
+finding; this tree writes its frame-unit declarations in tight runs — a
+declaration every two lines through a rail's rate block — so a three-line
+window reaches straight over a neighbour and silences a word its reason was
+never written for. The binding instead follows the SHAPE of the comment the
+reason is written in:
+
+| the reason is written… | it binds… |
+|---|---|
+| trailing on the code or declaration line | that line |
+| on an INDENTED comment-only line | the declaration whose trailing comment block it continues (walk up to the first non-comment line) — the `state.toml` shape |
+| on a comment-only line at COLUMN 0 | the declaration its block heads (walk down to the first non-comment line) — the assembly shape |
+
+A stamp can no longer blank the declaration beside it, and a run of four
+rates needs four reasons. An override whose anchor carries no finding binds
+nothing: the prose block-headers that introduce a whole derivation are inert
+by design, not findings in themselves. Both shapes are regression fixtures
+(`tests/fixtures/tick_lint/binding_state.toml`,
+`tests/fixtures/tick_lint/override_binding.asm`), and each fixture site is
+checked to have been inside the superseded window, so the tests fail if they
+stop being regressions.
 
 Two vocabularies, deliberately, and the difference is what keeps the baseline
 readable. `tick-state` uses `docs/95`'s loose word list, because a state

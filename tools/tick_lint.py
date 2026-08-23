@@ -89,9 +89,37 @@ THE OVERRIDE
     ; TICK: ok — <reason text>          (assembly)
     # TICK: ok — <reason text>          (Python, TOML)
 
-within 3 lines before, on, or after the flagged line. Em-dash, en-dash,
-double-hyphen, " - " and ": " are all accepted separators, exactly as in
-`width_lint.py` and `no_wallclock.py`; the reason text is REQUIRED.
+Em-dash, en-dash, double-hyphen, " - " and ": " are all accepted separators,
+exactly as in `width_lint.py` and `no_wallclock.py`; the reason text is
+REQUIRED.
+
+AN OVERRIDE BINDS TO EXACTLY ONE SITE — it is not a window. The sibling
+lints take any override within three lines of a finding, and that is wrong
+for this one: this tree writes its frame-unit declarations in TIGHT RUNS
+(`tsp_acc` / `tsp` / `tse_acc` / `tse`, one declaration every two lines), so
+a three-line window reaches straight over a neighbour and silences a site
+its reason was never written for. Sixteen live sites were being carried that
+way — including four whose OWN reasoned override had drifted out of the
+window and was landing on the declaration next door instead.
+
+So the binding follows the SHAPE OF THE COMMENT the override is written in,
+which is the shape this tree already uses to say what a comment is about:
+
+  * trailing on a code or declaration line  ->  that line;
+  * an INDENTED comment-only line  ->  the declaration whose trailing comment
+    block it continues: walk up over the contiguous comment run to the first
+    line that is not a comment. This is the `state.toml` shape, where the
+    reason is written under the word it is about;
+  * a comment-only line at COLUMN 0  ->  the declaration its block HEADS:
+    walk down over the contiguous comment run to the first line that is not
+    a comment. This is the assembly shape, where a derivation block is
+    written above the equates it derives.
+
+One override, one site: a stamp can no longer blank the declaration beside
+it, and a run of four rates needs four reasons. An override whose anchor
+carries no finding simply binds nothing — the prose block-headers that
+introduce a whole derivation are inert by design and are not themselves
+findings.
 
 The reason a site legitimately takes: it is region-independent by
 construction (a table indexed by something other than time), it is already
@@ -207,7 +235,9 @@ RE_TICK_OK = re.compile(
     r"\s*(\S.*\S|\S)", re.IGNORECASE)
 RE_TICK_BARE = re.compile(r"[#;]\s*TICK:\s*ok\s*$", re.IGNORECASE)
 
-OVERRIDE_RADIUS = 3
+# A comment-only line, capturing its indent — the indent is what says whether
+# the comment TRAILS the declaration above it or HEADS the one below.
+RE_COMMENT_ONLY = re.compile(r"^(\s*)[#;]")
 
 # Which extensions each scan reads.
 ASM_EXT = (".asm", ".inc")
@@ -229,14 +259,44 @@ class Finding:
                 "message": self.message, "severity": self.severity}
 
 
-def has_override(lines: list[str], lineno: int,
-                 window: int = OVERRIDE_RADIUS) -> Optional[str]:
-    idx = lineno - 1
-    for i in range(max(0, idx - window), min(len(lines), idx + window + 1)):
-        m = RE_TICK_OK.search(lines[i])
-        if m:
-            return m.group(1).strip()
-    return None
+def override_anchor(lines: list[str], lineno: int) -> Optional[int]:
+    """The ONE line an override written on `lineno` (1-based) binds to.
+
+    Trailing on a code line it binds that line. On an INDENTED comment-only
+    line it binds the declaration whose trailing comment block it continues
+    (walk up); on a COLUMN-0 comment-only line it binds the declaration its
+    block heads (walk down). Returns None when the walk runs off the file.
+    """
+    m = RE_COMMENT_ONLY.match(lines[lineno - 1])
+    if not m:
+        return lineno
+    i = lineno - 1
+    if m.group(1):                       # indented -> the block TRAILS
+        j = i - 1
+        while j >= 0 and RE_COMMENT_ONLY.match(lines[j]):
+            j -= 1
+        return j + 1 if j >= 0 else None
+    j = i + 1                            # column 0 -> the block HEADS
+    while j < len(lines) and RE_COMMENT_ONLY.match(lines[j]):
+        j += 1
+    return j + 1 if j < len(lines) else None
+
+
+def bind_overrides(lines: list[str]) -> dict[int, str]:
+    """{anchored line -> reason text} for every reasoned override in the file.
+
+    One override binds at most one line, so a stamp can never reach past its
+    own comment block onto the declaration next door.
+    """
+    bound: dict[int, str] = {}
+    for i, line in enumerate(lines):
+        m = RE_TICK_OK.search(line)
+        if not m:
+            continue
+        anchor = override_anchor(lines, i + 1)
+        if anchor is not None:
+            bound.setdefault(anchor, m.group(1).strip())
+    return bound
 
 
 def detect_bare_overrides(path: str, lines: list[str]) -> list[Finding]:
@@ -406,7 +466,8 @@ def lint_file(path: str) -> list[Finding]:
         raw += check_generator(path, lines)
     raw += check_substrate(path, lines)
 
-    kept = [f for f in raw if has_override(lines, f.line) is None]
+    bound = bind_overrides(lines)
+    kept = [f for f in raw if f.line not in bound]
     kept.extend(detect_bare_overrides(path, lines))
     seen, out = set(), []
     for f in sorted(kept, key=lambda f: (f.line, f.rule)):
