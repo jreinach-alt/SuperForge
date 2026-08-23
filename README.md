@@ -59,6 +59,28 @@ works alone, and each collides with something else over a resource neither side
 ever wrote down. Making the composition provable is the whole design, and all
 three of them are in `game/` and `engine/features/` because of it.
 
+## One cart, both regions
+
+The 16-bit era's standard PAL conversion shipped the NTSC game unchanged and
+let a 50 Hz console play it at 83.2% speed. European players spent a
+generation complaining about it, and it is still the normal homebrew answer.
+
+This kit's answer is a declared one. A game states its per-frame rates against
+a **tick**; `engine/features/region` reads the console's own region line once
+at boot and `engine/features/tick_scale` scales that tick by the measured
+frame ratio, carrying the fraction between frames. Everything downstream keeps
+saying "move one step" — what a step *is* becomes a property of the timebase.
+The same ROM then covers the same distance per **second** on both machines.
+
+It is opt-in, per game. **28 of the 37 games compose it** — every playable one
+— and they measure a real-time parity band of **0.994–1.027**, against the
+**0.832** an uncompensated game reads. The other nine say why in their own
+`game.toml`: seven are determinism trials whose frame-indexed sweeps are the
+thing under test, and two are deferred with the measurement that defers them.
+NTSC does not move — the picture is pixel-identical against every pre-change
+image, per game. [`docs/98`](docs/98_region_fleet_landing.md) has the band,
+the exemptions and the two deferrals.
+
 ## The showcase
 
 Eight of the library's games, and what each one proves. Every clip is recorded
