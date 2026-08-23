@@ -244,6 +244,20 @@ full git history. That residue is recorded in the artifact under
 `isolation.not_reproduced` and explained in
 [`docs/44`](docs/44_bare_check_migration.md).
 
+**A module whose full run costs real time says so on its first docstring
+line**, as `runtime: ~N — <what dominates>`, measured rather than guessed, and
+naming a warm build tree where that is what the number depends on. The heavy
+ones today are `tests/test_rail_registered.py` (~20+ min — 20 cases, each
+synthesising a violating tree and running the gate over every rail),
+`tests/test_bare_check.py` (~30-42 s — six repo clones), and the two that
+shell out to `make` and are therefore cheap warm and minutes cold,
+`tests/test_map_freshness_guard.py` (~6 s) and `tests/test_make_gates.py`
+(~2-3 s); select a node rather than the module when you want one answer out
+of any of them. Two of those four described themselves as costing *minutes*
+and were measured in seconds — a runtime claim nobody re-measures is exactly
+the kind of number that rots, so the label carries what it was measured
+against.
+
 **Never pipe pytest through `tail` without `PIPESTATUS`.** A masked exit code
 let a red suite land once. `make test` does it correctly; copy that pattern.
 

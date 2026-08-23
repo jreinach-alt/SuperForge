@@ -1,8 +1,12 @@
 """`make rail-registered`, tried against a real violation at every site.
 
-SLOW BY DESIGN — each case synthesises a violating tree and runs the gate
-over every rail, per site (minutes for the module). For one decisive check
-select a node: `pytest tests/test_rail_registered.py::test_the_live_tree_is_registered -q` (~30 s).
+runtime: ~20+ minutes — 20 cases, each synthesising a violating tree and
+running the gate over every rail. The floor is measured rather than guessed:
+13 of the 20 completed in a 15-minute cap on a warm build tree.
+
+SLOW BY DESIGN, and it is the heaviest module in the suite. For one decisive
+check select a node:
+`pytest tests/test_rail_registered.py::test_the_live_tree_is_registered -q` (~30 s).
 
 AGENTS.md: "when you add a gate, prove it fails on a real violation before
 believing it." The violation is the one waves 1-5 kept committing — a rail

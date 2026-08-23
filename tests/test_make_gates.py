@@ -1,8 +1,9 @@
 """The gates as `make` targets — the layer nothing tested until a later review.
 
-SLOW BY DESIGN — this module launches whole `make` pipelines (a node can
-cost minutes and one launches the full gate block). It is a landing-time
-meta-test, not an iteration loop: to answer one question, select one node.
+runtime: ~2-3 s on a warm build tree, measured (11 cases) — but it launches
+whole `make` pipelines, so on a cold tree a node pays for whatever its target
+builds and the module is minutes. It is a landing-time meta-test, not an
+iteration loop: to answer one question, select one node.
 
 Every other gate test in this suite invokes the underlying *script*
 (`tools/gen_register.py --check`, `allocator/allocate.py`) and calls that "the
