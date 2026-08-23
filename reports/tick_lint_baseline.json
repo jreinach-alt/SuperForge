@@ -344,21 +344,21 @@
   },
   {
     "file": "engine/features/sh2_cam/sh2_cam.asm",
-    "line": 765,
+    "line": 814,
     "rule": "tick-routine",
     "message": "`cam_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
   },
   {
     "file": "engine/features/sh2_cam/sh2_cam.asm",
-    "line": 793,
+    "line": 854,
     "rule": "tick-routine",
     "message": "`cam_advance` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
   },
   {
     "file": "engine/features/sh2_swarm/sh2_swarm.asm",
-    "line": 103,
+    "line": 111,
     "rule": "tick-constant",
     "message": "`SWM_BEAT = ES_SWM_CTL_LONG + 2` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
     "severity": "error"

@@ -24,10 +24,18 @@
 ;  reached (Chebyshev < 24 on BOTH wrapped axes)
 ;  -> wp = (wp + 1) & 3, and a ONE-FRAME PAUSE (no move this frame)
 ;  else steer: cross = (fwd >> 3) x (delta >> 3)
-;  cross < 0 -> h += 1; cross > 0 -> h -= 1
-;  cross = 0 and dot < 0 -> h += 1 (the 180-degree tie-break)
+;  cross < 0 -> h += US_TSH; cross > 0 -> h -= US_TSH
+;  cross = 0 and dot < 0 -> h += US_TSH (the 180-degree tie-break)
 ;  then move at HALF the camera speed: move256[h] >> 1 through the same 8.8
 ;  per-axis accumulators the camera drive uses.
+;
+; THE TWO REGION WORDS ARE THE SCENE'S, and both are read here for the same
+; reason the cameras read them: a follower's turn and step are the SAME motion
+; the cameras make, at half the speed, out of the same table. `US_MOVE_ARM`
+; picks which arm of `sh2_move256` this console reads and `US_TSH` is the pose
+; step sh2_cam published for the frame. Neither is camera state, so the
+; rotation-invariance above is untouched — on NTSC they are 0 and 1, and this
+; file's arithmetic is what it was to the bit.
 ;
 ; WHY EVERYTHING IS SHIFTED RIGHT BY THREE. The steering cross product is two
 ; signed 8x8 HARDWARE multiplies (`mpp_mul8`), and an 8x8 multiply needs both
@@ -336,7 +344,8 @@ swm_ai:
     and #SWM_HMASK
     asl a
     asl a
-    tax                                 ; h * 4: the move LUT's byte index
+    ora z:US_MOVE_ARM                   ; h * 4 inside this console's move arm
+    tax
     lda f:SH2_MOVE_LONG + 0, x
     SWM_ASR3
     sta z:SWM_FX
@@ -380,13 +389,20 @@ swm_ai:
     adc z:SWM_T1                        ; A = dot
     cmp #$8000
     bcc @move                           ; dot >= 0: the heading is fine
+; THE CORRECTION IS US_TSH, not a bare +/-1, and it is the same published word
+; the two cameras turn by (sh2_cam's cam_advance computes it once per frame).
+; A follower's turn and a follower's step are one motion: scaling the step and
+; not the turn would walk the same path at a different radius, which is the
+; inconsistency the whole region pair exists to avoid. On NTSC the word is 1 and
+; these are the `inc a` / `dec a` they replaced, to the bit.
 @hplus:
     .a16
     .i16
     ldx z:SWM_ENT
     lda f:ES_SWM_ENTS_LONG + SWM_E_HWP, x
     tay
-    inc a
+    clc
+    adc z:US_TSH
     and #SWM_HMASK
     sta z:SWM_T0
     tya
@@ -400,8 +416,9 @@ swm_ai:
     ldx z:SWM_ENT
     lda f:ES_SWM_ENTS_LONG + SWM_E_HWP, x
     tay
-    dec a
-    and #SWM_HMASK                      ; -1 wraps to 255 under the mask
+    sec
+    sbc z:US_TSH
+    and #SWM_HMASK                      ; a negative step wraps under the mask
     sta z:SWM_T0
     tya
     and #SWM_HIBYTE
@@ -419,6 +436,7 @@ swm_ai:
     and #SWM_HMASK
     asl a
     asl a
+    ora z:US_MOVE_ARM                   ; ...the same arm the steer read
     tax
     lda f:SH2_MOVE_LONG + 0, x
     cmp #$8000

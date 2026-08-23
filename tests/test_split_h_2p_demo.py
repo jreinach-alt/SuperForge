@@ -106,7 +106,8 @@ from mesen_runner import MesenRunner, MemoryType  # noqa: E402
 # ca65's .incbin, six HDMA channels and the PPU to become pixels.
 from gen_split_h_2p_assets import (MOVE_SCALE, PAL_FALLBACK,  # noqa: E402
                                    POSE_BYTES, POSES, SLICE_BYTES, SLICES,
-                                   move_lut, pose_blobs, tilemap, world_blob)
+                                   move_lut, pal_move_scale, pose_blobs,
+                                   tilemap, world_blob)
 
 BUILD = SUPERFORGE / "build"
 ROM = BUILD / "split_h_2p_demo.sfc"
@@ -181,7 +182,12 @@ DASB_OFF = 7                                      # $43x7 within that block
 ACTIVE_TOP, ACTIVE_H = 7, LINES
 
 TILEMAP = tilemap()
-MOVE = move_lut(POSES)
+# The move LUT is a REGION PAIR: the NTSC arm and the PAL one, in that order,
+# inside a single ROM claim. Everything in this module runs on the DEFAULT
+# region, so MOVE is the arm the ROM under test actually reads; MOVE_PAL is
+# asserted into the image so the second arm cannot go unchecked.
+MOVE = move_lut(POSES, MOVE_SCALE)
+MOVE_PAL = move_lut(POSES, pal_move_scale())
 
 
 def _rgb5(word):
@@ -642,8 +648,21 @@ def test_every_pose_slice_landed_where_its_claim_says(fresh):
                 f"{claim} at ROM ${at:05X} is not the generator's slice — "
                 f"{sum(a != b for a, b in zip(got, want))} of {SLICE_BYTES} "
                 f"bytes differ")
+    # BOTH region arms, in claim order. The NTSC arm is what this run reads;
+    # the PAL arm is bytes a console this harness is not emulating would read,
+    # so nothing else in the module can reach it — an unasserted second arm is
+    # exactly the "claim nothing fills" shape the rom-backing gate refuses, one
+    # level down.
     at = _sym("ES_R_SH2_MOVE256", None)["start"]
+    size = _sym("ES_R_SH2_MOVE256", None)["size"]
+    assert size == len(MOVE) + len(MOVE_PAL), (
+        f"the sh2_move256 claim is {size} B, not the two {len(MOVE)} B region "
+        f"arms the ROM addresses by one stride")
     assert image[at:at + len(MOVE)] == MOVE, "sh2_move256 is not the move LUT"
+    assert image[at + len(MOVE):at + size] == MOVE_PAL, (
+        "the second sh2_move256 arm is not the PAL move LUT")
+    assert MOVE != MOVE_PAL, (
+        "the two move arms are the same table — the region pair is vacuous")
 
 
 def test_cgram_is_the_palette_and_word_0_is_the_backdrop(fresh):

@@ -18,7 +18,18 @@ Emits into $(BUILD)/assets (deterministic, byte-identical on re-run):
                                 bank = base_bank + (h >> 6).
     sh2_move256.bin    1,024 B  256 forward vectors, (dx, dy) s16 in 8.8:
                                 entry h = round(2*256*(-sin, -cos)(2πh/256)) —
-                                a CONSTANT 2.0 px/frame at every heading.
+                                a CONSTANT 2.0 px/frame at every heading. This
+                                is the NTSC ARM of a region pair.
+    sh2_move256_pal.bin 1,024 B the PAL arm: the SAME table at the PAL
+                                magnitude, 2.0 * (1 + TS_GAIN_NUM/TS_GAIN_DEN)
+                                px/frame, so a PAL frame carries the distance
+                                1.2018039 NTSC frames do. The ratio is READ out
+                                of engine/features/tick_scale/tick_scale.asm
+                                (ts_gain below) — this file does not hold a
+                                second copy of it. The ROM picks an arm once at
+                                scene enter off ES_RGN_PAL and every read after
+                                that is the same long-indexed load, so the
+                                compensation costs no per-frame work.
 
 The SPRITE PROJECTOR is the same geometry, inverted:
 
@@ -146,7 +157,13 @@ SLICE_BYTES = SLICE_POSES * POSE_BYTES
 SLICES = POSES // SLICE_POSES
 
 # 8.8 forward speed: 2.0 world px/frame at every heading (2 * 256).
+# TICK: ok — a VELOCITY in this kit's 8.8 rate format, and the region pair
+#   below is exactly what expresses it against BOTH declared ticks rather than
+#   against one of them.
 MOVE_SCALE = 512.0
+
+# Where the frame ratio lives. ONE copy, in the feature that owns it.
+TICK_SCALE_ASM = REPO / "engine" / "features" / "tick_scale" / "tick_scale.asm"
 
 # The five CGRAM words, in index order. Parsed from the vendored oracle when it
 # is present (see palette()); these are the fallback for a tree without it.
@@ -266,21 +283,68 @@ def slice_of(blob: bytes, k: int) -> bytes:
     return piece
 
 
-# --- the forward-vector LUT --------------------------------------------------
-def move_lut(n: int) -> bytes:
+# --- the forward-vector LUT, and its region pair -----------------------------
+def ts_gain() -> tuple[int, int]:
+    """(TS_GAIN_NUM, TS_GAIN_DEN), READ from the feature that owns them.
+
+    The PAL arm of the move LUT is the NTSC one at 1 + NUM/DEN times the
+    magnitude, and that ratio has exactly ONE home in this tree:
+    `engine/features/tick_scale/tick_scale.asm`, which derives it from the two
+    master-clock rates and the two measured frame lengths. Writing 1.2018039
+    here would be a second copy of a measured constant — the duplicated-constant
+    defect this kit refuses everywhere else — so it is parsed instead, and an
+    unparseable file is a REFUSAL rather than a fallback: a generator that
+    silently baked a wrong ratio would ship a PAL arm that looks right and
+    measures 17% slow.
+    """
+    if not TICK_SCALE_ASM.is_file():
+        raise SystemExit(
+            f"gen_split_h_2p_assets: {TICK_SCALE_ASM} is absent — the PAL arm "
+            f"of the move LUT is scaled by the frame ratio that feature owns, "
+            f"and this generator will not invent a second copy of it.")
+    text = TICK_SCALE_ASM.read_text()
+    vals = []
+    for name in ("TS_GAIN_NUM", "TS_GAIN_DEN"):
+        m = re.search(rf"^{name}\s*=\s*(\d+)", text, re.MULTILINE)
+        if m is None:
+            raise SystemExit(f"gen_split_h_2p_assets: {TICK_SCALE_ASM.name} "
+                             f"has no {name} equate — the frame ratio moved, "
+                             f"and the PAL move arm is derived from it.")
+        vals.append(int(m.group(1)))
+    num, den = vals
+    if not 0 < num < den:
+        raise SystemExit(f"gen_split_h_2p_assets: TS_GAIN_NUM/TS_GAIN_DEN is "
+                         f"{num}/{den}, which is not a gain in (0, 1) — a PAL "
+                         f"frame carries MORE distance than an NTSC one.")
+    return num, den
+
+
+def pal_move_scale() -> float:
+    """The PAL arm's 8.8 magnitude: the NTSC one plus the gain's share of it."""
+    num, den = ts_gain()
+    return MOVE_SCALE * (den + num) / den
+
+
+def move_lut(n: int, scale: float) -> bytes:
     """n forward vectors, (dx, dy) as two s16 words in 8.8 fixed point.
 
-    `entry h = round(2*256*(-sin, -cos)(2*pi*h/n))`: screen-up from the band's
+    `entry h = round(scale*(-sin, -cos)(2*pi*h/n))`: screen-up from the band's
     bottom-centre pivot maps to world (-sin, -cos) under the pose rotation, and
-    the 2*256 scale is a CONSTANT 2.0 px/frame at EVERY heading. The rail keeps
-    a per-axis 8.8 fractional accumulator, which is what removes the speed
-    pulse and the direction staircase an integer velocity produces.
+    the scale is a CONSTANT magnitude at EVERY heading. The rail keeps a
+    per-axis 8.8 fractional accumulator, which is what removes the speed pulse
+    and the direction staircase an integer velocity produces.
+
+    `scale` IS THE REGION. MOVE_SCALE is 2.0 px per NTSC frame; the PAL arm is
+    the same geometry at pal_move_scale(), so picking an arm is the whole of
+    this rail's region compensation and the runtime arithmetic is untouched.
+    Rounding per ENTRY rather than rounding the magnitude first keeps the PAL
+    arm's per-heading error the same shape as the NTSC arm's.
     """
     out = bytearray()
     for h in range(n):
         a = 2.0 * math.pi * h / n
-        out += struct.pack("<hh", round(-MOVE_SCALE * math.sin(a)),
-                           round(-MOVE_SCALE * math.cos(a)))
+        out += struct.pack("<hh", round(-scale * math.sin(a)),
+                           round(-scale * math.cos(a)))
     return bytes(out)
 
 
@@ -990,8 +1054,8 @@ def main(argv=None) -> int:
         write(out / f"sh2_pose256_ab_s{k}.bin", slice_of(ab256, k), made)
         write(out / f"sh2_pose256_cd_s{k}.bin", slice_of(cd256, k), made)
 
-    # --- the forward-vector LUT ---------------------------------------------
-    mv = move_lut(POSES)
+    # --- the forward-vector LUT, both region arms ---------------------------
+    mv = move_lut(POSES, MOVE_SCALE)
     if len(mv) != POSES * 4:
         raise SystemExit("gen_split_h_2p_assets: move LUT length is wrong")
     # The rail's own drive invariant, asserted where it is created: heading 0
@@ -1004,6 +1068,42 @@ def main(argv=None) -> int:
                          f"(0, {-int(MOVE_SCALE)}) — heading 0 is world -y")
     check_oracle("move256", mv, "ref_move256.bin", notes)
     write(out / "sh2_move256.bin", mv, made)
+
+    # --- the PAL arm --------------------------------------------------------
+    # NO ORACLE, and that is stated rather than glossed: the vendored reference
+    # set predates the region pair and holds one arm. What backs this one is the
+    # arm beside it — same function, same headings, one scale factor apart — so
+    # the invariants asserted here are RELATIONS to the matched blob rather than
+    # a second unverified derivation. The oracle still gates the geometry; this
+    # gates the scaling.
+    pal_scale = pal_move_scale()
+    mv_pal = move_lut(POSES, pal_scale)
+    if len(mv_pal) != len(mv):
+        raise SystemExit("gen_split_h_2p_assets: the PAL move arm is not the "
+                         "same length as the NTSC one — the ROM addresses the "
+                         "two by one stride")
+    # Heading 0 is straight up-screen on BOTH arms: world -y, no x component.
+    if struct.unpack("<hh", mv_pal[0:4]) != (0, -round(pal_scale)):
+        raise SystemExit(f"gen_split_h_2p_assets: PAL move[0] is "
+                         f"{struct.unpack('<hh', mv_pal[0:4])}, must be "
+                         f"(0, {-round(pal_scale)}) — heading 0 is world -y")
+    # ...and the arm is FASTER everywhere it is not zero. A PAL frame carries
+    # more distance than an NTSC one, so an arm that matched the NTSC one at
+    # any non-zero component would be the un-scaled table under a new name.
+    ntsc_w = struct.unpack(f"<{POSES * 2}h", mv)
+    pal_w = struct.unpack(f"<{POSES * 2}h", mv_pal)
+    if any(abs(p) < abs(q) for p, q in zip(pal_w, ntsc_w)):
+        raise SystemExit("gen_split_h_2p_assets: a PAL move component is "
+                         "SMALLER in magnitude than its NTSC one — the arm is "
+                         "not the scaled table")
+    if not any(abs(p) > abs(q) for p, q in zip(pal_w, ntsc_w)):
+        raise SystemExit("gen_split_h_2p_assets: the PAL move arm is nowhere "
+                         "faster than the NTSC one — the scale did not apply")
+    gnum, gden = ts_gain()
+    notes.append(f"move256 PAL arm: {pal_scale / (1 << 8):.5f} px/frame from "
+                 f"the NTSC arm's {MOVE_SCALE / (1 << 8):.5f}, gain "
+                 f"{gnum}/{gden} read from {TICK_SCALE_ASM.name}")
+    write(out / "sh2_move256_pal.bin", mv_pal, made)
 
     write(out / "sh2_pal.bin", palette(notes), made)
 

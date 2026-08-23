@@ -85,7 +85,8 @@ INC="-I $MAP -I $VROM -I game/split_h_2p_demo
      -I engine/features/input -I engine/features/input2
      -I engine/features/sh2_floor -I engine/features/sh2_cam
      -I engine/features/oam_sprites -I engine/features/m7_persp_project
-     -I engine/features/sh2_swarm -I engine/features/sh2_obj"
+     -I engine/features/sh2_swarm -I engine/features/sh2_obj
+     -I engine/features/region -I engine/features/tick_scale"
 
 if [ ! -f "$MAP/symbol_map.json" ]; then
     echo "build_split_h_2p_variants: run 'make split_h_2p_demo' first ($MAP is missing)" >&2

@@ -59,6 +59,13 @@ NMI:
 .include "input.asm"
 .include "input2.asm"
 .include "oam_sprites.asm"
+.include "region.asm"               ; $213F bit 4 -> ES_RGN_PAL, once at boot
+.include "tick_scale.asm"           ; TS_STEP: the macro sh2_cam's cam_advance
+                                    ;   expands for the heading rate. INCLUDED
+                                    ;   BEFORE THE FEATURE THAT EXPANDS IT — a
+                                    ;   ca65 macro must be defined before the
+                                    ;   line that uses it, and sh2_cam.asm is
+                                    ;   pulled in by the scene below.
 
 ; --- the ROM claim sites ---------------------------------------------------
 ; Each site .asserts its blob's linker placement against the allocator's emitted
@@ -96,37 +103,50 @@ sh2_map_bin:
 ; The ORDER of the windows is the allocator's, not a preference: place_rom
 ; packs free claims by (-bytes, name), so the map takes window 1 and the eight
 ; equal-sized slices take 2..9 in name order — AB before CD, s0..s3. The
-; 4,096 B of slack left in the first slice's window is where the 1,024-byte
-; move LUT and the 10-byte palette pack, which is why those two live in BANK2
-; beside `ab_s0` rather than in a window of their own.
+; 4,096 B of slack left in the first slice's window is where the 2,048-byte
+; move LUT pair and the 2,048-byte character block pack, which is why those two
+; live in BANK2 beside `ab_s0` rather than in a window of their own — and it is
+; exactly full, so the small sprite tables and the palette now sit in BANK3.
+; Growing the move LUT into a region pair is what moved them: the window's slack
+; is a fact about the claims, not a reservation, and the per-site asserts turned
+; the re-sort into a build failure rather than six blobs reading each other.
 .segment "BANK2"
 sh2_pose256_ab_s0_bin:
     .incbin "sh2_pose256_ab_s0.bin"
 .assert ^sh2_pose256_ab_s0_bin = ES_R_SH2_POSE256_AB_S0_BANK, error, "sh2_pose256_ab_s0 bank drifted from allocator claim"
 .assert .loword(sh2_pose256_ab_s0_bin) = ES_R_SH2_POSE256_AB_S0_ADDR, error, "sh2_pose256_ab_s0 addr drifted from allocator claim"
+; The move LUT is a REGION PAIR in one claim: the NTSC arm at offset 0 and the
+; PAL arm one stride on. Both `.incbin`s are unconditional — which arm the ROM
+; reads is decided at scene enter from ES_RGN_PAL, not at assembly time, so a
+; cartridge carries both and runs at speed on either console. The size assert is
+; what proves the two together FILL the claim: a stride that stopped matching
+; would otherwise leave the second arm reading whatever the linker left behind.
+sh2_move256_bin:
+    .incbin "sh2_move256.bin"
+    .incbin "sh2_move256_pal.bin"
+.assert ^sh2_move256_bin = ES_R_SH2_MOVE256_BANK, error, "sh2_move256 bank drifted from allocator claim"
+.assert .loword(sh2_move256_bin) = ES_R_SH2_MOVE256_ADDR, error, "sh2_move256 addr drifted from allocator claim"
+.assert * - sh2_move256_bin = ES_R_SH2_MOVE256_SIZE, error, "the two sh2_move256 region arms do not fill the claim"
 sh2_sp_chr_bin:
     .incbin "sh2_sp_chr.bin"
 .assert ^sh2_sp_chr_bin = ES_R_SH2_SP_CHR_BANK, error, "sh2_sp_chr bank drifted from allocator claim"
 .assert .loword(sh2_sp_chr_bin) = ES_R_SH2_SP_CHR_ADDR, error, "sh2_sp_chr addr drifted from allocator claim"
-sh2_move256_bin:
-    .incbin "sh2_move256.bin"
-.assert ^sh2_move256_bin = ES_R_SH2_MOVE256_BANK, error, "sh2_move256 bank drifted from allocator claim"
-.assert .loword(sh2_move256_bin) = ES_R_SH2_MOVE256_ADDR, error, "sh2_move256 addr drifted from allocator claim"
-sh2_sp_sincos_bin:
-    .incbin "sh2_sp_sincos.bin"
-.assert ^sh2_sp_sincos_bin = ES_R_SH2_SP_SINCOS_BANK, error, "sh2_sp_sincos bank drifted from allocator claim"
-.assert .loword(sh2_sp_sincos_bin) = ES_R_SH2_SP_SINCOS_ADDR, error, "sh2_sp_sincos addr drifted from allocator claim"
 
 .segment "BANK3"
 ; ORDER IS THE ALLOCATOR'S, not a preference: place_rom packs the free
 ; claims by (-bytes, name), so the sites here follow build/sh2/allocation_report.txt
-; exactly. Adding sh2_ents and sh2_way re-sorted this window, and the per-site
-; .asserts are what turned that into a build failure rather than eight blobs
-; quietly reading each other's bytes.
+; exactly. Adding sh2_ents and sh2_way re-sorted this window once; the move LUT's
+; second region arm re-sorted it again, pushing sincos and the palette in from
+; BANK2. The per-site .asserts are what turned both into a build failure rather
+; than nine blobs quietly reading each other's bytes.
 sh2_pose256_ab_s1_bin:
     .incbin "sh2_pose256_ab_s1.bin"
 .assert ^sh2_pose256_ab_s1_bin = ES_R_SH2_POSE256_AB_S1_BANK, error, "sh2_pose256_ab_s1 bank drifted from allocator claim"
 .assert .loword(sh2_pose256_ab_s1_bin) = ES_R_SH2_POSE256_AB_S1_ADDR, error, "sh2_pose256_ab_s1 addr drifted from allocator claim"
+sh2_sp_sincos_bin:
+    .incbin "sh2_sp_sincos.bin"
+.assert ^sh2_sp_sincos_bin = ES_R_SH2_SP_SINCOS_BANK, error, "sh2_sp_sincos bank drifted from allocator claim"
+.assert .loword(sh2_sp_sincos_bin) = ES_R_SH2_SP_SINCOS_ADDR, error, "sh2_sp_sincos addr drifted from allocator claim"
 sh2_ents_bin:
     .incbin "sh2_ents.bin"
 .assert ^sh2_ents_bin = ES_R_SH2_ENTS_BANK, error, "sh2_ents bank drifted from allocator claim"
@@ -258,6 +278,10 @@ MAIN:
     jsr fade_init
     jsr input_init
     jsr input2_init
+    jsr region_init             ; the console's own region line, once. It is
+                                ;   game-lifetime state: a console does not
+                                ;   change region between scenes, and the
+                                ;   scene's enter reads it to pick a move arm.
     jsr oam_park_all            ; whole shadow written before its first DMA
     ; ---- NO AUDIO BOOT, deliberately -------------------------------------
     ; There is no `Tad_Init` / `Tad_LoadSong` here because this rail is silent:

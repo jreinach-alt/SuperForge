@@ -2119,6 +2119,7 @@ SH2_SLICES := 0 1 2 3
 SH2_ASSETS := $(BUILD)/assets/sh2_map.bin $(BUILD)/assets/sh2_pal.bin \
               $(BUILD)/assets/sh2_pose1_ab.bin $(BUILD)/assets/sh2_pose1_cd.bin \
               $(BUILD)/assets/sh2_move256.bin \
+              $(BUILD)/assets/sh2_move256_pal.bin \
               $(foreach k,$(SH2_SLICES),$(BUILD)/assets/sh2_pose256_ab_s$(k).bin) \
               $(foreach k,$(SH2_SLICES),$(BUILD)/assets/sh2_pose256_cd_s$(k).bin) \
               $(BUILD)/assets/sh2_sp_sincos.bin $(BUILD)/assets/sh2_sp_vk.bin \
@@ -2261,7 +2262,8 @@ SH2_ASM   := $(SH2)/main.asm $(wildcard $(SH2)/scenes/*.asm) \
 
 $(SH2_MAP)/engine_state_globals.inc $(SH2_MAP)/symbol_map.json: \
 		allocator/substrate.toml allocator/allocate.py allocator/schemas.py \
-		$(wildcard engine/features/*/feature.toml) $(SH2)/game.toml | $(BUILD)
+		$(wildcard engine/features/*/feature.toml) $(SH2)/game.toml \
+		$(SH2)/state.toml | $(BUILD)
 	$(PY) allocator/allocate.py --game $(SH2) --features-dir engine/features \
 		--out $(SH2_MAP)
 
@@ -2275,7 +2277,8 @@ SH2_INC := -I $(SH2_MAP) -I $(VROM) -I $(SH2) \
            -I engine/features/input -I engine/features/input2 \
            -I engine/features/sh2_floor -I engine/features/sh2_cam \
            -I engine/features/oam_sprites -I engine/features/m7_persp_project \
-           -I engine/features/sh2_swarm -I engine/features/sh2_obj
+           -I engine/features/sh2_swarm -I engine/features/sh2_obj \
+           -I engine/features/region -I engine/features/tick_scale
 
 $(BUILD)/split_h_2p_demo.sfc: $(SH2_ASM) \
 		$(SH2_MAP)/engine_state_globals.inc $(SH2_ASSETS) \

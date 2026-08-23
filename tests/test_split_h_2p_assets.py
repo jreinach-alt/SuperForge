@@ -65,7 +65,8 @@ BLOBS = (
     ("ref_poses1_cd.bin", lambda: gen.pose_blobs(0.0)[1], "pose CD"),
     ("ref_poses256_ab.bin", lambda: _set256()[0], "pose256 AB"),
     ("ref_poses256_cd.bin", lambda: _set256()[1], "pose256 CD"),
-    ("ref_move256.bin", lambda: gen.move_lut(gen.POSES), "move256"),
+    ("ref_move256.bin", lambda: gen.move_lut(gen.POSES, gen.MOVE_SCALE),
+     "move256"),
 )
 
 
@@ -190,7 +191,8 @@ def test_the_generator_exits_zero_and_writes_every_blob_normally(tmp_path):
     r = subprocess.run([sys.executable, "tools/gen_split_h_2p_assets.py", str(out)],
                        cwd=SUPERFORGE, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
-    want = ["sh2_map.bin", "sh2_move256.bin", "sh2_pal.bin",
+    want = ["sh2_map.bin", "sh2_move256.bin", "sh2_move256_pal.bin",
+            "sh2_pal.bin",
             "sh2_pose1_ab.bin", "sh2_pose1_cd.bin",
             # the projector's tables and the character block
             "sh2_sp_sincos.bin", "sh2_sp_vk.bin", "sh2_sp_recip_lo.bin",
@@ -234,7 +236,7 @@ def _swarm_inputs():
     tabs = (gen.sincos_lut(), gen.vk_lut(ramp),
             [rlo[k] | (rhi[k] << 8) for k in range(gen.LINES)],
             gen.tier_ladder(ramp))
-    mv = gen.move_lut(gen.POSES)
+    mv = gen.move_lut(gen.POSES, gen.MOVE_SCALE)
     return tabs, gen.camera_states(mv), mv
 
 
@@ -360,21 +362,61 @@ def test_pose_h_lands_where_the_rom_addresses_it(tmp_path):
         assert want_cd == cd[h * gen.POSE_BYTES:(h + 1) * gen.POSE_BYTES]
 
 
-def test_the_move_lut_is_a_constant_speed_circle(tmp_path):
-    """Every entry has magnitude 2.0 px/frame (8.8), and h=0 is world -y.
+@pytest.mark.parametrize("arm", ("ntsc", "pal"))
+def test_the_move_lut_is_a_constant_speed_circle(arm):
+    """Every entry has the arm's own magnitude (8.8), and h=0 is world -y.
 
     The rail's motion tests measure DISPLACEMENT off the framebuffer; if the
     LUT's magnitude varied with heading, "the camera drives forward" would be
     a claim whose rate depended on where it was pointing. Asserted where the
     LUT is made, in the units the ROM consumes.
+
+    BOTH ARMS, because the claim now holds two and only one of them is ever
+    read by a test that boots a ROM on this harness. The PAL arm is a whole
+    table nothing else in the suite would touch; if it were a circle of the
+    wrong radius, or not a circle, the rail would be wrong on exactly the
+    console this conversion was for.
     """
-    mv = gen.move_lut(gen.POSES)
+    scale = gen.MOVE_SCALE if arm == "ntsc" else gen.pal_move_scale()
+    mv = gen.move_lut(gen.POSES, scale)
     import struct
     for h in range(gen.POSES):
         dx, dy = struct.unpack("<hh", mv[h * 4:(h + 1) * 4])
         mag = (dx * dx + dy * dy) ** 0.5
-        assert abs(mag - gen.MOVE_SCALE) < 1.0, (
-            f"heading {h} has |v| = {mag:.2f}, not {gen.MOVE_SCALE}")
-    assert struct.unpack("<hh", mv[0:4]) == (0, -int(gen.MOVE_SCALE))
+        assert abs(mag - scale) < 1.0, (
+            f"{arm} heading {h} has |v| = {mag:.2f}, not {scale}")
+    assert struct.unpack("<hh", mv[0:4]) == (0, -round(scale))
     # A quarter turn is world +x: 256/4 = heading 64 -> (-sin, -cos)(pi/2).
-    assert struct.unpack("<hh", mv[64 * 4:65 * 4]) == (-int(gen.MOVE_SCALE), 0)
+    assert struct.unpack("<hh", mv[64 * 4:65 * 4]) == (-round(scale), 0)
+
+
+def test_the_pal_move_arm_carries_the_frame_ratio_the_timebase_owns():
+    """The PAL arm is the NTSC one at tick_scale's OWN gain — not a copy of it.
+
+    THE POINT OF THE PAIR is that a PAL frame carries 1.2018039 times the
+    distance an NTSC frame does, so the two consoles cover the same ground per
+    real second. That ratio has one home in this tree; this asserts the
+    generator reads it from there and applies it, so a lane that re-derived the
+    number locally would fail here rather than ship a floor that looks right and
+    measures 17% slow.
+    """
+    num, den = gen.ts_gain()
+    src = (SUPERFORGE / "engine" / "features" / "tick_scale"
+           / "tick_scale.asm").read_text()
+    assert f"TS_GAIN_NUM = {num}" in src and f"TS_GAIN_DEN = {den}" in src, (
+        "ts_gain() did not read the equates it claims to read")
+    assert gen.pal_move_scale() == gen.MOVE_SCALE * (den + num) / den
+    # ...and the arm that comes out is FASTER everywhere, which is the whole
+    # observable consequence. A gain applied with the wrong sign, or not at
+    # all, lands here.
+    ntsc = gen.move_lut(gen.POSES, gen.MOVE_SCALE)
+    pal = gen.move_lut(gen.POSES, gen.pal_move_scale())
+    assert ntsc != pal
+    import struct
+    for h in range(gen.POSES):
+        n = struct.unpack("<hh", ntsc[h * 4:(h + 1) * 4])
+        p = struct.unpack("<hh", pal[h * 4:(h + 1) * 4])
+        for a, b in zip(p, n):
+            assert abs(a) >= abs(b), (
+                f"heading {h}: the PAL arm's {a} is slower than the NTSC "
+                f"arm's {b}")

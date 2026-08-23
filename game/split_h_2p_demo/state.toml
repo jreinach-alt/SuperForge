@@ -1,0 +1,46 @@
+# split_h_2p_demo user state — the REGION's three words, and nothing else.
+#
+# This rail declared no user state at all until it was converted: the two
+# cameras, the swarm and the projector each own their own claims, and the scene
+# is glue. What arrives here is the state the CONSOLE decides, which belongs to
+# neither of them — sh2_cam's drive and sh2_swarm's follower step both read the
+# same move LUT and the same heading step, so a word owned by either feature
+# would make one of them the other's dependency.
+#
+# The scene sets all three: `move_arm` once at enter (the console cannot change
+# region), the other two once per frame at the top of cam_advance.
+
+[scene.split]
+
+# --- which arm of the move LUT this console reads ---------------------------
+# 0 on NTSC, one arm-stride on PAL. sh2_rom's `sh2_move256` claim holds BOTH
+# forward-vector tables — 2.0 px per NTSC frame and 2.40361 px per PAL frame,
+# the same distance per real second — and this word is ORed into the `h * 4`
+# index every reader already computes. That is the whole per-frame cost of the
+# compensation: one dp OR at each of the two places an index is built, and no
+# second code path, no repeated state step and no runtime multiply.
+move_arm = "u16@dp"
+# TICK: ok — an ADDRESS OFFSET, not a count of anything. It selects which
+#   table is read; the frames are inside the table's units, which is exactly
+#   where this rail wanted them.
+
+# --- the heading rate, through tick_scale -----------------------------------
+# THE ONE RATE THE LUT PAIR CANNOT CARRY, and it is worth saying why. A held
+# D-pad steps a camera's heading one pose per frame, and the autonomous build
+# steps both every frame; the followers' steering correction is the same ±1.
+# That is a RATE — poses per frame — but it is a rate in the LUT's INDEX, and a
+# table indexed by heading has nowhere to put it. Left alone the translation
+# would run at real-time parity while the rotation ran 17% slow, which turns a
+# circle of one radius into a circle of another: `tools/rate_oracle.py`'s
+# `cam1_head` observable is what reads that, and it is why this rail composes
+# `tick_scale` and does not merely swap a table.
+#
+# ONE PAIR FOR THREE CONSUMERS, which the doctrine allows because all three are
+# the same base rate (one pose per frame): both cameras and every follower read
+# the step this publishes. The step is computed ONCE at the top of the tick.
+tsh_acc = "u16@dp"
+# TICK: ok — the carried FRACTION of a scaled rate. It exists to remove a
+#   frame coupling, not to hold one, and it has no meaning in frames.
+tsh = "u16@dp"
+# TICK: ok — the OUTPUT of the scaler; already expressed against the declared
+#   tick, in whole heading poses.

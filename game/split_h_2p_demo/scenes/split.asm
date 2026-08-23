@@ -52,6 +52,15 @@ enter:
     .i16
     jsr floor_arm                   ; 32 KB interleaved plane + 5 colours + M7SEL
 
+    ; ---- the console, read ONCE ------------------------------------------
+    ; FIRST, because everything below moves at the speed it picks: cam_region
+    ; reads ES_RGN_PAL (region_init set it at boot) and writes the scene's three
+    ; region words — which arm of the move LUT this console reads, and the
+    ; heading scaler's accumulator and published step. A console does not change
+    ; region, so this is the only read of the flag on the motion path; the
+    ; per-frame cost afterwards is one OR into an index and one TS_STEP.
+    jsr cam_region
+
     ; ---- the two cameras, seeded before anything reads them ---------------
     ; Power-on WRAM is random and sh2_cam declares no `[init] zero` for its dp
     ; claim: these four stores ARE the write-before-read contract for all eight

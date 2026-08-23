@@ -68,8 +68,35 @@
 # It also frees window 1: `tad_rom` PINS it (vendor/rom's cfg maps AUDIO_DATA0
 # to ROM1 by name), so with no audio export in the composition the 32,768 B map
 # takes window 1 and the eight pose slices take 2..9.
+# REGION + TICK_SCALE (docs/94 R0, docs/96 §4, docs/98 §4). Converted
+# 2026-08-23, by the path the deferral named: a SECOND baked move LUT at the PAL
+# magnitude, selected once at scene enter by ES_RGN_PAL. `sh2_move256` is now a
+# 2 KB claim holding both arms — 2.0 px per NTSC frame and 2.40361 px per PAL
+# frame — and `move_arm` (state.toml) is ORed into the `h * 4` index the drive
+# and the followers already build. Two cameras and 22 followers therefore scale
+# for one dp OR at two sites and no repeated state step: this rail's per-frame
+# cadence is one of the things it measures, and the state-step form docs/98 §4
+# records OVERRAN the PAL frame (the scene tick reached 423 against 479
+# VBlanks). Measured after the change: 479/479 in BOTH regions.
+#
+# TICK_SCALE IS COMPOSED, and the reason is the one rate a table indexed by
+# heading cannot carry. A held D-pad steps a heading one pose per FRAME (the
+# autonomous build steps both, and a follower's steering correction is the same
+# ±1), so the rotation is a rate in the LUT's own INDEX. With only the LUT pair
+# the translation reaches parity and the rotation stays 17% slow, which flies
+# the camera round a circle of a different radius — `tools/rate_oracle.py`'s
+# `cam1_head` observable is exactly that, and it read 0.83208 before. So the
+# heading goes through TS_STEP: ONE pair of words for all three consumers,
+# because all three are the same base rate, and one macro expansion per frame.
+#
+# Measured 2026-08-23 by tools/rate_oracle.py over a 14 s real-time window, pad
+# 1 holding B + RIGHT: cam1_x 1.00063, cam1_y 0.99969, cam1_head 1.00088 —
+# against 0.80538 / 0.86167 / 0.83208 before. NTSC is untouched: the oracle's
+# NTSC column reads 76.106099 / 76.606327 / 60.098807 per second before AND
+# after, and the parent plus all seven `-D` variants render pixel-identical NTSC
+# frames against their pre-change images (their md5s moved — the tables did).
 globals = ["scene_mgr", "fade", "input", "input2", "oam_sprites",
-           "sh2_rom", "sh2_sprite_rom"]
+           "sh2_rom", "sh2_sprite_rom", "region", "tick_scale"]
 
 [[scene]]
 id = "split"

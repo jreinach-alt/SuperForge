@@ -90,6 +90,14 @@ SH2_HALF_W   = 128                        ; half the 256-px screen: the pivot's 
 ; stops here instead of streaming a neighbouring heading's bytes.
 SH2_POSE_BYTES  = SH2_SEAM * 4            ; 448 B per band-local pose
 SH2_POSES       = 1 << 8                  ; headings in the set
+; The move LUT is a REGION PAIR inside one claim: two arms of identical shape,
+; the NTSC one at offset 0 and the PAL one a stride on. The stride is DERIVED
+; from the claim rather than restated, so growing or shrinking the pair is one
+; edit in sh2_rom's feature.toml and both halves follow.
+SH2_MOVE_ARMS      = 2
+SH2_MOVE_ARM_BYTES = ES_R_SH2_MOVE256_SIZE / SH2_MOVE_ARMS
+SH2_MOVE_ARM_NTSC  = 0
+SH2_MOVE_ARM_PAL   = SH2_MOVE_ARM_BYTES
 SH2_HEAD_MASK   = SH2_POSES - 1
 SH2_SLICE_LOG2  = 6                       ; 64 poses per bank slice
 SH2_SLICE_POSES = 1 << SH2_SLICE_LOG2
@@ -97,7 +105,12 @@ SH2_SLICE_MASK  = SH2_SLICE_POSES - 1
 
 .assert SH2_SLICE_POSES * SH2_POSE_BYTES = ES_R_SH2_POSE256_AB_S0_SIZE, error, "sh2_cam slice model disagrees with the sh2_pose256_ab_s0 claim"
 .assert SH2_SLICE_POSES * SH2_POSE_BYTES = ES_R_SH2_POSE256_CD_S0_SIZE, error, "sh2_cam slice model disagrees with the sh2_pose256_cd_s0 claim"
-.assert SH2_POSES * 4 = ES_R_SH2_MOVE256_SIZE, error, "sh2_cam heading count disagrees with the sh2_move256 claim"
+.assert SH2_POSES * 4 = SH2_MOVE_ARM_BYTES, error, "sh2_cam heading count disagrees with one arm of the sh2_move256 claim"
+; The arm is selected by ORing US_MOVE_ARM into the `h * 4` index, which is only
+; the same thing as adding it while the index cannot reach the arm's own bit —
+; i.e. while one arm is exactly a power of two bytes and the index spans it.
+; Both are asserted, so the cheap fold cannot quietly stop being correct.
+.assert (SH2_MOVE_ARM_BYTES & (SH2_MOVE_ARM_BYTES - 1)) = 0, error, "sh2_cam: one move arm is not a power of two bytes — the index OR would carry"
 ; every slice at its window's origin -> ONE loword serves all four
 .assert ES_R_SH2_POSE256_AB_S1_ADDR = ES_R_SH2_POSE256_AB_S0_ADDR, error, "sh2_pose256_ab slices are not window-aligned alike"
 .assert ES_R_SH2_POSE256_AB_S2_ADDR = ES_R_SH2_POSE256_AB_S0_ADDR, error, "sh2_pose256_ab slices are not window-aligned alike"
@@ -197,15 +210,35 @@ SH2_PTRTMP = ES_SH2_ROT + 12              ; pose-pointer multiply scratch
 SH2_H1_0 = 0
 SH2_H2_0 = SH2_POSES / 2
 
+; --- the heading rate, and why it is the one thing the LUT pair cannot carry -
+; The TRANSLATION is a table: two arms of `sh2_move256`, one per region, and
+; picking an arm is the whole compensation. The ROTATION is a step in that
+; table's own INDEX — one pose each frame a direction is held, and the same +1
+; the autonomous build applies — so no table can hold it and there is nothing
+; to bake. Left alone the camera would fly at real-time parity around a circle
+; 1.2 times too wide, because its speed scaled and its turn did not.
+;
+; So it goes through tick_scale, which is what that feature is for: TS_STEP
+; publishes 1 on NTSC (today's constant, exactly, with the fraction stuck at 0)
+; and 1 or 2 on PAL in the pattern averaging 1.2018. ONE expansion per frame in
+; cam_advance, read by both cameras and by every follower — all three are the
+; same base rate, which is the condition the doctrine puts on sharing a pair.
+;
+; TICK: ok — this block is the region compensator's derivation for this rail,
+;   and naming the NTSC frame beside the PAL one is the subject of the comment
+;   rather than a coupling in it, exactly as in tick_scale.asm.
+SH2_HEAD_BASE = TS_ONE                    ; one pose per NTSC frame held
+
 ; =============================================================================
 ; SH2_DRIVE_AXIS — one axis of one camera's forward step.
 ; =============================================================================
-; In: X = heading * 4 (the move LUT's byte index for this camera). `voff` is 0
-; for the x component and 2 for the y one; `frac` and `pos` are the DP words
-; this axis owns.
+; In: X = heading * 4, ORed with US_MOVE_ARM (the move LUT's byte index for this
+; camera, inside this console's region arm). `voff` is 0 for the x component
+; and 2 for the y one; `frac` and `pos` are the DP words this axis owns.
 ;
 ; THE ACCUMULATOR IS THE POINT. `move256[h]` is a velocity in 8.8 with a
-; CONSTANT magnitude of 2.0 px/frame at every heading. Adding it to a 16-bit
+; CONSTANT magnitude at every heading — 2.0 px per NTSC frame, 2.40361 per PAL
+; one, which is the same distance per real second. Adding it to a 16-bit
 ; fraction word makes the high byte, after the add, the frame's SIGNED integer
 ; delta (the two's-complement decomposition value = high + frac/256): that
 ; moves the position, and the low byte is kept as the carry into next frame.
@@ -589,14 +622,17 @@ SH2_JOY_B     = 1 << 15
 ; In: A16/I16, DB=0. `pad` is the input feature's latched JOY word for this
 ; player; the rest name the camera's own DP state.
 ;
-; D-pad Right/Left steps the heading one pose per frame HELD — the same +1/-1
-; the autonomous build applies, so the rotation reads at exactly the rate the
-; 256-pose set was chosen for. B drives forward 2.0 px/frame through the SAME
-; SH2_DRIVE_AXIS accumulators, so a player-driven camera and an autonomous one
-; are the same motion under different authority rather than two models.
+; D-pad Right/Left steps the heading by US_TSH HELD — the same step the
+; autonomous build applies, so the rotation reads at exactly the rate the
+; 256-pose set was chosen for, on either console. B drives forward through the
+; SAME SH2_DRIVE_AXIS accumulators against the SAME region arm, so a
+; player-driven camera and an autonomous one are the same motion under
+; different authority rather than two models.
 ;
-; Right AND Left together is a deliberate no-op (+1 then -1): the hardware can
-; report both on a worn pad, and cancelling is the honest answer.
+; Right AND Left together is a deliberate no-op (+US_TSH then -US_TSH): the
+; hardware can report both on a worn pad, and cancelling is the honest answer.
+; It cancels exactly because both arms read the ONE word published for the
+; frame, rather than each re-deciding a step.
 ;
 ; WIDTH-RISK: A16/I16 on entry AND exit, and the body contains NO sep/rep — the
 ; expansion cannot leak a width into the caller on either axis. It relies on
@@ -613,7 +649,8 @@ SH2_JOY_B     = 1 << 15
     bit #SH2_JOY_RIGHT
     beq noright
     lda z:hh
-    inc a
+    clc
+    adc z:US_TSH                    ; this frame's pose step, region-scaled
     and #SH2_HEAD_MASK
     sta z:hh
 noright:
@@ -621,8 +658,9 @@ noright:
     bit #SH2_JOY_LEFT
     beq noleft
     lda z:hh
-    dec a
-    and #SH2_HEAD_MASK              ; -1 wraps to 255 under the mask
+    sec
+    sbc z:US_TSH
+    and #SH2_HEAD_MASK              ; a negative step wraps under the mask
     sta z:hh
 noleft:
     lda z:pad
@@ -631,7 +669,8 @@ noleft:
     lda z:hh
     asl a
     asl a
-    tax                             ; X = h * 4, the move LUT's byte index
+    ora z:US_MOVE_ARM               ; X = h * 4 inside THIS console's move arm
+    tax
     SH2_DRIVE_AXIS 0, fx, posx
     SH2_DRIVE_AXIS 2, fy, posy
 nob:
@@ -669,17 +708,25 @@ cam_input:
 ; EQUAL AND OPPOSITE (+1 / -1), deliberately. Both cameras turning the same way
 ; would still prove two headings, but not two INDEPENDENT ones — the two floors
 ; would stay in lockstep forever and "they rotate separately" would be vacuous.
+;
+; ONE POSE PER FRAME IS THE NTSC ANSWER, and US_TSH is that answer for whichever
+; console this is: cam_advance publishes it once per frame through TS_STEP, so
+; the step is 1 on NTSC (bit-identically to the `inc a` this used to be) and 1
+; or 2 on PAL. The two cameras stay equal and opposite because they add and
+; subtract the SAME published word.
 cam_rotate:
     .a16
     .i16
     lda z:SH2_H1
-    inc a
+    clc
+    adc z:US_TSH
     and #SH2_HEAD_MASK
     sta z:SH2_H1
 .ifndef SH2_SAME_HEADING
     lda z:SH2_H2
-    dec a
-    and #SH2_HEAD_MASK              ; -1 wraps to 255 under the mask
+    sec
+    sbc z:US_TSH
+    and #SH2_HEAD_MASK              ; a negative step wraps under the mask
 .else
     ; THE INDEPENDENT-ROTATION NON-VACUITY CONTROL (-D SH2_SAME_HEADING).
     ; Camera 2's heading is FOLDED onto camera 1's — same start (split.asm
@@ -707,13 +754,15 @@ cam_drive:
     lda z:SH2_H1
     asl a
     asl a
-    tax                             ; X = h1 * 4, the LUT's byte index
+    ora z:US_MOVE_ARM               ; X = h1 * 4 inside THIS console's arm
+    tax
     SH2_DRIVE_AXIS 0, SH2_F1X, SH2_POS1X
     SH2_DRIVE_AXIS 2, SH2_F1Y, SH2_POS1Y
     lda z:SH2_H2
     asl a
     asl a
-    tax                             ; X = h2 * 4
+    ora z:US_MOVE_ARM               ; X = h2 * 4, same arm
+    tax
     SH2_DRIVE_AXIS 0, SH2_F2X, SH2_POS2X
     SH2_DRIVE_AXIS 2, SH2_F2Y, SH2_POS2Y
     rts
@@ -790,9 +839,23 @@ cam_tick:
 ;
 ; INPUT OR AUTONOMOUS, never both — see cam_input's header for why that is a
 ; test-surface decision rather than a preference.
+;
+; THE FRAME'S POSE STEP IS PUBLISHED HERE, first and unconditionally. TS_STEP
+; carries the fraction between frames, so it must run every frame whether or not
+; anything is turning — a step computed only on the frames a pad is held would
+; carry a fraction sampled from the player rather than from the clock. It is
+; also outside the `SH2_FREEZE` guard for the same reason: freezing the cameras
+; freezes what READS the step, not the clock that produces it.
+;
+; ONE EXPANSION PER FRAME, for both cameras and all 22 followers: swm_ai reads
+; the same word. That is the whole per-frame cost of this rail's rotation
+; compensation, and the translation's is a dp OR inside an index it already
+; computes.
 cam_advance:
     .a16
     .i16
+    TS_STEP z:US_TSH_ACC, SH2_HEAD_BASE
+    sta z:US_TSH
 .ifndef SH2_FREEZE
 .ifdef SH2_AUTOCAM
     jsr cam_rotate
@@ -801,4 +864,38 @@ cam_advance:
     jsr cam_input
 .endif
 .endif
+    rts
+
+; --- cam_region: pick this console's move arm (scene enter) -----------------
+; In/out: A16/I16, DB=0. Clobbers A.
+;
+; ONCE, AT ENTER. The console cannot change region, so this is the only place
+; the flag is read on the motion path — everything after it is an OR against a
+; word. `region_init` has already run in MAIN by the time a scene enters, and
+; US_MOVE_ARM is written on BOTH arms of the branch, which is the
+; write-before-read contract for it (power-on DP is random — rule 5).
+;
+; It also seeds the heading scaler's two words, and US_TSH_ACC is the one that
+; MUST be here: TS_STEP adds the carried fraction, so an unseeded accumulator is
+; a first frame that turns by whatever the console powered on holding. US_TSH is
+; written by every tick before anything reads it, and is seeded anyway so the
+; whole claim is written at enter rather than by an ordering.
+cam_region:
+    .a16
+    .i16
+    lda z:ES_RGN_PAL
+    bne @pal
+    lda #SH2_MOVE_ARM_NTSC
+    bra @arm
+@pal:
+    .a16
+    .i16
+    lda #SH2_MOVE_ARM_PAL
+@arm:
+    .a16
+    .i16
+    sta z:US_MOVE_ARM
+    stz z:US_TSH_ACC
+    lda #SH2_HEAD_BASE / TS_ONE     ; the NTSC step, until the first tick
+    sta z:US_TSH
     rts

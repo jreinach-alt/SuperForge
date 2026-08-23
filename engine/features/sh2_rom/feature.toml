@@ -10,9 +10,11 @@
 # (docs/37), and every one is READ by the ROM: the map by the
 # floor's single DMA, the palette by its CGRAM loop, the eight pose slices by
 # the four INDIRECT matrix channels (two per band, each band's DASB selecting
-# its own slice), and the move LUT by the VBlank drive step. Declaring a claim
-# ahead of its reader reserves ROM nothing fills — the grad_tabs shape that
-# gate exists to refuse.
+# its own slice), and the move LUT by the camera drive and the swarm's step.
+# Declaring a claim ahead of its reader reserves ROM nothing fills — the
+# grad_tabs shape that gate exists to refuse. The move LUT's claim holds TWO
+# arms and BOTH are read: which one is a property of the console, and the
+# console is not a build-time choice.
 #
 # The blobs come from tools/gen_split_h_2p_assets.py, which authors them from
 # the checker algebra and the perspective ramp — nothing is read from a pack.
@@ -116,12 +118,26 @@ bytes = 28672
 name = "sh2_pose256_cd_s3"
 bytes = 28672
 
-# --- the forward-vector LUT --------------------------------------------------
+# --- the forward-vector LUT, as a REGION PAIR --------------------------------
 # 256 entries x (dx, dy) as two s16 words in 8.8 fixed point: heading h's world
-# "forward" at a CONSTANT 2.0 px/frame. Read by cam_drive every VBlank, indexed
-# h*4. 8.8 rather than integer because the rail accumulates the FRACTION per
-# axis — an integer velocity produces a speed pulse and a direction staircase,
-# which is the translation jerk this LUT's format exists to remove.
+# "forward" at a CONSTANT speed. Read by the camera drive and by every
+# follower's step, indexed h*4. 8.8 rather than integer because the rail
+# accumulates the FRACTION per axis — an integer velocity produces a speed pulse
+# and a direction staircase, which is the translation jerk this LUT's format
+# exists to remove.
+#
+# TWO ARMS IN ONE CLAIM, and one claim rather than two on purpose. The NTSC arm
+# is at offset 0 (2.0 px per NTSC frame) and the PAL arm one stride on
+# (2.40361 px per PAL frame, the same distance per real second). The runtime
+# picks an arm ONCE at scene enter from ES_RGN_PAL and ORs the offset into the
+# index it already computes, so a region costs no per-frame work and no second
+# code path — which is the property that made this the shape the rail wanted.
+#
+# ONE claim because the two arms must be ONE STRIDE APART IN ONE BANK: the reads
+# are `lda long,x` with a build-time bank, so two claims the allocator was free
+# to place in different windows could not be selected by an index at all.
+# sh2_cam derives the stride as SIZE/2 from this number rather than restating
+# it, and main.asm asserts that both `.incbin`s together fill the claim.
 [[claims.rom]]
 name = "sh2_move256"
-bytes = 1024
+bytes = 2048
