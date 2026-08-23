@@ -1,9 +1,16 @@
 # 94 — Region support: the specification
 
-> Status: SPEC — the requirement, not the design. **No implementation exists
-> and none is authorised by this file.** The design investigation dispatched
-> against it answers §5 and lands its findings as its own doc; this file is
-> then amended, not replaced.
+> Status: SPEC — **the requirement of record, and it stays that.** This file
+> says what region support must deliver; it does not say how, and it is not
+> the account of what shipped. Those landed elsewhere and each is linked from
+> the tier it discharges: the design as
+> [`docs/95`](95_region_support_design.md), the instrument and the mechanism
+> as [`docs/96`](96_region_timebase_tooling.md), and the implementation as
+> [`docs/97`](97_region_r0_landing.md) — R0, the region flag, the two header
+> corrections and the timebase as a composable feature — and
+> [`docs/98`](98_region_fleet_landing.md), which took that timebase across the
+> tree. Findings land as their own doc and this file is then **amended, not
+> replaced**, so what was asked for stays readable beside what was delivered.
 
 ## 0. Why this exists
 
