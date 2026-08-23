@@ -26,15 +26,12 @@
 ;     flight time = 2*v0/g frames -> (2*v0/g)/r frames, which at 50.007 fps
 ;                   is the same number of REAL SECONDS as it was at 60.099
 ;
-; TS_R(v) is TS_STEP's own PAL arm written as a build-time expression, which
-; is what lets a per-frame-SQUARED quantity be scaled TWICE (once here into
-; the base, once by the macro). It is NOT a second copy of the ratio:
-; TS_GAIN_NUM / TS_GAIN_DEN are tick_scale's and single-sourced, and this only
-; applies them. The `+ DEN/2` is the macro's own rounding, kept identical so
-; the two arms cannot disagree by a count.
-; (the parameter is `v`, not `x`: ca65 reads a bare `x` in a define's
-;  parameter list as the index REGISTER and refuses the definition.)
-.define TS_R(v) ((v) + ((v) * TS_GAIN_NUM + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
+; TS_SCALED is tick_scale's build-time twin of TS_STEP's PAL arm, which is
+; what lets a per-frame-SQUARED quantity be scaled TWICE (once here into the
+; base, once by the macro). It is NOT a second copy of the ratio:
+; TS_GAIN_NUM / TS_GAIN_DEN are tick_scale's and single-sourced, and the
+; `+ DEN/2` rounding is the run-time arm's own, so the two cannot disagree by
+; a count.
 
 ; --- the two walk rates: one r each, ordinary consumer pairs ---------------
 ; ST_SPEED and ST_PATROL_SPEED are still the numbers to reach for when tuning
@@ -49,13 +46,13 @@ TS_PATROL_BASE = ST_PATROL_SPEED * TS_ONE
 ; instead of after it. Both arms share one accumulator: a console cannot
 ; change region, so only one of them is ever taken.
 TS_GRAV_BASE   = ST_GRAVITY * TS_ONE
-TS_GRAV_BASE_R = TS_R(TS_GRAV_BASE)
+TS_SCALED TS_GRAV_BASE_R, TS_GRAV_BASE
 
 ; --- the three velocities: one r each, chosen once at enter ----------------
-ST_MAX_FALL_R   = TS_R(ST_MAX_FALL)
-ST_JUMP_VEL_R   = TS_R(ST_JUMP_VEL)
+TS_SCALED ST_MAX_FALL_R,   ST_MAX_FALL
+TS_SCALED ST_JUMP_VEL_R,   ST_JUMP_VEL
 ST_JUMP_NEG_R   = (0 - ST_JUMP_VEL_R) & $FFFF
-ST_BOUNCE_VEL_R = TS_R(ST_BOUNCE_VEL)
+TS_SCALED ST_BOUNCE_VEL_R, ST_BOUNCE_VEL
 ST_BOUNCE_NEG_R = (0 - ST_BOUNCE_VEL_R) & $FFFF
 
 ; stomper.inc's own bounds, re-asserted on the SCALED pair. A region scale is

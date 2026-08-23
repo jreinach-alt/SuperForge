@@ -60,15 +60,12 @@ CM_FLAGS             = ::jr_flags_bin
 ; so a PAL player clears the same overhang and lands on the same platform,
 ; and only the frame COUNT differs.
 ;
-; TS_R(x) is TS_STEP's own PAL arm written as a build-time expression, which
-; is what lets a per-frame-SQUARED quantity be scaled TWICE (once here into
-; the base, once by the macro). It is NOT a second copy of the ratio:
-; TS_GAIN_NUM / TS_GAIN_DEN are tick_scale's and single-sourced, and this only
-; applies them. The `+ DEN/2` is the macro's own rounding, kept identical so
-; the two arms cannot disagree by a count.
-; (the parameter is `v`, not `x`: ca65 reads a bare `x` in a define's
-;  parameter list as the index REGISTER and refuses the definition.)
-.define TS_R(v) ((v) + ((v) * TS_GAIN_NUM + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
+; TS_SCALED is tick_scale's build-time twin of TS_STEP's PAL arm, which is
+; what lets a per-frame-SQUARED quantity be scaled TWICE (once here into the
+; base, once by the macro). It is NOT a second copy of the ratio:
+; TS_GAIN_NUM / TS_GAIN_DEN are tick_scale's and single-sourced, and the
+; `+ DEN/2` rounding is the run-time arm's own, so the two cannot disagree by
+; a count.
 
 ; --- the run: one r, an ordinary consumer pair -----------------------------
 ; JR_SPEED is still the one number to reach for when tuning how this rail
@@ -81,11 +78,11 @@ TS_RUN_BASE = JR_SPEED * TS_ONE
 ; instead of after it. Both arms share one accumulator: a console cannot
 ; change region, so only one of them is ever taken.
 TS_GRAV_BASE   = JR_GRAVITY * TS_ONE
-TS_GRAV_BASE_R = TS_R(TS_GRAV_BASE)
+TS_SCALED TS_GRAV_BASE_R, TS_GRAV_BASE
 
 ; --- the two velocities: one r each, chosen once at enter ------------------
-JR_MAX_FALL_R     = TS_R(JR_MAX_FALL)
-JR_JUMP_VEL_R     = TS_R(JR_JUMP_VEL)
+TS_SCALED JR_MAX_FALL_R,     JR_MAX_FALL
+TS_SCALED JR_JUMP_VEL_R,     JR_JUMP_VEL
 JR_NEG_JUMP_VEL_R = (1 << 16) - JR_JUMP_VEL_R
 
 ; jumper.inc's own bound, re-asserted on the SCALED pair. The 8x8 box probe

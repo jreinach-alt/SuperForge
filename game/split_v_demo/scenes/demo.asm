@@ -31,9 +31,6 @@
 ; accelerates. SVD_CAM_SPD and the seam's one px stay the numbers to reach for
 ; when tuning how the rail feels; what changed is that they are RATES rather
 ; than per-frame immediates.
-; (the parameter is `v`, not `x`: ca65 reads a bare `x` in a define's
-;  parameter list as the index REGISTER and refuses the definition.)
-.define TS_R(v) ((v) + ((v) * TS_GAIN_NUM + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
 TS_CAM_BASE  = SVD_CAM_SPD * TS_ONE
 TS_SEAM_BASE = 1 * TS_ONE
 
@@ -50,7 +47,7 @@ SVD_TSS   = ES_SVD_CAM + 12
 ; The seam clamp only holds while a frame's sweep cannot jump the bound it is
 ; tested against: both tests are `cmp` + a single-step move, so a step of 2 can
 ; sit one px past SEAM_HI. Bounded, and bounded by this assert.
-.assert TS_R(TS_SEAM_BASE) < 2 * TS_ONE, error, "the PAL-scaled seam sweep can reach 3 px a frame — the clamp's single-step test would let it overshoot by 2"
+.assert TS_SCALE(TS_SEAM_BASE) < 2 * TS_ONE, error, "the PAL-scaled seam sweep can reach 3 px a frame — the clamp's single-step test would let it overshoot by 2"
 
 ; --- enter ------------------------------------------------------------------
 ; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).

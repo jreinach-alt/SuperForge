@@ -55,27 +55,25 @@ RL_VREV   = ES_RL_HOT + 32
 ; cap/accel frames becomes (cap*r)/(accel*r^2) = (cap/accel)/r frames, which
 ; at 50.007 fps is the same number of REAL SECONDS as it was at 60.099.
 ;
-; TS_R(v) is TS_STEP's own PAL arm written as a build-time expression, which
-; is what lets a per-frame-SQUARED quantity be scaled TWICE (once here into
-; the base, once by the macro). It is NOT a second copy of the ratio:
+; TS_SCALED / TS_SCALE are tick_scale's build-time twin of TS_STEP's PAL arm,
+; which is what lets a per-frame-SQUARED quantity be scaled TWICE (once here
+; into the base, once by the macro). They are NOT a second copy of the ratio:
 ; TS_GAIN_NUM / TS_GAIN_DEN are tick_scale's and single-sourced, and the
-; `+ DEN/2` is the macro's own rounding, kept identical so the two arms cannot
-; disagree by a count.
-; (the parameter is `v`, not `x`: ca65 reads a bare `x` in a define's
-;  parameter list as the index REGISTER and refuses the definition.)
-.define TS_R(v) ((v) + ((v) * TS_GAIN_NUM + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
+; `+ DEN/2` rounding is the run-time arm's own, so the two cannot disagree by
+; a count.
 
 ; --- the two caps: one r each, chosen once at arm --------------------------
 ; These are ASSIGNMENTS (a clamp writes one or the other), not accumulations,
 ; so they carry no fraction and there is no accumulator to declare. A console
 ; cannot change region, so the pair is picked once in rl_arm.
-MZ_VEL_MAX_R     = TS_R(MZ_VEL_MAX)
+TS_SCALED MZ_VEL_MAX_R, MZ_VEL_MAX
 MZ_VEL_MIN_MAG   = (1 << 16) - MZ_VEL_MIN   ; the reverse cap's MAGNITUDE: a
-MZ_VEL_MIN_MAG_R = TS_R(MZ_VEL_MIN_MAG)     ;   direction does not scale, so
+                                            ;   direction does not scale, so
+TS_SCALED MZ_VEL_MIN_MAG_R, MZ_VEL_MIN_MAG
 MZ_VEL_MIN_R     = (1 << 16) - MZ_VEL_MIN_MAG_R   ; the sign is re-applied
 
 ; --- the three big accelerations: r^2, as build-time INTEGERS --------------
-; Two TS_R steps rather than one nested call — ca65 will not parse a
+; Two TS_SCALED steps rather than one nested call — ca65 will not parse a
 ; define-macro invocation inside another one's argument list.
 ;
 ; NO ACCUMULATOR FOR THESE THREE, and that is a stated rounding rather than an
@@ -86,12 +84,12 @@ MZ_VEL_MIN_R     = (1 << 16) - MZ_VEL_MIN_MAG_R   ; the sign is re-applied
 ; integer is 0.068%, 0.11% and 0.068% away. MZ_FRICTION is the one that DOES
 ; earn a carried fraction (64 counts, where the same rounding costs 0.61%),
 ; and it gets one below.
-MZ_ACCEL_R1   = TS_R(MZ_ACCEL)
-MZ_ACCEL_R    = TS_R(MZ_ACCEL_R1)
-MZ_BRAKE_R1   = TS_R(MZ_BRAKE)
-MZ_BRAKE_R    = TS_R(MZ_BRAKE_R1)
-MZ_REVERSE_R1 = TS_R(MZ_REVERSE)
-MZ_REVERSE_R  = TS_R(MZ_REVERSE_R1)
+TS_SCALED MZ_ACCEL_R1,   MZ_ACCEL
+TS_SCALED MZ_ACCEL_R,    MZ_ACCEL_R1
+TS_SCALED MZ_BRAKE_R1,   MZ_BRAKE
+TS_SCALED MZ_BRAKE_R,    MZ_BRAKE_R1
+TS_SCALED MZ_REVERSE_R1, MZ_REVERSE
+TS_SCALED MZ_REVERSE_R,  MZ_REVERSE_R1
 
 ; --- friction: the r^2 site that carries a fraction ------------------------
 ; TS_STEP applies exactly one r, so the other one rides the BASE — on the PAL
@@ -99,7 +97,7 @@ MZ_REVERSE_R  = TS_R(MZ_REVERSE_R1)
 ; instead of after it. Both arms share one accumulator: a console cannot
 ; change region, so only one of them is ever taken.
 TS_FRIC_BASE   = MZ_FRICTION * TS_ONE
-TS_FRIC_BASE_R = TS_R(TS_FRIC_BASE)
+TS_SCALED TS_FRIC_BASE_R, TS_FRIC_BASE
 
 ; --- the steering: ONE r, and the pose SET is untouched --------------------
 ; One pose per frame is rl_steer's declared max turn, and it is docs/95 §5.1's

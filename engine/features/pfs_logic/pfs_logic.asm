@@ -136,22 +136,19 @@ PL_VCUT   = ES_PFS_PLAYER + 36
 ; therefore that the streamer is asked for the same tiles at the same real
 ; moments.
 ;
-; TS_R(v) is TS_STEP's own PAL arm written as a build-time expression, which
-; is what lets a per-frame-SQUARED quantity be scaled TWICE (once here into
-; the base, once by the macro). It is NOT a second copy of the ratio:
+; TS_SCALED / TS_SCALE are tick_scale's build-time twin of TS_STEP's PAL arm,
+; which is what lets a per-frame-SQUARED quantity be scaled TWICE (once here
+; into the base, once by the macro). They are NOT a second copy of the ratio:
 ; TS_GAIN_NUM / TS_GAIN_DEN are tick_scale's and single-sourced.
-; (the parameter is `v`, not `x`: ca65 reads a bare `x` in a define's
-;  parameter list as the index REGISTER and refuses the definition.)
-.define TS_R(v) ((v) + ((v) * TS_GAIN_NUM + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
 
 TS_WALK_BASE   = PFS_WALK * TS_ONE
 TS_ANIM_BASE   = TS_ONE             ; the DIVIDER (PFS_ANIM_RATE) is untouched
 TS_GRAV_BASE   = PFS_GRAVITY * TS_ONE
-TS_GRAV_BASE_R = TS_R(TS_GRAV_BASE)
+TS_SCALED TS_GRAV_BASE_R, TS_GRAV_BASE
 
-PFS_MAX_FALL_R    = TS_R(PFS_MAX_FALL)
-PFS_JUMP_VEL_R    = TS_R(PFS_JUMP_VEL)
-PFS_JUMP_CUT_R    = TS_R(PFS_JUMP_CUT)
+TS_SCALED PFS_MAX_FALL_R,    PFS_MAX_FALL
+TS_SCALED PFS_JUMP_VEL_R,    PFS_JUMP_VEL
+TS_SCALED PFS_JUMP_CUT_R,    PFS_JUMP_CUT
 PFS_JUMP_UP_R     = (PFS_FIX * PFS_FIX) - PFS_JUMP_VEL_R
 PFS_JUMP_CUT_UP_R = (PFS_FIX * PFS_FIX) - PFS_JUMP_CUT_R
 
@@ -167,7 +164,7 @@ PFS_JUMP_CUT_UP_R = (PFS_FIX * PFS_FIX) - PFS_JUMP_CUT_R
 ; step under one tile is what keeps the worst frame at one line per axis and
 ; therefore inside the clamp with a whole line of margin.
 .assert PFS_MAX_FALL_R < PFS_BOX * 256, error, "the PAL-scaled terminal fall can cross a whole tile in one frame — the streamer's per-axis clamp no longer has a line of margin"
-.assert TS_R(TS_WALK_BASE) < PFS_BOX * TS_ONE, error, "the PAL-scaled walk can cross a whole tile in one frame — the streamer's per-axis clamp no longer has a line of margin"
+.assert TS_SCALE(TS_WALK_BASE) < PFS_BOX * TS_ONE, error, "the PAL-scaled walk can cross a whole tile in one frame — the streamer's per-axis clamp no longer has a line of margin"
 
 ; --- ts_publish: this frame's three region-correct steps, published once ----
 ; In/out: A16/I16, DB=0. Clobbers A. Called at the top of pfs_logic_tick, so

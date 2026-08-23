@@ -77,20 +77,17 @@ TS_BEAT_BASE  = PAT_PATROL_SPEED * TS_ONE
 ; rail's earlier note said could not be done. TS_STEP applies exactly one r
 ; and no linear combination of its outputs can apply two, so the second r
 ; rides the BASE — on the PAL arm only, chosen BEFORE the macro rather than
-; after it. The formula is TS_STEP's own PAL arm written as a build-time
-; expression over tick_scale's TS_GAIN_NUM / TS_GAIN_DEN: the RATIO stays
-; single-sourced in that feature, `tick_scale` itself is untouched, and
-; nothing here is a second copy of it.
-; (the parameter is `v`, not `x`: ca65 reads a bare `x` in a define's
-;  parameter list as the index REGISTER and refuses the definition.)
-.define TS_R(v) ((v) + ((v) * TS_GAIN_NUM + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
+; after it. The scale is TS_SCALED, tick_scale's build-time twin of TS_STEP's
+; own PAL arm over that feature's TS_GAIN_NUM / TS_GAIN_DEN: the RATIO stays
+; single-sourced there, `tick_scale` itself is untouched, and nothing here is
+; a second copy of it.
 
 TS_GRAV_BASE   = PAT_GRAVITY * TS_ONE
-TS_GRAV_BASE_R = TS_R(TS_GRAV_BASE)
+TS_SCALED TS_GRAV_BASE_R, TS_GRAV_BASE
 
 ; --- the two velocities: one r each, chosen once at enter ------------------
-PAT_MAX_FALL_R = TS_R(PAT_MAX_FALL)
-PAT_JUMP_VEL_R = TS_R(PAT_JUMP_VEL)
+TS_SCALED PAT_MAX_FALL_R, PAT_MAX_FALL
+TS_SCALED PAT_JUMP_VEL_R, PAT_JUMP_VEL
 PAT_JUMP_UP_R  = (256 * 256) - PAT_JUMP_VEL_R   ; the two's complement, as the
                                                 ;   algebra it is (patrol.inc)
 

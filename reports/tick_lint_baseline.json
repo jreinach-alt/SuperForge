@@ -232,7 +232,7 @@
   },
   {
     "file": "engine/features/pfs_logic/pfs_logic.asm",
-    "line": 935,
+    "line": 932,
     "rule": "tick-routine",
     "message": "`pfs_logic_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
@@ -260,7 +260,7 @@
   },
   {
     "file": "engine/features/race_logic/race_logic.asm",
-    "line": 219,
+    "line": 217,
     "rule": "tick-routine",
     "message": "`rl_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
@@ -918,7 +918,7 @@
   },
   {
     "file": "game/jumper/scenes/sky.asm",
-    "line": 281,
+    "line": 278,
     "rule": "tick-routine",
     "message": "`phys_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
@@ -1436,7 +1436,7 @@
   },
   {
     "file": "game/platformer/scenes/play.asm",
-    "line": 865,
+    "line": 862,
     "rule": "tick-routine",
     "message": "`gh_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
@@ -1723,7 +1723,7 @@
   },
   {
     "file": "game/scroll_run/scenes/run.asm",
-    "line": 467,
+    "line": 464,
     "rule": "tick-routine",
     "message": "`phys_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
@@ -1933,21 +1933,21 @@
   },
   {
     "file": "game/split_v_fight/scenes/fight.asm",
-    "line": 415,
+    "line": 412,
     "rule": "tick-routine",
     "message": "`round_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
   },
   {
     "file": "game/split_v_fight/scenes/fight.asm",
-    "line": 561,
+    "line": 558,
     "rule": "tick-routine",
     "message": "`fighter_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
   },
   {
     "file": "game/split_v_fight/scenes/fight.asm",
-    "line": 680,
+    "line": 677,
     "rule": "tick-routine",
     "message": "`jump_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
@@ -2087,7 +2087,7 @@
   },
   {
     "file": "game/stomper/scenes/play.asm",
-    "line": 351,
+    "line": 348,
     "rule": "tick-routine",
     "message": "`phys_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"

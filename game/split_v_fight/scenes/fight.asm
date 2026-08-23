@@ -32,15 +32,12 @@
 ; 14 px, so the hop IS the defence. An arc flattened by 17% would quietly stop
 ; being one.
 ;
-; TS_R(v) is TS_STEP's own PAL arm written as a build-time expression, which
-; is what lets a per-frame-SQUARED quantity be scaled TWICE (once here into
-; the base, once by the macro). It is NOT a second copy of the ratio:
-; TS_GAIN_NUM / TS_GAIN_DEN are tick_scale's and single-sourced, and this only
-; applies them. The `+ DEN/2` is the macro's own rounding, kept identical so
-; the two arms cannot disagree by a count.
-; (the parameter is `v`, not `x`: ca65 reads a bare `x` in a define's
-;  parameter list as the index REGISTER and refuses the definition.)
-.define TS_R(v) ((v) + ((v) * TS_GAIN_NUM + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
+; TS_SCALED / TS_SCALE are tick_scale's build-time twin of TS_STEP's PAL arm,
+; which is what lets a per-frame-SQUARED quantity be scaled TWICE (once here
+; into the base, once by the macro). They are NOT a second copy of the ratio:
+; TS_GAIN_NUM / TS_GAIN_DEN are tick_scale's and single-sourced, and the
+; `+ DEN/2` rounding is the run-time arm's own, so the two cannot disagree by
+; a count.
 
 ; --- the four rates on one r ----------------------------------------------
 ; SV_WALK_SPD and SV_SWING_LUNGE are still the numbers to reach for when
@@ -70,10 +67,10 @@ TS_SPREAD_BASE = (SV_SPR_STEP / 2) * TS_ONE
 ; instead of after it. Both arms share one accumulator: a console cannot
 ; change region, so only one of them is ever taken.
 TS_GRAV_BASE   = SV_GRAV * TS_ONE
-TS_GRAV_BASE_R = TS_R(TS_GRAV_BASE)
+TS_SCALED TS_GRAV_BASE_R, TS_GRAV_BASE
 
 ; --- the take-off: one r, chosen once at enter -----------------------------
-SV_JUMP_V0_R = TS_R(SV_JUMP_V0)
+TS_SCALED SV_JUMP_V0_R, SV_JUMP_V0
 
 ; --- THE CLAIM, ASSERTED AT BUILD TIME ------------------------------------
 ; "The apex is preserved" is the whole reason gravity gets r^2 rather than r,
@@ -88,7 +85,7 @@ SV_JUMP_V0_R = TS_R(SV_JUMP_V0)
 ; scale gravity once instead of twice, and the apex moves by ~17% and this
 ; refuses the build with the reason on it rather than shipping a flattened
 ; hop that only a playtest would find.
-SV_GRAV_PAL   = TS_R(TS_GRAV_BASE_R) / TS_ONE
+SV_GRAV_PAL   = TS_SCALE(TS_GRAV_BASE_R) / TS_ONE
 SV_APEX_NTSC  = SV_JUMP_V0 * SV_JUMP_V0 / (2 * SV_GRAV)
 SV_APEX_PAL   = SV_JUMP_V0_R * SV_JUMP_V0_R / (2 * SV_GRAV_PAL)
 .assert SV_APEX_PAL <= SV_APEX_NTSC + SV_APEX_NTSC / 16, error, "the PAL jump apex is more than 6% ABOVE the NTSC one — the velocity/gravity region scales are not r and r^2"

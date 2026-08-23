@@ -69,15 +69,12 @@ CM_FLAGS             = ::sr_flags_bin
 ;     flight time = 2*v0/g frames -> (2*v0/g)/r frames, which at 50.007 fps
 ;                   is the same number of REAL SECONDS as 2*v0/g at 60.099
 ;
-; TS_R(v) is TS_STEP's own PAL arm written as a build-time expression, which
-; is what lets a per-frame-SQUARED quantity be scaled TWICE (once here into
-; the base, once by the macro). It is NOT a second copy of the ratio:
-; TS_GAIN_NUM / TS_GAIN_DEN are tick_scale's and single-sourced, and this only
-; applies them. The `+ DEN/2` is the macro's own rounding, kept identical so
-; the two arms cannot disagree by a count.
-; (the parameter is `v`, not `x`: ca65 reads a bare `x` in a define's
-;  parameter list as the index REGISTER and refuses the definition.)
-.define TS_R(v) ((v) + ((v) * TS_GAIN_NUM + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
+; TS_SCALED is tick_scale's build-time twin of TS_STEP's PAL arm, which is
+; what lets a per-frame-SQUARED quantity be scaled TWICE (once here into the
+; base, once by the macro). It is NOT a second copy of the ratio:
+; TS_GAIN_NUM / TS_GAIN_DEN are tick_scale's and single-sourced, and the
+; `+ DEN/2` rounding is the run-time arm's own, so the two cannot disagree by
+; a count.
 
 ; --- the run: one r, an ordinary consumer pair -----------------------------
 ; SR_SPEED is still the one number to reach for when tuning how this rail
@@ -90,11 +87,11 @@ TS_RUN_BASE = SR_SPEED * TS_ONE
 ; instead of after it. Both arms share one accumulator: a console cannot
 ; change region, so only one of them is ever taken.
 TS_GRAV_BASE   = SR_GRAVITY * TS_ONE
-TS_GRAV_BASE_R = TS_R(TS_GRAV_BASE)
+TS_SCALED TS_GRAV_BASE_R, TS_GRAV_BASE
 
 ; --- the two velocities: one r each, chosen once at enter ------------------
-SR_MAX_FALL_R     = TS_R(SR_MAX_FALL)
-SR_JUMP_VEL_R     = TS_R(SR_JUMP_VEL)
+TS_SCALED SR_MAX_FALL_R,     SR_MAX_FALL
+TS_SCALED SR_JUMP_VEL_R,     SR_JUMP_VEL
 SR_NEG_JUMP_VEL_R = (1 << 16) - SR_JUMP_VEL_R
 
 ; scroll_run.inc's own bound, re-asserted on the SCALED pair. The 8x8 box

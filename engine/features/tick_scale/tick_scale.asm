@@ -113,3 +113,48 @@ ts_apply:
     xba                         ; high byte -> low: the whole units
     and #TS_ONE - 1
 .endmacro
+
+; -----------------------------------------------------------------------------
+; TS_SCALE / TS_SCALED — the same PAL arm, at BUILD time
+; -----------------------------------------------------------------------------
+;   TS_SCALE(v)          v scaled to a PAL frame, as an expression
+;   TS_SCALED <name>, v  the same, DEFINED as a constant and bounds-checked
+;
+; TS_STEP applies exactly one r, at run time. Two shapes need one before the
+; macro ever sees them, and both are build-time work:
+;
+;   * a per-frame-SQUARED quantity — a gravity, an acceleration ramp — takes r
+;     TWICE, so the second one goes into the BASE;
+;   * a constant that is ASSIGNED rather than accumulated — a terminal fall
+;     speed, a take-off velocity, a cap a clamp writes — carries no fraction
+;     and needs its r before it is ever stored.
+;
+; Ten consumers reached that point independently and each wrote the same
+; expression out locally. This is the one copy. It is NOT a second copy of the
+; ratio: TS_GAIN_NUM / TS_GAIN_DEN stay single-sourced above and this only
+; applies them, with the `+ DEN/2` rounding kept identical to the run-time
+; arm's so the two cannot disagree by a count.
+;
+; PREFER TS_SCALED. It carries the refusal TS_STEP gives its base — an
+; over-large value stops the build with a reason instead of wrapping ca65's
+; 32-bit expression arithmetic silently, which is the failure the local copies
+; had no guard against and documented in prose on two rails instead. TS_SCALE
+; is the bare expression, for the sites that embed the scaled value in a larger
+; one (a magnitude negated back into two's complement, an .assert on a scaled
+; bound); those carry their own asserts already.
+;
+; ca65 will not parse a define-macro invocation inside another one's argument
+; list, so an r-SQUARED site is written as two steps and not as one nesting.
+; (the parameter is `v`, not `x`: ca65 reads a bare `x` in a define's parameter
+;  list as the index REGISTER and refuses the definition.)
+;
+; TICK: ok — this pair is the build-time half of the thing that REMOVES a frame
+;   coupling. Its "per frame" is the unit it converts OUT of, not one it
+;   introduces.
+.define TS_SCALE(v) ((v) + ((v) * TS_GAIN_NUM + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
+
+.macro TS_SCALED name, v
+    .assert (v) > 0, error, "TS_SCALED: the value to scale must be positive — a negative velocity is scaled as a MAGNITUDE and negated afterwards, so the rounding lands on the number the physics means"
+    .assert (v) <= TS_BASE_MAX, error, "TS_SCALED: value too large — v * TS_GAIN_NUM would overflow ca65's 32-bit expression arithmetic (see TS_BASE_MAX)"
+    name = TS_SCALE(v)
+.endmacro

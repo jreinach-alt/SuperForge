@@ -60,18 +60,15 @@ RC_VBAR  = ES_RC_HOT + 34
 ; cap/accel frames becomes (cap*r)/(accel*r^2) = (cap/accel)/r frames, which
 ; at 50.007 fps is the same number of REAL SECONDS as it was at 60.099.
 ;
-; TS_R(v) is TS_STEP's own PAL arm written as a build-time expression, which
-; is what lets a per-frame-SQUARED quantity be scaled TWICE (once here into
-; the base, once by the macro). It is NOT a second copy of the ratio:
+; TS_SCALED is tick_scale's build-time twin of TS_STEP's PAL arm, which is
+; what lets a per-frame-SQUARED quantity be scaled TWICE (once here into the
+; base, once by the macro). It is NOT a second copy of the ratio:
 ; TS_GAIN_NUM / TS_GAIN_DEN are tick_scale's and single-sourced.
-; (the parameter is `v`, not `x`: ca65 reads a bare `x` in a define's
-;  parameter list as the index REGISTER and refuses the definition.)
-.define TS_R(v) ((v) + ((v) * TS_GAIN_NUM + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
 
 TS_ACCEL_BASE   = RC_ACCEL * TS_ONE
-TS_ACCEL_BASE_R = TS_R(TS_ACCEL_BASE)
+TS_SCALED TS_ACCEL_BASE_R, TS_ACCEL_BASE
 TS_DECEL_BASE   = RC_DECEL * TS_ONE
-TS_DECEL_BASE_R = TS_R(TS_DECEL_BASE)
+TS_SCALED TS_DECEL_BASE_R, TS_DECEL_BASE
 ; ONE POSE PER FRAME is `rc_steer`'s turn rate, and it is docs/95 §5.1's HARD
 ; class: a small integer with no correct x5/6. The accumulator answers it the
 ; way the animation dividers are answered elsewhere — the pose SET is
@@ -80,9 +77,9 @@ TS_DECEL_BASE_R = TS_R(TS_DECEL_BASE)
 ; at the same rate per REAL second.
 TS_STEER_BASE   = 1 * TS_ONE
 
-RC_SPEED_CAP_R = TS_R(RC_SPEED_CAP)
-RC_GRASS_CAP_R = TS_R(RC_GRASS_CAP)
-RC_BAR_STEP_R  = TS_R(RC_BAR_STEP)
+TS_SCALED RC_SPEED_CAP_R, RC_SPEED_CAP
+TS_SCALED RC_GRASS_CAP_R, RC_GRASS_CAP
+TS_SCALED RC_BAR_STEP_R,  RC_BAR_STEP
 ; THE OFF-ROAD BLEED IS SCALED AS AN INTEGER, not through an accumulator, and
 ; that is a stated rounding rather than an oversight. Its base would be
 ; 384 * TS_ONE = 98,304, past tick_scale's TS_BASE_MAX of 42,000 — the bound
@@ -93,8 +90,8 @@ RC_BAR_STEP_R  = TS_R(RC_BAR_STEP)
 ; are 64 and 48 counts, where the same rounding would cost 0.5%.)
 ; (two steps, not one nested call: ca65 will not parse a define-macro
 ;  invocation inside another one's argument list.)
-RC_OFFROAD_DRAG_1 = TS_R(RC_OFFROAD_DRAG)
-RC_OFFROAD_DRAG_R = TS_R(RC_OFFROAD_DRAG_1)
+TS_SCALED RC_OFFROAD_DRAG_1, RC_OFFROAD_DRAG
+TS_SCALED RC_OFFROAD_DRAG_R, RC_OFFROAD_DRAG_1
 
 ; The bar reads FULL at the top speed on both machines, which is only true
 ; while the tick and the cap carry the same scale. Asserted rather than
