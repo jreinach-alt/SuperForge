@@ -396,8 +396,8 @@ def test_the_pal_move_arm_carries_the_frame_ratio_the_timebase_owns():
     THE POINT OF THE PAIR is that a PAL frame carries 1.2018039 times the
     distance an NTSC frame does, so the two consoles cover the same ground per
     real second. That ratio has one home in this tree; this asserts the
-    generator reads it from there and applies it, so a lane that re-derived the
-    number locally would fail here rather than ship a floor that looks right and
+    generator reads it from there and applies it, so a local re-derivation of
+    the number would fail here rather than ship a floor that looks right and
     measures 17% slow.
     """
     num, den = gen.ts_gain()
