@@ -271,7 +271,7 @@ let a red suite land once. `make test` does it correctly; copy that pattern.
 | `no_literals` (runs inside `make toy` / `microzero` / `room`) | engine ASM references allocated resources only through emitted symbols, **and — the reg-ownership pass — every CPU write to a bank-0 `$21xx`/`$42xx` port is declared by, or covered by, the claim set its file answers to** (docs/09 §2.1's writer-side gate). **On the three UNION tiers "declared" means the owner OPENED it**: a `[[claims.reg]]` carries an optional `scene_writes` (a subset of its own `registers`) meaning *"scene-enter or boot code may write these registers of mine"*, and the tiers narrow **both** arms of the acceptance test to it — `declared` keeps an in-class port only if its claim opens it, `covered` keeps an in-class port an `hdma`/`dma_init` claim covers only if the same feature opens it on a `[[claims.reg]]` **and lists it in `scene_writes`**. Narrowing `declared` alone is not a half-measure but *inert*: `race`'s `$2105`/`$212C` are declared AND covered. Region data/latch ports are not narrowed; the feature-strict tier is unchanged. `scene_writes` is a PERMISSION, not an exclusivity — where the owner writes the register too (`scene_mgr`/NMITIMEN, the tree's one case) `scene_writes_shared` declares it, and a **declaration-that-lies** check refuses an untrue declaration in either direction, per register and span-expanded. The summary line reports how many claims that check VALIDATED, so a zero reads as disarmed rather than clean. Write set = `sta/stx/sty/stz` **plus the RMW family** (`inc a:$2105` sets BGMODE). Tiers, strongest first: feature files → their own `feature.toml`; scene files → the scene's union in `symbol_map.json`; `main.asm` → the globals' union; **anything else → the composed union** (so `engine/toy` and the vendored probes are CHECKED and declare their boot writes — they are not path-exempt). A **latch** ($2115/$2116/$2121/…) rides the claim on the RESOURCE its data port serves; an **unnamed** port is a finding-with-override; an operand that will not fold (`sta a:$2107 - 1` IS MOSAIC) **fails closed**. Override: `; REG-LINT: ok [$port] — <reason>`, **port-scoped** — same-line binds to that write, a standalone one binds only when its window is unambiguous (a write whose port will not fold has no port to name, so only the same-line form reaches it). **That scoping is the reg lint's alone — do not assume symmetry**: `; CHANNEL-LINT: ok` and `; WIDTH-LINT: ok` keep pure ±3-line RADIUS semantics, and the channel form *parses* a `$port` token but ignores it, so writing one there silences the whole window regardless (an accepted divergence). The summary line reports the tier split + per-category site census, so a disarmed pass says so instead of printing "clean" |
 | `make toy-bad` | the **allocator** still refuses `engine/toy_bad`, *and* refuses it on the VRAM collision rather than some other error. The target passes (exit 0) when that held |
 | `make rom-unbacked` | every `rom` claim in a composition has bytes: some scanned `.asm` holds an `.incbin` whose declaration block ties it to the claim's emitted `ES_R_*` symbol (literally, or through a `.sprintf` template — the only shape a `bank_tiled` claim's chunk symbols can have), **or** the claim declares `backed_by = "<the unit outside the no_literals scope that supplies them>"`, non-empty, enforced in `schemas.py`. The **drift** direction was already asserted hard (`.assert ^label = ES_R_*_BANK`); the **presence** direction was not asked anywhere, and `grad_tabs` once shipped unbacked with every gate green — three HDMA channels streaming the neighbouring blob's bytes, one missing backdrop wash, nothing red. Note that `.assert`s still PASS with the `.incbin` gone (the label lands at the claim's address either way), so ca65 accepts the broken file and only a presence check sees it. Two arms over one allocation: the target passes (exit 0) iff the **backed** control arm was accepted AND the **unbacked** arm was refused naming both missing claims and not the `backed_by`-declared one. Same non-inverted polarity as `toy-bad`, for the same reason. A claim site only credits when it is in the composition's **translation unit** — the `.include` closure of the root `.asm` — because the Makefile's wildcard scans files the game never assembles; the reach is printed (`credited from 19/28 scanned file(s)`). `backed_by` must **cite a repo path that exists**, not just be non-empty. Five stated limits, three of them closed: chunk counts are now derived (`ES_R_*_CHUNKS`; a narrated `.repeat` count is a refusal), a `%s` template is a refusal, a claim site inside an unevaluated `.if`/`.ifdef` does not credit; the bytes are still uninspected and `.include`d files are still not opened (docs/37 §5) |
-| `make width-check` | label width annotations are present **and agree with every same-file arrival** — fall-through, branch/jmp, and `jsr`/`jsl` call sites (baseline is zero; a wrong bare annotation is a finding, and the summary line names what was examined). Remaining limit: callers in OTHER files are invisible, so an exported routine's width contract is still proven only on the emulator; see CLAUDE.md rule 6 |
+| `make width-check` | label width annotations are present **and agree with every same-file arrival** — fall-through, branch/jmp, and `jsr`/`jsl` call sites (baseline is zero; a wrong bare annotation is a finding, and the summary line names what was examined). **AND, where the callee DECLARES, the cross-file call sites**: a routine may state its entry contract in the `CONTRACT` grammar (see "The routine contract" below), and a `jsr`/`jsl` from another file is then compared against it, naming both ends. The pass activates **only** where the callee declares, so an undeclared routine is exactly as unchecked as before and the gate gained no baseline; an UNKNOWN arrival (the caller's own width is untracked at the site) is unprovable rather than wrong and is counted, not fired; and a bare name **several files define** — this tree has three `cam_arm`s — is reported as AMBIGUOUS and left unresolved rather than checked against a declaration it may not link against. The summary prints declarations found, widths compared, and both skip counts, so a disarmed pass reads as disarmed. Remaining limit: an UNDECLARED routine's cross-file contract is still proven only on the emulator, and an indirect dispatch through a vector table has no literal target to check; see CLAUDE.md rule 6 |
 | `make time-check` | no NEW wall-clock coupling in `tests/` + `tools/`: `time.sleep`, `.run_frames(`, `run_seconds=`, `timeout_s=`, and a read of a FREE-RUNNING core whose only placement in time is one of those (per-function park model). Baseline `reports/time_lint_baseline.json` ships EMPTY — the 56 findings it started from were migrated, not grandfathered. Override is `# WALL-CLOCK: ok — <reason>` within ±3 lines, reason REQUIRED (a bare stamp is its own finding, and does not silence what it sits on). **Stated limits, and the fourth is the one to remember:** the park model is single-FUNCTION, so a fixture that parks and yields is invisible from the test; it does not see through a call; a wrong frame CONSTANT is not a coupling and is not caught; and **it does not know whether a capture lands on an ABSOLUTE frame** — `boot_rom(frames=N)` lands on `>= N` and a module can pass this gate and still be load-sensitive (that is `boot_to_frame`'s job, and neither subsumes the other). `time.monotonic` deadlines and subprocess/thread timeouts are deliberately NOT flagged: they are all legitimate process orchestration here, and a baseline of noise teaches people to ignore the gate. docs/45 |
 | `make tick-check` | no NEW site that assumes ONE TICK IS ONE FRAME, against `reports/tick_lint_baseline.json`. Five checks: a `game/*/state.toml` word whose own comment names a frame unit; a `*_tick`/`*_step`/`*_advance` routine; an equate whose name or unit-shaped comment is in frames; a frame-indexed generator constant; the NTSC frame's master-cycle count as a literal or the substrate's `frame.ntsc` table read by name. Override `TICK: ok — <reason>`, reason REQUIRED, bare stamp is its own finding — `width_lint`'s grammar, not a third syntax. **Its BINDING is its own, and deliberately not the ±3-line window the siblings use**: this tree declares its rates in tight runs, so a window reaches over a neighbour and silences a word its reason was never written for — measured on the live tree, eleven sites were being silenced by an override that is not their binder and thirteen reasoned overrides had their own site outside the window. One override binds ONE site, by the shape of the comment it sits in — trailing on a declaration line it binds that line; on an INDENTED comment-only line it binds the declaration whose trailing comment block it continues; at COLUMN 0 it binds the declaration its block heads. A stamp whose anchor carries no finding binds nothing, which is why the prose block-headers that introduce a derivation are inert rather than findings. **A finding is not a defect**: every one of these sites is correct today and the gate bounds the POPULATION, which is why the baseline ships holding 350 and why the gate is **deliberately NOT in `gates` or `bare-check`** until it is driven down. Its `tick-state` check reproduces docs/95 §5.2's 135 across 27 rails to the site; the other classes are supersets by granularity (docs/96 §3.4). **Stated limits:** lexical not semantic (an uncommented countdown is invisible), it cannot tell a rate from an integer, it does not open the call graph, `vendor/` is out, and a clean run says nothing about whether any RATE matches — that is `tools/rate_oracle.py`. docs/96 |
 | `make cleanroom` | no committed file carries a retail game, company or hardware-brand name: a case-insensitive pattern set swept over the tracked tree and over the text members of any committed zip, plus a forbidden-filename class (ROMs, music rips, emulator cores, commercially-named media) and a >2 MB tripwire. **Two normalisations, and both were added because the naive form certifies nothing.** (1) The patterns are anchored on "not an alphanumeric" rather than on `\b` — `_` is a word character, so a `\b`-anchored pattern is blind to every title embedded in a snake_case identifier or a filename, which is where names in a source tree actually live. (2) The multiword titles are swept a SECOND time over a **comment-join** view — each line joined with the two after it, comment markers stripped, whitespace collapsed — because a line-oriented grep cannot see a title that a comment reflow broke across a wrap, and in a prose sweep of this tree that is where the majority of one phrase's occurrences were hiding. Any hit not covered by an entry in the allowlist fails the gate. **An allowlist entry carries a required written reason**, on the same convention as `; WIDTH-LINT: ok — <reason>` — legitimate third-party attribution (an upstream author, an upstream project name) is exactly what the allowlist is for, and a bare entry with no reason is itself a finding. Like every other gate here it prints its own reach — how much of the tree it swept and how many hits the allowlist absorbed — so a disarmed pass reads as disarmed rather than as clean. **Stated limit:** a wordlist is a FLOOR and can never be complete; the high-risk artifacts are copied assets and broken attribution, and those are guarded by NOTICE and the per-pack READMEs under `vendor/art/`, not by grep |
@@ -289,6 +289,11 @@ working. Neither runs automatically.
 `make measure` is the one people skip and shouldn't. The pins are *substrate
 facts* other work is budgeted against; drift there invalidates decisions made
 downstream, silently.
+
+**A change that moves `build/microzero.sfc`'s bytes carries the pinned-md5
+move in the same change** — `docs/94` §4.2's procedure, every live site of the
+old value updated by VALUE-enumeration rather than by name-grep, and both
+falsification sets re-run so the new pin is known to bind.
 
 **A change that alters feature composition regenerates the register in the
 same change.** `docs/09` is generated — `make register-write` writes it and
@@ -488,6 +493,86 @@ The full rule is CLAUDE.md #2. What it means in practice here:
   compiler-refused in SFX at the pin); song persistence across scenes = the
   *absence* of `Tad_LoadSong`. Content pipeline: `assets/audio/README.md`
   (procedural samples, checked-in ca65-export, documented regen).
+- **The routine contract: an exported routine DECLARES the machine state it
+  needs, in fixed slots, and the build checks the declaration.** CLAUDE.md
+  rule 6 states the hole openly — annotations are checked against every
+  *same-file* arrival, and "callers in other files are invisible in both
+  directions... checked only by the emulator". The contract is what closes it:
+  the same header a reader was already going to write, in a shape a ~50-line
+  parser can read, so `; WIDTH-RISK:` prose becomes a thing the gate can
+  enforce rather than a thing a reviewer has to remember.
+
+  The block sits immediately above the label it binds (or above the `.macro`
+  directive, for a macro), after the banner and before the prose. Every slot
+  is one comment line; a longer answer continues on the lines indented under
+  it. This is `mode7_stream`'s, unedited:
+
+  ```asm
+  ; --- stream_arm: init contract + tile tracking from the enter camera -------
+  ; CONTRACT stream_arm
+  ;   entry:    A16 I16 DB=0
+  ;   exit:     A16 I16
+  ;   in:       CAM0_TX / CAM0_TY — the enter camera's tile position, as
+  ;             build-time constants the rail supplies
+  ;   out:      the whole hot block zeroed; ST_CAM_* and ST_LAST_* seeded level
+  ;             with each other, so the first tick's delta is zero
+  ;   clobbers: A, X, N, Z
+  ;   assumes:  the scene's own seed upload already covers the whole 128x128
+  ;             window around CAM0. Tracking starts in sync with that upload
+  ;             and this routine does not verify it
+  ;   tail:     rts
+  stream_arm:
+      .a16
+      .i16
+      SF_ASSERT_WIDTH 16, 16, "stream_arm"
+  ```
+
+  **The slots, and which are required.** `entry:` `exit:` `clobbers:` are
+  required; `in:` `out:` `assumes:` `tail:` are optional. `entry:` and `exit:`
+  are the MACHINE slots and are parsed — `A8`/`A16`/`A?`, `I8`/`I16`/`I?`, and
+  optional `DB=<expr>` / `DP=<expr>` for a routine that depends on them; `exit:
+  none` says control does not come back. The rest are prose, read by people
+  and checked only for presence, and each has a job the others do not do:
+  `in:`/`out:` are DATA (the machine slots are state); `assumes:` is the
+  unchecked precondition, the old free-prose "the caller guarantees…", and it
+  is where forced blank, a masked NMI, a latched pad or a VBlank window get
+  written down; `clobbers:` names registers **and** state — flags, a DP word,
+  a hardware register block; `tail:` is where control must go, which is the
+  slot a hook or dispatch routine exists to fill.
+
+  **`A?` is a declaration, not an opt-out.** It says *any arrival is legal
+  because the routine establishes its own width* — and the lint then requires
+  the body to actually narrow that axis before its first width-sensitive
+  instruction. Without that, one character would exempt any routine from the
+  whole pass.
+
+  **A name several files define cannot be resolved** by a whole-tree run —
+  `cam_arm` is sh2_cam's, shg_cam's and shp_cam's. Those calls are reported as
+  ambiguous and left unchecked; a unique name is what buys the check. Where the
+  name is shared *by design* — every rail has an `sm_nmi_hook` — write the
+  contract qualified (`; CONTRACT microzero::sm_nmi_hook`): it keys uniquely,
+  documents the contract, and does not pretend to a cross-file check it cannot
+  have.
+
+  **The machine half is `SF_ASSERT_WIDTH` / `SF_ASSERT_A` / `SF_ASSERT_I`**
+  (`vendor/rom/sf_asm.inc`, built on ca65's `.ASIZE`/`.ISIZE`). They emit no
+  bytes and no cycles — a ROM that gains one is byte-identical — and they buy
+  two different things depending on where they sit. **In a routine**, under
+  its entry directives, an assertion pins the CONTRACT to the DIRECTIVES so
+  the two cannot drift; the callers are the lint's job. **In a macro** it is
+  the caller check, and cross-file for free: a macro body expands *at* the
+  call site, so `.asize` inside it is the caller's tracked width in the
+  caller's file. Note the adoption order — `sf_asm.inc` is included once per
+  ROM from the rail's `main.asm`, so a macro cannot carry an assertion until
+  every rail that expands it includes the header. `TS_STEP` declares its
+  contract and says so in place of asserting, for exactly that reason.
+
+  **Nothing is required.** A file with an old-style prose header is simply
+  UNDECLARED — no finding, no baseline, and its callers stay as unchecked as
+  they were. That is what let this land on a tree whose width-lint baseline is
+  zero. Declare when the routine is exported and the width matters; a
+  malformed declaration IS a finding, because a header that reads as a checked
+  contract while nothing checks it is worse than no header at all.
 - **Region-correct rates: declare the rate against the tick, and let the
   timebase carry the region arm.** A new rail composes `region` + `tick_scale`
   in `globals` and expresses each per-frame rate as a BASE fed to
