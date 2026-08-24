@@ -16,15 +16,30 @@
 ; feature owns the whole register and writes BG2's nibble with BG1's left 0.
 
 ; --- sky_arm: CHR + map + palette + BG2 registers (scene enter) -------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
 ; The enter-time GP-DMA register file, addressed through the channel the
 ; sky_up dma_init claim names — the channel number is a declared resource,
 ; not a hard-coded 0.
 SKY_REGS = $4300 + ES_D_SKY_UP_CH * 16
 
+; CONTRACT sky_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       the sky_chr / sky_map / sky_pal claims, and the allocator's
+;             emitted BG2 register encodings — never mask arithmetic in
+;             ASM
+;   out:      CHR, tilemap and palette uploaded, and BG12NBA / BG2SC
+;             written. This feature owns the whole of BG12NBA: BG1 is the
+;             Mode-7 floor, whose CHR base the Mode-7 address generator
+;             ignores, and BG1 is not in the top band's TM anyway
+;   clobbers: A, X, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. Everything here is written once, at enter; there
+;             is no channel, no WRAM and no per-frame cost
+;   tail:     rts
 sky_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "sky_arm"
     ; ---- CHR -> the sky_chr claim (word port, DMA mode 1) -----------------
     sep #$20
     .a8

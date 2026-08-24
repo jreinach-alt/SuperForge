@@ -6,31 +6,75 @@
 ; keeps whatever the phase machine set (e.g. $80 blank).
 
 ; --- fade_init: boot init contract ------------------------------------------
-; In/out: A16/I16.
+; CONTRACT fade_init
+;   entry:    A16 I16
+;   exit:     A16 I16
+;   out:      ES_FADE_CTL zeroed — level 0 and direction idle, the
+;             write-before-read establishment for both bytes (rule 5)
+;   clobbers: nothing. One `stz` and an `rts`
+;   assumes:  ONCE, from MAIN's boot block
+;   tail:     rts
 fade_init:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "fade_init"
     stz z:ES_FADE_CTL
     rts
 
 ; --- fade_start_in / fade_start_out -----------------------------------------
-; In/out: A8. Arms the ramp; fade_tick does the stepping.
+; CONTRACT fade_start_in
+;   entry:    A8 I16
+;   exit:     A8 I16
+;   out:      ES_FADE_CTL+1 = 1 (ramping in). The LEVEL byte is left where
+;             it stands, so a fade reversed mid-ramp resumes from the
+;             brightness on screen rather than from an end stop
+;   clobbers: A, N, Z
+;   assumes:  the caller is in A8 — the arm is one 8-bit store, and an A16
+;             arrival would write the neighbouring level byte with it.
+;             Arming only; fade_tick does the stepping
+;   tail:     rts
 fade_start_in:
     .a8
+    SF_ASSERT_WIDTH 8, 16, "fade_start_in"
     lda #1
     sta z:ES_FADE_CTL+1
     rts
+; CONTRACT fade_start_out
+;   entry:    A8 I16
+;   exit:     A8 I16
+;   out:      ES_FADE_CTL+1 = 2 (ramping out). The level byte is left
+;             where it stands, as in fade_start_in
+;   clobbers: A, N, Z
+;   assumes:  the caller is in A8, for the reason fade_start_in's contract
+;             gives. Arming only; fade_tick does the stepping
+;   tail:     rts
 fade_start_out:
     .a8
+    SF_ASSERT_WIDTH 8, 16, "fade_start_out"
     lda #2
     sta z:ES_FADE_CTL+1
     rts
 
 ; --- fade_tick: step the ramp one frame (call once per frame) ---------------
-; In/out: A16/I16.
+; CONTRACT fade_tick
+;   entry:    A16 I16
+;   exit:     A16 I16
+;   in:       ES_FADE_CTL — the level byte and the direction byte
+;   out:      the level stepped one toward its end stop, the direction
+;             cleared to idle when it arrives, and the INIDISP shadow
+;             (ES_SM_NMI+1) written from the level — but ONLY while
+;             ramping, so an idle fade leaves whatever the phase machine
+;             set
+;   clobbers: A, N, Z, C. The index registers are untouched
+;   assumes:  ONCE per frame, unconditionally; it returns immediately when
+;             idle. Both this and mosaic_tick write the INIDISP shadow and
+;             neither claims INIDISP, so the allocator has nothing to
+;             check — gate this on mosaic_active, or tick mosaic LAST
+;   tail:     rts
 fade_tick:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "fade_tick"
     sep #$20
     .a8
     lda z:ES_FADE_CTL+1

@@ -35,6 +35,8 @@ SF_HDR_TITLE_SET = 1
 
 .include "header.inc"
 .include "init.inc"
+.include "sf_asm.inc"               ; shared macros: placement assertions + the
+                                    ;   data-bank idioms (vendor/rom)
 
 .segment "CODE"
 

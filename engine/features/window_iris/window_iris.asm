@@ -54,11 +54,21 @@ IH_N    = ES_IRIS_HOT + 16          ; rows in the run being filled
 IRIS_ROW_OFF = $00FF
 
 ; --- wi_arm: table skeleton, window registers, HDMA shadow (scene enter) ---
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
-; Caller ORs the ES_H_IRIS_CH bit into the HDMAEN shadow.
+; CONTRACT wi_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the table skeleton laid down, the window registers and the
+;             colour-math config written, and the HDMA channel shadow
+;             staged
+;   clobbers: A, X, N, Z
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. The caller ORs the ES_H_IRIS_CH bit into the
+;             HDMAEN shadow AFTERWARDS; this routine does not
+;   tail:     rts
 wi_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "wi_arm"
     ; ---- invalidate the idle-skip cache ---------------------------------
     ; $FFFF is not a reachable centre, so the first wi_tick of this scene
     ; always rebuilds. Without this the persistent cache could hold power-on
@@ -128,13 +138,25 @@ wi_arm:
     rts
 
 ; --- wi_disarm: put the window and colour math back (scene exit) -----------
-; In/out: A16/I16, DB=0, forced blank. Restores ppu_reset's boot values, so the
+; CONTRACT wi_disarm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the window and colour-math registers put back to ppu_reset's
+;             boot values, so the next scene inherits the machine's
+;             defaults rather than this scene's lantern
+;   clobbers: A, N, Z
+;   assumes:  forced blank, at scene exit. A window left armed dims a
+;             scene that never wrote a window register, through registers
+;             it has no reason to look at
+;   tail:     rts
+;
 ; next scene inherits the machine's defaults rather than this scene's lantern.
 ; A window left armed dims a scene that never wrote a window register, through
 ; registers it has no reason to look at.
 wi_disarm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "wi_disarm"
     sep #$20
     .a8
     stz a:$2123                     ; W12SEL:  no layer windowed
@@ -150,11 +172,20 @@ wi_disarm:
     rts
 
 ; --- wi_tick: rebuild the whole table from a centre (per frame) ------------
-; In: A16/I16, DB=0. X = centre x (screen px), Y = centre y (scanline).
-; Clobbers A, X, Y.
+; CONTRACT wi_tick
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       X = centre x (screen px), Y = centre y (scanline)
+;   out:      the whole per-scanline window table rebuilt around that
+;             centre
+;   clobbers: A, X, Y, N, Z, C, V
+;   assumes:  once per frame, outside the window the channel is fetching
+;             from — it rewrites the table the iris channel reads
+;   tail:     rts
 wi_tick:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "wi_tick"
     ; ---- idle skip: a stationary lantern needs no rebuild ----------------
     ; The table is a pure function of the centre, so if neither coordinate
     ; moved the 224 rows already in WRAM are exactly what this frame would

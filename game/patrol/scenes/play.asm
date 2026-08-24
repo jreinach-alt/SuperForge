@@ -123,6 +123,7 @@ TXT_ATTR = (7 << 10) | (1 << 13)
 ; see across the file boundary in either direction, so this marker carries it
 ; (m7_dungeon's FP_CORNER, the same contract).
 .macro PAT_CORNER pc_ox, pc_oy
+    SF_ASSERT_WIDTH 16, 16, "PAT_CORNER"
     lda z:US_PROBEX
     .if (pc_ox) > 0
     clc

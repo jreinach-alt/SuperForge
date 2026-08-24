@@ -263,7 +263,7 @@ enter:
     stz z:US_MSGPOS
     jsr shm_pool_init               ; every slot free, before any tick runs
     ; ---- BG1 + BG2: CHR, palette, the field, the band, layer registers ----
-    jsr shm_arm
+    jsr shmup_arm
     ; ---- the sixteen sprites: CHR, three palettes, OBSEL, parked entries ---
     jsr obj_arm
     ; ---- BG3: the HUD's palette and layer registers -----------------------

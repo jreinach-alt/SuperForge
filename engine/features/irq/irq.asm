@@ -45,6 +45,20 @@
 ; scenes/seam.asm's header.
 
 ; --- irq_arm_v: set the V-count timer to an INTERNAL scanline ---------------
+; CONTRACT irq_arm_v
+;   entry:    A16 I16
+;   exit:     A16 I16
+;   in:       A = the INTERNAL scanline to fire on, 0..261. For a band
+;             seam at CONTENT line S pass S, not S-1 — the header above
+;             says why, and one line early corrupts content line S-1
+;   out:      VTIMEL/VTIMEH ($4209/$420A) armed from A in one 16-bit store
+;   clobbers: nothing. A, X and Y all survive — the store IS the routine
+;   assumes:  A16 is load-bearing rather than conventional: the 16-bit
+;             store is what reaches both halves of VTIME in one
+;             instruction, and an A8 caller would arm the low byte against
+;             a random high bit
+;   tail:     rts
+;
 ; In: A16 = internal scanline (0..261). VTIME counts INTERNAL scanlines and
 ; content line L draws during internal scanline L+1 (SnesPpu.cpp:1410,:883) —
 ; so for a band seam at content line S, pass S, NOT S-1: the fire lands in
@@ -58,5 +72,6 @@
 irq_arm_v:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "irq_arm_v"
     sta a:$4209                     ; VTIME lo+hi ($4209/$420A)
     rts

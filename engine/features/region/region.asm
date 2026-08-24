@@ -35,7 +35,17 @@
 RGN_PAL_BIT = 1 << 4
 
 ; --- region_init: boot init contract ---------------------------------------
-; In/out: A16/I16, DB=0. Clobbers A. Call ONCE from MAIN's boot block.
+; CONTRACT region_init
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      ES_RGN_PAL — 0 on an NTSC console, 1 on a PAL one
+;   clobbers: A, N, Z. The index registers are untouched
+;   assumes:  ONCE, from MAIN's boot block. The console cannot change
+;             region, so nothing re-reads $213F on a motion path — and the
+;             read also resets the OPHCT/OPVCT flip-flops, which the three
+;             camera sites that care about them re-establish for
+;             themselves
+;   tail:     rts
 ;
 ; The word is written on BOTH paths — stz first, then the PAL case — because
 ; power-on RAM is random, and a flag written in only one branch reads garbage
@@ -43,6 +53,7 @@ RGN_PAL_BIT = 1 << 4
 region_init:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "region_init"
     stz z:ES_RGN_PAL
     sep #$20
     .a8

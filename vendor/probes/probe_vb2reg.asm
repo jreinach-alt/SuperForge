@@ -24,6 +24,8 @@ SF_HDR_TITLE_SET = 1
 .include "engine_state_probe.inc"
 .include "header.inc"
 .include "init.inc"
+.include "sf_asm.inc"               ; shared macros: placement assertions + the
+                                    ;   data-bank idioms (vendor/rom)
 
 ; DMAP bit 3: hold the A-bus address fixed. A source-side bit, so it is
 ; not part of any register claim's destination footprint (see D6) and is

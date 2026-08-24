@@ -76,7 +76,20 @@ _mos_curve_in_end:
 .assert (_mos_curve_in_end - _mos_curve_in) = MOS_IN_FRAMES, error, "IN curve length"
 
 ; --- mosaic_init: the boot init contract -----------------------------------
-; In/out: A16/I16, DB=0. Clobbers A, X.
+; CONTRACT mosaic_init
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the whole mos_ctl claim zeroed — state, timer, shadow and
+;             bg_mask. That is `[init] zero` given a routine behind it:
+;             the declaration emits a comment in the scene map and no code
+;   clobbers: A, X, N, Z. The prose above claims A as well and the loop
+;             does not in fact write it; the wider claim is kept rather
+;             than narrowed
+;   assumes:  ONCE, from MAIN's boot block. Mesen's
+;             break-on-uninitialised-read detector fired on three of these
+;             bytes the first time a ROM composed this feature — that
+;             measurement, not a preference, is why the routine exists
+;   tail:     rts
 ;
 ; THE CONTRACT THE feature.toml DECLARES, AND WHICH NOTHING IMPLEMENTED UNTIL
 ; THIS ROUTINE. `[init] zero = ["mos_ctl"]` is a DECLARATION — the allocator
@@ -98,6 +111,7 @@ _mos_curve_in_end:
 mosaic_init:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "mosaic_init"
     ldx #(ES_MOS_CTL_SIZE - 1)      ; 7 bytes: odd, so this is a BYTE loop
     sep #$20
     .a8
@@ -132,8 +146,16 @@ mosaic_arm:
     rts
 
 ; --- mosaic_active: is a wipe in flight? -----------------------------------
-; In: A8/I16, DB=0. Out: A8/I16. A = the state byte, Z SET when idle. Clobbers
-; A.
+; CONTRACT mosaic_active
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   in:       the mosaic state byte
+;   out:      A = the state byte, Z SET when idle — the flag IS the
+;             answer, so the caller branches on it directly
+;   clobbers: A, N, Z
+;   assumes:  nothing. It is a read, and the three gates that use it are
+;             named in the prose above
+;   tail:     rts
 ;
 ; The consumer gates on this in three places, all of which matter:
 ;  * its own per-frame game work (both scenes freeze while the wipe runs),
@@ -143,15 +165,28 @@ mosaic_arm:
 mosaic_active:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "mosaic_active"
     lda z:ES_MOS_CTL + 0            ; sets Z when idle
     rts
 
 ; --- mosaic_nmi_commit: the shadow byte -> $2106 ---------------------------
+; CONTRACT mosaic_nmi_commit
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   in:       the mosaic shadow byte
+;   out:      $2106 (MOSAIC) written from the shadow, unconditionally —
+;             the final IN frame is also the frame that goes idle, so a
+;             hook that tested the state byte would skip the very write
+;             that clears the mosaic
+;   clobbers: A, N, Z. DB is unchanged
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention
+;   tail:     rts
+;
 ; WIDTH-RISK: entry = A8/I16, DB=0 — the sm_nmi_hook contract. The caller is in
 ; ANOTHER FILE (the game's main.asm), which make width-check cannot see in
 ; either direction (CLAUDE.md rule 6, "the single-file limit remains"), so this
 ; contract is proven only on the emulator and this marker is what carries it.
-; Exits A8/I16, DB unchanged. Clobbers A only.
 ;
 ; UNCONDITIONAL, on purpose. The final IN frame is also the frame that goes
 ; idle, so a hook that tested the state byte would skip the very write that
@@ -161,6 +196,7 @@ mosaic_active:
 mosaic_nmi_commit:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "mosaic_nmi_commit"
     lda z:ES_MOS_CTL + 6
     sta a:$2106
     rts
@@ -224,9 +260,20 @@ _mos_call_swap:
     jmp (ES_MOS_CTL + 4)
 
 ; --- mosaic_tick: step the wipe one frame ----------------------------------
-; In/out: A16/I16, DB=0 — `fade_tick`'s convention, so a main loop can call the
-; two the same way. Clobbers A, X. Call once per frame, unconditionally; it
-; returns immediately when idle.
+; CONTRACT mosaic_tick
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       the mosaic state, timer and curve position
+;   out:      the wipe stepped one frame: the shadow byte and the INIDISP
+;             shadow updated, the state advanced, and the swap callback
+;             JSR'd at the turn
+;   clobbers: A, X, N, Z, C, V
+;   assumes:  ONCE per frame, unconditionally; it returns immediately when
+;             idle. It shares fade_tick's A16/I16 convention so a main
+;             loop can call the two the same way, and it must be ticked
+;             LAST of the two — both write the INIDISP shadow and neither
+;             claims INIDISP, so the allocator has nothing to check
+;   tail:     rts
 ;
 ; Ordering against fade: BOTH write the INIDISP shadow, and neither claims
 ; INIDISP, so the allocator has nothing to check. Gate the fade tick on
@@ -234,6 +281,7 @@ _mos_call_swap:
 mosaic_tick:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "mosaic_tick"
     sep #$20
     .a8
     lda z:ES_MOS_CTL + 0

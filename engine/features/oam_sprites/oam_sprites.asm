@@ -9,12 +9,24 @@
 OAMQ_REGS = $4300 + ES_H_OAMQ_CH * 16   ; the oamq channel's register file
 
 ; --- oam_park_all: park all 128 sprites + clear the hi table (boot init) ----
-; In/out: A16/I16, DB=0. The shadow lives in low WRAM (bank-0 mirror).
 OAM_LOW_BYTES = ES_OAM_SHADOW_SIZE - 32     ; 512-B entry table, 32-B hi table
 
+; CONTRACT oam_park_all
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      EVERY byte of the 544-B shadow written — Y=$F0 hides all 128
+;             sprites, and the hi table is zeroed (X9=0, size=small). That
+;             is what lets the per-VBlank DMA below only ever read
+;             initialised bytes
+;   clobbers: A, X, N, Z, C
+;   assumes:  ONCE, at boot, before the first oam_nmi_dma. The shadow
+;             lives in low WRAM (the bank-0 mirror), which is why the walk
+;             is plain absolute-indexed
+;   tail:     rts
 oam_park_all:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "oam_park_all"
     ldx #0
     lda #(240 << 8)                 ; entry bytes 0-1: X=0, Y=$F0 (off-screen)
 :   sta a:ES_OAM_SHADOW, x
@@ -33,12 +45,25 @@ oam_park_all:
     rts
 
 ; --- oam_nmi_dma: commit the shadow to hardware OAM (every armed VBlank) ----
-; In: A8/I16, DB=0 (sm_nmi_hook contract). Clobbers A. One declared 544-B
+; CONTRACT oam_nmi_dma
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   in:       ES_OAM_SHADOW — the 544 bytes scenes edit in place
+;   out:      hardware OAM committed by one declared 544-B GP-DMA on the
+;             oamq vblank channel, with OAMADD reset to 0 first (the PPU
+;             address advances with every OAM write AND every render —
+;             never assume it)
+;   clobbers: A, N, Z. The index registers are untouched
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention
+;   tail:     rts
+;
 ; GP-DMA on the oamq vblank channel; OAMADD reset to 0 first (the PPU
 ; address advances with every OAM write and render — never assume it).
 oam_nmi_dma:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "oam_nmi_dma"
     stz a:$2102                     ; OAMADD lo = 0
     stz a:$2103                     ; OAMADD hi = 0
     lda #ES_H_OAMQ_DMAP

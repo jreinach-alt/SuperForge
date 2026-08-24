@@ -746,6 +746,7 @@ clamp_world:
 ; two-byte compare and read a blocked corner as clear. width-check cannot see
 ; across the file boundary in either direction, so this marker carries it.
 .macro FP_CORNER fp_ox, fp_oy
+    SF_ASSERT_WIDTH 16, 16, "FP_CORNER"
     lda z:US_CAND_PX
     clc
     adc #fp_ox

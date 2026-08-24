@@ -201,7 +201,7 @@ floor_arm:
     rep #$20
     .a16
 
-    jsr sky_arm
+    jsr m7f_sky_arm
     jsr fog_arm
     jsr tod_arm
     rts
@@ -277,7 +277,7 @@ fog_arm:
     .a16
     rts
 
-; --- sky_arm: the two-band TM split, on one HDMA channel --------------------
+; --- m7f_sky_arm: the two-band TM split, on one HDMA channel --------------------
 ; In/out: A16/I16, DB=0, forced blank + NMI masked. Clobbers A, X.
 ;
 ; Mode 0 is one-register-one-byte, so each entry carries a single TM value:
@@ -296,7 +296,7 @@ fog_arm:
 ; what makes that true rather than coincidental — a second constant here would
 ; drift from the band by two scanlines per altitude quantum and show as a strip
 ; of backdrop above the floor, or a strip of floor above the sky.
-sky_arm:
+m7f_sky_arm:
     .a16
     .i16
     sep #$20

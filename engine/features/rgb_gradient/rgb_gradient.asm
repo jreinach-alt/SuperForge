@@ -47,11 +47,20 @@ rg_tab_b:
     .byte 0
 
 ; --- rg_arm: channel shadow slots + color-math config (scene enter) ---------
-; In/out: A16/I16, DB=0, forced blank (scene_mgr enter contract). Caller ORs
-; the three ES_H_COL*_CH bits into the HDMAEN shadow.
+; CONTRACT rg_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the three channel shadow slots filled and the colour-math
+;             config written
+;   clobbers: A, X, N, Z
+;   assumes:  forced blank — the scene_mgr enter contract. The caller ORs
+;             the three ES_H_COL*_CH bits into the HDMAEN shadow
+;             AFTERWARDS; this routine does not
+;   tail:     rts
 rg_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rg_arm"
     sep #$20
     .a8
     ; ---- CH colr: R plane ---------------------------------------------
@@ -130,12 +139,23 @@ rg_arm:
     rts
 
 ; --- rg_disarm: restore the boot color-math state (scene exit) --------------
-; In/out: A16/I16, DB=0, forced blank. COLDATA holds whatever line the disarm
+; CONTRACT rg_disarm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      all three COLDATA planes reset to zero, and CGWSEL / CGADSUB
+;             returned to the ppu_reset defaults
+;   clobbers: A, N, Z
+;   assumes:  forced blank, at scene exit. COLDATA holds whatever line the
+;             disarm caught, so the reset is what stops a scene inheriting
+;             a stray fixed colour
+;   tail:     rts
+;
 ; caught — reset all three planes to zero so no scene inherits a stray fixed
 ; color; CGWSEL/CGADSUB return to the ppu_reset defaults.
 rg_disarm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rg_disarm"
     sep #$20
     .a8
     lda #(32 | 16)

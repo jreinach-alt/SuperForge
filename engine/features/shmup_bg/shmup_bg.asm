@@ -240,9 +240,9 @@ shm_palette:
     .a16
     rts
 
-; --- shm_arm: uploads + the two maps + BG1/BG2 registers (scene enter) ------
+; --- shmup_arm: uploads + the two maps + BG1/BG2 registers (scene enter) ------
 ; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
-shm_arm:
+shmup_arm:
     .a16
     .i16
     jsr shm_vmain
@@ -310,7 +310,7 @@ shm_drift:
     rts
 
 ; --- shm_commit_scroll: the shadow -> BG1VOFS -------------------------------
-; In/out: A16/I16, DB=0. Clobbers A. Called from shm_arm (forced blank) and
+; In/out: A16/I16, DB=0. Clobbers A. Called from shmup_arm (forced blank) and
 ; from shm_vblank_scroll (VBlank). BG1VOFS is WRITE-TWICE: low byte then high
 ; byte, into one 8-bit port.
 shm_commit_scroll:

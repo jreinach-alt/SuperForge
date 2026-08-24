@@ -37,6 +37,8 @@ DMAP_FIXED_SRC = $08
 
 .include "header.inc"
 .include "init.inc"
+.include "sf_asm.inc"               ; shared macros: placement assertions + the
+                                    ;   data-bank idioms (vendor/rom)
 
 .segment "CODE"
 

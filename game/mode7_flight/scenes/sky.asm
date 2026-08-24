@@ -115,7 +115,7 @@ enter:
     ; ---- the pose tables FIRST, then the plane, the sky split and the cast -
     ; THE ORDER IS A CONTRACT, not a preference, and the uninit-read detector
     ; is what named it: under the moving horizon the sky split's first count
-    ; byte IS the band's first scanline, so `sky_arm` reads M7F_HORIZON — which
+    ; byte IS the band's first scanline, so `m7f_sky_arm` reads M7F_HORIZON — which
     ; only `m7f_arm` derives. Armed the other way round the split is built from
     ; power-on garbage for one frame, which is a rule-5 read of a byte nothing
     ; has written and was flagged as exactly that.

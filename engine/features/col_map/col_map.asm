@@ -153,10 +153,22 @@ CM_T1   = ES_CM_HOT + 8     ; u16 kernel scratch: the row's byte offset
 CM_WORLD_WIN = CM_WORLD_BLOB           ; the $8000 LoROM window each chunk fills
 
 ; --- col_map_at: world pixel (CM_PX, CM_PY) -> flag byte --------------------
-; In: A16/I16, DB=0. CM_PX/CM_PY are u16 world pixel coordinates; ANY u16
-;  value is legal (see the totality note below).
-; Out: A8 = the flag byte, and CM_FLAG holds it. X, Y clobbered. DB restored
-;  to its entry value.
+; CONTRACT col_map_at
+;   entry:    A16 I16 DB=0
+;   exit:     A8 I16
+;   in:       CM_PX / CM_PY — u16 world pixel coordinates. ANY u16 value
+;             is legal: the two world-size masks make every input name a
+;             real tile, so there is no bounds check, no sentinel and no
+;             branch
+;   out:      A = the flag byte, and CM_FLAG holds it — the output region
+;             the tests read. DB is restored to its entry value
+;   clobbers: A, X, N, Z, C, and the CM_T0 / CM_T1 scratch pair. Y is
+;             named by the prose this contract replaced and is in fact
+;             untouched, so the wider claim is kept rather than narrowed
+;             here
+;   assumes:  CM_FLAGS and the world blob are placed as their claims say;
+;             the chunk bank is derived from the row rather than assumed
+;   tail:     rts
 ;
 ; TOTAL over the u16 input space: the two world-size masks make every input
 ; name a real tile, so there is no bounds check, no sentinel and no branch. The
@@ -177,6 +189,7 @@ CM_WORLD_WIN = CM_WORLD_BLOB           ; the $8000 LoROM window each chunk fills
 col_map_at:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "col_map_at"
     ; ---- tile y, and the byte offset of its row inside the 32 KB window ----
     lda z:CM_PY
     lsr
