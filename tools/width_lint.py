@@ -1021,6 +1021,12 @@ class Contract:
     exit_a: str = UNKNOWN
     exit_i: str = UNKNOWN
     slots: dict = field(default_factory=dict)
+    # Set when the block did not parse. A malformed contract has already
+    # produced its own finding, and every check downstream of it is then
+    # reading a declaration that does not say what its author meant — so the
+    # semantic checks skip it and it never enters the cross-file table. One
+    # violation, one diagnosis.
+    malformed: bool = False
 
     def entry(self, axis: str) -> str:
         return self.entry_a if axis == "a" else self.entry_i
@@ -1080,10 +1086,13 @@ def parse_contracts(fa: FileAnalysis) -> tuple[list[Contract], list[Finding]]:
     lines = fa.lines
     n = len(lines)
 
-    def bad(line: int, name: str, why: str) -> None:
+    broken: set = set()
+
+    def bad(line: int, name: str, why: str, at: int = 0) -> None:
         findings.append(Finding(
             file=fa.path, line=line, rule="contract-malformed", label=name,
             message=f"CONTRACT {name}: {why}"))
+        broken.add(at or line)
 
     for idx in range(n):
         m = RE_CONTRACT.match(lines[idx])
@@ -1102,7 +1111,8 @@ def parse_contracts(fa: FileAnalysis) -> tuple[list[Contract], list[Finding]]:
             if sm and sm.group(1).lower() in CONTRACT_SLOTS:
                 last = sm.group(1).lower()
                 if last in slots:
-                    bad(j + 1, name, f"the `{last}:` slot is written twice")
+                    bad(j + 1, name, f"the `{last}:` slot is written twice",
+                    at=idx + 1)
                 slots[last] = sm.group(2)
                 slot_line[last] = j + 1
             elif sm and not cm:
@@ -1111,7 +1121,7 @@ def parse_contracts(fa: FileAnalysis) -> tuple[list[Contract], list[Finding]]:
                     f"{', '.join(CONTRACT_SLOTS)} — a line that is prose "
                     f"continuing the slot above it must be indented under it, "
                     f"and a block comment goes above the CONTRACT line, not "
-                    f"inside the block")
+                    f"inside the block", at=idx + 1)
                 last = None
             elif cm and last:
                 slots[last] = (slots[last] + " " + cm.group(1)).strip()
@@ -1169,16 +1179,18 @@ def parse_contracts(fa: FileAnalysis) -> tuple[list[Contract], list[Finding]]:
 
         c = Contract(name=name, file=fa.path, line=idx + 1, kind=kind,
                      bound_line=bound_line, slots=slots)
+        contracts.append(c)
         for slot, attr in (("entry", "entry"), ("exit", "exit")):
             if slot not in slots:
                 continue
             a, i, errs = _parse_machine_slot(slot, slots[slot])
             for e in errs:
-                bad(slot_line[slot], name, e)
+                bad(slot_line[slot], name, e, at=idx + 1)
             setattr(c, f"{attr}_a", a)
             setattr(c, f"{attr}_i", i)
-        contracts.append(c)
 
+    for c in contracts:
+        c.malformed = c.line in broken
     return contracts, findings
 
 
@@ -1199,7 +1211,7 @@ def check_contract_agrees_with_directives(
     """
     findings: list[Finding] = []
     for c in contracts:
-        if c.kind != "routine":
+        if c.kind != "routine" or c.malformed:
             continue
         pre = scan_label_prelude(fa.lines, c.bound_line)
         for axis in ("a", "i"):
@@ -1240,7 +1252,7 @@ def check_unknown_is_established(
     """
     findings: list[Finding] = []
     for c in contracts:
-        if c.kind != "routine":
+        if c.kind != "routine" or c.malformed:
             continue
         for axis, bit in (("a", 0x20), ("i", 0x10)):
             if c.entry(axis) != UNKNOWN:
@@ -1412,6 +1424,8 @@ def collect_contracts(paths: list[str]) -> tuple[dict, list[Finding],
         contracts, errs = parse_contracts(fa)
         findings.extend(errs)
         for c in contracts:
+            if c.malformed:
+                continue          # already a finding; never a checking basis
             stats.declared += 1
             if c.kind == "macro":
                 stats.macros += 1
@@ -1505,6 +1519,36 @@ def detect_bare_overrides(path: str | Path) -> list[Finding]:
 
 # --- CLI ---------------------------------------------------------------------
 
+LINT_EXTENSIONS = (".asm", ".inc")
+
+
+def expand_paths(paths: list[str]) -> list[str]:
+    """Turn the target list into the file list, exactly once.
+
+    A directory expands over EVERY extension this lint reads — `.asm` and
+    `.inc` both, because `vendor/rom/sf_asm.inc` is the one file where a width
+    mistake is written once and assembled into every ROM. A file is taken as
+    given.
+
+    This lives here rather than inside `main` so the pytest mirror can expand
+    the SAME target list the Makefile hands the CLI instead of restating the
+    globs. Restating them is how the mirror ended up covering `.asm` only
+    while the target covered both — a gap that was visible in a comment and
+    nowhere else.
+    """
+    files: list[str] = []
+    for p in paths:
+        path = Path(p)
+        if path.is_dir():
+            for ext in LINT_EXTENSIONS:
+                files.extend(str(x) for x in sorted(path.rglob(f"*{ext}")))
+        elif path.exists():
+            files.append(str(path))
+        else:
+            raise FileNotFoundError(p)
+    return files
+
+
 def format_finding(f: Finding) -> str:
     return f"{f.file}:{f.line}: [{f.rule}] {f.message}"
 
@@ -1541,19 +1585,11 @@ def main(argv: list[str]) -> int:
     )
     args = parser.parse_args(argv)
 
-    # Expand directories: caller is responsible for globbing, but support a
-    # single path that's a directory by descending (one level) for convenience.
-    files: list[str] = []
-    for p in args.paths:
-        path = Path(p)
-        if path.is_dir():
-            files.extend(str(x) for x in sorted(path.rglob("*.asm")))
-            files.extend(str(x) for x in sorted(path.rglob("*.inc")))
-        elif path.exists():
-            files.append(str(path))
-        else:
-            print(f"width_lint: file not found: {p}", file=sys.stderr)
-            return 2
+    try:
+        files = expand_paths(args.paths)
+    except FileNotFoundError as e:
+        print(f"width_lint: file not found: {e}", file=sys.stderr)
+        return 2
 
     findings, stats = lint_paths(files)
     for f in files:

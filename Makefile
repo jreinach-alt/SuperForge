@@ -15,7 +15,7 @@ LD65    := ld65
 # `microzero` in the repo root would have made `make microzero` a silent
 # no-op. The other three are the same shape and are fixed alongside it.
 .PHONY: all toy alloc no-literals toy-bad rom-unbacked clean test width-check \
-	cleanroom \
+	cleanroom print-width-targets \
 	time-check tick-check tick-census falsify determinism \
 	probe-colmap microzero room probes measure rail-registered \
 	register register-write push gates breaker shmup platformer split_v_fight \
@@ -2968,7 +2968,12 @@ cleanroom:
 #
 # The same gate is asserted from pytest (tests/test_width_lint.py::
 # test_repo_width_lint_is_clean) so a violation fails the suite too, not only
-# this target. That list mirrors this one — keep them together.
+# this target. That list no longer MIRRORS this one — the pytest side reads
+# this variable back through `make -s print-width-targets` and expands it with
+# the CLI's own `expand_paths`, so neither the target set nor the extension
+# set can drift between the two. (It could before: the CLI expanded a
+# directory over `.asm` AND `.inc` while the mirror globbed `.asm` only, so
+# every `.inc` under engine/ and game/ was in the gate and out of the suite.)
 WIDTH_LINT          = $(PY) tools/width_lint.py
 WIDTH_LINT_SALVAGE  = vendor/probes/probe_cpu_ref.asm
 WIDTH_LINT_TARGETS  = engine game vendor/rom \
@@ -2976,6 +2981,11 @@ WIDTH_LINT_TARGETS  = engine game vendor/rom \
 
 width-check:
 	@$(WIDTH_LINT) $(WIDTH_LINT_TARGETS) --summary
+
+# The one source of truth for WHAT the width gate reads, echoed for the pytest
+# mirror. Not a gate — a query.
+print-width-targets:
+	@echo $(WIDTH_LINT_TARGETS)
 
 # ---- time-check: the TIME-COUPLING gate (docs/45) -------------------------
 # The sibling of width-check, for the class that has cost this repo the most

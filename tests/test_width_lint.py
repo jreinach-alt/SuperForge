@@ -14,6 +14,7 @@ Run with:
 
 from __future__ import annotations
 
+import subprocess
 import sys
 import textwrap
 from pathlib import Path
@@ -747,45 +748,63 @@ def test_check4_fixture_on_disk():
 
 # The reference's version of this block named seven of ITS engine files. None of
 # them exist here, so every case skipped and the integration surface was dead
-# while still reporting green. Discover this repo's ASM instead: the list can
-# never go stale, and LINT_TARGETS below asserts it is non-empty so the suite
-# fails loudly rather than silently covering nothing.
+# while still reporting green.
 #
-# vendor/ is frozen vendored material and stays out — except that
-# vendor/probes/ is not all vendored: probe_vblank.asm and probe_vb2reg.asm are
-# fresh SuperForge code, allocator-mapped, no-literals-gated, written here.
-# They belong in the gate. Only the CPU-calibration probe is excluded, BY NAME,
-# because it is an instrumented copy of frozen reference sources — so a probe
-# added later is covered by default rather than silently escaping.
+# THIS LIST IS NO LONGER A MIRROR — it is DERIVED, in both of the two ways it
+# used to be able to drift:
 #
-# vendor/rom/ is in for the same reason and is the one entry that is `.inc`
-# rather than `.asm`: it is first-party, every rail assembles against it, and
-# it holds sf_asm.inc — the shared macro header, i.e. the one file where a
-# width mistake would be written once and assembled into every ROM expanding
-# it. NOTE the asymmetry this makes explicit: the Makefile hands DIRECTORIES to
-# the CLI, which expands each to `*.asm` AND `*.inc`, while this list globs
-# `*.asm` only — so engine/ and game/ `.inc` files are covered by the target
-# and not by this test. Naming vendor/rom's `.inc` files here closes the gap
-# for the header without pretending the general one is closed.
-#
-# This list mirrors WIDTH_LINT_TARGETS in the Makefile — keep them together.
+#   * WHICH targets. `make -s print-width-targets` echoes the Makefile's own
+#     `WIDTH_LINT_TARGETS`, so the target set has exactly one definition. The
+#     shape of that variable — engine, game, vendor/rom, and vendor/probes'
+#     first-party probes with the vendored CPU-calibration one filtered out by
+#     name — is the Makefile's to state, and this file no longer restates it.
+#   * WHICH FILES a target expands to. `width_lint.expand_paths` is the CLI's
+#     own expansion, called here directly. Before, the CLI expanded a
+#     directory over `*.asm` AND `*.inc` while this list globbed `*.asm` for
+#     engine/ and game/ and `*.inc` for vendor/rom only — so every `.inc`
+#     under engine/ and game/ was inside the gate and outside the suite. That
+#     gap was written down in this comment and closed nowhere.
+def _lint_targets():
+    out = subprocess.run(["make", "-s", "print-width-targets"], cwd=ROOT,
+                         capture_output=True, text=True, check=True)
+    targets = out.stdout.split()
+    assert targets, "make print-width-targets echoed nothing"
+    return [Path(p) for p in width_lint.expand_paths(
+        [str(ROOT / t) for t in targets])]
+
+
+LINT_TARGETS = sorted(_lint_targets())
 VENDORED_ASM = {"probe_cpu_ref.asm"}
-LINT_TARGETS = sorted(
-    [p for d in ("engine", "game") for p in (ROOT / d).rglob("*.asm")]
-    + [p for p in (ROOT / "vendor" / "probes").glob("*.asm")
-       if p.name not in VENDORED_ASM]
-    + sorted((ROOT / "vendor" / "rom").glob("*.inc"))
-)
 
 
 def test_lint_targets_discovered():
-    """The discovery glob actually finds ASM — guards against a silent no-op.
+    """The derivation actually finds ASM — guards against a silent no-op.
 
     If a refactor moves engine/ or game/, this fails instead of leaving
     test_engine_files_runnable parametrized over an empty list (which pytest
     reports as passing).
     """
     assert LINT_TARGETS, "no .asm found under engine/ or game/ — discovery broke"
+
+
+def test_the_mirror_expands_what_the_target_expands():
+    """The asymmetry this derivation exists to close, asserted directly.
+
+    Every extension the CLI reads must be represented here. `.inc` under
+    engine/ and game/ is the half that used to be missing: it was in the gate
+    and out of the suite, so a width bug in a first-party `.inc` failed
+    `make width-check` and passed `pytest`."""
+    covered = {p.suffix for p in LINT_TARGETS}
+    assert set(width_lint.LINT_EXTENSIONS) <= covered, (
+        f"the mirror expands {covered} but the CLI reads "
+        f"{width_lint.LINT_EXTENSIONS}")
+    engine_game_inc = [p for p in LINT_TARGETS
+                       if p.suffix == ".inc"
+                       and p.relative_to(ROOT).parts[0] in ("engine", "game")]
+    assert engine_game_inc, (
+        "no engine/ or game/ .inc in the derived target set — either the tree "
+        "genuinely has none (then delete this assertion) or the derivation "
+        "regressed to the .asm-only glob it replaced")
 
 
 def test_the_vendored_exclusion_is_real():
@@ -821,14 +840,17 @@ def test_repo_width_lint_is_clean():
 
     `make width-check` runs strict (no baseline file). This test is the same
     gate expressed in pytest so a violation fails the suite too, not only the
-    Makefile target — CI runs both, but a developer running only pytest should
-    still see it.
+    Makefile target — a developer running only pytest should still see it.
+
+    Run through `lint_paths`, which is the two-phase whole-tree run the CLI
+    does: file-by-file `lint_file` cannot see a cross-file contract violation
+    at all, so a per-file loop here would have been a pytest gate that says
+    "clean" about a check it never ran.
     """
-    offenders = {
-        str(p.relative_to(ROOT)): width_lint.lint_file(p)
-        for p in LINT_TARGETS
-    }
-    offenders = {k: v for k, v in offenders.items() if v}
+    all_findings, _stats = width_lint.lint_paths([str(p) for p in LINT_TARGETS])
+    offenders: dict = {}
+    for d in all_findings:
+        offenders.setdefault(str(Path(d.file).relative_to(ROOT)), []).append(d)
     assert not offenders, (
         "width-lint findings introduced (baseline is zero):\n"
         + "\n".join(
@@ -1034,4 +1056,299 @@ def test_truth_summary_line_states_what_it_checked(capsys):
     assert "checked:" in out
     assert "jsr" in out          # the arrival kinds are named
     assert "stz-long" in out     # ... through to the last check
-    assert "cross-file callers invisible" in out  # the limitation is stated
+    # The file declares no contract, so the cross-file pass did nothing here
+    # and the summary must SAY it did nothing. This is the line that used to
+    # read "cross-file callers invisible" as a flat statement of the limit;
+    # now the limit is conditional on declaring, so the summary reports the
+    # condition instead of asserting the limit.
+    assert "contracts: 0 declared" in out
+    assert "cross-file pass is inert" in out
+
+
+def test_truth_summary_line_counts_a_pass_that_did_work(capsys):
+    """...and the same line must say so when the pass DID check something.
+
+    A disarmed run and an armed one have to be distinguishable from the
+    summary alone, or "0 finding(s)" reads the same either way."""
+    rc = width_lint.main([
+        str(TRUTH_FIXDIR / "contract_callee.asm"),
+        str(TRUTH_FIXDIR / "contract_caller_ok.asm"), "--summary"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "contracts: 3 declared" in out
+    assert "cross-file call-site width(s) compared" in out
+    assert "cross-file pass is inert" not in out
+
+
+# --- Check 5: the routine contract and the cross-file pass ------------------
+#
+# The hole CLAUDE.md rule 6 states openly — "callers in other files are
+# invisible in both directions... checked only by the emulator" — closed for
+# the routines that DECLARE. Every fixture below is a real file pair on disk,
+# because a cross-file check tested against a single tmp file is not testing
+# the thing it claims to.
+
+CONTRACT_CALLEE = TRUTH_FIXDIR / "contract_callee.asm"
+CONTRACT_OK = TRUTH_FIXDIR / "contract_caller_ok.asm"
+CONTRACT_BAD = TRUTH_FIXDIR / "contract_caller_bad.asm"
+CONTRACT_MALFORMED = TRUTH_FIXDIR / "contract_malformed.asm"
+
+
+def test_contract_fixtures_exist():
+    for p in (CONTRACT_CALLEE, CONTRACT_OK, CONTRACT_BAD, CONTRACT_MALFORMED):
+        assert p.exists(), f"fixture missing: {p}"
+
+
+def test_a_declared_callee_called_at_the_wrong_width_fires(capsys):
+    """THE HEADLINE: a caller in ANOTHER file arriving wrong, named at both
+    ends. Three call sites, four axes wrong between them."""
+    findings, stats = width_lint.lint_paths(
+        [str(CONTRACT_CALLEE), str(CONTRACT_BAD)])
+    xf = [f for f in findings if f.rule == "cross-file-width"]
+    assert len(xf) == 4, [f.message for f in xf]
+    # Both ends named: the caller's file:line is the finding's own location,
+    # and the callee's declaration is cited inside the message.
+    for f in xf:
+        assert f.file == str(CONTRACT_BAD)
+        assert "contract_callee.asm:" in f.message
+        assert f.label in ("fx_needs_a16", "fx_needs_a8")
+    # ...and both directions are represented, so a one-way check cannot pass.
+    assert any("arrives in .a8" in f.message for f in xf)
+    assert any("arrives in .a16" in f.message for f in xf)
+    assert any("arrives in .i8" in f.message for f in xf)
+
+
+def test_a_correct_cross_file_pair_is_clean():
+    """The control. Same declarations, every arrival right — no finding, and
+    the sites were really compared rather than skipped."""
+    findings, stats = width_lint.lint_paths(
+        [str(CONTRACT_CALLEE), str(CONTRACT_OK)])
+    assert findings == [], [width_lint.format_finding(f) for f in findings]
+    assert stats.declared == 3
+    assert stats.sites_checked > 0, "clean, but nothing was checked"
+    assert stats.sites_unprovable == 0
+
+
+def test_an_unknown_declaration_accepts_any_arrival():
+    """`A? I?` means the routine establishes its own widths, so no arrival is
+    a finding — the ok fixture calls it from A16 and from A8."""
+    findings, _ = width_lint.lint_paths(
+        [str(CONTRACT_CALLEE), str(CONTRACT_OK)])
+    assert [f for f in findings if f.label == "fx_any_width"] == []
+    table, errs, _stats, _lf = width_lint.collect_contracts(
+        [str(CONTRACT_CALLEE)])
+    assert table["fx_any_width"].entry_a == width_lint.UNKNOWN
+    assert table["fx_any_width"].entry_i == width_lint.UNKNOWN
+
+
+def test_unknown_is_a_statement_not_an_opt_out():
+    """...and the callee has to EARN it: `A?` with no sep/rep before the
+    first width-sensitive instruction is its own finding, or one character
+    would opt any routine out of the whole pass."""
+    findings = width_lint.lint_file(CONTRACT_MALFORMED)
+    unk = [f for f in findings
+           if f.rule == "contract-unknown-not-established"]
+    assert [f.label for f in unk] == ["fx_unknown_never_set"]
+    assert "lda #$12" in unk[0].message
+
+
+def test_a_malformed_declaration_is_its_own_finding():
+    """A header that reads as a checked contract while nothing checks it is
+    worse than no header. One finding per broken routine — a cascade would
+    make the count useless as a diagnosis."""
+    findings = width_lint.lint_file(CONTRACT_MALFORMED)
+    got = {(f.label, f.rule) for f in findings}
+    assert got == {
+        ("fx_bad_slot", "contract-malformed"),
+        ("fx_missing_slot", "contract-malformed"),
+        ("fx_half_axis", "contract-malformed"),
+        ("fx_bad_token", "contract-malformed"),
+        ("fx_wrong_name", "contract-malformed"),
+        ("fx_directive_drift", "contract-directive-mismatch"),
+        ("fx_unknown_never_set", "contract-unknown-not-established"),
+    }, sorted(got)
+
+
+def test_a_malformed_declaration_never_becomes_a_checking_basis():
+    """It is reported AND withheld: a half-parsed contract must not be what a
+    caller in another file is checked against."""
+    table, errs, stats, _lf = width_lint.collect_contracts(
+        [str(CONTRACT_MALFORMED)])
+    for name in ("fx_bad_slot", "fx_missing_slot", "fx_half_axis",
+                 "fx_bad_token", "fx_wrong_name"):
+        assert name not in table, name
+    assert stats.declared == 2      # only the two well-formed ones
+
+
+def test_the_pass_is_inert_where_the_callee_does_not_declare(tmp_path):
+    """Property (a), asserted rather than assumed: an UNDECLARED callee is
+    exactly as unchecked as before this pass existed. That is what let this
+    land on a tree whose width-lint baseline is zero."""
+    (tmp_path / "callee.asm").write_text(textwrap.dedent("""
+        .p816
+        .smart
+        .segment "CODE"
+        plain_callee:
+            .a16
+            .i16
+            rts
+    """).lstrip("\n"))
+    (tmp_path / "caller.asm").write_text(textwrap.dedent("""
+        .p816
+        .smart
+        .segment "CODE"
+        plain_caller:
+            .a8
+            .i8
+            jsr plain_callee
+            rts
+    """).lstrip("\n"))
+    findings, stats = width_lint.lint_paths(
+        [str(tmp_path / "callee.asm"), str(tmp_path / "caller.asm")])
+    assert findings == [], [width_lint.format_finding(f) for f in findings]
+    assert stats.declared == 0 and stats.sites_checked == 0
+
+
+def test_an_unprovable_arrival_is_counted_not_fired(tmp_path):
+    """The other half of "no flood": where the CALLER's own width is unknown
+    the pass cannot prove anything, so it counts instead of firing. Firing
+    would reintroduce the baseline by the back door."""
+    (tmp_path / "caller.asm").write_text(textwrap.dedent("""
+        .p816
+        .smart
+        .segment "CODE"
+        unprovable_caller:
+            jsr fx_needs_a16
+            rts
+    """).lstrip("\n"))
+    findings, stats = width_lint.lint_paths(
+        [str(CONTRACT_CALLEE), str(tmp_path / "caller.asm")])
+    assert [f for f in findings if f.rule == "cross-file-width"] == []
+    assert stats.sites_unprovable == 2      # both axes, one site
+
+
+def test_a_same_file_call_is_left_to_check_one(tmp_path):
+    """No double-counting: check 1 already models an in-file jsr as an
+    arrival, so the contract pass must not report the same site again."""
+    (tmp_path / "both.asm").write_text(textwrap.dedent("""
+        .p816
+        .smart
+        .segment "CODE"
+        ; CONTRACT local_callee
+        ;   entry:    A16 I16
+        ;   exit:     A16 I16
+        ;   clobbers: A
+        local_callee:
+            .a16
+            .i16
+            rts
+        local_caller:
+            .a8
+            .i16
+            jsr local_callee
+            rts
+    """).lstrip("\n"))
+    findings = width_lint.lint_file(tmp_path / "both.asm")
+    assert [f.rule for f in findings if f.rule == "cross-file-width"] == []
+    # check 1 sees it, and says so in its own vocabulary
+    assert any(f.rule == "annotation-contradicts-arrival" for f in findings)
+
+
+def test_an_ambiguous_bare_name_is_not_resolved(tmp_path):
+    """A name several files define cannot be resolved by a whole-tree run —
+    this tree has three `cam_arm`s. Checking a caller against a declaration
+    it may not link against is the indirect-evidence shape, and it can fail
+    in either direction."""
+    for n in ("a", "b"):
+        (tmp_path / f"def_{n}.asm").write_text(textwrap.dedent(f"""
+            .p816
+            .smart
+            .segment "CODE"
+            ; CONTRACT twin_{n}
+            ;   entry:    A16 I16
+            ;   exit:     A16 I16
+            ;   clobbers: A
+            twin_{n}:
+                .a16
+                .i16
+            shared_name:
+                .a16
+                rts
+        """).lstrip("\n"))
+    (tmp_path / "caller.asm").write_text(textwrap.dedent("""
+        .p816
+        .smart
+        .segment "CODE"
+        amb_caller:
+            .a8
+            .i16
+            jsr shared_name
+            rts
+    """).lstrip("\n"))
+    # Only def_a declares `shared_name`; def_b defines a label of the same
+    # name, which is enough to make the call unresolvable.
+    s = (tmp_path / "def_a.asm").read_text().replace(
+        "; CONTRACT twin_a", "; CONTRACT shared_name").replace(
+        "twin_a:\n    .a16\n    .i16\n", "")
+    (tmp_path / "def_a.asm").write_text(s)
+    findings, stats = width_lint.lint_paths(
+        [str(tmp_path / "def_a.asm"), str(tmp_path / "def_b.asm"),
+         str(tmp_path / "caller.asm")])
+    assert [f for f in findings if f.rule == "cross-file-width"] == []
+    assert stats.sites_ambiguous == 1
+    assert stats.ambiguous_names == {"shared_name"}
+
+
+def test_a_scope_qualified_contract_binds_its_last_segment(tmp_path):
+    """`microzero::sm_nmi_hook` is how a name 37 rails share can still
+    declare. The qualifier keys it uniquely; the label it binds is the last
+    segment."""
+    (tmp_path / "q.asm").write_text(textwrap.dedent("""
+        .p816
+        .smart
+        .segment "CODE"
+        ; CONTRACT some_rail::hook
+        ;   entry:    A8 I16
+        ;   exit:     A8 I16
+        ;   clobbers: A
+        hook:
+            .a8
+            .i16
+            rts
+    """).lstrip("\n"))
+    table, errs, stats, _lf = width_lint.collect_contracts(
+        [str(tmp_path / "q.asm")])
+    assert errs == [], [f.message for f in errs]
+    assert "some_rail::hook" in table
+    assert table["some_rail::hook"].entry_a == "a8"
+
+
+def test_the_contract_and_the_label_directive_cannot_drift():
+    """A declaration is documentation first, and documentation drifts. Inside
+    the defining file the two are pinned to each other."""
+    findings = width_lint.lint_file(CONTRACT_MALFORMED)
+    drift = [f for f in findings if f.rule == "contract-directive-mismatch"]
+    assert [f.label for f in drift] == ["fx_directive_drift"]
+    assert ".a8" in drift[0].message and "A16" in drift[0].message
+
+
+def test_the_live_tree_declares_and_the_pass_is_armed():
+    """The pilot, asserted against the real tree: the three migrated features
+    plus their callers declare, and the cross-file pass really compares call
+    sites. A contract set that stopped being read would leave this at zero
+    while every other test still passed."""
+    out = subprocess.run(["make", "-s", "print-width-targets"], cwd=ROOT,
+                         capture_output=True, text=True, check=True)
+    files = width_lint.expand_paths(
+        [str(ROOT / t) for t in out.stdout.split()])
+    table, errs, stats, label_files = width_lint.collect_contracts(files)
+    assert errs == [], [f.message for f in errs]
+    for name in ("stream_arm", "stream_tick", "stream_nmi_dispatch",
+                 "cam_arm", "cam_tick", "cam_advance", "cam_region",
+                 "TS_STEP", "TS_SCALED"):
+        assert name in table, f"{name} lost its contract"
+    findings, stats = width_lint.lint_paths(files)
+    assert findings == [], [width_lint.format_finding(f) for f in findings]
+    assert stats.sites_checked >= 12, (
+        f"the cross-file pass compared only {stats.sites_checked} widths — "
+        f"it has been disarmed")
