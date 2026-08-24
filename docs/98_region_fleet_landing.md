@@ -78,6 +78,69 @@ it named actually cost.)*
   the pixel walk from the frame count; the honest fix re-derives the slide
   from pixels-remaining, which redefines a byte inside `rpg_logic`'s declared
   claim. Deferred until someone owns that redefinition.
+
+  > **Addendum, 2026-08-24 — DISCHARGED.** Someone owned it. `rpg_hot + 12` is
+  > now `step_px`, the PIXELS REMAINING to the destination tile: `try_step`
+  > arms it to `TILE_PX`, the walk lays down the whole pixels `TS_STEP`
+  > publishes for a base of 1 px/frame, and arrival is that distance reaching
+  > zero. Nothing is welded — the tile is 8 px on both machines and the frames
+  > it takes are the region's answer. The town's `town_rep` was converted with
+  > it: the same published step, spent in throttle units, with the overshoot
+  > carried into the next tile rather than dropped.
+  >
+  > **The deciding frame had to come out of the same budget, and a pixel scale
+  > alone would have missed it.** A held direction is 8 px over NINE frames
+  > here — eight walking, one deciding, because the frame that finds the walk
+  > at rest arms the next tile and moves nothing. Scaling only the eight gives
+  > PAL 1 + 6.65 frames against NTSC's 1 + 8 and measures **0.975**, outside
+  > §1's band. So the frame's budget is spent WHOLE: a frame that arrives with
+  > pixels still in hand decides and keeps walking. On NTSC the budget is
+  > exactly one pixel and the tile exactly eight, so a frame can never arrive
+  > with a pixel left over — the deciding frame is never free and the walk is
+  > the same nine frames it always was. That is the same objection
+  > `m7x_logic`'s "THE GRID STEP IN TWO REGIONS" raised against a pixel budget
+  > on `mode7_explore`; this rail answers it inside the budget instead of by
+  > scaling the tick.
+  >
+  > **Measured** (`tools/rate_oracle.py`, 2026-08-24):
+  >
+  > | observable | NTSC/s | PAL/s | ratio | uncompensated |
+  > |---|---|---|---|---|
+  > | `rpg` `m7_path` — the Mode 7 camera origin | 53.430 px | 53.508 px | **1.00145** | 0.83142 |
+  > | `rpg_town` `avatar_x` — the avatar's OAM X byte | 60.015 px | 60.675 px | **1.01100** | 0.83324 |
+  >
+  > The town needed a registry entry of its own (`rpg_town`, same image, same
+  > map) because its rate is tiles per second and not the plane's pixels, and
+  > it needed the module's `drive` hook — the first use of it — because the
+  > plaza row is walled at both ends and a seconds-indexed shuttle short
+  > enough to fit beat against the frame grid until the avatar parked (NTSC
+  > halves 60.10 then 55.94 against PAL 60.01 and 61.34). The replacement
+  > reverses on the avatar's own drawn position and never reads the frame
+  > index.
+  >
+  > **NTSC is unmoved.** Both oracle NTSC columns are identical to their
+  > pre-change readings; `tools/tb_picture_diff.py` reads NTSC pixel-identical
+  > against the pre-change image in BOTH scenes (overworld, `--pad down`,
+  > frames 120/300/600; town, `--pad up`, frames 60/75/90/300), with PAL
+  > differing on both — the non-vacuity control. A per-frame trace of the
+  > camera origin, both camera tiles, the town tile and the avatar's OAM is
+  > byte-identical to the pre-change ROM over 200 frames on both drives.
+  >
+  > The save torch's `town_flare` stays an integer 12 frames — §2's disclosed
+  > countdown row — so a PAL flare runs 0.24 s against NTSC's 0.20 s. The
+  > mosaic wipe and the boot fade are the same class and are equally untouched.
+  >
+  > **§1's headline counts are left as the sweep landed them** and are not
+  > edited here: they are one of several records of the same census, and
+  > moving one of them alone is how two documents start disagreeing. They are
+  > reconciled together, not rail by rail.
+  >
+  > `tick-check`'s baseline moves 356 → 350 with it, and only on this rail:
+  > three of its ten entries WERE the deferral (`RPG_STEP_DX`'s per-frame
+  > comment, `RPG_STEP_N`'s "frames left in the slide", `STEP_FRAMES = 8`) and
+  > are gone; three more now carry a written reason; four moved and are
+  > re-anchored unchanged. §5's "the baseline held at 356" is the record of the
+  > sweep, not a pin.
 - **`split_h_2p_demo`** — 22 followers and two cameras share one baked
   movement LUT with no build-time base to scale, and the state-step form
   measurably overruns the PAL frame (tick counter 423 against 479 frames).
