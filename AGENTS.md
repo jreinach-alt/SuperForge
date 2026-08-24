@@ -539,6 +539,85 @@ The full rule is CLAUDE.md #2. What it means in practice here:
   reg-ownership pass refuses an undeclared one, naming who does own it).
 - **Seam line 44** renders backdrop (mode writes land during its HBlank). It is
   asserted, not a bug.
+- **Shared 65816 macros live in `vendor/rom/sf_asm.inc`.** That directory is
+  first-party (docs/92) and every rail already assembles with `-I vendor/rom`,
+  so adopting a macro costs no include path and no Makefile edit; it is in
+  `make width-check`'s target set for the reason the lint exists, since a macro
+  is written once and assembled into every ROM that expands it. **Include it
+  ONCE, at top level, from the rail's `main.asm`** beside `header.inc` and
+  `init.inc` — ca65 refuses a second definition of a macro, and an equate
+  defined inside a `.scope` is invisible to the scenes that are not in it. A
+  feature file USES these macros and never includes the header; a rail whose
+  main forgot the include fails to assemble naming the missing macro. Every
+  macro there carries a contract comment (entry/exit width, clobbers, what it
+  asserts) — write one for anything you add, and a `; WIDTH-RISK:` wherever the
+  macro can change a width the assembler cannot track.
+- **Placement assertions: the allocator is the authority on where things GO;
+  these state where the code NEEDS them.** `SF_ASSERT_DP`,
+  `SF_ASSERT_NO_PAGE_CROSS`, `SF_ASSERT_NO_BANK_CROSS` — a routine writes down
+  the property of its own placement its addressing modes depend on, and ca65
+  checks it on every build instead of a reader checking a header comment. The
+  three shapes worth reaching for: a claim reached with `z:` (a FORCED
+  direct-page mode — a symbol outside the page assembles fine and addresses the
+  wrong byte of page zero); a block a DMA or HDMA channel walks (the A-bus
+  address wraps WITHIN A1B, so a straddling buffer transfers the bank's own low
+  bytes); an MVN/MVP block, for the same reason. **An assertion you add must be
+  TRUE the day you write it** — it codifies, it does not change placement — and
+  when one fires the fix is a declaration change, never a weaker assertion.
+  Note what does NOT need one: `lda f:base,x` is absolute-long indexed and does
+  carry across a bank, so a CPU-side table read has no such requirement.
+- **Establish a constant data bank with `SF_SET_DB`, not `lda`/`pha`/`plb`.**
+  `pea` pushes a 16-bit immediate whatever the M flag says, so the bank byte
+  goes into both halves of one push and is pulled twice: 13 cycles in 5 bytes,
+  A survives, and — the part that actually pays — no `sep`/`rep` round trip,
+  because the old form only worked in A8. It clobbers N and Z (`plb` sets them)
+  and it moves the stack pointer up and back, so it wants a site where the
+  stack is writable. It does **not** replace a bank the code COMPUTED: `pea`
+  takes a build-time constant, and a chunk bank derived from a row index still
+  goes through `pha`/`plb` with the value already in A. `SF_SET_P_DB` is the
+  counterpart that establishes the status byte and the bank from one push
+  (`pea` / `plp` / `plb`); it is adopted nowhere today because the tree's DB
+  setups either need only the bank or sit in the NMI entry and the RESET path,
+  where it costs a cycle to save a byte and would newly pin flags those two
+  paths inherit. It also leaves an obligation: `plp` sets M and X at RUNTIME
+  and ca65 cannot see through it, so the caller writes the matching
+  `.a8`/`.a16`/`.i8`/`.i16` after it.
+- **Set and clear flag bits with `tsb`/`trb`** where the load/modify/store had
+  no reader of the flags after it. The mask then names the bits being CHANGED
+  rather than the bits being kept, which is how a hi-table bit-pair or an
+  enable mask is actually reasoned about, and it saves ~2 cycles and 2-3 bytes.
+  **The caution is the flags: `tsb`/`trb` set Z from A AND memory, not from the
+  result** — convert only after reading what follows the site. **And the second
+  caution is a gate**: `no_literals`' channel-mask rule (`scan_enables`) matches
+  `sta`/`stx`/`sty`/`stz` only, so an RMW write to the HDMAEN shadow
+  (`ES_SM_NMI+2`) is INVISIBLE to it — the register-ownership pass does include
+  `tsb`/`trb`, the channel-mask rule does not. Converting an arm/disarm site
+  there would move a checked site out of a gate's view, so those keep
+  `lda`/`ora`/`sta` until the rule's store set grows.
+- **Pad a hardware-latency wait to an EXACT cycle count, and annotate it per
+  instruction.** The multiplier needs 8 CPU cycles between the `$4203` write
+  and a valid `$4216`; where there is no real work to put in the window the
+  form is `xba` / `xba` / `nop` — 3 + 3 + 2, the `xba` pair restoring A — which
+  is the same 8 cycles in 3 bytes instead of four `nop`s in 4. The densest
+  padding this CPU has is a stack pair (`phb`/`plb`, 7 cycles in 2 bytes), and
+  7 does not divide 8; there is no one-cycle instruction to finish it. `xba`
+  moves N and Z, so check the site first. **Better than either: fill the window
+  with work.** `tools/gen_m7f_join.py` COUNTS the cycles between the write and
+  the read and refuses to emit an under-filled one, which is the allocator's
+  refusal philosophy applied to instruction scheduling.
+- **A generated include carries a FORMAT VERSION and its consumer pins it.**
+  The allocator emits `SF_INC_FORMAT` into `engine_state_globals.inc` and a
+  rail pins it at its own include site (`.assert SF_INC_FORMAT = N`); an asset
+  generator whose emitted LAYOUT is load-bearing emits its record shape beside
+  the bytes (`tools/gen_m7f_factors.py` → `m7f_factors.inc`) and its consumer
+  pins the format plus each constant it would otherwise re-narrate. The version
+  is about SHAPE, not values: a re-pack or a retuned curve does not bump it —
+  the `_ADDR`/`_BANK` asserts at the claim sites already cover placement drift.
+  **What this closes is a check that looks like it holds and does not:**
+  `m7f_cam` asserted its narrated strides against the allocator's claim SIZE,
+  which is a product — 80 lines of 4 B passes exactly where 160 of 2 B did,
+  with every offset the join reads moved. Six rails carry the allocator pin
+  today; this establishes the pattern rather than sweeping the tree.
 
 ---
 
