@@ -1450,3 +1450,296 @@ def test_the_live_tree_declares_and_the_pass_is_armed():
     assert stats.sites_checked >= 12, (
         f"the cross-file pass compared only {stats.sites_checked} widths — "
         f"it has been disarmed")
+
+
+# --- Check 6: the declaration is MANDATORY on the feature layer -------------
+#
+# Check 5's optional grammar, ratcheted. Every fixture here is a small TREE
+# rather than a file, because "exported" is a relation between files and a
+# single-file fixture cannot express it — the same reason check 5's fixtures
+# are file pairs on disk.
+
+
+def _plant_feature_tree(root: Path, *, declared: bool = False,
+                        override: str = "") -> tuple[Path, Path]:
+    """Plant one exported feature routine and one caller in another file.
+
+    `engine/features/**` is matched on path COMPONENTS, so a tmp tree built
+    under those names is inside the check's scope exactly as the repo's own
+    files are.
+    """
+    feat = root / "engine" / "features" / "plant"
+    rail = root / "game" / "plant_rail"
+    feat.mkdir(parents=True)
+    rail.mkdir(parents=True)
+
+    header = ""
+    if declared:
+        header = (
+            "; CONTRACT plant_export\n"
+            ";   entry:    A16 I16\n"
+            ";   exit:     A16 I16\n"
+            ";   clobbers: A\n"
+        )
+    (feat / "plant.asm").write_text(
+        ".p816\n"
+        ".smart\n"
+        '.segment "CODE"\n'
+        "\n"
+        "; CONTRACT plant_declared\n"
+        ";   entry:    A16 I16\n"
+        ";   exit:     A16 I16\n"
+        ";   clobbers: A\n"
+        "plant_declared:\n"
+        "    .a16\n"
+        "    .i16\n"
+        "    rts\n"
+        "\n"
+        + override
+        + header
+        + "plant_export:\n"
+        "    .a16\n"
+        "    .i16\n"
+        "    rts\n"
+    )
+    (rail / "main.asm").write_text(
+        ".p816\n"
+        ".smart\n"
+        '.segment "CODE"\n'
+        "plant_caller:\n"
+        "    .a16\n"
+        "    .i16\n"
+        "    jsr plant_declared\n"
+        "    jsr plant_export\n"
+        "    rts\n"
+    )
+    return feat / "plant.asm", rail / "main.asm"
+
+
+def test_an_undeclared_exported_feature_routine_fires(tmp_path, capsys):
+    """THE PLANT. A new export with no header, and the finding names both
+    ends: the routine and its own file (where the fix goes) plus the
+    cross-file caller that is the evidence it is exported at all."""
+    feat, rail = _plant_feature_tree(tmp_path)
+    findings, stats = width_lint.lint_paths([str(feat), str(rail)])
+    missing = [f for f in findings if f.rule == "contract-missing"]
+    assert [f.label for f in missing] == ["plant_export"], [
+        width_lint.format_finding(f) for f in findings]
+    f = missing[0]
+    label_line = feat.read_text().splitlines().index("plant_export:") + 1
+    call_line = 1 + next(
+        n for n, ln in enumerate(rail.read_text().splitlines())
+        if "jsr plant_export" in ln)
+    assert f.file == str(feat)
+    assert f.line == label_line, f.line   # the label, not the call site
+    assert f"{rail}:{call_line}" in f.message, f.message
+    assert "; CONTRACT plant_export" in f.message
+    # The sibling that DOES declare is silent, so the check is reading the
+    # declaration rather than the export.
+    assert [g for g in findings if g.label == "plant_declared"] == []
+    # ...and the summary carries the ratchet's state with its denominator.
+    assert stats.exported_examined == 2
+    assert stats.exported_undeclared == 1
+    width_lint.main([str(feat), str(rail), "--summary"])
+    out = capsys.readouterr().out
+    assert "2 uniquely-named routine(s) under engine/features/**" in out
+    assert "1 of them carry no contract" in out
+
+
+def test_the_same_export_declared_is_clean(tmp_path):
+    """The control: one line of header is the whole difference between the
+    plant and a clean tree."""
+    feat, rail = _plant_feature_tree(tmp_path, declared=True)
+    findings, stats = width_lint.lint_paths([str(feat), str(rail)])
+    assert findings == [], [width_lint.format_finding(f) for f in findings]
+    assert stats.exported_examined == 2, "clean, but nothing was examined"
+    assert stats.exported_undeclared == 0
+
+
+def test_the_live_tree_is_at_zero_and_the_ratchet_is_armed():
+    """(a) asserted on the real tree: the flip is a RATCHET, not a migration.
+
+    The denominator is asserted with the count — `0 undeclared` out of
+    nothing examined is a broken scope reading as a clean gate.
+    """
+    files = [str(p) for p in LINT_TARGETS]
+    findings, stats = width_lint.lint_paths(files)
+    assert [f for f in findings if f.rule == "contract-missing"] == []
+    assert stats.exported_undeclared == 0
+    assert stats.exported_examined >= 200, (
+        f"only {stats.exported_examined} exported feature routine(s) "
+        f"examined — the scope has stopped matching the tree")
+
+
+def test_a_game_scene_routine_is_out_of_scope(tmp_path):
+    """(b) the stated ceiling: the requirement is the FEATURE layer's. A
+    rail's own scene routine, exported and undeclared, is not a finding."""
+    (tmp_path / "game" / "rail_a").mkdir(parents=True)
+    (tmp_path / "game" / "rail_b").mkdir(parents=True)
+    (tmp_path / "game" / "rail_a" / "scene.asm").write_text(
+        ".p816\n.smart\n"
+        '.segment "CODE"\n'
+        "scene_helper:\n"
+        "    .a16\n"
+        "    .i16\n"
+        "    rts\n"
+    )
+    (tmp_path / "game" / "rail_b" / "main.asm").write_text(
+        ".p816\n.smart\n"
+        '.segment "CODE"\n'
+        "scene_caller:\n"
+        "    .a16\n"
+        "    .i16\n"
+        "    jsr scene_helper\n"
+        "    rts\n"
+    )
+    findings, stats = width_lint.lint_paths([
+        str(tmp_path / "game" / "rail_a" / "scene.asm"),
+        str(tmp_path / "game" / "rail_b" / "main.asm")])
+    assert findings == [], [width_lint.format_finding(f) for f in findings]
+    assert stats.exported_examined == 0
+
+
+def test_a_name_several_features_define_is_exempt_and_counted(tmp_path):
+    """(c) the same exemption check 5 makes, for the same reason: a caller of
+    a bare name two files define cannot be resolved, so a declaration there
+    would buy no check. Counted as shared-name, never fired."""
+    for feature in ("alpha", "beta"):
+        d = tmp_path / "engine" / "features" / feature
+        d.mkdir(parents=True)
+        (d / f"{feature}.asm").write_text(
+            ".p816\n.smart\n"
+            '.segment "CODE"\n'
+            "floor_arm:\n"
+            "    .a16\n"
+            "    .i16\n"
+            "    rts\n"
+        )
+    rail = tmp_path / "game" / "rail"
+    rail.mkdir(parents=True)
+    (rail / "main.asm").write_text(
+        ".p816\n.smart\n"
+        '.segment "CODE"\n'
+        "rail_caller:\n"
+        "    .a16\n"
+        "    .i16\n"
+        "    jsr floor_arm\n"
+        "    rts\n"
+    )
+    findings, stats = width_lint.lint_paths([
+        str(tmp_path / "engine" / "features" / "alpha" / "alpha.asm"),
+        str(tmp_path / "engine" / "features" / "beta" / "beta.asm"),
+        str(rail / "main.asm")])
+    assert [f for f in findings if f.rule == "contract-missing"] == []
+    assert stats.exported_examined == 0
+    assert stats.exported_shared == 2
+
+
+def test_a_feature_routine_nobody_else_calls_is_not_exported(tmp_path):
+    """Not every label in a feature is an export. A routine only its own file
+    calls is check 1's, and demanding a header for it would be noise."""
+    d = tmp_path / "engine" / "features" / "solo"
+    d.mkdir(parents=True)
+    (d / "solo.asm").write_text(
+        ".p816\n.smart\n"
+        '.segment "CODE"\n'
+        "; CONTRACT solo_entry\n"
+        ";   entry:    A16 I16\n"
+        ";   exit:     A16 I16\n"
+        ";   clobbers: A\n"
+        "solo_entry:\n"
+        "    .a16\n"
+        "    .i16\n"
+        "    jsr solo_private\n"
+        "    rts\n"
+        "solo_private:\n"
+        "    .a16\n"
+        "    .i16\n"
+        "    rts\n"
+    )
+    findings, stats = width_lint.lint_paths([str(d / "solo.asm")])
+    assert findings == [], [width_lint.format_finding(f) for f in findings]
+    assert stats.exported_examined == 0
+
+
+def test_the_override_suppresses_and_a_bare_one_does_not(tmp_path):
+    """The escape hatch, with the reason the convention demands everywhere."""
+    feat, rail = _plant_feature_tree(
+        tmp_path, override="; WIDTH-LINT: ok — a probe hook, entry width is "
+                           "the caller's by design\n")
+    findings, _ = width_lint.lint_paths([str(feat), str(rail)])
+    assert [f for f in findings if f.rule == "contract-missing"] == []
+
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    feat2, rail2 = _plant_feature_tree(bare, override="; WIDTH-LINT: ok\n")
+    findings2, _ = width_lint.lint_paths([str(feat2), str(rail2)])
+    assert [f.label for f in findings2 if f.rule == "contract-missing"] == [
+        "plant_export"]
+
+
+def test_a_qualified_call_still_counts_as_an_export(tmp_path):
+    """A feature routine reached only as `jsr scene::name` — the form ca65
+    needs when the feature body is included inside a scene's `.scope` — is
+    exported. Indexing the bare name alone would read it as dead code and
+    exempt eleven of this tree's routines from the requirement."""
+    d = tmp_path / "engine" / "features" / "qual"
+    d.mkdir(parents=True)
+    (d / "qual.asm").write_text(
+        ".p816\n.smart\n"
+        '.segment "CODE"\n'
+        "qual_commit:\n"
+        "    .a16\n"
+        "    .i16\n"
+        "    rts\n"
+    )
+    rail = tmp_path / "game" / "rail"
+    rail.mkdir(parents=True)
+    (rail / "main.asm").write_text(
+        ".p816\n.smart\n"
+        '.segment "CODE"\n'
+        "qual_caller:\n"
+        "    .a16\n"
+        "    .i16\n"
+        "    jsr play::qual_commit\n"
+        "    rts\n"
+    )
+    findings, stats = width_lint.lint_paths(
+        [str(d / "qual.asm"), str(rail / "main.asm")])
+    assert [f.label for f in findings if f.rule == "contract-missing"] == [
+        "qual_commit"]
+    assert stats.exported_examined == 1
+
+
+def test_a_malformed_contract_is_not_also_reported_as_missing(tmp_path):
+    """One violation, one diagnosis. A header that fails to parse is already
+    `contract-malformed`; adding `contract-missing` on top would make the
+    count useless as a diagnosis and read as two defects."""
+    d = tmp_path / "engine" / "features" / "broke"
+    d.mkdir(parents=True)
+    (d / "broke.asm").write_text(
+        ".p816\n.smart\n"
+        '.segment "CODE"\n'
+        "; CONTRACT broke_entry\n"
+        ";   entry:    A16 I16\n"
+        ";   clobbers: A\n"
+        "broke_entry:\n"
+        "    .a16\n"
+        "    .i16\n"
+        "    rts\n"
+    )
+    rail = tmp_path / "game" / "rail"
+    rail.mkdir(parents=True)
+    (rail / "main.asm").write_text(
+        ".p816\n.smart\n"
+        '.segment "CODE"\n'
+        "broke_caller:\n"
+        "    .a16\n"
+        "    .i16\n"
+        "    jsr broke_entry\n"
+        "    rts\n"
+    )
+    findings, _ = width_lint.lint_paths(
+        [str(d / "broke.asm"), str(rail / "main.asm")])
+    assert rules(findings) == ["contract-malformed"], [
+        width_lint.format_finding(f) for f in findings]

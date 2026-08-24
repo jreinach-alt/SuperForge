@@ -16,8 +16,9 @@ time it ran (0 findings across 19 files), so there is nothing to grandfather
 and no baseline to grow. Keep it that way.
 
 Catches the recurring HIGH-severity width-tracking bug class documented in
-CLAUDE.md Critical Rule 6. The linter implements four pattern-matching
-checks against single-file ca65 source:
+CLAUDE.md Critical Rule 6. The linter implements six pattern-matching checks
+against ca65 source — checks 1-4 read one file at a time, checks 5 and 6 read
+the whole file set the run was handed:
 
   Check 1: Label width annotations are PRESENT and TRUE.
            Arrivals at a label are modelled from fall-through, branches,
@@ -98,6 +99,28 @@ checks against single-file ca65 source:
            is invisible), the pass reads DECLARED entry widths and does
            not verify `exit:`, DB or DP, and the `A?` establishment scan
            walks forward without following branches.
+
+  Check 6: an EXPORTED routine under `engine/features/**` must declare.
+           Check 5 made the contract possible and left it optional, which
+           is how it landed on a zero-baseline tree. That migration is
+           finished for the feature layer, so there the declaration is
+           now REQUIRED: a uniquely-named routine defined under
+           `engine/features/**` and reached by a `jsr`/`jsl` in another
+           file, with no `; CONTRACT` block above its label, is
+           'contract-missing' — naming the routine, its file, and one
+           cross-file caller as the evidence that it is exported.
+
+           IT IS A RATCHET, NOT A MIGRATION: it fires zero times on the
+           tree that adopted it and fires the moment a NEW export arrives
+           undeclared. Three things stay outside it, each a stated ceiling
+           rather than an oversight — definitions outside
+           `engine/features/**` (a rail's own scene routines and the
+           per-rail dispatch-hook families), a BARE NAME SEVERAL FILES
+           DEFINE (check 5 cannot resolve those calls, so a declaration
+           there would buy no check; the fix is the unique feature-prefixed
+           name the convention already asks for), and a label whose
+           CONTRACT block does not parse (already 'contract-malformed' —
+           one violation, one diagnosis).
 
 Override mechanism:
   Suppress a single line's findings with
@@ -1394,6 +1417,128 @@ def check_cross_file_calls(
     return findings, stats
 
 
+# --- Check 6: the declaration is MANDATORY on the feature layer -------------
+#
+# Check 5 made the contract POSSIBLE and deliberately left it optional: an
+# undeclared routine stayed exactly as unchecked as it had always been, which
+# is the only reason the grammar could land on a tree whose width-lint
+# baseline is zero. That migration is finished for `engine/features/**` —
+# every uniquely-named routine there that another file calls now declares —
+# so the optional becomes required.
+#
+# This is a RATCHET rather than a migration, and the difference is the whole
+# design: the check fires zero times on the tree that adopted it, and fires
+# the moment a NEW export arrives without a header. A check that landed with
+# findings would need a baseline, and a baseline is a thing that grows.
+
+FEATURE_SCOPE = ("engine", "features")
+
+
+def _in_feature_scope(path: str) -> bool:
+    """True for a file under `engine/features/**`, on any path prefix.
+
+    Matched on path COMPONENTS rather than a string prefix, so the same
+    predicate holds for the repo's relative `engine/features/x/x.asm`, for an
+    absolute path, and for a synthetic tree a test plants under `tmp_path`. A
+    scope no test can reproduce is a scope nothing checks.
+    """
+    parts = Path(path).parts
+    return any(parts[i:i + 2] == FEATURE_SCOPE for i in range(len(parts) - 1))
+
+
+def check_exported_routines_declare(
+        paths: list[str]) -> tuple[list[Finding], dict]:
+    """An exported feature routine with no CONTRACT block is a finding.
+
+    EXPORTED is the same relation check 5 resolves against: a label defined in
+    one file and reached by a literal `jsr`/`jsl` in another. Nothing new is
+    inferred — if the cross-file pass could not see the call, this check does
+    not claim the routine is exported either.
+
+    Three exemptions, each a ceiling this check states rather than an
+    oversight it hides:
+
+      * a definition OUTSIDE `engine/features/**`. A rail's own scene
+        routines and its dispatch-hook families are its business; the feature
+        layer is the shared surface, where a wrong arrival is written once and
+        assembled into every ROM that composes it;
+      * a BARE NAME SEVERAL FILES DEFINE. Check 5 leaves those calls
+        unresolved on purpose — `floor_arm` is thirteen features' routine,
+        `obj_arm` ten — so demanding a declaration would demand a header that
+        buys no check. The fix is the one the convention already names: a
+        unique, feature-prefixed name. They are counted, not fired;
+      * a label whose CONTRACT block does not PARSE. That is already
+        `contract-malformed`; reporting it twice would make the count useless
+        as a diagnosis.
+
+    The `; WIDTH-LINT: ok — <reason>` override applies at the label, for the
+    routine that genuinely cannot declare. Bare `ok` does not suppress, here
+    as everywhere.
+    """
+    findings: list[Finding] = []
+    stats = {"examined": 0, "undeclared": 0, "shared": 0}
+
+    analyses = {p: analyze_file(p) for p in paths}
+
+    label_files: dict[str, set] = {}
+    for p, fa in analyses.items():
+        for name in fa.label_def_line:
+            label_files.setdefault(name, set()).add(p)
+
+    # Every `jsr`/`jsl` in the run, indexed by the name it could resolve to.
+    # A scene-scoped call is written `jsr race::stream_nmi_dispatch` while the
+    # label inside the scope is bare, so the site is indexed under BOTH the
+    # written token and its last `::` segment — exactly how check 5 resolves
+    # it. Indexing the bare name alone would read the eleven routines this
+    # tree reaches ONLY through the qualified form as uncalled, and exempt
+    # them from a requirement they already meet.
+    call_sites: dict[str, list[tuple[str, int]]] = {}
+    for p, fa in analyses.items():
+        for idx, raw in enumerate(fa.lines):
+            m = RE_CALL.match(strip_label_prefix(strip_comment(raw)))
+            if not m:
+                continue
+            target = m.group(2)
+            keys = {target}
+            if "::" in target:
+                keys.add(target.rsplit("::", 1)[-1])
+            for k in keys:
+                call_sites.setdefault(k, []).append((p, idx + 1))
+
+    for p in sorted(analyses):
+        if not _in_feature_scope(p):
+            continue
+        fa = analyses[p]
+        declared = {c.bound_line for c in parse_contracts(fa)[0]
+                    if c.kind == "routine"}
+        for name, def_line in sorted(fa.label_def_line.items(),
+                                     key=lambda kv: kv[1]):
+            if name.startswith("@"):
+                continue               # a local label is not exported
+            elsewhere = [s for s in call_sites.get(name, ()) if s[0] != p]
+            if not elsewhere:
+                continue               # nothing outside this file calls it
+            if len(label_files.get(name, ())) > 1:
+                stats["shared"] += 1
+                continue
+            stats["examined"] += 1
+            if def_line in declared or has_override(fa.lines, def_line - 1):
+                continue
+            stats["undeclared"] += 1
+            caller, caller_line = elsewhere[0]
+            findings.append(Finding(
+                file=p, line=def_line, rule="contract-missing", label=name,
+                message=(
+                    f"'{name}' is EXPORTED — defined here and called from "
+                    f"{caller}:{caller_line} — and carries no "
+                    f"`; CONTRACT {name}` block. A feature routine another "
+                    f"file jsr's into DECLARES the machine state it needs, or "
+                    f"its cross-file arrivals are proven only on the emulator "
+                    f"(AGENTS.md, 'The routine contract')"),
+            ))
+    return findings, stats
+
+
 # --- Public API --------------------------------------------------------------
 
 @dataclass
@@ -1410,6 +1555,17 @@ class ContractStats:
     callees: set = field(default_factory=set)  # declared routines called
     #                                            from another file
     ambiguous_names: set = field(default_factory=set)
+    # Check 6's ratchet state. `exported_examined` is the DENOMINATOR and is
+    # printed with the count: `0 undeclared` out of nothing examined is a
+    # broken scope reading as a clean gate, which is the shape every other
+    # number in this summary exists to refuse.
+    exported_examined: int = 0    # unique-named engine/features routines
+    #                               reached by a jsr/jsl in another file
+    exported_undeclared: int = 0  # of those, ones with no CONTRACT block
+    exported_shared: int = 0      # exported feature routines whose bare name
+    #                               several files define — outside the
+    #                               requirement, because check 5 cannot
+    #                               resolve their callers either
 
     def merge(self, other: dict) -> None:
         self.sites_checked += other["checked"]
@@ -1501,6 +1657,14 @@ def lint_paths(paths: list[str]) -> tuple[list[Finding], ContractStats]:
     contracts, findings, stats, label_files = collect_contracts(paths)
     for p in paths:
         findings.extend(lint_file(p, contracts, stats, label_files))
+    # Check 6 is tree-wide by nature — "is this routine exported" is a
+    # question about the whole file set, so it cannot live in lint_file, and
+    # a per-file run is silent on it rather than wrong about it.
+    exported, exp = check_exported_routines_declare(paths)
+    findings.extend(exported)
+    stats.exported_examined = exp["examined"]
+    stats.exported_undeclared = exp["undeclared"]
+    stats.exported_shared = exp["shared"]
     findings.sort(key=lambda f: (f.file, f.line, f.rule))
     return findings, stats
 
@@ -1668,6 +1832,23 @@ def main(argv: list[str]) -> int:
                 f"{stats.sites_checked} cross-file call-site width(s) "
                 f"compared across {len(stats.callees)} declared callee(s)"
             )
+            # Check 6's ratchet, printed with its denominator so a scope that
+            # stopped matching anything reads as disarmed instead of clean.
+            print(
+                f"  exported: {stats.exported_examined} uniquely-named "
+                f"routine(s) under engine/features/** reached by a jsr/jsl "
+                f"in another file;\n"
+                f"  {stats.exported_undeclared} of them carry no contract — "
+                f"the declaration is MANDATORY there"
+            )
+            if stats.exported_shared:
+                print(
+                    f"  shared-name: {stats.exported_shared} exported "
+                    f"feature routine(s) whose bare name several files "
+                    f"define are outside that\n"
+                    f"  requirement — check 5 cannot resolve their callers "
+                    f"either, so a declaration would buy no check"
+                )
             if stats.sites_unprovable:
                 print(
                     f"  unprovable: {stats.sites_unprovable} cross-file "
