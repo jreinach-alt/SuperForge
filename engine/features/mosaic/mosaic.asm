@@ -184,9 +184,9 @@ mosaic_active:
 ;   tail:     rts
 ;
 ; WIDTH-RISK: entry = A8/I16, DB=0 — the sm_nmi_hook contract. The caller is in
-; ANOTHER FILE (the game's main.asm), which make width-check cannot see in
-; either direction (CLAUDE.md rule 6, "the single-file limit remains"), so this
-; contract is proven only on the emulator and this marker is what carries it.
+; ANOTHER FILE (the game's main.asm). That used to be invisible to the gate in
+; both directions and provable only on the emulator; the CONTRACT block above
+; is what the cross-file pass now checks those call sites against.
 ;
 ; UNCONDITIONAL, on purpose. The final IN frame is also the frame that goes
 ; idle, so a hook that tested the state byte would skip the very write that

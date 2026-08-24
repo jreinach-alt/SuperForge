@@ -134,18 +134,27 @@ DLG_UP_REGS = $4300 + ES_D_DLG_UP_CH * 16
 ; =============================================================================
 ; dialog_init — the routine behind `[init] zero`.
 ; =============================================================================
+; CONTRACT dialog_init
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the whole ES_DLG_CTL claim zeroed. That is the establishment
+;             `[init] zero` declares: mosaic shipped the same declaration
+;             without a routine and the first ROM to compose it tripped
+;             Mesen's uninitialised-read detector
+;   clobbers: X, N, Z
+;   assumes:  ONCE, from the boot block
+;   tail:     rts
+;
 ; `[init] zero` is emitted by the allocator as a COMMENT; no code falls out of
 ; it. `state` and `dirty` are READ BEFORE ANY WRITE (dialog_is_open and the NMI
 ; hook read them from boot onward, long before the first open) and nothing
 ; seeds them — that is what "closed" MEANS. Mosaic shipped this declaration
 ; without a routine and the first ROM to compose it tripped Mesen's
-; uninitialised-read detector. Call this from the boot block. In/out: A16/I16,
-; DB=0. WIDTH-RISK: exported. Entry A16/I16, exit A16/I16. Callers in other
-; files are invisible to width_lint, so this contract is checked only on the
-; emulator.
-.a16
-.i16
+; uninitialised-read detector.
 dialog_init:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "dialog_init"
     ldx #(ES_DLG_CTL_SIZE - 2)
 :   stz z:ES_DLG_CTL, x
     dex
@@ -156,16 +165,30 @@ dialog_init:
 ; =============================================================================
 ; dialog_upload — the panel CHR + palette, at scene enter under FORCED BLANK.
 ; =============================================================================
+; CONTRACT dialog_upload
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       NO ARGUMENTS. The source is this feature's own dlg_rom
+;             dependency and its address comes from the emitted claim
+;             symbols, not from a caller
+;   out:      the panel CHR uploaded by GP-DMA on the channel the dlg_up
+;             dma_init claim names, and the four palette words written by
+;             CPU store — cheaper than arming a channel for eight bytes,
+;             and what every BG feature here does
+;   clobbers: A, X, N, Z, C
+;   assumes:  scene enter, under FORCED BLANK. A8 is used only for the
+;             byte-wide port writes and every toggle is balanced
+;   tail:     rts
+;
 ; NO ARGUMENTS: the source is this feature's own `dlg_rom` dependency and its
 ; address comes from the emitted claim symbols, not from a caller. The CHR goes
 ; by GP-DMA on the channel the dlg_up dma_init claim names; the four palette
 ; words go by CPU store, which is cheaper than arming a channel for eight bytes
-; and is what every BG feature in the tree does. In/out: A16/I16, DB=0.
-; Clobbers A, X. WIDTH-RISK: exported. Entry A16/I16, exit A16/I16; A8 only for
-; the byte-wide port writes, every toggle balanced.
-.a16
-.i16
+; and is what every BG feature in the tree does.
 dialog_upload:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "dialog_upload"
     sep #$20
     .a8
     lda #ES_R_DLG_CHR_BANK
@@ -205,15 +228,26 @@ dialog_upload:
 ; =============================================================================
 ; dialog_open — open the panel on page 0 of a message.
 ; =============================================================================
+; CONTRACT dialog_open
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       A = the string table address, X (low byte) = the page count
+;   out:      the box and page 0 staged into the buffer and the panel
+;             marked dirty; the next VBlank commits it. Idempotent on an
+;             already-open panel — it just restages
+;   clobbers: A, X, Y, N, Z
+;   assumes:  the main thread, not the hook — it stages, and
+;             dialog_nmi_commit is what touches VRAM
+;   tail:     rts
+;
 ; In: A16 = the message's page table (a bank-0 ROM label: DLG_LINES word
 ;  pointers per page, in page order), X = page count (>= 1).
 ; Stages the box + page 0 into the buffer and marks it dirty; the next VBlank
-; commits it. Idempotent on an already-open panel (it just restages). In/out:
-; A16/I16, DB=0. Clobbers A, X, Y. WIDTH-RISK: exported. Entry A16/I16, exit
-; A16/I16.
-.a16
-.i16
+; commits it. Idempotent on an already-open panel (it just restages).
 dialog_open:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "dialog_open"
     sta z:DLG_TAB
     txa
     sep #$20
@@ -230,14 +264,25 @@ dialog_open:
 ; =============================================================================
 ; dialog_advance — show the next page, or close after the last one.
 ; =============================================================================
+; CONTRACT dialog_advance
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      A = 1 if the panel is still open, 0 if this call closed it
+;             (Z set). That is the text flow — open, page, page, close —
+;             and the close is not a separate caller decision. A closed
+;             panel returns 0 without restaging
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  the main thread. Advancing is a page step, not a typewriter
+;             step
+;   tail:     rts
+;
 ; Out: A16 = 1 if the panel is still open, 0 if this call closed it (Z set).
 ; This is the "text flow": open -> page -> page -> close, and the close is not
 ; a separate caller decision. A closed panel returns 0 without restaging.
-; In/out: A16/I16, DB=0. Clobbers A, X, Y. WIDTH-RISK: exported. Entry A16/I16,
-; exit A16/I16.
-.a16
-.i16
 dialog_advance:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "dialog_advance"
     sep #$20
     .a8
     lda z:DLG_STATE
@@ -269,15 +314,23 @@ dialog_advance:
 ; =============================================================================
 ; dialog_close — hide the panel and restore the scene behind it.
 ; =============================================================================
+; CONTRACT dialog_close
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the panel closed and the window blanked, staged for the next
+;             VBlank
+;   clobbers: A, N, Z
+;   assumes:  the main thread
+;   tail:     rts
+;
 ; Stages the whole row span as the scene's BLANK cell and marks it dirty. The
 ; user-visible invariant this exists for is "the scene behind the box comes
 ; back", and it is the whole span rather than the panel rectangle because the
 ; span is what open wrote (feature.toml states the consequence: a scene must
-; not put static text in the panel's rows). In/out: A16/I16, DB=0. Clobbers A,
-; X, Y. WIDTH-RISK: exported. Entry A16/I16, exit A16/I16.
-.a16
-.i16
 dialog_close:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "dialog_close"
     sep #$20
     .a8
     stz z:DLG_STATE
@@ -301,10 +354,18 @@ dialog_close:
 
 ; =============================================================================
 ; dialog_is_open — Out: A16 = 0 (closed) / 1 (open), Z set when closed. In/out:
-; A16/I16, DB=0. Clobbers A. WIDTH-RISK: exported. Entry A16/I16, exit A16/I16.
-.a16
-.i16
+; CONTRACT dialog_is_open
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      A = 0 (closed) or 1 (open), Z set when closed — the state
+;             byte alone, masked off the `dirty` byte above it
+;   clobbers: A, N, Z
+;   assumes:  nothing. It is a read
+;   tail:     rts
 dialog_is_open:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "dialog_is_open"
     lda z:ES_DLG_CTL
     and #255                        ; the state byte alone; `dirty` is above it
     rts
@@ -312,6 +373,22 @@ dialog_is_open:
 ; =============================================================================
 ; dialog_nmi_commit — commit the staged span (call from sm_nmi_hook).
 ; =============================================================================
+; CONTRACT dialog_nmi_commit
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   out:      the staged span committed by ONE contiguous GP-DMA over the
+;             dlgq channel's register file. A no-op on frames nothing was
+;             staged
+;   clobbers: A, N, Z
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention. It sets its own VMAIN/VMADD because the OAM and
+;             stream DMAs ahead of it leave both wherever their last
+;             transfer wanted — which is what makes hook ORDER free here.
+;             DAS is armed inside the routine even though exactly one
+;             transfer fires, so a future second transfer cannot inherit a
+;             stale count
+;   tail:     rts
+;
 ; One contiguous GP-DMA over the dlgq channel's register file. Sets its own
 ; VMAIN/VMADD because the OAM/stream DMAs ahead of it in the hook leave both in
 ; whatever state their last transfer wanted — which is what makes hook ORDER
@@ -320,12 +397,10 @@ dialog_is_open:
 ; DAS is single-shot and this fires exactly ONE transfer, so there is no
 ; re-arm-per-slot loop to get wrong. It is armed inside the routine all the
 ; same, so it cannot be left behind by a future second transfer. In/out:
-; A8/I16, DB=0 (the sm_nmi_hook contract). No-op when nothing is staged.
-; Clobbers A. WIDTH-RISK: exported into an NMI hook. Entry A8/I16, exit A8/I16
-; — the hook's convention. The A16 window around VMADD/A1T/DAS is balanced.
-.a8
-.i16
 dialog_nmi_commit:
+    .a8
+    .i16
+    SF_ASSERT_WIDTH 8, 16, "dialog_nmi_commit"
     lda z:DLG_DIRTY
     beq @done
     stz z:DLG_DIRTY

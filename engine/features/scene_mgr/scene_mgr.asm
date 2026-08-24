@@ -138,10 +138,20 @@ sm_hdma_shadow_clear:
     rts
 
 ; --- sm_init: boot-time init contract (zero exactly the declared claims) ----
-; In/out: A16/I16, DB=0.
+; CONTRACT sm_init
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      exactly the declared claims zeroed — the scene id, the
+;             phase, the frame counter and the NMI shadow block. Nothing
+;             wider: a zero-fill past the claim would hide a missing
+;             establishment rather than expose it
+;   clobbers: A, N, Z
+;   assumes:  ONCE, from MAIN's boot block, before the first sm_frame_sync
+;   tail:     rts
 sm_init:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "sm_init"
     stz z:ES_SM_CTL
     stz z:ES_SM_CTL+2
     stz z:ES_SM_NMI
@@ -156,10 +166,20 @@ sm_init:
     rts
 
 ; --- sm_request: ask for a scene switch (fade-out begins next tick) ---------
-; In: A8 = target scene id. A8/I16 in and out.
+; CONTRACT sm_request
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   in:       A = the target scene id
+;   out:      the request latched; the fade-out begins on the next tick.
+;             Asking for the scene already running is a no-op
+;   clobbers: A, N, Z, C
+;   assumes:  A8 is the caller's, and the id is a byte — an A16 arrival
+;             would compare and store two
+;   tail:     rts
 sm_request:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "sm_request"
     sta z:ES_SM_CTL+1           ; next
     cmp z:ES_SM_CTL             ; already there?
     beq :+
@@ -204,10 +224,20 @@ sm_request_cut:
 .endif
 
 ; --- sm_tick: run one frame of the phase machine ----------------------------
-; In/out: A16/I16, DB=0. Calls scene tick / transition steps.
+; CONTRACT sm_tick
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      one frame of the phase machine run: the scene's own tick, or
+;             the transition step that is displacing it
+;   clobbers: A, X, N, Z, C, and whatever the scene tick and transition
+;             steps it dispatches to clobber
+;   assumes:  ONCE per frame from the main loop, outside VBlank. It calls
+;             into scene code, so it is not an ISR-safe routine
+;   tail:     rts
 sm_tick:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "sm_tick"
     sep #$20
     .a8
     lda z:ES_SM_CTL+2           ; phase
@@ -329,11 +359,20 @@ sm_tick:
 .endif
 
 ; --- sm_frame_sync: arm the NMI and block until it consumed the frame -------
-; In/out: A16/I16, DB=0. The NMI commits INIDISP + runs sm_nmi_hook exactly
-; once per armed frame (the reference build handshake pattern).
+; CONTRACT sm_frame_sync
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the NMI armed and the frame consumed: it returns after the
+;             NMI has committed INIDISP and run sm_nmi_hook exactly once
+;   clobbers: A, N, Z
+;   assumes:  the NMI vector points at this feature's handler and
+;             interrupts are enabled. It BLOCKS on `wai`, so it is the
+;             loop's one waiting point and the tick's unit of time
+;   tail:     rts
 sm_frame_sync:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "sm_frame_sync"
     sep #$20
     .a8
     lda #1

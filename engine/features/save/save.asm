@@ -48,11 +48,20 @@ SV_PTR  = ES_SV_ARGS + 12       ; 3 B: payload src/dest, 24-bit WRAM pointer
 SV_CAP  = ES_SV_ARGS + 15       ; 2 B: sv_load only — dest capacity in bytes
 
 ; --- sv_save: write header + payload + CRC into a slot ----------------------
-; In: SV_SLOT, SV_PTR, SV_LEN (caller keeps it 0..SV_MAX_DATA), SV_VER. Out: A
-; = 0. In/out A16/I16. Clobbers A, X, Y.
+; CONTRACT sv_save
+;   entry:    A16 I16
+;   exit:     A16 I16
+;   in:       SV_SLOT, SV_PTR, SV_LEN (the caller keeps it inside
+;             SV_MAX_DATA) and SV_VER
+;   out:      the slot written — header, payload and CRC — and A = 0
+;   clobbers: A, X, Y, N, Z, C, V
+;   assumes:  the SRAM window is mapped and the slot index is in range;
+;             the length bound is the caller's to hold
+;   tail:     rts
 sv_save:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "sv_save"
     ldx z:SV_SLOT
     sep #$20
     .a8
@@ -166,12 +175,22 @@ sv_check:
     rts
 
 ; --- sv_load: verify, then copy the payload out -----------------------------
-; In: SV_SLOT, SV_PTR (dest), SV_CAP (dest capacity in bytes — the most the
-; caller's buffer holds). Out: A = length / $FFFF / $FFFE (dest untouched on
-; every reject). In/out A16/I16. Clobbers A, X, Y.
+; CONTRACT sv_load
+;   entry:    A16 I16
+;   exit:     A16 I16
+;   in:       SV_SLOT, SV_PTR (the destination) and SV_CAP (that buffer's
+;             capacity in bytes)
+;   out:      A = the payload length on success, or $FFFF / $FFFE on the
+;             two reject classes. The destination is UNTOUCHED on every
+;             reject, which is what makes a failed load safe to ignore
+;   clobbers: A, X, Y, N, Z, C, V
+;   assumes:  the SRAM window is mapped. Verification runs before any
+;             copy: magic, version, length and CRC
+;   tail:     rts
 sv_load:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "sv_load"
     jsr sv_check
     bne @reject                     ; the rejection code IS the return value
     lda z:SV_CAP
@@ -218,10 +237,19 @@ sv_load:
     rts
 
 ; --- sv_exists: is there a VALID save? (magic + version + length + CRC) -----
-; In: SV_SLOT. Out: A = 1 / 0. No copy. In/out A16/I16. Clobbers A, X, Y.
+; CONTRACT sv_exists
+;   entry:    A16 I16
+;   exit:     A16 I16
+;   in:       SV_SLOT
+;   out:      A = 1 if the slot holds a VALID save (magic, version, length
+;             and CRC all agree), 0 otherwise. Nothing is copied
+;   clobbers: A, X, Y, N, Z, C, V
+;   assumes:  the SRAM window is mapped
+;   tail:     rts
 sv_exists:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "sv_exists"
     jsr sv_check
     bne @invalid
     lda #1

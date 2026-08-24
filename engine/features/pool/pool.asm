@@ -150,6 +150,21 @@
 ; =============================================================================
 ; pool_init — mark every slot of the bound pool free.
 ; =============================================================================
+; CONTRACT pool_init
+;   entry:    A16 I16
+;   exit:     A16 I16
+;   in:       X = slot count (1..128); ES_POOL_PTR bound to the pool
+;   out:      the WHOLE alive array marked free, end to end. The parallel
+;             arrays are deliberately untouched — pre-filling a position
+;             would hide a spawn that forgot to set it. The two paths
+;             differ and the prose above states each; a count of 0 is a
+;             no-op rather than a 65,536-iteration wrap
+;   clobbers: A, X, Y, N, Z, C on the clear path. On the count-0 guard
+;             path A and Y are UNCHANGED and X is 0 by definition of the
+;             path — see the prose above, which states both
+;   assumes:  DB is irrelevant: every access here is long
+;   tail:     rts
+;
 ; In: A16/I16. X = slot count (1..128). ES_POOL_PTR bound. Out: A16/I16. DB
 ; irrelevant (all access is long). The two paths differ and
 ;  are stated separately, because one line covering both would be false on
@@ -167,11 +182,12 @@
 ; three cycles and the alternative is a hang that looks like a hardware fault.
 ;
 ; WIDTH-RISK: A16/I16 entry AND exit, no sep/rep anywhere in the routine.
-; Cross-file callers are invisible to width_lint, so this contract is the
-; checkable statement.
+; Cross-file callers used to be invisible to width_lint; the CONTRACT block
+; below is what the gate now reads them against.
 pool_init:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "pool_init"
     cpx #0
     beq @done
     ldy #0
@@ -211,9 +227,21 @@ pool_init:
 ; from the scan, which is A16/I16 throughout.
 POOL_FULL = $FFFF
 
+; CONTRACT pool_spawn
+;   entry:    A16 I16
+;   exit:     A16 I16
+;   in:       X = slot count (1..128); ES_POOL_PTR bound to the pool
+;   out:      on success A = X = the claimed slot's BYTE offset, and the
+;             slot is marked live BEFORE returning. On a full pool A =
+;             POOL_FULL ($FFFF) — branch with `bmi`, since a real offset
+;             is always positive — and X is 0, not the pool size
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  DB is irrelevant: every access here is long
+;   tail:     rts
 pool_spawn:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "pool_spawn"
     ldy #0
     cpx #0
     beq @full
@@ -243,6 +271,17 @@ pool_spawn:
 ; =============================================================================
 ; pool_kill — free the slot at the byte offset in X.
 ; =============================================================================
+; CONTRACT pool_kill
+;   entry:    A16 I16
+;   exit:     A16 I16
+;   in:       X = the slot's byte offset; ES_POOL_PTR bound to the pool
+;   out:      the slot marked free. X is PRESERVED, which is what lets the
+;             iteration idiom keep its cursor there; A = 0 and Y = X
+;   clobbers: A, Y, N, Z. NOT A-preserving — the file header's delta table
+;             item (b) says why
+;   assumes:  DB is irrelevant: every access here is long
+;   tail:     rts
+;
 ; In: A16/I16. X = the slot's byte offset. ES_POOL_PTR bound. Out: A16/I16. X
 ; PRESERVED (the iteration idiom keeps its cursor there);
 ;  A = 0, Y = X.
@@ -254,6 +293,7 @@ pool_spawn:
 pool_kill:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "pool_kill"
     txy                                 ; the cursor moves to the only index
     lda #0                              ;   register [dp],y can use
     sta [ES_POOL_PTR], y
@@ -262,6 +302,21 @@ pool_kill:
 ; =============================================================================
 ; pool_count — how many slots of the bound pool are live.
 ; =============================================================================
+; CONTRACT pool_count
+;   entry:    A16 I16
+;   exit:     A16 I16
+;   in:       X = slot count (1..128); ES_POOL_PTR bound to the pool
+;   out:      A = the live count, 0..slot count — in A rather than X
+;             because every caller feeds it straight to a store. X carries
+;             the same value for a caller that would rather index with it.
+;             The scan path leaves X = the count and Y = 0; the count-0
+;             guard path leaves both UNCHANGED
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  DB is irrelevant: every access here is long. The scan runs
+;             DOWNWARD by necessity, not style — the prose above works
+;             through why
+;   tail:     rts
+;
 ; In: A16/I16. X = slot count (1..128). ES_POOL_PTR bound. Out: A16/I16. A =
 ; the live count, 0..slot count.
 ;  On the SCAN path X = that same count and Y = 0.
@@ -287,12 +342,14 @@ pool_kill:
 ; carries the same value for a caller that would rather index with it.
 ;
 ; WIDTH-RISK: A16/I16 entry AND exit, no sep/rep anywhere in the routine.
-; Cross-file callers are invisible to width_lint, so this contract is the
-; checkable statement — see the header's delta table item (a) for why that
+; Cross-file callers used to be invisible to width_lint; the CONTRACT block
+; below is what the gate now reads them against — see the header's delta
+; table item (a) for why that
 ; matters more for a `jsr`'d routine than for an inlined macro.
 pool_count:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "pool_count"
     lda #0                              ; the answer on the guard path
     cpx #0
     beq @done
