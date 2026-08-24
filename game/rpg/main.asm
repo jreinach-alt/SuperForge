@@ -66,8 +66,14 @@ PIVOT_LINE = 168                ; the scanline the camera maps to — the world
                                 ;   row the avatar stands on
 SCREEN_MID_X = 128
 WORLD_TILES_LOG2 = 7            ; 128 x 128 tiles = a 1024-px torus
-TILE_PX = 8
-STEP_FRAMES = 8                 ; one tile, animated at 1 px/frame
+TILE_PX = 8                     ; the grid, in world pixels. It is what a step
+                                ;   ARMS — the slide's distance, not its
+                                ;   duration — and it is the town throttle's
+                                ;   unit count for the same tile. There is no
+                                ;   STEP_FRAMES beside it any more: the frames
+                                ;   a tile takes are the region's answer, and
+                                ;   the two constants were only ever equal
+                                ;   because an NTSC frame lays one pixel.
 
 SPAWN_TX = 64                   ; must match tools/gen_rpg_assets.py's SPAWN_*
 SPAWN_TY = 78
@@ -105,6 +111,8 @@ TOWN_EXIT_TY = 24
 .include "save.asm"
 .include "bg_text.asm"
 .include "split_band.asm"
+.include "region.asm"               ; $213F bit 4 -> ES_RGN_PAL, once at boot
+.include "tick_scale.asm"           ; TS_STEP: the whole units this frame lays
 .include "rpg_logic.asm"
 
 ; =============================================================================
@@ -406,6 +414,9 @@ MAIN:
     jsr sm_init
     jsr input_init
     jsr fade_init
+    jsr region_init                 ; the console's own region line, once. It
+                                    ;   is game-lifetime state: a console does
+                                    ;   not change region between scenes.
     jsr mosaic_init                 ; the wipe is idle and its $2106 shadow is
                                     ;   $00 — both READ BEFORE ANY WRITE
     jsr text_dp_init
@@ -442,9 +453,17 @@ MAIN:
     sta z:RPG_TOWN_TY
     stz z:RPG_STEP_DX
     stz z:RPG_STEP_DY
-    stz z:RPG_STEP_N                ; step_n + pend, both bytes, in one store
+    stz z:RPG_STEP_PX               ; step_px + pend, both bytes, in one store
     stz z:RPG_T0
     stz a:US_VISITS
+    stz z:US_TS_ACC                 ; the timebase's carried fraction, and this
+                                    ;   frame's published step. Both are read
+                                    ;   before either is written on the first
+                                    ;   live tick (TS_STEP adds the carry in),
+                                    ;   so power-on garbage in them would be a
+                                    ;   real read of an unwritten byte —
+                                    ;   CLAUDE.md rule 5, not a to-be-safe fill.
+    stz z:US_TS_STEP
     ; ---- the battery: restore the town position + visit count if a slot
     ;      verifies. Branches on sv_load's RETURN CODE, never on an SRAM byte —
     ;      virgin SRAM is power-on garbage under the random regime.

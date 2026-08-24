@@ -320,6 +320,60 @@ def _hop_shuttle(half_ms, jump_every_ms, jump_hold_ms, total_ms,
     return out
 
 
+def _rpg_town_drive():
+    """A CLOSED-LOOP shuttle for the rpg town plaza, reversing on the AVATAR'S
+    OWN POSITION rather than on a clock.
+
+    This is the module header's `drive` case, and the reason is the corridor.
+    The plaza row the drive walks is walled at both ends — six tiles — so a
+    seconds-indexed leg has to be short (~0.5 s covers ~3.8 tiles), and at
+    that length the mark grid beats against the frame grid until the avatar
+    is parked against a wall for part of every leg. Measured with exactly
+    that script before this replaced it: the NTSC halves read 60.10 then
+    55.94 px/s while PAL read 60.01 then 61.34, and the ratio carried the
+    beat rather than the rail's rate.
+
+    IT REACTS, IT DOES NOT PACE. The frame index is never read; the direction
+    flips on the drawn OAM X reaching a bound, which is the avatar's own
+    state. Pacing off `frame` would be the 5/6 harness throttle the header's
+    seconds rule exists to prevent, and this has none of it — a PAL frame
+    covers more ground, so PAL reaches the bound in fewer frames and the same
+    real time.
+
+    The lead is state-driven for the same reason: the town is behind a mosaic
+    wipe the overworld's north gate arms, so the drive holds UP until the
+    scene id says the town is current, however many frames that takes on
+    either machine.
+    """
+    # The plaza's own geometry, one tile inside each wall so the reversal
+    # never lands on a blocked press. Row 16 walks 11..16; 12..16 is used.
+    LEFT_PX, RIGHT_PX = 12 * 8, 16 * 8
+    state = {"dir": "left", "ctl": None, "mt": None}
+
+    def drive(frame, machine):
+        if state["ctl"] is None:
+            # RESOLVED ON THE FIRST FRAME, not at import: `machine` picks the
+            # MesenCore build and refuses a second one in the process, so a
+            # `mesen_runner` import out here would preload the wrong core and
+            # the worker would die before it ran a frame.
+            from machine import MemoryType
+            state["mt"] = MemoryType
+            jmap = json.loads(
+                (SUPERFORGE / RAILS["rpg_town"]["map"]).read_text())
+            state["ctl"] = _sym(jmap, "ES_SM_CTL", None)["start"]
+        mt = state["mt"]
+        if machine.read_byte(mt.SnesWorkRam, state["ctl"]) != 1:
+            return {"up": True}             # still walking into the gate
+        x = machine.read_byte(mt.SnesSpriteRam, 0)      # the avatar is slot 0
+        if x <= LEFT_PX:
+            state["dir"] = "right"
+        elif x >= RIGHT_PX:
+            state["dir"] = "left"
+        return {state["dir"]: True}
+
+    return drive
+
+
 RAILS = {
     # ---------------------------------------------------------------- SCROLL
     "scroller": dict(
@@ -854,29 +908,23 @@ RAILS = {
         # both directions, and a 1.0 s half-period keeps the walk inside the
         # ground that was probed.
         #
-        # THIS RAIL IS MEASURED AND NOT CONVERTED, and the reading is what
-        # says why. 53.43 px/s at 60.0988 fps is 8 px every 9 frames, which
-        # is the GRID SLIDE exactly: `try_step` commits the destination TILE
-        # (RPG_CAM_TX/TY) up front and arms RPG_STEP_N = STEP_FRAMES = 8,
-        # and `advance_step` then adds +-1 px to ES_M7ORG and decrements that
-        # counter once a frame, so 8 frames of 1 px land the camera origin on
-        # the tile the index already says it is at. The two are WELDED: scale
-        # the pixel delta and after 8 frames the origin is 9.6 px along while
-        # the index says 8, and the floor and the avatar drift apart a little
-        # more on every step. This is docs/95 §5.1 #11's hard-integer class
-        # verbatim.
-        # The other way round — counting the slide in PIXELS REMAINING rather
-        # than frames — works arithmetically and re-defines RPG_STEP_N, which
-        # is a byte inside `rpg_logic`'s declared 18-byte `rpg_hot` claim
-        # whose layout that feature.toml documents, beside RPG_TOWN_REP.
-        # That is surgery on a feature's declared claim, not a rate expressed
-        # through TS_STEP.
-        # The TOWN has no rate to express at all: its avatar renders only at
-        # tile*8 (town.asm's read_step says so in as many words — "NOT a
-        # per-frame pixel slide, because the town avatar renders only at
-        # tile*8 and has no sub-tile pixel state a slide could drive"), so
-        # its walk IS an integer frame throttle and 8/1.2018 = 6.66 has no
-        # correct answer.
+        # THIS RAIL WAS MEASURED AND DEFERRED, AND IS NOW CONVERTED. The
+        # deferral was real: 53.43 px/s at 60.0988 fps is 8 px every 9 frames,
+        # the GRID SLIDE exactly — `try_step` commits the destination TILE
+        # (RPG_CAM_TX/TY) up front and armed a counter of 8 FRAMES, and the
+        # walk added +-1 px to ES_M7ORG and decremented that counter once a
+        # frame. "8 pixels" and "8 frames" were the same number stored once,
+        # so scaling the pixel alone left the origin 9.6 px along where the
+        # index said 8 and drifted the floor from the avatar a little more on
+        # every step.
+        # THE DISCHARGE was to redefine that byte: it holds PIXELS REMAINING
+        # to the destination tile, the walk lays down the whole pixels TS_STEP
+        # publishes, and arrival is the distance reaching zero. Nothing is
+        # welded — game/rpg/game.toml's region note derives it, including why
+        # the DECIDING frame (the ninth) had to be spent from the same budget
+        # or the rail measures 0.975 rather than parity.
+        # The TOWN was converted with it, on the same published step spent in
+        # throttle units instead of pixels; `rpg_town` below measures it.
         script=_axis_shuttle(1.0, "down", "up"),
         warmup_s=3.0, window_s=12.0, guard=[],
         observables=[
@@ -890,6 +938,44 @@ RAILS = {
                      "modulus is the 128x128-tile world's 1,024 px torus, "
                      "not 65,536 — a 16-bit unwrap would read the world "
                      "wrap as a 1,016 px jump."),
+        ],
+    ),
+    # The rpg rail's SECOND consumer, in its second scene. Same image, same
+    # map, a different drive and a different observable — the town walk is a
+    # rate of its own (tiles per second, not pixels per second) and it is
+    # spent from the same published step, so it needs its own reading and not
+    # an inference from the plane's.
+    "rpg_town": dict(
+        rom="build/rpg.sfc", map="build/rpg/symbol_map.json",
+        scene="town",
+        klass="grid walk",
+        # A CLOSED-LOOP DRIVE, and the only one in this registry. It holds UP
+        # until the scene id says the town is current — the town is behind a
+        # mosaic wipe the overworld's north gate arms — and then shuttles
+        # LEFT/RIGHT along the plaza row, reversing on the AVATAR'S OWN drawn
+        # position. `_rpg_town_drive` above carries the derivation and the
+        # measurement that rejected the seconds-indexed shuttle.
+        #
+        # THE SHUTTLE IS HORIZONTAL BECAUSE THE VERTICAL AXIS EXITS. The south
+        # gate is a walkable door at (16,24): a vertical shuttle wipes back out
+        # to the overworld and strands the window in a scene this entry is not
+        # measuring. The guard below is what makes that visible rather than
+        # silent.
+        drive=_rpg_town_drive(),
+        warmup_s=3.0, window_s=12.0,
+        # The window means nothing if the wipe took us back out, so say so.
+        guard=[("ES_SM_CTL", 1, 1)],
+        observables=[
+            dict(name="avatar_x", kind="distance", unit="screen px",
+                 mem="oam", fields=[("ES_O_ACTORS", 0, 1, 256)],
+                 why="the avatar's OAM X byte, read out of the sprite table "
+                     "the PPU draws from — rendered output, not the tile "
+                     "index behind it. draw_actors writes tile*8 into it "
+                     "(town.asm), so screen pixels per second here IS the "
+                     "speed the player sees her cross the plaza, and it is "
+                     "the rate `rpg_hot`'s town throttle sets. The modulus "
+                     "is the OAM byte's own 256; the corridor is 88..128 px "
+                     "so nothing wraps."),
         ],
     ),
     # --- fleet lane B ---------------------------------------------------

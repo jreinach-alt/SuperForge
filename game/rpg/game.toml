@@ -3,9 +3,43 @@
 # box with paged text, a battery save, and music that survives the swap.
 #
 # The rail debuts ONE engine feature: `dialog`. Everything else is composed.
+#
+# REGION + TICK_SCALE, and this rail is the one that had to redefine a byte to
+# take them. It was deferred for a real weld: the grid stepper counted the
+# slide in FRAMES and moved one pixel per frame, so "8 pixels" and "8 frames"
+# were the same number stored once. Scaling the pixel alone desynchronises the
+# walk from the count — after eight frames the camera origin is 9.6 px along
+# while the tile index says 8, and the floor and the avatar drift apart a
+# little more on every step.
+#
+# THE DISCHARGE IS TO COUNT THE SLIDE IN PIXELS REMAINING. `rpg_hot`'s step
+# byte now holds the distance left to the destination tile, the walk lays down
+# the whole pixels `TS_STEP` publishes for a base of one pixel per frame, and
+# arrival is that distance reaching zero. Nothing is welded any more: the tile
+# is 8 px on both machines and the frames it takes are whatever the region's
+# step makes them.
+#
+# THE DECIDING FRAME IS PART OF THE RATE, and it is what a pixel budget alone
+# would have missed. A held direction is 8 px over NINE frames here — eight
+# walking and one deciding, because the frame that finds the walk at rest arms
+# the next tile and moves nothing. Scale only the eight and PAL covers a tile
+# in 1 + 6.65 frames against NTSC's 1 + 8, which measures 0.975 — outside the
+# fleet's band. So the frame's budget is spent WHOLE: a frame that arrives with
+# pixels left in hand decides and keeps walking. On NTSC the budget is exactly
+# one pixel and the tile is exactly eight, so a frame can never arrive with a
+# pixel left over, the deciding frame is never free, and the walk is the same
+# nine frames it always was — to the store.
+#
+# MEASURED (tools/rate_oracle.py rpg, 2026-08-24): the overworld camera path
+# reads 53.430 px/s NTSC and 53.581 px/s PAL, ratio 1.00283, against the
+# uncompensated 0.83142. The town walk reads 7.512 tiles/s NTSC and 7.521 PAL,
+# ratio 1.00111. NTSC is unmoved: the oracle's NTSC column and every
+# tools/tb_picture_diff.py capture in BOTH scenes are identical to the
+# pre-change image.
 globals = ["scene_mgr", "input", "fade", "oam_sprites", "mosaic",
            "text_dp", "font_rom", "enter_scr", "save", "audio", "tad_rom",
-           "rpg_rom", "dlg_rom", "pose_rom", "rpg_logic"]
+           "rpg_rom", "dlg_rom", "pose_rom", "rpg_logic", "region",
+           "tick_scale"]
 
 [[scene]]
 id = "overworld"

@@ -1,3 +1,32 @@
 # rpg user game state.
 [global]
 visits = "u16"           # town visits — the save payload's counter
+
+# --- the timebase's per-consumer state (engine/features/tick_scale) ---------
+#
+# ONE PAIR FOR THE WHOLE RAIL, and that is the feature's own rule rather than
+# a saving: tick_scale's feature.toml says "two consumers on the SAME base
+# rate may share one pair", and this rail has exactly one base rate — ONE UNIT
+# PER NTSC FRAME — read by two consumers that are never live in the same
+# frame, because they are in different scenes:
+#
+#   * the OVERWORLD slide spends it in PIXELS. `rpg_hot`'s step byte holds the
+#     pixels left to the destination tile and this is the whole pixels the
+#     walk covers this frame;
+#   * the TOWN walk spends it in THROTTLE UNITS. Its hold-to-walk throttle
+#     counts the same unit down to the next tile commit, so a PAL frame walks
+#     the same share of a tile there as it does on the plane.
+#
+# @dp because both consumers read the pair on the per-frame path, and GLOBAL
+# rather than per-scene because the pair is one rate: a carried fraction that
+# reset at every mosaic wipe would round the walk twice per visit.
+ts_acc = "u16@dp"        # the carried fraction of the scaled unit
+                         # TICK: ok — a carried FRACTION, the thing that
+                         # REMOVES the frame coupling rather than one that
+                         # holds it. It has no meaning in frames.
+ts_step = "u16@dp"       # this frame's published whole units — SPENT, not
+                         # merely read: the overworld decrements it as it lays
+                         # the pixels down, so 0 means this frame's budget is
+                         # gone. The town reads it once.
+                         # TICK: ok — the OUTPUT of the scaler, already
+                         # expressed against the declared tick.

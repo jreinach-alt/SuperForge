@@ -3121,7 +3121,8 @@ RPG_INC := -I $(RPG_MAP) -I $(VROM) -I $(RPG) \
            -I engine/features/mode7_persp -I engine/features/col_map \
            -I engine/features/dialog -I engine/features/rpg_floor \
            -I engine/features/rpg_town -I engine/features/rpg_obj \
-           -I engine/features/rpg_logic \
+           -I engine/features/rpg_logic -I engine/features/region \
+           -I engine/features/tick_scale \
            -I vendor/tad -I assets/audio/export
 
 $(BUILD)/rpg_tad_wrapper.o: engine/features/audio/tad_wrapper.asm \

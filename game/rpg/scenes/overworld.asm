@@ -2,9 +2,12 @@
 ; scenes/overworld.asm — the Mode 7 world, and the walk across it
 ; =============================================================================
 ; A 128x128-tile designed world on the Mode 7 plane, seen in perspective from a
-; camera the avatar rides. The D-pad moves ONE TILE per press, animated over
-; STEP_FRAMES frames at 1 px/frame; a press into a blocked tile is rejected by
-; a `col_map` probe of the PARALLEL flat tilemap, so nothing reads VRAM back.
+; camera the avatar rides. The D-pad moves ONE TILE per press, animated as a
+; TILE_PX-pixel slide the frame's own published step is spent on — one pixel a
+; frame on NTSC, 1.2018 on PAL, so the tile takes the same real time on both
+; machines (game.toml's region note derives it); a press into a blocked tile is
+; rejected by a `col_map` probe of the PARALLEL flat tilemap, so nothing reads
+; VRAM back.
 ; The town gate is a blocked tile carrying F_TOWN: walk into it and the mosaic
 ; wipe carries you to the interior.
 ;
@@ -204,26 +207,113 @@ tick:
 @live:
     .a16
     .i16
-    sep #$20
-    .a8
-    lda z:::RPG_STEP_N
-    rep #$20
-    .a16
-    and #255
-    beq @idle
-    jsr advance_step
-    jsr draw_avatar
-    rts
-@idle:
-    .a16
-    .i16
-    jsr read_step
+    jsr walk_tick
     jsr draw_avatar
     rts
 
-; --- advance_step: one frame of the tile slide ------------------------------
-; In/out: A16/I16, DB=0. Clobbers A.
-advance_step:
+; --- walk_tick: spend this frame's pixel budget on the grid walk ------------
+; In/out: A16/I16, DB=0. Clobbers A, X, Y.
+;
+; THE FRAME'S BUDGET IS SPENT WHOLE. `TS_STEP` publishes the whole pixels this
+; frame carries — exactly one on NTSC, one or two on PAL in the pattern that
+; averages 1.2018 — and this lays them down, crossing into the NEXT tile if the
+; current one lands with pixels still in hand. That crossing is the only place
+; the deciding frame is free, and it is what puts the walk's real-time rate on
+; parity rather than 2.5% short: game.toml's region note derives it and gives
+; the measurement.
+;
+; ON NTSC THE CROSSING CANNOT HAPPEN, which is why the picture does not move.
+; The budget is one pixel and a tile is eight, so a frame inside a slide always
+; ends inside it or exactly on the boundary with nothing left over — the
+; deciding frame is never merged and the walk is the same nine frames per tile
+; it always was, store for store.
+walk_tick:
+    .a16
+    .i16
+    TS_STEP z:US_TS_ACC, TS_ONE     ; one pixel per NTSC frame
+    beq @done                       ; unreachable at this base — the carry is
+                                    ;   always below one whole unit, so the sum
+                                    ;   never is — and the spend loop below
+                                    ;   must not run for ever if that ever
+                                    ;   stops being true
+    sta z:US_TS_STEP
+    sep #$20
+    .a8
+    lda z:::RPG_STEP_PX
+    rep #$20
+    .a16
+    and #255
+    beq @decide_only
+@spend:
+    .a16
+    .i16
+    ; move = min(this frame's remaining budget, the pixels left to the tile)
+    sep #$20
+    .a8
+    lda z:::RPG_STEP_PX
+    rep #$20
+    .a16
+    and #255
+    cmp z:US_TS_STEP
+    bcc @have                       ; the tile lands first
+    lda z:US_TS_STEP                ; the budget runs out first
+@have:
+    .a16
+    .i16
+    sta z:::RPG_T0                  ; the move. TRANSIENT and consumed before
+                                    ;   the jsr below, which is what that slot's
+                                    ;   contract asks — rpg_town and rpg_obj own
+                                    ;   it the same way and neither is reachable
+                                    ;   from here.
+    tax                             ; ...and the travel count for advance_px
+    lda z:US_TS_STEP
+    sec
+    sbc z:::RPG_T0
+    sta z:US_TS_STEP                ; the budget left after this move
+    sep #$20
+    .a8
+    lda z:::RPG_STEP_PX
+    sec
+    sbc z:::RPG_T0                  ; A8 reads T0's LOW byte, and a move is at
+                                    ;   most TILE_PX, so that byte is all of it
+    sta z:::RPG_STEP_PX
+    rep #$20
+    .a16
+    jsr advance_px                  ; X pixels of the armed slide
+    lda z:US_TS_STEP
+    beq @done                       ; the frame's budget is spent
+    ; Budget left over means the slide ARRIVED — step_px is 0 — so this frame
+    ; decides as well as walks, and the rest of the budget goes on the new tile.
+    jsr read_step
+    sep #$20
+    .a8
+    lda z:::RPG_STEP_PX
+    rep #$20
+    .a16
+    and #255
+    bne @spend                      ; a tile was armed: lay the remainder down
+@done:
+    .a16
+    .i16
+    rts
+@decide_only:
+    .a16
+    .i16
+    jsr read_step                   ; the deciding frame: it arms and moves
+    rts                             ;   nothing, and its budget lapses — on
+                                    ;   both machines alike, which is why the
+                                    ;   ratio comes out on the whole cycle
+
+; --- advance_px: lay N pixels of the armed slide onto the camera origin -----
+; In: X = the pixels to travel, at least 1. In/out: A16/I16, DB=0. Clobbers
+; A, X. The body is what `advance_step` was — the same add, the same torus mask
+; and the same two derived scroll words — run once per PIXEL now rather than
+; once per frame, because how many pixels a frame carries is the region's
+; answer and no longer a constant this scene can assume.
+advance_px:
+    .a16
+    .i16
+@px:
     .a16
     .i16
     lda z:ES_M7ORG + 0
@@ -242,11 +332,8 @@ advance_step:
     sec
     sbc #::PIVOT_LINE
     sta z:ES_M7ORG + 6
-    sep #$20
-    .a8
-    dec z:::RPG_STEP_N
-    rep #$20
-    .a16
+    dex
+    bne @px
     rts
 
 ; --- read_step: a held direction -> one tile of movement --------------------
@@ -300,8 +387,9 @@ read_step:
 try_step:
     .a16
     .i16
-    stx z:::RPG_STEP_DX             ; a +-1 TILE delta is also the +-1 PX delta
-    sty z:::RPG_STEP_DY             ;   the slide applies for STEP_FRAMES frames
+    stx z:::RPG_STEP_DX             ; a +-1 TILE delta is also the +-1 PX
+    sty z:::RPG_STEP_DY             ;   DIRECTION the slide lays down TILE_PX
+                                    ;   times, however many frames that takes
     txa
     clc
     adc z:::RPG_CAM_TX
@@ -347,16 +435,17 @@ try_step:
     sta z:::RPG_CAM_TY
     sep #$20
     .a8
-    lda #::STEP_FRAMES
-    sta z:::RPG_STEP_N
+    lda #::TILE_PX                  ; the DISTANCE to the tile just committed —
+    sta z:::RPG_STEP_PX             ;   a duration would have to know the region
     rep #$20
     .a16
     rts
 @blocked:
     .a16
     .i16
-    rts                             ; the deltas are stale but STEP_N is 0, and
-                                    ;   advance_step only runs while it is not
+    rts                             ; the deltas are stale but STEP_PX is 0, and
+                                    ;   walk_tick only lays pixels while it is
+                                    ;   not
 @gate:
     .a16
     .i16

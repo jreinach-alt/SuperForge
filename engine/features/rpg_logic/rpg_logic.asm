@@ -15,17 +15,34 @@ RPG_CAM_TX = ES_RPG_HOT + 0         ; overworld camera tile — the player's wor
 RPG_CAM_TY = ES_RPG_HOT + 2         ;   position, always on an 8-px boundary
 RPG_TOWN_TX = ES_RPG_HOT + 4        ; town avatar tile
 RPG_TOWN_TY = ES_RPG_HOT + 6
-RPG_STEP_DX = ES_RPG_HOT + 8        ; the in-flight slide's per-frame px delta
-RPG_STEP_DY = ES_RPG_HOT + 10
-RPG_STEP_N = ES_RPG_HOT + 12        ; 1 B: frames left in the slide (0 = at rest)
+RPG_STEP_DX = ES_RPG_HOT + 8        ; the in-flight slide's DIRECTION on each
+RPG_STEP_DY = ES_RPG_HOT + 10       ;  axis: -1, 0 or +1, applied once per
+                                    ;  pixel laid down (not per frame — how
+                                    ;  many pixels a frame lays is the
+                                    ;  region's answer, not this pair's)
+RPG_STEP_PX = ES_RPG_HOT + 12       ; 1 B: PIXELS LEFT to the destination tile
+                                    ;  (0 = at rest). Armed to TILE_PX by
+                                    ;  try_step and spent down by the walk;
+                                    ;  arrival is this reaching zero. It counts
+                                    ;  DISTANCE, and it counted frames until
+                                    ;  `region` + `tick_scale` were composed —
+                                    ;  the two were the same number only
+                                    ;  because an NTSC frame lays exactly one
+                                    ;  pixel, which is what a PAL frame does
+                                    ;  not do. game.toml's region note derives
+                                    ;  the change.
 RPG_PEND = ES_RPG_HOT + 13          ; 1 B: pending swap id + 1 (0 = none)
 RPG_T0 = ES_RPG_HOT + 14            ; 2 B: shared TRANSIENT scratch, consumed
                                     ;  inside one call — rpg_town and rpg_obj
                                     ;  use it the same way, and never across a
                                     ;  jsr that could reach the other
-RPG_TOWN_REP = ES_RPG_HOT + 16      ; 1 B: town hold-to-walk throttle.
-                                    ;  Town-only — the overworld's step_n is
-                                    ;  its sibling.
+RPG_TOWN_REP = ES_RPG_HOT + 16      ; 1 B: town hold-to-walk throttle — THE
+                                    ;  UNITS LEFT before the next tile commits,
+                                    ;  spent by the same published step the
+                                    ;  overworld spends in pixels. 0 means no
+                                    ;  direction is held, so the next press
+                                    ;  steps at once. Town-only — the
+                                    ;  overworld's step_px is its sibling.
 RPG_TOWN_FLARE = ES_RPG_HOT + 17    ; 1 B: save-torch flare countdown,
                                     ;  NMI-driven; 0 = idle
 

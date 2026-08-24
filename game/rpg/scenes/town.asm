@@ -308,17 +308,37 @@ adj_to:
 ; is the OVERWORLD's model fitted to the town's structure — a tile JUMP with a
 ; repeat throttle, NOT a per-frame pixel slide, because the town avatar renders
 ; only at tile*8 (draw_actors) and has no sub-tile pixel state a slide could
-; drive. The throttle reloads to STEP_FRAMES-1 so a held direction commits one
-; tile every STEP_FRAMES frames — the overworld's tiles-per-second (its slide is
-; STEP_FRAMES frames long between commits). The throttle is cleared the instant
-; no direction is held, so a tap is NEVER throttled (single tap = one tile).
-; Reads ES_INP_CUR (the HELD level), never ES_INP_PRESS. An open dialog still
-; freezes the walk — tick gates this call on dialog_is_open.
+; drive. The throttle is cleared the instant no direction is held, so a tap is
+; NEVER throttled (single tap = one tile). Reads ES_INP_CUR (the HELD level),
+; never ES_INP_PRESS. An open dialog still freezes the walk — tick gates this
+; call on dialog_is_open, so the timebase below does not advance either and the
+; walk resumes where it was rather than a fifth of a tile along.
+;
+; THE THROTTLE IS A RATE, AND IT IS THE SAME RATE THE OVERWORLD SPENDS IN
+; PIXELS. It counts TOWN_STEP_UNITS down to the next commit at the whole units
+; TS_STEP publishes for a base of one per frame — one on NTSC, so the tile
+; still commits every eight frames exactly, and 1.2018 on PAL, so it commits in
+; the same real time. The overshoot is CARRIED into the next tile rather than
+; dropped, which is the same reason tick_scale carries a fraction at all: a
+; throttle that re-quantised every tile would lose about 2% of the walk.
+; game.toml's region note has the measurement.
+;
+; THE TWO SCENES DO NOT WALK AT THE SAME TILES PER SECOND, and they did not
+; before this either — the note above once said they did. A town tile is 8
+; frames; an overworld tile is 9, because its slide is preceded by a frame that
+; only decides. What the timebase holds is each scene's OWN rate across the two
+; machines, which is the property that was asked for.
 ; In/out: A16/I16, DB=0. Clobbers A, X, Y.
-TOWN_REPEAT_RELOAD = ::STEP_FRAMES - 1
+TOWN_STEP_UNITS = ::TILE_PX             ; one tile's worth of throttle units
 read_step:
     .a16
     .i16
+    TS_STEP z:US_TS_ACC, TS_ONE         ; one unit per NTSC frame. No zero
+    sta z:US_TS_STEP                    ;   guard here and none is owed: this
+                                        ;   path does not loop, so a published
+                                        ;   zero would cost one frame of walk
+                                        ;   rather than hang — and at this base
+                                        ;   it cannot happen anyway.
     lda z:ES_INP_CUR
     and #(::JOY_LEFT | ::JOY_RIGHT | ::JOY_UP | ::JOY_DOWN)
     bne @held
@@ -336,16 +356,33 @@ read_step:
     sep #$20
     .a8
     lda z:::RPG_TOWN_REP
-    beq @move                           ; throttle expired -> step this frame
-    dec z:::RPG_TOWN_REP
+    beq @fresh                          ; nothing was held last frame: step now
+    sec
+    sbc z:US_TS_STEP                    ; A8 reads the published step's LOW
+                                        ;   byte, and at this base it is 1 or 2
+    bcc @commit                         ; below zero: the tile is due
+    beq @commit                         ; landed exactly on it
+    sta z:::RPG_TOWN_REP                ; still throttled
     rep #$20
     .a16
     rts
-@move:
+@commit:
+    .a8                                 ; arrives A8 (both branches follow the
+    .i16                                ;   sep #$20 above)
+    clc
+    adc #TOWN_STEP_UNITS                ; A is the overshoot, at or below zero
+    sta z:::RPG_TOWN_REP                ;   in two's complement — adding the
+                                        ;   tile CARRIES it instead of dropping
+                                        ;   it, so the walk cannot round short
+    bra @move
+@fresh:
     .a8                                 ; arrives A8 (beq after the sep #$20)
     .i16
-    lda #TOWN_REPEAT_RELOAD
+    lda #TOWN_STEP_UNITS
     sta z:::RPG_TOWN_REP
+@move:
+    .a8                                 ; arrives A8 (fall-through and `bra`)
+    .i16
     rep #$20
     .a16
     lda z:ES_INP_CUR                    ; decode the axis, cardinal + priority

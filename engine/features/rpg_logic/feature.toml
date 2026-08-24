@@ -11,15 +11,23 @@ role = "game_logic"
 # says that once, instead of a save/restore pair at every door.
 #  +0 cam_tx +2 cam_ty overworld camera tile (the player's world position)
 #  +4 town_tx +6 town_ty town avatar tile
-#  +8 step_dx +10 step_dy in-flight grid slide delta (px)
-#  +12 step_n frames remaining in the overworld slide
+#  +8 step_dx +10 step_dy in-flight grid slide DIRECTION per axis (-1/0/+1),
+#  applied once per pixel laid down
+#  +12 step_px PIXELS REMAINING to the destination tile in the overworld
+#  slide (0 = at rest). It is a DISTANCE. It held frames until this rail
+#  composed `region` + `tick_scale`: an NTSC frame lays exactly one pixel, so
+#  the two numbers were the same one stored once, and a PAL frame lays 1.2018
+#  — game/rpg/game.toml's region note derives the redefinition.
 #  +13 pend pending scene swap id + 1 (0 = none)
 #  +14 t0 (2 B) shared TRANSIENT scratch, consumed inside one call
-#  +16 town_rep town hold-to-walk auto-repeat throttle, frames
-#  Town-only: the overworld's slide gate is step_n,
+#  +16 town_rep town hold-to-walk auto-repeat throttle — the UNITS left before
+#  the next tile commits, spent by the same published step the overworld
+#  spends in pixels; 0 = nothing held, so the next press steps at once.
+#  Town-only: the overworld's slide gate is step_px,
 #  this is its tile-jump-throttle sibling one scene over.
 #  +17 town_flare save-torch flare countdown, frames;
-#  NMI-driven. 0 = idle.
+#  NMI-driven. 0 = idle. A DURATION, not a rate: it stays integer and a PAL
+#  flare is 20% longer in real time, which is docs/98 §2's disclosed row.
 [[claims.dp]]
 name = "rpg_hot"
 bytes = 18
