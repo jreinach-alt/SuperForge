@@ -76,6 +76,8 @@ C_DLG = _sym("ES_C_DLG_PAL", "town")["start"]           # CGRAM word index
 C_FLOOR = _sym("ES_C_FLOOR_PAL", "overworld")["start"]
 DLG_CTL = _sym("ES_DLG_CTL", "town")["start"]
 SRAM = _sym("ES_S_SAVE_SLOTS")["start"]
+M7ORG = _sym("ES_M7ORG", "overworld")["start"]  # the Mode 7 camera origin the
+                                                #   NMI commits to the PPU
 
 # --- the rail's own constants (game/rpg/main.asm + scenes/town.asm) ---------
 SCENE_OVERWORLD, SCENE_TOWN = 0, 1
@@ -90,7 +92,13 @@ DLG_COL, DLG_ROW, DLG_W, DLG_H = 2, 18, 28, 9
 NPC_PAGES = 3
 
 BOOT = 120                          # the absolute frame every read lands on
-STEP_FRAMES = 8                     # one overworld tile
+TILE_PX = 8                         # one overworld tile, in world PIXELS — the
+                                    #   distance a step arms. How many frames
+                                    #   that takes is the region's answer (8
+                                    #   walking plus 1 deciding on NTSC), which
+                                    #   is why the walk helper below stops on
+                                    #   the CAMERA TILE and never on a count.
+WORLD_PX = 1024                     # the 128x128-tile torus
 
 
 # --- driving -----------------------------------------------------------------
@@ -217,11 +225,38 @@ def _cell_px(img, col, row):
     return set(_box(img, col * 8 + 1, row * 8 + 1, col * 8 + 7, row * 8 + 7))
 
 
+def _m7(m):
+    """The Mode 7 camera origin the NMI commits to M7X/M7Y every VBlank — the
+    point the floor is drawn FROM. Used to DRIVE to a stated sub-tile offset;
+    every assertion below reads pixels."""
+    return m.read_u16(W, M7ORG + 0), m.read_u16(W, M7ORG + 2)
+
+
+def _slide_px(m, direction, px, limit=40):
+    """Hold `direction` until the camera has travelled exactly `px` pixels from
+    where it started, then stop. Bounded in EMULATED frames, never wall time.
+
+    The stop condition is the camera's own position, not a frame count, and
+    that is the point of it: a step is a DISTANCE now, so 'four pixels into the
+    tile' is a thing a test can ask for on either machine, where 'four frames
+    in' is not."""
+    axis = 1 if direction in ("up", "down") else 0
+    sign = -1 if direction in ("up", "left") else 1
+    target = (_m7(m)[axis] + sign * px) % WORLD_PX
+    for _ in range(limit):
+        if _m7(m)[axis] == target:
+            return
+        m.advance(1, pad1={direction: True})
+    raise AssertionError(
+        f"the camera never reached {target} ({px} px {direction}) in {limit} "
+        f"frames — it is at {_m7(m)[axis]}")
+
+
 def _walk_ow(m, direction, tiles, limit=40):
     """Hold a direction until the camera has committed `tiles` steps, then let
     the last slide land. Bounded in EMULATED frames, never wall time, and the
     stop condition is the camera tile rather than a frame count — the slide is
-    8 frames but the tick that starts the next one is not free-running."""
+    TILE_PX pixels long and the frames that takes is the region's answer."""
     axis = 1 if direction in ("up", "down") else 0
     sign = -1 if direction in ("up", "left") else 1
     target = _cam(m)[axis] + sign * tiles
@@ -231,7 +266,7 @@ def _walk_ow(m, direction, tiles, limit=40):
         m.advance(1, pad1={direction: True})
     else:
         raise AssertionError(f"camera never reached {target} walking {direction}")
-    m.advance(STEP_FRAMES + 2)              # let the final slide land
+    m.advance(TILE_PX + 2)                  # let the final slide land
     return _cam(m)
 
 
@@ -297,7 +332,7 @@ def test_a_blocked_press_leaves_the_picture_untouched_both_ways(rom_built,
     with _machine() as m:
         base = _shot(m, tmp_path, "before_block")
         for tag, btn in (("east", "right"), ("west", "left")):
-            _hold(m, STEP_FRAMES * 3, **{btn: True})
+            _hold(m, TILE_PX * 3, **{btn: True})
             m.advance(4)
             after = _shot(m, tmp_path, f"blocked_{tag}")
             assert list(after.tobytes()) == list(base.tobytes()), (
@@ -321,6 +356,64 @@ def test_a_walkable_press_moves_the_world_and_comes_back(rom_built, tmp_path):
         assert list(back.tobytes()) == list(home.tobytes()), (
             "the return walk did not restore the picture — the reverse "
             "direction is broken while the forward one works")
+
+
+def test_the_slide_walks_the_floor_across_the_tile_and_lands_on_the_grid(
+        rom_built, tmp_path):
+    """A step is a DISTANCE: `rpg_hot`'s step byte holds the PIXELS REMAINING
+    to the destination tile and the walk lays down the whole pixels the
+    region's timebase publishes. This is the property that redefinition has to
+    keep true, and it is a claim about the floor, so it is read on the FLOOR.
+
+    THE SCREEN IS THE ONLY PLACE IT SHOWS. The overworld avatar is pinned at
+    the affine pivot — the world moves under it — so there is no OAM byte and
+    no VRAM byte that carries the slide. What moves is the Mode 7 camera
+    origin the NMI commits, and what that produces is pixels.
+
+    Three arms, and the middle one is the one that matters:
+      - MID-TILE the floor is somewhere ELSE than at either end. A stepper
+        that snapped to the grid would render one of the two endpoints here,
+        and this is what catches it;
+      - the LANDING renders exactly the picture the camera-anchored walk
+        settles on one tile north, so the slide's distance is the tile's, to
+        the pixel;
+      - and the landing is at REST: a further frame changes nothing.
+
+    TWO FRAME COSTS ARE COUNTED RATHER THAN WORKED AROUND. A capture spends
+    an emulated frame (`Machine.take_screenshot`), and the PPU renders the
+    camera origin the NMI committed on the PREVIOUS VBlank — so the picture
+    always trails the WRAM origin by one frame. Driving to seven of the
+    tile's eight pixels therefore RENDERS six, which is mid-tile either way;
+    the capture's own frame lays the eighth; and one further frame is what
+    carries the landed origin into the picture.
+    """
+    with _machine() as m:
+        home = _shot(m, tmp_path, "slide_home")
+        _slide_px(m, "up", TILE_PX - 1)     # the origin at 7 of 8; the PPU at 6
+        mid = _shot(m, tmp_path, "slide_mid")   # ...its frame lays the eighth
+        m.advance(1)                        # the landed origin reaches the PPU
+        landed = _shot(m, tmp_path, "slide_landed")
+        still = _shot(m, tmp_path, "slide_still")
+        assert _cam(m) == (SPAWN_TX, SPAWN_TY - 1)
+    with _machine() as m2:
+        _walk_ow(m2, "up", 1)
+        settled = _shot(m2, tmp_path, "slide_settled")
+
+    def b(im):
+        return list(im.tobytes())
+
+    assert b(mid) != b(home), (
+        "mid-slide the floor is still the spawn picture — the walk is not "
+        "animating across the tile")
+    assert b(mid) != b(landed), (
+        "mid-slide and the landing render the same floor — the slide is "
+        "snapping to the grid instead of walking across it")
+    assert b(landed) != b(home)
+    assert b(landed) == b(still), (
+        "the floor moved after the slide landed — the walk overran its tile")
+    assert b(landed) == b(settled), (
+        "the landed slide is not the same picture as the settled camera one "
+        "tile north — the step's distance and the grid disagree")
 
 
 # =============================================================================
@@ -398,6 +491,41 @@ def test_holding_a_direction_walks_tile_by_tile_and_a_tap_moves_one(rom_built):
         m.advance(20, pad1={"right": True})      # HOLD right with the panel open
         assert m.read_bytes(O, 0, 2) == frozen, (
             "a held direction moved the avatar while the dialog was open")
+
+
+def test_the_town_avatar_is_never_drawn_between_tiles(rom_built):
+    """The town has NO sub-tile pixel state — `draw_actors` writes tile*8 and
+    nothing else — and the timebase's published step is SHARED with the
+    overworld, where the same number is spent in PIXELS. So the thing worth
+    proving is that no pixel value can reach this renderer: across a long held
+    walk, on EVERY frame, the drawn position is on the grid.
+
+    Read on the OAM — the sprite table the PPU draws from — and not on the
+    tile index behind it, because the index is exactly the variable that
+    cannot be wrong here. A leak would show up between the index and the
+    pixels, which is the one place the index cannot see.
+
+    BOTH DIRECTIONS, and that is not symmetry for its own sake: the throttle
+    now CARRIES its overshoot between tiles, so a walk that reverses re-enters
+    the arithmetic mid-count where a one-way walk never does.
+    """
+    with _machine() as m:
+        _to_town(m)
+        seen = set()
+        for direction in ("right", "left", "right"):
+            for _ in range(40):
+                m.advance(1, pad1={direction: True})
+                seen.add(tuple(m.read_bytes(O, 0, 2)))
+    off = sorted(p for p in seen if p[0] % 8 or p[1] % 8)
+    assert not off, (
+        f"the town avatar was drawn off the tile grid at {off} — a pixel term "
+        "has leaked into a renderer that has none")
+    xs = sorted({p[0] for p in seen})
+    assert len(xs) >= 4, (
+        f"the avatar only occupied {len(xs)} column(s) ({xs}) — the held walk "
+        "did not run, so this proved nothing")
+    assert {p[1] for p in seen} == {20 * 8}, (
+        "the horizontal walk drifted off its row")
 
 
 def test_saving_flares_the_save_torch_then_restores_it(rom_built):
