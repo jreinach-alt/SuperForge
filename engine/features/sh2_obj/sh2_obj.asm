@@ -119,8 +119,22 @@ SHO_W0    = ES_SHO + 16                 ; OAM word 0 under construction
 ; =============================================================================
 ; obj_arm — the character block, OBSEL, the palettes, the first snapshot
 ; =============================================================================
+; CONTRACT sh2_obj::obj_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the sheets, the palettes, OBSEL and the parked cast
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract, which is also what keeps a CPU-side palette loop
+;             from being preempted by an NMI that is not armed yet.
+;             Without these uploads the feature renders COLOUR NOISE
+;             rather than nothing: OBJ VRAM and CGRAM 128.. are random at
+;             power-on (rule 5), and an entry pointing at them is a
+;             perfectly valid sprite made of garbage. The caller seeds
+;             sh2_cam's positions first
+;   tail:     rts
+;
 ; In/out: A16/I16, DB=0, forced blank + NMI masked (the scene_mgr enter
-; contract). Clobbers A, X, Y. The caller seeds sh2_cam's positions and
 ; headings FIRST — obj_arm's closing projection reads them.
 ;
 ; WIDTH-RISK: A16/I16 in and out; every 8-bit window is a byte-wide PPU or DMA
@@ -129,6 +143,7 @@ SHO_W0    = ES_SHO + 16                 ; OAM word 0 under construction
 obj_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_arm"
     ; ---- the character block: one DMA, 2,048 B ----------------------------
     ; VMAIN $80 advances one word after the HIGH byte, which is what makes the
     ; mode-1 pair land as a word and step. DAS is single-shot — consumed by the
@@ -203,7 +218,15 @@ obj_arm:
 ; =============================================================================
 ; obj_project — both bands into the OAM shadow, with slot compaction
 ; =============================================================================
-; In/out: A16/I16, DB=0. Clobbers A, X, Y and both scratch blocks.
+; CONTRACT obj_project
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      both bands' casts projected into the OAM shadow
+;   clobbers: A, X, Y, N, Z, C, and both scratch blocks
+;   assumes:  it runs LAST in the scene tick, after sh2_advance has
+;             stepped the cameras and after the swarm has moved the
+;             followers, so what it projects is this frame's state
+;   tail:     rts
 ;
 ; Called LAST in the scene tick, after sh2_advance and the swarm, so the cast
 ; is projected from exactly the state the next VBlank will stamp into the HDMA
@@ -211,6 +234,7 @@ obj_arm:
 obj_project:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_project"
     ; ---- the hi table for OUR slots, rebuilt from zero ---------------------
     ; X9 = 0, size = small. The store path ORs each visible marker's two bits
     ; back in. NEVER carried across frames: a stale X9 is a sprite 256 px from

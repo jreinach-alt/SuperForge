@@ -40,11 +40,23 @@ POBJ_ATTR_ENEMY  = 48 | 2            ; priority 3, OBJ palette 1
 POBJ_PARK_Y      = 240               ; Y = $F0 — off the bottom of the screen
 
 ; --- pat_obj_arm: CHR + palettes + OBSEL + resting entries (scene enter) ----
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
-; Clobbers A, X, Y.
+; CONTRACT pat_obj_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      CHR, palettes, OBSEL and the resting entries
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract, which is also what keeps a CPU-side palette loop
+;             from being preempted by an NMI that is not armed yet.
+;             Without these uploads the feature renders COLOUR NOISE
+;             rather than nothing: OBJ VRAM and CGRAM 128.. are random at
+;             power-on (rule 5), and an entry pointing at them is a
+;             perfectly valid sprite made of garbage
+;   tail:     rts
 pat_obj_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "pat_obj_arm"
     sep #$20
     .a8
     lda #$80
@@ -111,8 +123,17 @@ pat_obj_arm:
     rts
 
 ; --- pat_obj_place: the three actors' positions -> the OAM shadow -----------
-; In/out: A16/I16, DB=0. Called from the scene's tick, every frame: the shadow
-; is rebuilt whole rather than patched. Clobbers A.
+; CONTRACT pat_obj_place
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the three actors' positions written into the OAM shadow,
+;             rebuilt whole rather than patched
+;   clobbers: A, N, Z, C
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one
+;   tail:     rts
 ;
 ; THE HI BYTE IS REBUILT FROM SCRATCH, NOT PATCHED (hud_obj's discipline): an
 ; OAM X coordinate is nine bits and the ninth lives here. Each actor's X9 is
@@ -123,6 +144,7 @@ pat_obj_arm:
 pat_obj_place:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "pat_obj_place"
     ; ---- player: (px, pyi) ------------------------------------------------
     lda z:US_PX
     sep #$20
@@ -182,11 +204,23 @@ pat_obj_place:
     rts
 
 ; --- pat_obj_park: hide all four (scene exit) -------------------------------
+; CONTRACT pat_obj_park
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      all four slots hidden
+;   clobbers: A, N, Z
+;   assumes:  the scene that armed a slot re-parks it, so the next scene
+;             inherits the boot contract rather than this scene's sprites.
+;             Never called — this rail has one scene and no edges — and it
+;             exists because the claim's contract is symmetric
+;   tail:     rts
+;
 ; In/out: A16/I16, DB=0. Never called — this game has one scene and no edges —
 ; but the claim's contract is symmetric and a second scene would need it.
 pat_obj_park:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "pat_obj_park"
     sep #$20
     .a8
     lda #POBJ_PARK_Y

@@ -140,7 +140,21 @@ mo_pal_loop:
 .endmacro
 
 ; --- obj_arm: the two sheets, the three palettes, OBSEL, both pools ---------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (the scene_mgr enter
+; CONTRACT mo_obj::obj_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the two sheets, the three palettes, OBSEL and both pools
+;             initialised
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract, which is also what keeps a CPU-side palette loop
+;             from being preempted by an NMI that is not armed yet.
+;             Without these uploads the feature renders COLOUR NOISE
+;             rather than nothing: OBJ VRAM and CGRAM 128.. are random at
+;             power-on (rule 5), and an entry pointing at them is a
+;             perfectly valid sprite made of garbage
+;   tail:     rts
+;
 ; contract — which is also why nothing here masks $4200 itself: the long
 ; CPU-side palette writes cannot be preempted by an NMI that is not armed yet).
 ; Clobbers A, X, Y.
@@ -156,6 +170,7 @@ mo_pal_loop:
 obj_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_arm"
     sep #$20
     .a8
     lda #$80
@@ -212,12 +227,21 @@ mo_actors_arm:
     rts
 
 ; --- obj_park: every slot this feature owns, off the bottom of the screen ---
-; In/out: A16/I16, DB=0. Clobbers A, X. Called at enter (so the scene starts
+; CONTRACT mo_obj::obj_park
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      every slot this feature owns parked off the bottom of the
+;             screen
+;   clobbers: A, X, N, Z, C
+;   assumes:  at enter, so the scene starts with nothing stale on screen
+;   tail:     rts
+;
 ; with nothing stale on screen) and at exit (so a successor scene, which draws
 ; no sprites at all, cannot show this cast).
 obj_park:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_park"
     ldx #(ES_O_HERO * 4)
 @loop:
     .a16
@@ -341,12 +365,23 @@ mo_put:
     rts
 
 ; --- mo_park_slot: one slot, off-screen ------------------------------------
+; CONTRACT mo_park_slot
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the slot's entry moved off screen; a free or culled actor
+;             keeps its slot, so slot identity and sprite priority stay
+;             stable
+;   clobbers: A, N, Z
+;   assumes:  X names a slot this feature owns
+;   tail:     rts
+;
 ; In: A16/I16, DB=0. X = the slot's byte offset. Out: clobbers A. A free or
 ; culled actor keeps its slot but leaves the screen, so slot identity — and
 ; therefore sprite priority — is stable frame to frame whatever is visible.
 mo_park_slot:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "mo_park_slot"
     lda #(MO_PARK_Y << 8)
     sta a:ES_OAM_SHADOW + 0, x
     stz a:ES_OAM_SHADOW + 2, x
@@ -447,7 +482,16 @@ MO_TA_ENEMY  = MO_ENEMY_TILE  | ((MO_PRIO | MO_PAL_ENEMY) << 8)
 MO_TA_BULLET = MO_BULLET_TILE | ((MO_PRIO | MO_PAL_BULLET) << 8)
 
 ; --- obj_draw: the whole cast, every frame ---------------------------------
-; In/out: A16/I16, DB=0. Clobbers A, X, Y.
+; CONTRACT mo_obj::obj_draw
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the whole cast staged into the shadow
+;   clobbers: A, X, Y, N, Z
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one
+;   tail:     rts
 ;
 ; Called from the scene's tick AFTER m7a_set_heading AND AFTER m7a_set_center,
 ; so the matrix and the pivot the actors are projected through are the same
@@ -469,6 +513,7 @@ MO_TA_BULLET = MO_BULLET_TILE | ((MO_PRIO | MO_PAL_BULLET) << 8)
 obj_draw:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_draw"
     jsr mo_hi_clear
     lda #MO_LARGE
     sta z:ES_MO_DRAW + MO_D_SIZE    ; everything below is a 16x16 actor. The HUD
@@ -512,9 +557,20 @@ obj_draw:
 ; internally for its two byte stores and restores A16, and PRESERVES X — which
 ; is what lets the digit index survive the call and become the x offset.
 .assert MO_DIGIT_PITCH = 8, error, "the digit pitch is shifted, not multiplied — a non-8 pitch needs a different sequence here"
+; CONTRACT mo_score_digit
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      one score digit staged into its slot
+;   clobbers: A, X, N, Z, C, V
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one
+;   tail:     rts
 mo_score_digit:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "mo_score_digit"
     pha                             ; the digit value, while X becomes the x
     txa
     .repeat 3

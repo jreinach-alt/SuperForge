@@ -39,11 +39,23 @@ MZO_TILE = 0
 MZO_ATTR = 48
 
 ; --- mzo_arm: CHR + palette + OBSEL + tile/attr (scene enter) ---------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
-; Clobbers A, X.
+; CONTRACT mzo_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the OBJ page, the palette and OBSEL
+;   clobbers: A, X, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract, which is also what keeps a CPU-side palette loop
+;             from being preempted by an NMI that is not armed yet.
+;             Without these uploads the feature renders COLOUR NOISE
+;             rather than nothing: OBJ VRAM and CGRAM 128.. are random at
+;             power-on (rule 5), and an entry pointing at them is a
+;             perfectly valid sprite made of garbage
+;   tail:     rts
 mzo_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "mzo_arm"
     sep #$20
     .a8
     lda #$80
@@ -99,9 +111,23 @@ mzo_arm:
     rts
 
 ; --- mzo_draw: stage the player into the OAM shadow -------------------------
-; In/out: A16/I16, DB=0. Called from the scene's tick, EVERY frame — after the
-; move-check has committed this frame's position, so the entry staged is the
-; coordinate collision decided. Clobbers A.
+; CONTRACT mzo_draw
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the avatar's entry from this frame's committed position. The
+;             hi byte is rebuilt from scratch, never patched: an OAM x is
+;             nine bits and the ninth lives in the hi table, so X9 is
+;             DERIVED from bit 8 of the x every frame. A shortcut that
+;             assumed it clear passes every test until a coordinate grows,
+;             and then ships a sprite 256 px away. The size bit stays 0
+;   clobbers: A, N, Z
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one — here, after the move-check has committed
+;             this frame's position, so the entry staged is the coordinate
+;             collision decided
+;   tail:     rts
 ;
 ; THE HI BYTE IS REBUILT FROM SCRATCH, NOT PATCHED. An OAM X coordinate is
 ; nine bits and the ninth lives in the hi table. The room's border keeps
@@ -111,6 +137,7 @@ mzo_arm:
 mzo_draw:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "mzo_draw"
     lda z:MZO_PX
     sep #$20
     .a8

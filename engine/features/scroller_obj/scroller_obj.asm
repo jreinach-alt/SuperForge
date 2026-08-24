@@ -38,11 +38,23 @@ SCR_OBJ_TILE = 0
 SCR_OBJ_ATTR = 48
 
 ; --- scr_obj_arm: CHR + palette + OBSEL + the resting entry (scene enter) ----
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
-; Clobbers A, X.
+; CONTRACT scr_obj_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      CHR, palette, OBSEL and the resting entry
+;   clobbers: A, X, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract, which is also what keeps a CPU-side palette loop
+;             from being preempted by an NMI that is not armed yet.
+;             Without these uploads the feature renders COLOUR NOISE
+;             rather than nothing: OBJ VRAM and CGRAM 128.. are random at
+;             power-on (rule 5), and an entry pointing at them is a
+;             perfectly valid sprite made of garbage
+;   tail:     rts
 scr_obj_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "scr_obj_arm"
     sep #$20
     .a8
     lda #$80
@@ -100,7 +112,16 @@ scr_obj_arm:
     rts
 
 ; --- scr_obj_draw: stage the rider into the OAM shadow ----------------------
-; In/out: A16/I16, DB=0. Called from the scene's tick, EVERY frame. Clobbers A.
+; CONTRACT scr_obj_draw
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the rider staged into the OAM shadow
+;   clobbers: A, N, Z
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one
+;   tail:     rts
 ;
 ; RE-STAGED RATHER THAN WRITTEN ONCE, deliberately. The position is constant,
 ; so an enter-time write would render the same picture — and would make "the
@@ -116,6 +137,7 @@ scr_obj_arm:
 scr_obj_draw:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "scr_obj_draw"
     lda #SCR_RIDER_X
     sep #$20
     .a8

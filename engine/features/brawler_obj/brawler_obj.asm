@@ -108,8 +108,23 @@ br_obj_up_dma:
     rts
 
 ; --- br_obj_arm: CHR + palettes + OBSEL (scene enter) ----------------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
-; Clobbers A, X, Y.
+; CONTRACT br_obj_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the OBJ page, the palettes and OBSEL. No static tile/attr
+;             writes, unlike every prior rail's obj arm: BOTH of this
+;             rail's OAM bytes 2 and 3 change every frame (the tile is an
+;             animation step, the attribute carries the facing flip), so
+;             there is nothing to hoist
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract, which is also what keeps a CPU-side palette loop
+;             from being preempted by an NMI that is not armed yet.
+;             Without these uploads the feature renders COLOUR NOISE
+;             rather than nothing: OBJ VRAM and CGRAM 128.. are random at
+;             power-on (rule 5), and an entry pointing at them is a
+;             perfectly valid sprite made of garbage
+;   tail:     rts
 ;
 ; No static tile/attr writes here, unlike every prior rail's obj arm: BOTH of
 ; this rail's OAM bytes 2 and 3 change every frame (the tile is an animation
@@ -117,6 +132,7 @@ br_obj_up_dma:
 br_obj_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "br_obj_arm"
     sep #$20
     .a8
     lda #$80
@@ -220,8 +236,29 @@ br_anim_tile:
     rts
 
 ; --- br_obj_draw: stage both knights into the OAM shadow --------------------
-; In/out: A16/I16, DB=0. Called from the scene's tick EVERY frame (and once
-; from enter, so frame 0 commits real entries). Clobbers A, X, Y.
+; CONTRACT br_obj_draw
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      both knights re-staged, entries and hi bytes. Re-staged
+;             EVERY frame rather than written once at enter: a write-once
+;             sprite would pass 'the sprite is where the state says' for
+;             the wrong reason and leave the staging path untested for the
+;             whole run. The hi byte is rebuilt from scratch, never
+;             patched: an OAM x is nine bits and the ninth lives in the hi
+;             table, so X9 is DERIVED from bit 8 of the x every frame. A
+;             shortcut that assumed it clear passes every test until a
+;             coordinate grows, and then ships a sprite 256 px away. The
+;             SIZE bits are set because both actors are the large half of
+;             the OBSEL pair — the first rail here whose hi table carries
+;             a non-zero size bit, so it is written rather than left over
+;             from oam_park_all's clear
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one. Also called once from enter, so frame 0
+;             commits real entries
+;   tail:     rts
 ;
 ; Both knights are re-staged EVERY frame rather than written once at enter: a
 ; write-once sprite would pass "the sprite is where the state says" for the
@@ -237,6 +274,7 @@ br_anim_tile:
 br_obj_draw:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "br_obj_draw"
     ; ---- Arthur (slot +0): always live -----------------------------------
     lda z:US_ASTATE
     ldx z:US_AFRAME

@@ -109,7 +109,19 @@ RS_HI_BYTES  = RS_OAM_N / 4
 ; =============================================================================
 ; rs_obj_arm — CHR + both OBJ palettes + OBSEL + a parked window (scene enter)
 ; =============================================================================
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr contract).
+; CONTRACT rs_obj_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the sheets, the palettes and OBSEL
+;   clobbers: A, X, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract, which is also what keeps a CPU-side palette loop
+;             from being preempted by an NMI that is not armed yet.
+;             Without these uploads the feature renders COLOUR NOISE
+;             rather than nothing: OBJ VRAM and CGRAM 128.. are random at
+;             power-on (rule 5), and an entry pointing at them is a
+;             perfectly valid sprite made of garbage
+;   tail:     rts
 ;
 ; WIDTH-RISK: A16/I16 entry AND exit; toggles A8 for the byte ports and
 ; restores A16 before rts. I is never touched. Cross-file callers (the scene's
@@ -117,6 +129,7 @@ RS_HI_BYTES  = RS_OAM_N / 4
 rs_obj_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rs_obj_arm"
     ; ---- CHR -> the obj chr claim (word port, DMA mode 1) -----------------
     sep #$20
     .a8
@@ -179,7 +192,15 @@ rs_obj_arm:
 ; =============================================================================
 ; rs_obj_disarm — park every claimed slot off-screen and clear the hi table.
 ; =============================================================================
-; In/out: A16/I16, DB=0. Also the first act of every rs_draw, which is what
+; CONTRACT rs_obj_disarm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      every slot this feature owns parked
+;   clobbers: A, X, N, Z, C
+;   assumes:  it is also the first act of every rs_draw, which is what
+;             keeps a slot that stopped being drawn from lingering
+;   tail:     rts
+;
 ; makes the hi table REBUILT rather than patched: a stale X9 renders a sprite
 ; 256 px away, and that is a failure this project has a lessons-learned entry
 ; about.
@@ -188,6 +209,7 @@ rs_obj_arm:
 rs_obj_disarm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rs_obj_disarm"
     sep #$20
     .a8
     ldx #0
@@ -598,7 +620,18 @@ rs_pow10_tab:
 ; =============================================================================
 ; rs_cache_build — PASS 1: project every actor once, and the aim point
 ; =============================================================================
-; In/out: A16/I16, DB=0. Called from the scene's tick BEFORE the hitscan and
+; CONTRACT rs_cache_build
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the per-frame projection cache built
+;   clobbers: A, N, Z
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one — BEFORE the hitscan and the draw, which both
+;             read it
+;   tail:     rts
+;
 ; before the draw, which is the whole reason it is a routine of its own now:
 ; the hit test compares the aim point against the SAME projected boxes the OAM
 ; emit is about to write, so "the crosshair was on it" and "it died" cannot
@@ -608,6 +641,7 @@ rs_pow10_tab:
 rs_cache_build:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rs_cache_build"
     lda #RS_OBS_BASE
     sta RSD_IDX
     lda #0
@@ -776,7 +810,18 @@ rs_cache_reticle:
 ; =============================================================================
 ; rs_draw — the whole foreground, in the order the OAM window is laid out
 ; =============================================================================
-; In/out: A16/I16, DB=0. Called from the scene's tick AFTER rs_cache_build, so
+; CONTRACT rs_draw
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the whole cast staged from the cache
+;   clobbers: A, X, Y, N, Z, C, V, and whatever the routines it dispatches
+;             to clobber
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one — AFTER rs_cache_build
+;   tail:     rts
+;
 ; every projection it needs is already in the cache.
 ;
 ; The first act is a full park + hi-table clear, which is what makes "a slot
@@ -787,6 +832,7 @@ rs_cache_reticle:
 rs_draw:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rs_draw"
     jsr rs_obj_disarm
     jsr rs_draw_reticle
     jsr rs_draw_burst

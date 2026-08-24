@@ -98,10 +98,23 @@ obj_pal_point:
     rts
 
 ; --- obj_arm: CHR + the three palettes + OBSEL + parked entries -------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
+; CONTRACT shmup_obj::obj_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      CHR, the three palettes, OBSEL and the parked entries
+;   clobbers: A, X, N, Z
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract, which is also what keeps a CPU-side palette loop
+;             from being preempted by an NMI that is not armed yet.
+;             Without these uploads the feature renders COLOUR NOISE
+;             rather than nothing: OBJ VRAM and CGRAM 128.. are random at
+;             power-on (rule 5), and an entry pointing at them is a
+;             perfectly valid sprite made of garbage
+;   tail:     rts
 obj_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_arm"
     sep #$20
     .a8
     lda #$80
@@ -156,12 +169,22 @@ obj_arm:
     rts
 
 ; --- obj_park: hide all sixteen (scene exit, and enter's opening state) -----
-; In/out: A16/I16, DB=0. Clobbers A, X. The scene that armed a slot re-parks
+; CONTRACT shmup_obj::obj_park
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      all sixteen slots hidden
+;   clobbers: A, X, N, Z, C
+;   assumes:  the scene that armed a slot re-parks it, so the next scene
+;             inherits the boot contract rather than this scene's sprites
+;             — and it is also enter's opening state
+;   tail:     rts
+;
 ; it, so the next scene inherits the boot contract rather than this scene's
 ; sprites.
 obj_park:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_park"
     ldx #(ES_O_SHIP * 4)
     lda #(PARK_Y << 8)              ; x = 0, y = $F0 (off the bottom)
 :   .a16
@@ -258,10 +281,20 @@ obj_put:
     rts
 
 ; --- obj_draw: the whole cast, into the shadow ------------------------------
-; In/out: A16/I16, DB=0. Called from the scene's tick, every frame.
+; CONTRACT shmup_obj::obj_draw
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the whole cast staged into the shadow
+;   clobbers: A, X, Y, N, Z, C, V, and whatever obj_draw_bursts clobbers
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one
+;   tail:     jmp obj_draw_bursts — the burst pass is the tail of this one
 obj_draw:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_draw"
     stz a:OBJ_HI_OURS + 0           ; obj_put ORs into these, so they start at
     stz a:OBJ_HI_OURS + 2           ;   zero exactly once per frame
     jsr obj_draw_ship
@@ -467,7 +500,14 @@ obj_draw_bursts:
 ; per access, and the pools stop being a hidden constraint on the WRAM packer.
 
 ; --- shm_pool_init: every slot of every pool is free ------------------------
-; In/out: A16/I16, DB=0. Clobbers A, X. Called from the scene's enter, before
+; CONTRACT shm_pool_init
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      every slot of every pool marked free
+;   clobbers: A, X, N, Z, C
+;   assumes:  from the scene's enter, before the first spawn
+;   tail:     rts
+;
 ; any tick runs. Writes the WHOLE stride of each alive array, not just the
 ; slots in use, so the arrays are defined end to end. The parallel arrays are
 ; deliberately NOT touched: a slot's position is written by spawn-then-use, and
@@ -476,6 +516,7 @@ obj_draw_bursts:
 shm_pool_init:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "shm_pool_init"
     ldx #0
 :   .a16
     .i16
@@ -490,6 +531,16 @@ shm_pool_init:
     rts
 
 ; --- shm_pool_spawn: claim the first free slot ------------------------------
+; CONTRACT shm_pool_spawn
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      on success A = X = the claimed slot's byte offset; on a full
+;             pool A is negative, so a caller branches with `bmi` — a real
+;             offset is always positive
+;   clobbers: A, X, Y, N, Z
+;   assumes:  X = the pool's base offset and Y = its slot COUNT
+;   tail:     rts
+;
 ; In: A16/I16, DB=0. X = the pool's base offset, Y = its slot COUNT. Out: A = X
 ; = the claimed slot's offset INTO THE CLAIM (base + slot*2), so
 ;  `sta f:ES_SHM_POOLS_LONG + SHM_PX, x` writes that slot's x directly.
@@ -500,6 +551,7 @@ shm_pool_init:
 shm_pool_spawn:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "shm_pool_spawn"
 @scan:
     lda f:ES_SHM_POOLS_LONG + SHM_ALIVE, x
     beq @found
@@ -518,12 +570,20 @@ shm_pool_spawn:
     rts
 
 ; --- shm_pool_kill: free the slot at the offset in X ------------------------
-; In/out: A16/I16, DB=0. X preserved, A clobbered (`stz` has no long form, so
+; CONTRACT shm_pool_kill
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the slot at the offset in X freed. X is PRESERVED
+;   clobbers: A, N, Z
+;   assumes:  X names a slot in a pool this feature owns
+;   tail:     rts
+;
 ; freeing a slot costs the accumulator — the iteration idiom keeps its cursor
 ; in X for exactly this reason).
 shm_pool_kill:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "shm_pool_kill"
     lda #0
     sta f:ES_SHM_POOLS_LONG + SHM_ALIVE, x
     rts

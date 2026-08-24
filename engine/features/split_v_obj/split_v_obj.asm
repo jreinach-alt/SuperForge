@@ -210,8 +210,13 @@ loop:
 .endmacro
 
 ; --- sv_obj_arm: OBSEL + the fighter CHR and palettes, once, at scene enter -
-; In/out: A16/I16, DB=0, forced blank (OBSEL is a forced-blank-only write).
-; Clobbers A, X, Y.
+; CONTRACT sv_obj_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      OBSEL, the fighter CHR and the palettes
+;   clobbers: A, X, Y, N, Z
+;   assumes:  forced blank — OBSEL is a forced-blank-only write
+;   tail:     rts
 ;
 ; WITHOUT the two uploads below this feature renders COLOUR NOISE: OBJ VRAM and
 ; CGRAM 128.. Are random at power-on (rule 5), and OAM pointing at them is a
@@ -220,6 +225,7 @@ loop:
 sv_obj_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "sv_obj_arm"
     jsr sv_obj_up
     SV_OBJ_PAL_UP ES_C_KNIGHT_PAL_R, sv_knight_pal_r_bin, ES_R_SV_KNIGHT_PAL_R_SIZE
     SV_OBJ_PAL_UP ES_C_KNIGHT_PAL_B, sv_knight_pal_b_bin, ES_R_SV_KNIGHT_PAL_B_SIZE
@@ -358,7 +364,16 @@ sv_obj_put:
     rts
 
 ; --- sv_obj_draw: both fighters, every frame -------------------------------
-; In/out: A16/I16, DB=0. Clobbers A, X, Y.
+; CONTRACT sv_obj_draw
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      both fighters and the HUD staged
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one
+;   tail:     rts
 ;
 ; THE SIDE-SWAP IS RE-DECIDED EVERY FRAME, not tracked. Each fighter's screen
 ; position is derived against the camera of the half it is CURRENTLY in, and
@@ -374,6 +389,7 @@ sv_obj_put:
 sv_obj_draw:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "sv_obj_draw"
     ; The five hi-table bytes our twenty slots fill are cleared once, here, so
     ; sv_obj_put can OR into them without inheriting last frame's X9 or size
     ; bits. Cleared as a RANGE rather than by name: the count follows the

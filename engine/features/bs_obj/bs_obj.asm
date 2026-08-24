@@ -39,10 +39,24 @@ BS_D_TILE = 6                   ; 2 — tile|attr scratch for a computed tile
 ; =============================================================================
 ; ARMING — once, at scene enter
 ; =============================================================================
+; CONTRACT bs_obj::obj_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the sheet, the palettes, OBSEL and both pools initialised
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract, which is also what keeps a CPU-side palette loop
+;             from being preempted by an NMI that is not armed yet.
+;             Without these uploads the feature renders COLOUR NOISE
+;             rather than nothing: OBJ VRAM and CGRAM 128.. are random at
+;             power-on (rule 5), and an entry pointing at them is a
+;             perfectly valid sprite made of garbage. DAS is single-shot —
+;             consumed by the transfer — so it is armed here for THIS
+;             transfer; one sheet, one arming site. The pool_init calls
+;             need A16/I16 on both sides and contain no sep/rep
+;   tail:     rts
+;
 ; --- obj_arm: the sheet, the palette, OBSEL, both pools ---------------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (the scene_mgr enter
-; contract — which is why the CPU-side palette loop cannot be preempted by an
-; NMI that is not armed yet). Clobbers A, X, Y.
 ;
 ; WITHOUT these uploads this feature renders COLOUR NOISE rather than nothing:
 ; OBJ VRAM and CGRAM 128.. Are random at power-on (rule 5), and an OAM entry
@@ -59,6 +73,7 @@ BS_D_TILE = 6                   ; 2 — tile|attr scratch for a computed tile
 obj_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_arm"
     sep #$20
     .a8
     lda #$80
@@ -140,13 +155,24 @@ bs_actors_arm:
     rts
 
 ; --- obj_park: every slot this feature owns, off the bottom of the screen --
-; In/out: A16/I16, DB=0. Clobbers A, X. Called at enter so the scene starts
+; CONTRACT bs_obj::obj_park
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      every slot this feature owns parked off the bottom of the
+;             screen
+;   clobbers: A, X, N, Z, C
+;   assumes:  at enter, so the scene starts with nothing stale on screen.
+;             The masked re-init re-enters through battle_init and the
+;             per-frame draw re-parks dead slots, so enter-once suffices
+;   tail:     rts
+;
 ; with nothing stale on screen; the masked re-init (the RESULT->RESET loop)
 ; re-enters through battle_init, and the per-frame draw re-parks dead slots, so
 ; enter-once suffices.
 obj_park:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_park"
     ldx #(ES_O_PLAYER * 4)
 @loop:
     .a16
@@ -164,7 +190,18 @@ obj_park:
     rts
 
 ; --- bs_hi_clear: the six hi-table bytes this feature owns -----------------
-; In/out: A16/I16, DB=0. Clobbers A.
+; CONTRACT bs_hi_clear
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the six hi-table bytes this feature owns zeroed. Twenty-four
+;             slots is exactly six bytes, every one owned whole — which is
+;             the reason the pad slots exist
+;   clobbers: A, N, Z
+;   assumes:  before the draw, every frame. That is what lets bs_put OR
+;             its two bits in without inheriting last frame's X9 or SIZE;
+;             the direction that hurts is an 8x8 rendered 16x16, sampling
+;             the three tiles after it
+;   tail:     rts
 ;
 ; Twenty-four slots is exactly six bytes, every one owned whole — the reason
 ; the pad slots exist. Clearing before the draw is what lets bs_put OR its two
@@ -176,6 +213,7 @@ obj_park:
 bs_hi_clear:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "bs_hi_clear"
     sep #$20
     .a8
     stz a:BS_HI_BASE + 0
@@ -191,13 +229,26 @@ bs_hi_clear:
 ; =============================================================================
 ; DRAWING — every slot, every frame
 ; =============================================================================
+; CONTRACT bs_put
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the entry's bytes 2-3 in one store, y into byte 1, x low
+;             eight into byte 0, and the two hi-table bits shifted to
+;             (slot & 3) * 2 and OR'd into a byte the per-frame clear
+;             zeroed. X is PRESERVED
+;   clobbers: A, Y, N, Z, C
+;   assumes:  the per-frame hi clear has already run. The pushes and pulls
+;             are A16/I16 on every arm — one phx/plx pair and one pha/pla
+;             pair — because a push taken in A16 and pulled in A8 drifts
+;             the stack one byte per sprite per frame
+;   tail:     rts
+;
 ; --- bs_put: one OAM entry, plus its two hi-table bits ---------------------
 ; In: A16/I16, DB=0.
 ;  X = the slot's BYTE offset in the shadow (slot * 4)
 ;  A = tile | (attr << 8) — the entry's bytes 2 and 3
 ;  ES_BS_DRAW+BS_D_X = the OAM x (9 bits; bit 8 becomes X9), +BS_D_Y = y,
 ;  +BS_D_SIZE = BS_LARGE or 0
-; Out: X preserved. Clobbers A, Y.
 ;
 ; mo_put's body, byte for byte in mechanism: entry bytes 2-3 in one store, y
 ; into byte 1, x low eight into byte 0, then the two hi-table bits shifted to
@@ -209,6 +260,7 @@ bs_hi_clear:
 bs_put:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "bs_put"
     sta a:ES_OAM_SHADOW + 2, x      ; bytes 2,3: tile and attr, in one store
     lda z:ES_BS_DRAW + BS_D_Y
     xba
@@ -261,12 +313,22 @@ bs_put:
     rts
 
 ; --- bs_park_slot: one slot, off-screen ------------------------------------
-; In: A16/I16, DB=0. X = the slot's byte offset. Out: X preserved; clobbers A.
+; CONTRACT bs_park_slot
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the slot's entry moved off screen. X is PRESERVED — a free
+;             actor keeps its slot, so slot identity, and therefore sprite
+;             priority, is stable frame to frame whatever is visible
+;   clobbers: A, N, Z
+;   assumes:  nothing beyond X naming a slot this feature owns
+;   tail:     rts
+;
 ; A free actor keeps its slot but leaves the screen, so slot identity — and
 ; therefore sprite priority — is stable frame to frame whatever is visible.
 bs_park_slot:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "bs_park_slot"
     lda #(BS_PARK_Y << 8)
     sta a:ES_OAM_SHADOW + 0, x
     stz a:ES_OAM_SHADOW + 2, x

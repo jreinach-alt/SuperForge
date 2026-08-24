@@ -37,11 +37,23 @@ SR_OBJ_TILE = 1
 SR_OBJ_ATTR = 48
 
 ; --- sr_obj_arm: CHR + palette + OBSEL + tile/attr (scene enter) ------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
-; Clobbers A, X.
+; CONTRACT sr_obj_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      CHR, palette, OBSEL and the static tile/attr bytes
+;   clobbers: A, X, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract, which is also what keeps a CPU-side palette loop
+;             from being preempted by an NMI that is not armed yet.
+;             Without these uploads the feature renders COLOUR NOISE
+;             rather than nothing: OBJ VRAM and CGRAM 128.. are random at
+;             power-on (rule 5), and an entry pointing at them is a
+;             perfectly valid sprite made of garbage
+;   tail:     rts
 sr_obj_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "sr_obj_arm"
     sep #$20
     .a8
     lda #$80
@@ -97,8 +109,17 @@ sr_obj_arm:
     rts
 
 ; --- sr_obj_draw: stage the runner into the OAM shadow ----------------------
-; In/out: A16/I16, DB=0. Called from the scene's tick, EVERY frame (playing AND
-; won — the runner stays on screen after the goal). Clobbers A.
+; CONTRACT sr_obj_draw
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the runner staged into the OAM shadow
+;   clobbers: A, N, Z
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one — playing AND won, because the runner stays on
+;             screen after the goal
+;   tail:     rts
 ;
 ; THE HI BYTE IS REBUILT FROM SCRATCH, NOT PATCHED: X9 derived from bit 8 of
 ; the SCREEN X every frame. The follow clamp keeps scrx in 8..240 on this rail,
@@ -107,6 +128,7 @@ sr_obj_arm:
 sr_obj_draw:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "sr_obj_draw"
     lda z:US_SCRX
     sep #$20
     .a8

@@ -61,8 +61,21 @@ SAU_D_TILE = 6                  ; 2 — tile|attr scratch for a computed tile
 ; =============================================================================
 ; ARMING — once, at scene enter
 ; =============================================================================
+; CONTRACT sau_obj::obj_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the sheet, the palette, OBSEL and the pool initialised
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract, which is also what keeps a CPU-side palette loop
+;             from being preempted by an NMI that is not armed yet.
+;             Without these uploads the feature renders COLOUR NOISE
+;             rather than nothing: OBJ VRAM and CGRAM 128.. are random at
+;             power-on (rule 5), and an entry pointing at them is a
+;             perfectly valid sprite made of garbage
+;   tail:     rts
+;
 ; --- obj_arm: the sheet, the palette, OBSEL, the pool ----------------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (the scene_mgr enter
 ; contract — which is why the CPU-side palette loop cannot be preempted by an
 ; NMI that is not armed yet). Clobbers A, X, Y.
 ;
@@ -81,6 +94,7 @@ SAU_D_TILE = 6                  ; 2 — tile|attr scratch for a computed tile
 obj_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_arm"
     sep #$20
     .a8
     lda #$80
@@ -160,13 +174,22 @@ sau_pool_arm:
     rts
 
 ; --- obj_park: every slot this feature owns, off the bottom of the screen --
-; In/out: A16/I16, DB=0. Clobbers A, X. Called at enter so the scene starts
+; CONTRACT sau_obj::obj_park
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      every slot this feature owns parked off the bottom of the
+;             screen
+;   clobbers: A, X, N, Z, C
+;   assumes:  at enter, so the scene starts with nothing stale on screen
+;   tail:     rts
+;
 ; with nothing stale on screen; the masked re-init (the RESULT->RESET loop)
 ; re-enters through battle_init, and the per-frame draw re-parks every unused
 ; slot, so enter-once suffices.
 obj_park:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_park"
     ldx #(ES_O_PLAYER * 4)
 @slot:
     .a16
@@ -184,7 +207,14 @@ obj_park:
     rts
 
 ; --- sau_hi_clear: the twenty hi-table bytes this feature owns -------------
-; In/out: A16/I16, DB=0. Clobbers A, X.
+; CONTRACT sau_hi_clear
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the twenty hi-table bytes this feature owns zeroed
+;   clobbers: A, X, N, Z, C
+;   assumes:  before the draw, every frame — which is what lets sau_put OR
+;             its two bits in without inheriting last frame's X9 or SIZE
+;   tail:     rts
 ;
 ; Eighty slots is exactly twenty bytes, every one owned whole — the reason the
 ; pad slots exist. Clearing before the draw is what lets sau_put OR its two
@@ -198,6 +228,7 @@ obj_park:
 sau_hi_clear:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "sau_hi_clear"
     sep #$20
     .a8
     ldx #0
@@ -215,13 +246,20 @@ sau_hi_clear:
 ; =============================================================================
 ; EMITTING — every slot, every frame
 ; =============================================================================
+; CONTRACT sau_put
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      one OAM entry plus its two hi-table bits. X is PRESERVED
+;   clobbers: A, Y, N, Z, C
+;   assumes:  the per-frame hi clear has already run
+;   tail:     rts
+;
 ; --- sau_put: one OAM entry, plus its two hi-table bits --------------------
 ; In: A16/I16, DB=0.
 ;  X = the slot's BYTE offset in the shadow (slot * 4)
 ;  A = tile | (attr << 8) — the entry's bytes 2 and 3
 ;  ES_SAU_DRAW+SAU_D_X = the OAM x (9 bits; bit 8 becomes X9),
 ;  +SAU_D_Y = y, +SAU_D_SIZE = SAU_LARGE or 0
-; Out: X preserved. Clobbers A, Y.
 ;
 ; bs_put's body, byte for byte in mechanism: entry bytes 2-3 in one store, y
 ; into byte 1, x low eight into byte 0, then the two hi-table bits shifted to
@@ -233,6 +271,7 @@ sau_hi_clear:
 sau_put:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "sau_put"
     sta a:ES_OAM_SHADOW + 2, x      ; bytes 2,3: tile and attr, in one store
     lda z:ES_SAU_DRAW + SAU_D_Y
     xba
@@ -285,20 +324,34 @@ sau_put:
     rts
 
 ; --- sau_park_slot: one slot, off-screen -----------------------------------
-; In: A16/I16, DB=0. X = the slot's byte offset. Out: X preserved; clobbers A.
+; CONTRACT sau_park_slot
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the slot's entry moved off screen. X is PRESERVED
+;   clobbers: A, N, Z
+;   assumes:  X names a slot this feature owns
+;   tail:     rts
+;
 ; A free actor keeps its slot but leaves the screen, so slot identity — and
 ; therefore sprite priority — is stable frame to frame whatever is visible.
 sau_park_slot:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "sau_park_slot"
     lda #(SAU_PARK_Y << 8)
     sta a:ES_OAM_SHADOW + 0, x
     stz a:ES_OAM_SHADOW + 2, x
     rts
 
 ; --- sau_park_range: park Y consecutive slots from X ----------------------
-; In: A16/I16, DB=0. X = the first slot's BYTE offset, Y = how many slots. Out:
-; X advanced past the last one parked, Y = 0. Clobbers A.
+; CONTRACT sau_park_range
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      Y consecutive slots from X parked. X is advanced past the
+;             last one parked and Y comes back 0
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  X and Y name a run this feature owns
+;   tail:     rts
 ;
 ; The card band's tail parks through this: whatever the current card did not
 ; use goes off-screen, so a six-glyph DEFEAT cannot leave the seventh glyph of
@@ -308,6 +361,7 @@ sau_park_slot:
 sau_park_range:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "sau_park_range"
 @park:
     .a16
     .i16

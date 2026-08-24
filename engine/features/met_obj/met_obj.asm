@@ -49,9 +49,19 @@ MET_HI_BYTES = MET_SLOT_END / 4
 ; =============================================================================
 ; ARMING — once, at boot
 ; =============================================================================
+; CONTRACT met_obj_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the sheet, the palette, OBSEL and the park
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI off — init.inc's boot contract
+;             rather than a scene's. Without these uploads the feature
+;             renders COLOUR NOISE rather than nothing: OBJ VRAM and CGRAM
+;             128.. are random at power-on (rule 5), and an entry pointing
+;             at them is a perfectly valid sprite made of garbage
+;   tail:     rts
+;
 ; --- met_obj_arm: the sheet, the palette, OBSEL, the park ------------------
-; In/out: A16/I16, DB=0, forced blank + NMI off (init.inc's boot contract).
-; Clobbers A, X, Y.
 ;
 ; WITHOUT these uploads this feature renders COLOUR NOISE rather than nothing:
 ; OBJ VRAM and CGRAM 128.. Are random at power-on (rule 5), and an OAM entry
@@ -65,6 +75,7 @@ MET_HI_BYTES = MET_SLOT_END / 4
 met_obj_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "met_obj_arm"
     sep #$20
     .a8
     lda #$80

@@ -30,11 +30,23 @@ JR_OBJ_TILE = 1
 JR_OBJ_ATTR = 48
 
 ; --- jr_obj_arm: CHR + palette + OBSEL + tile/attr (scene enter) ------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
-; Clobbers A, X.
+; CONTRACT jr_obj_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the OBJ page, the palette and OBSEL
+;   clobbers: A, X, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract, which is also what keeps a CPU-side palette loop
+;             from being preempted by an NMI that is not armed yet.
+;             Without these uploads the feature renders COLOUR NOISE
+;             rather than nothing: OBJ VRAM and CGRAM 128.. are random at
+;             power-on (rule 5), and an entry pointing at them is a
+;             perfectly valid sprite made of garbage
+;   tail:     rts
 jr_obj_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "jr_obj_arm"
     sep #$20
     .a8
     lda #$80
@@ -90,7 +102,24 @@ jr_obj_arm:
     rts
 
 ; --- jr_obj_draw: stage the player into the OAM shadow ----------------------
-; In/out: A16/I16, DB=0. Called from the scene's tick, EVERY frame. Clobbers A.
+; CONTRACT jr_obj_draw
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the hero's entry from US_PX and US_PYI. OAM Y is the world Y
+;             directly: the OBJ +1 display rule and the BG's VOFS -1 land
+;             both surfaces on the same world row, so the box the physics
+;             collides is the box the screen shows. The hi byte is rebuilt
+;             from scratch, never patched: an OAM x is nine bits and the
+;             ninth lives in the hi table, so X9 is DERIVED from bit 8 of
+;             the x every frame. A shortcut that assumed it clear passes
+;             every test until a coordinate grows, and then ships a sprite
+;             256 px away
+;   clobbers: A, N, Z
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one
+;   tail:     rts
 ;
 ; Position from the scene's own state: US_PX (pixels) and US_PYI (the physics'
 ; pixel mirror). OAM Y = world Y directly — the OBJ +1 display rule and the
@@ -103,6 +132,7 @@ jr_obj_arm:
 jr_obj_draw:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "jr_obj_draw"
     lda z:US_PX
     sep #$20
     .a8

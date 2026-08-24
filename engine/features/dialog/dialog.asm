@@ -327,6 +327,7 @@ dialog_advance:
 ; user-visible invariant this exists for is "the scene behind the box comes
 ; back", and it is the whole span rather than the panel rectangle because the
 ; span is what open wrote (feature.toml states the consequence: a scene must
+; not put static text in the panel's rows).
 dialog_close:
     .a16
     .i16

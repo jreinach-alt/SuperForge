@@ -39,11 +39,23 @@ ST_OBJ_ATTR_PLAYR = 48                  ; %00110000: priority 3, OBJ palette 0
 ST_OBJ_ATTR_ENEMY = 50                  ; %00110010: priority 3, OBJ palette 1
 
 ; --- st_obj_arm: CHR + palettes + OBSEL + static tile/attr (scene enter) ----
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
-; Clobbers A, X.
+; CONTRACT st_obj_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      CHR, palettes, OBSEL and the static tile/attr bytes
+;   clobbers: A, X, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract, which is also what keeps a CPU-side palette loop
+;             from being preempted by an NMI that is not armed yet.
+;             Without these uploads the feature renders COLOUR NOISE
+;             rather than nothing: OBJ VRAM and CGRAM 128.. are random at
+;             power-on (rule 5), and an entry pointing at them is a
+;             perfectly valid sprite made of garbage
+;   tail:     rts
 st_obj_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "st_obj_arm"
     sep #$20
     .a8
     lda #$80

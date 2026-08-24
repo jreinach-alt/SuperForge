@@ -42,10 +42,23 @@ OBJ_ATTR_DOT    = 50
 OBJ_PARK_Y      = 240            ; Y = $F0 — off the bottom of the screen
 
 ; --- sprg_obj_arm: CHR + palettes + OBSEL + the resting entries (scene enter)
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
+; CONTRACT sprg_obj_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      CHR, palettes, OBSEL and the resting entries
+;   clobbers: A, X, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract, which is also what keeps a CPU-side palette loop
+;             from being preempted by an NMI that is not armed yet.
+;             Without these uploads the feature renders COLOUR NOISE
+;             rather than nothing: OBJ VRAM and CGRAM 128.. are random at
+;             power-on (rule 5), and an entry pointing at them is a
+;             perfectly valid sprite made of garbage
+;   tail:     rts
 sprg_obj_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "sprg_obj_arm"
     sep #$20
     .a8
     lda #$80
@@ -112,7 +125,16 @@ sprg_obj_arm:
     rts
 
 ; --- sprg_obj_place: px/py + dot_x/dot_y -> the OAM shadow ------------------
-; In/out: A16/I16, DB=0. Called from the scene's tick, every frame. Clobbers A.
+; CONTRACT sprg_obj_place
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      px/py and dot_x/dot_y written into the OAM shadow
+;   clobbers: A, N, Z, C
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one
+;   tail:     rts
 ;
 ; THE HI BYTE IS REBUILT FROM SCRATCH, NOT PATCHED — and here that is a LIVE
 ; requirement, not defence: this rail has NO clamp, so the player genuinely
@@ -124,6 +146,7 @@ sprg_obj_arm:
 sprg_obj_place:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "sprg_obj_place"
     lda z:US_PX
     sep #$20
     .a8
@@ -170,13 +193,22 @@ sprg_obj_place:
     rts
 
 ; --- sprg_obj_park: hide all four (scene exit) ------------------------------
-; In/out: A16/I16, DB=0. The scene that armed a slot re-parks it, so the next
+; CONTRACT sprg_obj_park
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      all four slots hidden
+;   clobbers: A, N, Z
+;   assumes:  the scene that armed a slot re-parks it, so the next scene
+;             inherits the boot contract rather than this scene's sprites
+;   tail:     rts
+;
 ; scene inherits the boot contract rather than this scene's sprites. This rail
 ; has one scene and never transitions, so nothing calls it today — it exists
 ; because the claim's contract is symmetric and a second scene would need it.
 sprg_obj_park:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "sprg_obj_park"
     sep #$20
     .a8
     lda #OBJ_PARK_Y

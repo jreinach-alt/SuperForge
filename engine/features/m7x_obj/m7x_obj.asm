@@ -102,8 +102,21 @@ MXO_HI_BYTE = MXO_HI_BASE + (ES_O_AVATAR / 4)
 ; =============================================================================
 ; ARMING — once, at scene enter
 ; =============================================================================
+; CONTRACT m7x_obj::obj_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the sheet, the palette and OBSEL
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract, which is also what keeps a CPU-side palette loop
+;             from being preempted by an NMI that is not armed yet.
+;             Without these uploads the feature renders COLOUR NOISE
+;             rather than nothing: OBJ VRAM and CGRAM 128.. are random at
+;             power-on (rule 5), and an entry pointing at them is a
+;             perfectly valid sprite made of garbage
+;   tail:     rts
+;
 ; --- obj_arm: the sheet, the palette, OBSEL --------------------------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (the scene_mgr enter
 ; contract — which is also why nothing here masks $4200 itself: the long
 ; CPU-side palette writes cannot be preempted by an NMI that is not armed yet).
 ; Clobbers A, X, Y.
@@ -119,6 +132,7 @@ MXO_HI_BYTE = MXO_HI_BASE + (ES_O_AVATAR / 4)
 obj_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_arm"
     sep #$20
     .a8
     lda #$80
@@ -179,7 +193,15 @@ obj_arm:
     rts
 
 ; --- obj_park: every slot this feature owns, off the bottom of the screen ---
-; In/out: A16/I16, DB=0. Clobbers A, X. Called at enter (so the scene starts
+; CONTRACT m7x_obj::obj_park
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      every slot this feature owns parked off the bottom of the
+;             screen
+;   clobbers: A, X, N, Z, C
+;   assumes:  at enter, so the scene starts with nothing stale on screen
+;   tail:     rts
+;
 ; with nothing stale on screen) and at exit (so a successor scene, which may
 ; draw no sprites at all, cannot show this one's avatar). The three pad slots
 ; are parked here and never touched again — they exist so the hi-table byte has
@@ -187,6 +209,7 @@ obj_arm:
 obj_park:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_park"
     ldx #(ES_O_AVATAR * 4)
 @loop:
     .a16
@@ -210,8 +233,19 @@ obj_park:
 ; =============================================================================
 ; DRAWING — one entry, every frame
 ; =============================================================================
+; CONTRACT mxo_draw
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the avatar staged at the pin, facing where she was last
+;             pushed
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one
+;   tail:     rts
+;
 ; --- mxo_draw: the avatar at the pin, facing where she was last pushed ------
-; In/out: A16/I16, DB=0. Clobbers A, X, Y.
 ;
 ; THE WALK BOB. While a slide is in flight she hops one pixel on a two-frame
 ; cadence, so she reads as stepping rather than gliding; at rest she sits flat
@@ -226,6 +260,7 @@ obj_park:
 mxo_draw:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "mxo_draw"
     ; ---- the screen y: flat, or hopped one pixel -------------------------
     ldy #MXO_Y
     lda z:MXO_WALK

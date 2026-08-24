@@ -84,11 +84,23 @@ obj_pal_up:
     rts
 
 ; --- obj_arm: the OBJ page, both palettes, OBSEL (scene enter) --------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
-; Clobbers A, X, Y.
+; CONTRACT platformer_obj::obj_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the OBJ page, both palettes and OBSEL
+;   clobbers: A, X, Y, N, Z
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract, which is also what keeps a CPU-side palette loop
+;             from being preempted by an NMI that is not armed yet.
+;             Without these uploads the feature renders COLOUR NOISE
+;             rather than nothing: OBJ VRAM and CGRAM 128.. are random at
+;             power-on (rule 5), and an entry pointing at them is a
+;             perfectly valid sprite made of garbage
+;   tail:     rts
 obj_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_arm"
     sep #$20
     .a8
     lda #$80
@@ -138,12 +150,21 @@ obj_arm:
     rts
 
 ; --- obj_park: every slot this feature owns, off the bottom of the screen ---
-; In/out: A16/I16, DB=0. Clobbers A, X. Called at enter (so a round starts with
+; CONTRACT platformer_obj::obj_park
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      every slot this feature owns parked off the bottom of the
+;             screen
+;   clobbers: A, X, N, Z, C
+;   assumes:  at enter, so a round starts with nothing stale on screen
+;   tail:     rts
+;
 ; nothing stale on screen) and at exit (so a menu, which draws no sprites at
 ; all, cannot show the last round's cast).
 obj_park:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_park"
     ldx #(ES_O_HERO * 4)
 :   .a16
     .i16
@@ -247,7 +268,16 @@ plf_ghost_feet:
     .word PLF_GHOST_LIFT_F2, PLF_GHOST_LIFT_F3
 
 ; --- obj_hero: the hero's entry, from the round's state ---------------------
-; In/out: A16/I16, DB=0. Clobbers A, X, Y.
+; CONTRACT obj_hero
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the hero's entry staged from the round's state
+;   clobbers: A, X, Y, N, Z, C, V
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one
+;   tail:     rts
 ;
 ; The 16x16 sprite is drawn over the 8x8 physics box: centred on it in x (box.x
 ; - 4) and FEET-ALIGNED in y from the frame's own lift, so the picture's soles
@@ -260,6 +290,7 @@ plf_ghost_feet:
 obj_hero:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_hero"
     lda z:US_HURT
     beq @draw
     and #PLF_BLINK
@@ -302,6 +333,15 @@ obj_hero:
     rts
 
 ; --- obj_ghost: one ghost's entry ------------------------------------------
+; CONTRACT obj_ghost
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      one ghost's entry staged
+;   clobbers: A, X, Y, N, Z, C, V
+;   assumes:  US_AX = the ghost's world x, US_AY its world y and US_TMP2
+;             the slot number are all set by the caller
+;   tail:     rts
+;
 ; In: A16/I16, DB=0. US_AX = the ghost's WORLD x, US_AY = its world y,
 ;  US_TMP2 = the slot number. Clobbers A, X, Y.
 ; The caller has already decided the ghost is alive; a dead one keeps the
@@ -309,6 +349,7 @@ obj_hero:
 obj_ghost:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_ghost"
     lda z:US_AX
     sec
     sbc z:ES_PLF_CAM

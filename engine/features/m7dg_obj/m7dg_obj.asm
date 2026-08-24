@@ -182,7 +182,20 @@ mdo_loop:
 .endmacro
 
 ; --- obj_arm: the three sheets, the three palettes, OBSEL ------------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (the scene_mgr enter
+; CONTRACT m7dg_obj::obj_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the three sheets, the three palettes and OBSEL
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract, which is also what keeps a CPU-side palette loop
+;             from being preempted by an NMI that is not armed yet.
+;             Without these uploads the feature renders COLOUR NOISE
+;             rather than nothing: OBJ VRAM and CGRAM 128.. are random at
+;             power-on (rule 5), and an entry pointing at them is a
+;             perfectly valid sprite made of garbage
+;   tail:     rts
+;
 ; contract — which is also why nothing here masks $4200 itself: the long
 ; CPU-side palette writes cannot be preempted by an NMI that is not armed yet).
 ; Clobbers A, X, Y.
@@ -193,6 +206,7 @@ mdo_loop:
 obj_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_arm"
     sep #$20
     .a8
     lda #$80
@@ -221,12 +235,22 @@ obj_arm:
     rts
 
 ; --- obj_park: every slot this feature owns, off the bottom of the screen ---
-; In/out: A16/I16, DB=0. Clobbers A, X. Called at enter (so the scene starts
+; CONTRACT m7dg_obj::obj_park
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      every slot this feature owns parked off the bottom of the
+;             screen
+;   clobbers: A, X, N, Z, C
+;   assumes:  at enter, so the scene starts with nothing stale on screen;
+;             the per-frame draw re-parks dead slots after that
+;   tail:     rts
+;
 ; with nothing stale on screen) and at exit (so a successor scene, which draws
 ; no sprites at all, cannot show this cast).
 obj_park:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_park"
     ldx #(ES_O_HERO * 4)
 @loop:
     .a16
@@ -251,12 +275,19 @@ obj_park:
 ; =============================================================================
 ; DRAWING — every slot, every frame
 ; =============================================================================
+; CONTRACT mdo_put
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      one OAM entry plus its two hi-table bits. X is PRESERVED
+;   clobbers: A, Y, N, Z, C
+;   assumes:  the per-frame hi clear has already run
+;   tail:     rts
+;
 ; --- mdo_put: one OAM entry, plus its two hi-table bits --------------------
 ; In: A16/I16, DB=0.
 ;  X = the slot's BYTE offset in the shadow (slot * 4)
 ;  A = tile | (attr << 8) — the entry's bytes 2 and 3
 ;  ES_MDO+MDO_X = the OAM x (9 bits; bit 8 becomes X9), +MDO_Y = the OAM y
-; Out: X preserved. Clobbers A, Y.
 ;
 ; THE X9 BIT IS DERIVED EVERY FRAME, NEVER ASSUMED — see the file header.
 ;
@@ -267,6 +298,7 @@ obj_park:
 mdo_put:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "mdo_put"
     sta a:ES_OAM_SHADOW + 2, x      ; bytes 2,3: tile and attr, in one store
     lda z:ES_MDO + MDO_Y
     xba
@@ -319,19 +351,38 @@ mdo_put:
     rts
 
 ; --- mdo_park_slot: one slot, off-screen ------------------------------------
+; CONTRACT mdo_park_slot
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the slot's entry moved off screen; a culled actor keeps its
+;             slot, so slot identity and sprite priority stay stable
+;   clobbers: A, N, Z
+;   assumes:  X names a slot this feature owns
+;   tail:     rts
+;
 ; In: A16/I16, DB=0. X = the slot's byte offset. Out: clobbers A. A culled
 ; actor keeps its slot but leaves the screen, so slot identity — and therefore
 ; sprite priority — is stable frame to frame whatever is visible.
 mdo_park_slot:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "mdo_park_slot"
     lda #(MDO_PARK_Y << 8)
     sta a:ES_OAM_SHADOW + 0, x
     stz a:ES_OAM_SHADOW + 2, x
     rts
 
 ; --- obj_draw: the whole cast, every frame ---------------------------------
-; In/out: A16/I16, DB=0. Clobbers A, X, Y.
+; CONTRACT m7dg_obj::obj_draw
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the whole cast staged into the shadow
+;   clobbers: A, X, Y, N, Z, C, V
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one
+;   tail:     rts
 ;
 ; Called from the scene's tick AFTER m7a_set_heading, so the matrix the sprites
 ; are projected through is the same one the NMI hook is about to commit. Do it
@@ -343,6 +394,7 @@ mdo_park_slot:
 obj_draw:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_draw"
     ; The two hi-table bytes our eight slots occupy, cleared once so mdo_put
     ; can OR into them without inheriting last frame's X9 bits.
     sep #$20

@@ -44,11 +44,23 @@ CF_OBJ_ATTR   = 48
 CF_OBJ_PARK_Y = 240              ; Y = 240 — off the bottom of the screen
 
 ; --- cf_obj_arm: CHR + palette + OBSEL + the resting entries (scene enter) --
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
-; Clobbers A, X.
+; CONTRACT cf_obj_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the OBJ page, the palette and OBSEL
+;   clobbers: A, X, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract, which is also what keeps a CPU-side palette loop
+;             from being preempted by an NMI that is not armed yet.
+;             Without these uploads the feature renders COLOUR NOISE
+;             rather than nothing: OBJ VRAM and CGRAM 128.. are random at
+;             power-on (rule 5), and an entry pointing at them is a
+;             perfectly valid sprite made of garbage
+;   tail:     rts
 cf_obj_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "cf_obj_arm"
     sep #$20
     .a8
     lda #$80
@@ -113,7 +125,18 @@ cf_obj_arm:
     rts
 
 ; --- cf_obj_place: US_SCRX / US_SCRY -> the OAM shadow ----------------------
-; In/out: A16/I16, DB=0. Called from the scene's tick, every frame. Clobbers A.
+; CONTRACT cf_obj_place
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the rider's entry re-staged. Unlike scroller's pinned rider
+;             this position genuinely changes, because the clamp regimes
+;             move it
+;   clobbers: A, N, Z
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one
+;   tail:     rts
 ;
 ; RE-STAGED EVERY FRAME rather than written once — and unlike scroller's
 ; pinned rider, this position genuinely changes (the clamp regimes move it),
@@ -129,6 +152,7 @@ cf_obj_arm:
 cf_obj_place:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "cf_obj_place"
     lda z:US_SCRX
     sep #$20
     .a8

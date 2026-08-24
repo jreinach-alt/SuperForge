@@ -47,11 +47,23 @@ SVD_P1_DX  = 4                  ; P1 sits at seam - 4: astride the seam
 SVD_P2_DX  = 40                 ; P2 sits 40 px into the right half
 
 ; --- svd_obj_arm: CHR + palette + OBSEL + tile/attr (scene enter) -----------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
-; Clobbers A, X.
+; CONTRACT svd_obj_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      CHR, palette, OBSEL and the static tile/attr bytes
+;   clobbers: A, X, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract, which is also what keeps a CPU-side palette loop
+;             from being preempted by an NMI that is not armed yet.
+;             Without these uploads the feature renders COLOUR NOISE
+;             rather than nothing: OBJ VRAM and CGRAM 128.. are random at
+;             power-on (rule 5), and an entry pointing at them is a
+;             perfectly valid sprite made of garbage
+;   tail:     rts
 svd_obj_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "svd_obj_arm"
     sep #$20
     .a8
     lda #$80
@@ -112,7 +124,17 @@ svd_obj_arm:
     rts
 
 ; --- svd_obj_draw: stage both markers into the OAM shadow -------------------
-; In/out: A16/I16, DB=0. Called from the scene's tick, EVERY frame. Clobbers A,
+; CONTRACT svd_obj_draw
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      both markers staged into the OAM shadow
+;   clobbers: A, N, Z, C, V
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one
+;   tail:     rts
+;
 ; X.
 ;
 ; THE HI BYTE IS REBUILT FROM SCRATCH, NOT PATCHED: each marker's X9 is derived
@@ -124,6 +146,7 @@ svd_obj_arm:
 svd_obj_draw:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "svd_obj_draw"
     lda z:ES_SVD_CAM + 4
     sec
     sbc #SVD_P1_DX                  ; P1: astride the seam

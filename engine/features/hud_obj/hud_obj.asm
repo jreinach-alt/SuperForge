@@ -38,10 +38,23 @@ OBJ_ATTR        = 48
 OBJ_PARK_Y      = 240            ; Y = $F0 — off the bottom of the screen
 
 ; --- hud_obj_arm: CHR + palette + OBSEL + the resting entries (scene enter) --
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
+; CONTRACT hud_obj_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the OBJ page, the palette, OBSEL and the resting entries
+;   clobbers: A, X, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract, which is also what keeps a CPU-side palette loop
+;             from being preempted by an NMI that is not armed yet.
+;             Without these uploads the feature renders COLOUR NOISE
+;             rather than nothing: OBJ VRAM and CGRAM 128.. are random at
+;             power-on (rule 5), and an entry pointing at them is a
+;             perfectly valid sprite made of garbage
+;   tail:     rts
 hud_obj_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "hud_obj_arm"
     sep #$20
     .a8
     lda #$80
@@ -106,7 +119,23 @@ hud_obj_arm:
     rts
 
 ; --- hud_obj_place: px / py -> the OAM shadow -------------------------------
-; In/out: A16/I16, DB=0. Called from the scene's tick, every frame. Clobbers A.
+; CONTRACT hud_obj_place
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the player's entry and its X9 bit. The hi byte is rebuilt
+;             from scratch, never patched: an OAM x is nine bits and the
+;             ninth lives in the hi table, so X9 is DERIVED from bit 8 of
+;             the x every frame. A shortcut that assumed it clear passes
+;             every test until a coordinate grows, and then ships a sprite
+;             256 px away. The three pad slots contribute 0 (they are
+;             parked and never move) and the size bits stay 0: the player
+;             is 8x8
+;   clobbers: A, N, Z
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one
+;   tail:     rts
 ;
 ; THE HI BYTE IS REBUILT FROM SCRATCH, NOT PATCHED. An OAM X coordinate is nine
 ; bits; the ninth lives in the hi table. The screen clamp keeps bit 8 clear
@@ -118,6 +147,7 @@ hud_obj_arm:
 hud_obj_place:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "hud_obj_place"
     lda z:US_PX
     sep #$20
     .a8
@@ -141,13 +171,25 @@ hud_obj_place:
     rts
 
 ; --- hud_obj_park: hide all four (scene exit) ------------------------------
-; In/out: A16/I16, DB=0. The scene that armed a slot re-parks it, so the next
+; CONTRACT hud_obj_park
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      every slot this feature owns parked off screen
+;   clobbers: A, N, Z
+;   assumes:  the scene that armed a slot re-parks it, so the next scene
+;             inherits the boot contract rather than this scene's sprites.
+;             This rail has one scene and never transitions, so nothing
+;             calls it today — it exists because the claim's contract is
+;             symmetric and a second scene would need it
+;   tail:     rts
+;
 ; scene inherits the boot contract rather than this scene's sprites. This rail
 ; has one scene and never transitions, so nothing calls it today — it exists
 ; because the claim's contract is symmetric and a second scene would need it.
 hud_obj_park:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "hud_obj_park"
     sep #$20
     .a8
     lda #OBJ_PARK_Y

@@ -85,11 +85,25 @@ M7F_OAM_HI0    = ES_OAM_SHADOW + OAM_LOW_BYTES  ; the byte covering slots 0..3
 M7F_OBJ_REGS = $4300 + ES_D_M7F_OBJ_UP_CH * 16
 
 ; --- obj_arm: the sheet, the two palettes, OBSEL, the parked pad ------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene enter). Clobbers A,
+; CONTRACT m7f_obj::obj_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the sheet, the two palettes, OBSEL and the parked pad
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract, which is also what keeps a CPU-side palette loop
+;             from being preempted by an NMI that is not armed yet.
+;             Without these uploads the feature renders COLOUR NOISE
+;             rather than nothing: OBJ VRAM and CGRAM 128.. are random at
+;             power-on (rule 5), and an entry pointing at them is a
+;             perfectly valid sprite made of garbage
+;   tail:     rts
+;
 ; X, Y.
 obj_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_arm"
     ; ---- the OBJ CHR sheet: one DMA ---------------------------------------
     ; DAS is single-shot, consumed by the transfer, so it is armed HERE for
     ; THIS transfer — one transfer, one arming site.
@@ -242,7 +256,18 @@ m7f_shadow_thr:
     .word 16, 32, 48, 64
 
 ; --- obj_draw: both sprites, from the live altitude and propeller frame -----
-; In/out: A16/I16, DB=0. Clobbers A, X. Called from the scene tick, AFTER the
+; CONTRACT m7f_obj::obj_draw
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      both sprites staged from the live altitude and propeller
+;             frame
+;   clobbers: A, X, N, Z, C, V
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one
+;   tail:     rts
+;
 ; state step, so the shadow reads the altitude this frame settled on.
 ;
 ; THE SHADOW'S FOUR PROPERTIES MOVE TOGETHER, and that is the design rather
@@ -253,6 +278,7 @@ m7f_shadow_thr:
 obj_draw:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_draw"
     ; ---- the airship: fixed position, propeller frame from the clock -------
     lda z:US_PROP_F
     beq :+
@@ -411,26 +437,45 @@ m7f_cloud_tab:
     .byte 78, M7F_CLOUD_TILE_B
 
 ; --- cloud_arm: seed the accumulator and the heading reference --------------
-; In/out: A16/I16, DB=0, forced blank. Clobbers A. Rule 5: both words are
+; CONTRACT cloud_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the drift accumulator and the heading reference seeded —
+;             both words written here because power-on DP is random (rule
+;             5)
+;   clobbers: A, N, Z
+;   assumes:  forced blank, at scene enter
+;   tail:     rts
+;
 ; written before `cloud_draw` reads either, and the heading reference is seeded
 ; from the LIVE heading so the first frame's delta is zero rather than a jump
 ; from whatever power-on left there.
 cloud_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "cloud_arm"
     stz z:M7F_CLOUD_X
     lda z:M7F_HEAD
     sta z:M7F_CLOUD_LASTH
     rts
 
 ; --- obj_region_rates: the cloud drift, in the running console's units ------
-; In/out: A16/I16, DB=0. Clobbers A. Called ONCE, from the scene's `enter`.
+; CONTRACT obj_region_rates
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the cloud drift rate published in the running console's
+;             units
+;   clobbers: A, X, N, Z
+;   assumes:  ONCE, from the scene's `enter`, before the first tick reads
+;             it
+;   tail:     rts
 ;
 ; WIDTH-RISK: A16/I16 in and out; no sep/rep. `@pal` is reached A16 by branch
 ; and the store below A16 from both arms.
 obj_region_rates:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_region_rates"
     lda #M7F_CLOUD_WIND
     ldx z:ES_RGN_PAL
     beq :+
@@ -442,11 +487,22 @@ obj_region_rates:
     rts
 
 ; --- cloud_tick: the two motions, into one accumulator ----------------------
-; In/out: A16/I16, DB=0. Clobbers A. Called from the scene tick AFTER the state
+; CONTRACT cloud_tick
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the two motions folded into one accumulator
+;   clobbers: A, N, Z, C, V
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one, after the state step
+;   tail:     rts
+;
 ; step, so the heading delta is this frame's turn.
 cloud_tick:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "cloud_tick"
     lda z:M7F_HEAD
     sec
     sbc z:M7F_CLOUD_LASTH
@@ -483,7 +539,16 @@ cloud_tick:
     rts
 
 ; --- cloud_draw: four slots, the ground in front of them --------------------
-; In/out: A16/I16, DB=0. Clobbers A, Y.
+; CONTRACT cloud_draw
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      four cloud slots staged, the ground in front of them
+;   clobbers: A, Y, N, Z, C, V
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one
+;   tail:     rts
 ;
 ; WALKED BACKWARDS, from cloud 3 to cloud 0, and that is what lets the hi byte
 ; be built with a shift instead of a per-cloud mask table: each pass shifts the
@@ -496,6 +561,7 @@ cloud_tick:
 cloud_draw:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "cloud_draw"
     stz z:M7F_CLOUD_HI
     ldy #((M7F_CLOUD_N - 1) * 4)
 @one:
@@ -569,7 +635,17 @@ cloud_draw:
     rts
 
 ; --- obj_prop_tick: the two-frame propeller clock ---------------------------
-; In/out: A16/I16, DB=0. Clobbers A.
+; CONTRACT obj_prop_tick
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the two-frame propeller clock stepped
+;   clobbers: A, N, Z, C, V
+;   assumes:  once per frame from the scene's tick, after the state it
+;             reads has been committed. The shadow is rebuilt whole rather
+;             than patched, so a stale byte from last frame cannot survive
+;             into this one
+;   tail:     rts
+;
 ; THE DIVIDER IS UNTOUCHED AND THE CLOCK IS WHAT MOVES. M7F_PROP_RATE is a
 ; small integer with no correct x1.2018 — docs/95 §5.2's class C — so it stays
 ; the eight the sheet was authored against, and the clock counts down by THIS
@@ -583,6 +659,7 @@ cloud_draw:
 obj_prop_tick:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "obj_prop_tick"
     lda z:US_PROP_T
     sec
     sbc z:US_TS_TICK
