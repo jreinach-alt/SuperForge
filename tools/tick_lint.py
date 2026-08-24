@@ -157,6 +157,31 @@ WHAT THIS LINT DOES **NOT** CATCH — read this before trusting it
      the surface that would have to change has grown.
 
 --------------------------------------------------------------------------
+THE BASELINE IS KEYED BY CONTENT, NOT BY LINE
+--------------------------------------------------------------------------
+
+An entry is held by `(file, rule, site, ordinal)` — where `site` is what the
+source CALLS the thing (a `state.toml` key, a routine label, an equate name,
+the substrate token that matched) and `ordinal` is the Nth of that same site
+in that file, in line order. Baseline entries carry NO line number at all.
+
+That is a correction, not a preference. The first shape was `(file, line,
+rule)`, so any edit ABOVE a held finding renumbered it: the gate reported a
+phantom NEW finding for a site nobody had touched, and re-anchoring meant a
+whole-tree `--write-baseline` plus a hand diff to check that nothing real had
+slipped in with the noise. Two efforts paid that tax. Under the content key a
+pure line shift is not a finding at all, while a genuinely new site is a key
+the baseline does not hold — which is the only thing the gate was ever for.
+`ordinal` keeps the second direction honest where one file names the same
+site twice: a module with three of the NTSC master-cycle literal holds
+ordinals 0, 1 and 2, so a fourth is NEW rather than absorbed by the run.
+
+A baseline written in the superseded shape is REFUSED with the regeneration
+command rather than silently matching nothing — a baseline that suppresses
+nothing turns every held site into a new finding, which reads as a broken
+tree instead of a stale file.
+
+--------------------------------------------------------------------------
 USAGE
 --------------------------------------------------------------------------
 
@@ -255,10 +280,60 @@ class Finding:
     rule: str
     message: str
     severity: str = "error"
+    # The SITE this finding is about, named by the source rather than located
+    # by it: a declaration's key, a routine's label, an equate's name, the
+    # substrate token that matched. `ordinal` disambiguates the Nth identical
+    # (file, rule, site) within one file, in line order. Together with file
+    # and rule they are the baseline key — see baseline_key().
+    site: str = ""
+    ordinal: int = 0
 
     def to_dict(self) -> dict:
         return {"file": self.file, "line": self.line, "rule": self.rule,
-                "message": self.message, "severity": self.severity}
+                "message": self.message, "severity": self.severity,
+                "site": self.site, "ordinal": self.ordinal}
+
+    def to_baseline_dict(self) -> dict:
+        """What a baseline entry stores. NO LINE — see baseline_key()."""
+        return {"file": self.file, "rule": self.rule, "site": self.site,
+                "ordinal": self.ordinal, "message": self.message}
+
+
+def baseline_key(entry) -> tuple:
+    """The identity a baseline entry is held by: (file, rule, site, ordinal).
+
+    CONTENT, NOT POSITION, and that is the whole point of the shape. The
+    superseded key was (file, line, rule), so ANY edit above a finding
+    renumbered it into a phantom NEW one and re-anchoring meant a whole-tree
+    `--write-baseline` plus a hand diff to check that nothing real had moved
+    in with the noise. Two efforts paid that tax before this key existed.
+
+    With the site named rather than located, a pure line shift is not a
+    finding at all — the entry matches wherever it moved to — while a
+    genuinely new site is a key the baseline does not hold, which is what the
+    gate is for. `ordinal` keeps the two directions honest where one file
+    carries the same site twice (the NTSC master-cycle literal on three lines
+    of one module): the third one is ordinal 2, so adding a fourth is NEW
+    rather than absorbed.
+
+    Baseline entries deliberately carry NO line number. A line that is not
+    read is a line that rots, and a reader looking for the site has its NAME,
+    which greps.
+    """
+    if isinstance(entry, Finding):
+        return (entry.file, entry.rule, entry.site, entry.ordinal)
+    return (entry["file"], entry["rule"], entry["site"], entry["ordinal"])
+
+
+def number_sites(findings: list[Finding]) -> list[Finding]:
+    """Assign each finding its ordinal within (file, rule, site), in line
+    order. Called once per file, after that file's findings are sorted."""
+    seen: dict[tuple, int] = {}
+    for f in findings:
+        k = (f.file, f.rule, f.site)
+        f.ordinal = seen.get(k, 0)
+        seen[k] = f.ordinal + 1
+    return findings
 
 
 def override_anchor(lines: list[str], lineno: int) -> Optional[int]:
@@ -311,7 +386,8 @@ def detect_bare_overrides(path: str, lines: list[str]) -> list[Finding]:
                 "separator is REQUIRED. Say what makes this site "
                 "region-independent (indexed by something other than time; "
                 "already a rate against a declared tick; a frame word that is "
-                "not a clock) so a reviewer can check it."))
+                "not a clock) so a reviewer can check it.",
+                site="bare-override"))
     return out
 
 
@@ -365,7 +441,8 @@ def check_state(path: str, lines: list[str]) -> list[Finding]:
             f"`{m.group(1)}` is declared in a frame unit ({unit}). One tick "
             f"is one frame here; if that ever stops being true this word "
             f"needs a rounding decision, and docs/95 §5.2 measured that 39 "
-            f"of these have no correct x5/6."))
+            f"of these have no correct x5/6.",
+            site=m.group(1)))
     return out
 
 
@@ -386,7 +463,8 @@ def check_asm(path: str, lines: list[str]) -> list[Finding]:
                 f"`{name}` is a per-frame routine by name. The kit's only "
                 f"clock is the NMI, and main.asm's loop calls one of these "
                 f"once per hardware frame — so its unit of time is the "
-                f"frame, not a declared tick."))
+                f"frame, not a declared tick.",
+                site=name))
         eq = RE_ASM_EQUATE.match(line)
         if eq and not line.lstrip().startswith(";"):
             name, val, cmt = eq.group(1), eq.group(2), eq.group(3) or ""
@@ -400,7 +478,8 @@ def check_asm(path: str, lines: list[str]) -> list[Finding]:
                     f"constant measured in frames is the hardest class to "
                     f"region-scale — docs/95 §5.1 names "
                     f"`MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at "
-                    f"x6/5 it is 1.2 px/frame, which the grid cannot express."))
+                    f"x6/5 it is 1.2 px/frame, which the grid cannot express.",
+                    site=name))
     return out
 
 
@@ -426,7 +505,8 @@ def check_generator(path: str, lines: list[str]) -> list[Finding]:
                 f"these correct (a tick indexes a row); a delta-scale scheme "
                 f"requires every one regenerated at 5/6 length with new "
                 f"steps, and each has a bit-exact Python mirror that must be "
-                f"re-calibrated with it."))
+                f"re-calibrated with it.",
+                site=name))
     return out
 
 
@@ -435,19 +515,22 @@ def check_generator(path: str, lines: list[str]) -> list[Finding]:
 def check_substrate(path: str, lines: list[str]) -> list[Finding]:
     out = []
     for i, line in enumerate(lines):
-        if RE_FRAME_MC.search(line):
+        mc = RE_FRAME_MC.search(line)
+        if mc:
             out.append(Finding(
                 path, i + 1, "tick-substrate",
                 "the NTSC frame's master-cycle count as a literal. A PAL "
                 "frame is 425,568 mc (measured); every percent-of-frame and "
                 "modulo built on this number means 'the NTSC frame' where it "
-                "reads as 'the frame'."))
+                "reads as 'the frame'.",
+                site=mc.group(0)))
         if RE_FRAME_NTSC.search(line):
             out.append(Finding(
                 path, i + 1, "tick-substrate",
                 "the substrate's `frame.ntsc` table read BY NAME. It is the "
                 "only frame table there is; a second region needs a second "
-                "table and a caller that chooses."))
+                "table and a caller that chooses.",
+                site="frame.ntsc"))
     return out
 
 
@@ -457,7 +540,7 @@ def lint_file(path: str) -> list[Finding]:
     try:
         lines = Path(path).read_text(errors="replace").splitlines()
     except OSError as e:
-        return [Finding(path, 1, "io-error", str(e))]
+        return [Finding(path, 1, "io-error", str(e), site="io")]
     ext = Path(path).suffix
     raw: list[Finding] = []
     if ext in TOML_EXT:
@@ -478,7 +561,10 @@ def lint_file(path: str) -> list[Finding]:
             continue
         seen.add(key)
         out.append(f)
-    return out
+    # Ordinals are per FILE and assigned last, over the deduplicated,
+    # line-ordered list — so the Nth match of a given site in a module is
+    # ordinal N-1 however the lines around it move.
+    return number_sites(out)
 
 
 def expand(paths: list[str]) -> list[str]:
@@ -535,14 +621,23 @@ def main(argv: list[str]) -> int:
             print(f"tick_lint: baseline not found: {args.baseline}",
                   file=sys.stderr)
             return 2
-        base_set = {(b["file"], b["line"], b["rule"]) for b in base}
-        findings = [f for f in findings
-                    if (f.file, f.line, f.rule) not in base_set]
+        missing = [b for b in base if "site" not in b or "ordinal" not in b]
+        if missing:
+            print(f"tick_lint: {args.baseline} is in the superseded "
+                  f"(file, line, rule) key shape — {len(missing)} of "
+                  f"{len(base)} entries carry no `site`. It would suppress "
+                  f"NOTHING and every held finding would read as new. "
+                  f"Regenerate it: tools/tick_lint.py <paths> "
+                  f"--write-baseline {args.baseline}", file=sys.stderr)
+            return 2
+        base_set = {baseline_key(b) for b in base}
+        findings = [f for f in findings if baseline_key(f) not in base_set]
 
     if args.write_baseline:
         Path(args.write_baseline).parent.mkdir(parents=True, exist_ok=True)
         Path(args.write_baseline).write_text(
-            json.dumps([f.to_dict() for f in findings], indent=2) + "\n")
+            json.dumps([f.to_baseline_dict() for f in findings], indent=2)
+            + "\n")
         if not args.quiet:
             print(f"tick_lint: wrote baseline ({len(findings)} entries) to "
                   f"{args.write_baseline}")

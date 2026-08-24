@@ -173,19 +173,130 @@ def test_make_tick_check_is_clean():
     assert "0 NEW finding(s)" in r.stdout
 
 
-def test_baseline_matches_the_tree_exactly():
-    """The baseline must be neither stale nor padded: every entry in it must
-    still be a live finding. A baseline with dead entries is how a gate's
-    population quietly stops meaning anything."""
+def _live_findings():
     r = subprocess.run(
         [sys.executable, str(SUPERFORGE / "tools" / "tick_lint.py"),
          "engine", "game", "tools", "allocator", "tests", "--json"],
         cwd=SUPERFORGE, capture_output=True, text=True)
-    live = {(f["file"], f["line"], f["rule"]) for f in json.loads(r.stdout)}
-    base = json.loads(
+    return json.loads(r.stdout)
+
+
+def _baseline():
+    return json.loads(
         (SUPERFORGE / "reports" / "tick_lint_baseline.json").read_text())
-    stale = {(b["file"], b["line"], b["rule"]) for b in base} - live
+
+
+def test_baseline_matches_the_tree_exactly():
+    """The baseline must be neither stale nor padded: every entry in it must
+    still be a live finding. A baseline with dead entries is how a gate's
+    population quietly stops meaning anything.
+
+    Compared on the CONTENT key, which is what the baseline is held by."""
+    live = {TL.baseline_key(f) for f in _live_findings()}
+    stale = {TL.baseline_key(b) for b in _baseline()} - live
     assert not stale, f"baseline entries that are no longer findings: {stale}"
+
+
+# --- the baseline is keyed by content, not by line --------------------------
+
+def test_a_baseline_entry_carries_no_line_number():
+    """A line a reader never checks is a line that rots. The entry names its
+    SITE instead, which greps — and cannot go stale when the file moves."""
+    for b in _baseline():
+        assert "line" not in b, b
+        assert b.get("site"), f"entry with no site: {b}"
+        assert isinstance(b.get("ordinal"), int), b
+
+
+def test_every_finding_names_a_site():
+    """A finding with no site would key as (file, rule, '', 0) and collapse
+    with every other siteless finding of its rule in that file — a silent
+    suppression. Every check must name what it found."""
+    for f in _live_findings():
+        assert f["site"], f
+
+
+def test_the_baseline_key_is_unique_per_entry():
+    """`ordinal` exists so a file naming the same site twice keeps two
+    entries. If two live findings ever shared a key, the baseline would hold
+    one and silence both."""
+    live = _live_findings()
+    keys = [TL.baseline_key(f) for f in live]
+    assert len(set(keys)) == len(keys), "colliding baseline keys"
+
+
+def test_a_pure_line_shift_is_not_a_finding(tmp_path):
+    """The property the re-key exists for, stated directly.
+
+    Insert a comment line ABOVE a finding and its line number moves. Under
+    the superseded (file, line, rule) key that produced a phantom NEW finding
+    for a site nobody touched; under the content key the entry matches where
+    it moved to, and only a genuinely NEW site is new."""
+    src = FIX / "frame_engine.asm"
+    body = src.read_text().splitlines()
+    before = TL.number_sites(TL.lint_file(str(src)))
+    keys_before = {TL.baseline_key(f) for f in before}
+    lines_before = {(f.rule, f.line) for f in before}
+
+    shifted = tmp_path / "frame_engine.asm"
+    shifted.write_text("\n".join(["; a new header line", ""] + body) + "\n")
+    after = TL.number_sites(TL.lint_file(str(shifted)))
+    # Same sites, all of them moved down two lines.
+    assert {(f.rule, f.line) for f in after} == {
+        (r, ln + 2) for (r, ln) in lines_before}
+    # ...and the same content keys, once the path is normalised away.
+    keys_after = {(src.name, r, s, o) for (_f, r, s, o) in
+                  (TL.baseline_key(f) for f in after)}
+    assert keys_after == {(src.name, r, s, o) for (_f, r, s, o) in keys_before}
+
+
+def test_a_genuinely_new_site_still_is_new(tmp_path):
+    """The other direction: the key must not be so loose that a new site
+    lands on an existing entry. A second equate with the same shape but a
+    different name is a key the baseline does not hold."""
+    src = FIX / "frame_engine.asm"
+    before = {TL.baseline_key(f) for f in TL.lint_file(str(src))}
+    grown = tmp_path / "frame_engine.asm"
+    grown.write_text(src.read_text() + "NEW_DELAY_FRAMES = 9\n")
+    after = {TL.baseline_key(f) for f in TL.lint_file(str(grown))}
+    new = {(r, s, o) for (_f, r, s, o) in after} - {
+        (r, s, o) for (_f, r, s, o) in before}
+    assert new == {("tick-constant", "NEW_DELAY_FRAMES", 0)}
+
+
+def test_a_repeat_of_the_same_site_is_new_by_ordinal(tmp_path):
+    """`ordinal` is what stops a run of identical sites absorbing an addition.
+    A file already holding N of one site holds ordinals 0..N-1; the N+1th is
+    a key nobody held."""
+    src = FIX / "frame_substrate.py"
+    before = {TL.baseline_key(f) for f in TL.lint_file(str(src))}
+    grown = tmp_path / "frame_substrate.py"
+    extra = "EXTRA = 357368\n"  # TICK: ok — this literal is the lint's own test INPUT, written into a tmp file so there is a repeat of an existing site to find; nothing here is clocked by it
+    grown.write_text(src.read_text() + extra)
+    after = {TL.baseline_key(f) for f in TL.lint_file(str(grown))}
+    new = {(r, s, o) for (_f, r, s, o) in after} - {
+        (r, s, o) for (_f, r, s, o) in before}
+    assert len(new) == 1
+    (rule, site, ordinal), = new
+    assert rule == "tick-substrate" and ordinal == max(
+        o for (_f, r, s, o) in before if r == "tick-substrate"
+        and s == site) + 1
+
+
+def test_a_superseded_baseline_is_refused_not_silently_ignored(tmp_path):
+    """A baseline in the old (file, line, rule) shape suppresses NOTHING, so
+    every held site reads as new and the tree looks broken. It must be
+    refused by name, with the regeneration command."""
+    stale = tmp_path / "old_shape.json"
+    stale.write_text(json.dumps(
+        [{"file": "engine/x.asm", "line": 3, "rule": "tick-routine",
+          "message": "m", "severity": "error"}]))
+    r = subprocess.run(
+        [sys.executable, str(SUPERFORGE / "tools" / "tick_lint.py"),
+         "engine", "--baseline", str(stale)],
+        cwd=SUPERFORGE, capture_output=True, text=True)
+    assert r.returncode == 2, r.stdout + r.stderr
+    assert "superseded" in r.stderr and "--write-baseline" in r.stderr
 
 
 def test_state_check_reproduces_docs95_135_across_27_rails():
