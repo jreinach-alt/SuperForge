@@ -148,7 +148,7 @@ SHM_ZOOM_STEP = 4
 ; ZERO THE WHOLE CLAIM FIRST. The bytes past each table's terminator are never
 ; stamped, but the DMA controller's terminator processing still fetches the
 ; bytes after the $00 — real hardware reads them, so they must not be power-on
-; garbage (the uninit-read contract; sh2_cam's cam_arm and mode7_persp's
+; garbage (the uninit-read contract; sh2_cam's sh2_arm and mode7_persp's
 ; persp_arm open the same way for the same reason). The loop follows the
 ; claim's own emitted size rather than a copied constant.
 shm_zero:

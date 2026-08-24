@@ -53,7 +53,7 @@ depends = ["sh2_cam", "m7_persp_project", "sh2_sprite_rom", "sh2_rom",
 #
 # THE TURNING ARM LOST ONE ENTITY TO THE REGION PAIR (was N=30, re-measured
 # 2026-08-24 and stable across two runs). What the conversion added to the
-# per-frame path is one TS_STEP in cam_advance and one dp `ora` at each of the
+# per-frame path is one TS_STEP in sh2_advance and one dp `ora` at each of the
 # four move-LUT index sites — two of them inside this loop, so the cost is
 # O(N) on the arm that draws most. The shipping margin is unchanged because
 # the PARKED arm is the binding one and it did not move; the number is

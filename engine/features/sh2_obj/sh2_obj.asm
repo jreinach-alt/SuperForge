@@ -30,7 +30,7 @@
 ; (tools/gen_split_h_2p_assets.py, swarm_world).
 ;
 ; WHERE THE WORK RUNS: the scene TICK, during active display, LAST — after
-; cam_advance has stepped the cameras and after sh2_swarm has moved the
+; sh2_advance has stepped the cameras and after sh2_swarm has moved the
 ; entities, so the projection reads the state the NEXT VBlank will stamp into
 ; the pose pointers and the origin tables. One consistent snapshot per frame,
 ; with the sprites and the floor always the same frame's.
@@ -205,7 +205,7 @@ obj_arm:
 ; =============================================================================
 ; In/out: A16/I16, DB=0. Clobbers A, X, Y and both scratch blocks.
 ;
-; Called LAST in the scene tick, after cam_advance and the swarm, so the cast
+; Called LAST in the scene tick, after sh2_advance and the swarm, so the cast
 ; is projected from exactly the state the next VBlank will stamp into the HDMA
 ; tables. Any other order shows one frame's cast against another frame's floor.
 obj_project:

@@ -54,7 +54,7 @@
 name = "sh2_cam"
 role = "feature"
 # The four INDIRECT matrix channels fetch sh2_rom's pose slices and the drive
-# step reads its move LUT; cam_arm and cam_tick name their emitted ADDR/BANK
+# step reads its move LUT; sh2_arm and sh2_tick name their emitted ADDR/BANK
 # symbols to point the index tables and the DASB bytes at them, and the
 # per-slice bank arithmetic is .asserted against those symbols. The world's
 # 1024-px wrap is asserted against the map claim's own size. All of it is reads

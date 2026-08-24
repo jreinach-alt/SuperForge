@@ -64,7 +64,7 @@ NMI:
 .include "input2.asm"
 .include "oam_sprites.asm"
 .include "region.asm"               ; $213F bit 4 -> ES_RGN_PAL, once at boot
-.include "tick_scale.asm"           ; TS_STEP: the macro sh2_cam's cam_advance
+.include "tick_scale.asm"           ; TS_STEP: the macro sh2_cam's sh2_advance
                                     ;   expands for the heading rate. INCLUDED
                                     ;   BEFORE THE FEATURE THAT EXPANDS IT — a
                                     ;   ca65 macro must be defined before the
@@ -237,7 +237,7 @@ sh2_pose256_cd_s3_bin:
 ;   oam_nmi_dma  commits the OAM shadow the scene's tick built during the last
 ;                frame's ACTIVE DISPLAY. First, so the one DMA that must land
 ;                inside VBlank lands at its start.
-;   cam_tick     stamps the two origin tables and the four pose pointers/banks
+;   sh2_tick     stamps the two origin tables and the four pose pointers/banks
 ;                from the CURRENT state — the same state that shadow was
 ;                projected against — and only then advances. It runs here
 ;                because the HDMA init fetch for the next frame reads those
@@ -251,7 +251,7 @@ sh2_pose256_cd_s3_bin:
 ; mid-frame — the floor speckles from that row down, with VRAM, the index
 ; tables and the shadow all reading back correct. Only four of the 24 markers
 ; fitted. The projection therefore runs in the scene TICK (scenes/split.asm),
-; which is what cam_tick's stamp-then-advance order exists to make consistent:
+; which is what sh2_tick's stamp-then-advance order exists to make consistent:
 ; the tick projects the state the NEXT commit will stamp, so the sprites and
 ; the floor are always the same frame's.
 ;
@@ -280,7 +280,7 @@ sm_nmi_hook:
     .a8
     .i16
     jsr oam_nmi_dma             ; A8/I16, oam_sprites' contract
-    jsr cam_tick                ; A8 in, A8 out — its own width contract
+    jsr sh2_tick                ; A8 in, A8 out — its own width contract
     rts
 
 ; --- scene dispatch tables (manifest order: split=0) -----------------------
@@ -329,7 +329,7 @@ MAIN:
     .i16
     ; The pads are latched FIRST, immediately after sm_frame_sync returned from
     ; the VBlank the auto-read ran in — one wait on $4212 for both, and the
-    ; scene tick's cam_advance is the only reader.
+    ; scene tick's sh2_advance is the only reader.
     jsr input_read
     jsr input2_read
     jsr sm_tick

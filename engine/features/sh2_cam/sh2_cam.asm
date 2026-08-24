@@ -47,7 +47,7 @@
 ; encoding is derived from the declaration in feature.toml and appears nowhere
 ; else.
 ;
-; THE PER-FRAME WORK, all of it in the VBlank window (cam_tick):
+; THE PER-FRAME WORK, all of it in the VBlank window (sh2_tick):
 ;  rotate two increments and two masks (headings step +1 / -1)
 ;  drive four 8.8 fractional-accumulator steps off the move LUT
 ;  ptrs two pose-pointer multiplies -> four table slots
@@ -133,7 +133,7 @@ SH2_MOVE_LONG    = (ES_R_SH2_MOVE256_BANK << 16) | ES_R_SH2_MOVE256_ADDR
 ; --- the HDMA tables, inside the one 96-byte wram claim ---------------------
 ; 16 B apart so the offsets read as a table rather than as arithmetic. Band 1's
 ; index tables are 4 B, band 2's 7 B (the skip prefix), the origin tables 11 B;
-; the slack is what the power-on zero in cam_arm covers.
+; the slack is what the power-on zero in sh2_arm covers.
 SH2_IDX_AB1      = ES_SH2_TBL + 0
 SH2_IDX_CD1      = ES_SH2_TBL + 16
 SH2_IDX_AB2      = ES_SH2_TBL + 32
@@ -181,7 +181,7 @@ SH2_CH_CD2 = ES_H_SH2CD1_CH
 
 ; The DASB byte ($43x7) of each matrix channel, in the scene_mgr shadow the NMI
 ; MVNs to $4300 — written there rather than to the register file directly, so
-; the per-frame stamp rides the same commit path cam_arm's staging does.
+; the per-frame stamp rides the same commit path sh2_arm's staging does.
 SH2_SHDW_CH_SIZE = ES_SM_HDMA_SIZE / 8    ; 16 B of register file per channel
 SH2_DASB_AB1     = ES_SM_HDMA_LONG + SH2_CH_AB1 * SH2_SHDW_CH_SIZE + 7
 SH2_DASB_CD1     = ES_SM_HDMA_LONG + SH2_CH_CD1 * SH2_SHDW_CH_SIZE + 7
@@ -221,7 +221,7 @@ SH2_H2_0 = SH2_POSES / 2
 ; So it goes through tick_scale, which is what that feature is for: TS_STEP
 ; publishes 1 on NTSC (today's constant, exactly, with the fraction stuck at 0)
 ; and 1 or 2 on PAL in the pattern averaging 1.2018. ONE expansion per frame in
-; cam_advance, read by both cameras and by every follower — all three are the
+; sh2_advance, read by both cameras and by every follower — all three are the
 ; same base rate, which is the condition the doctrine puts on sharing a pair.
 ;
 ; TICK: ok — this block is the region compensator's derivation for this rail,
@@ -269,12 +269,12 @@ SH2_HEAD_BASE = TS_ONE                    ; one pose per NTSC frame held
     sta z:frac
 .endmacro
 
-; --- cam_arm: build all six tables + the channel shadow (scene enter) -------
-; CONTRACT cam_arm
+; --- sh2_arm: build all six tables + the channel shadow (scene enter) -------
+; CONTRACT sh2_arm
 ;   entry:    A16 I16 DB=0
 ;   exit:     A16 I16
 ;   in:       ES_SH2_POS and ES_SH2_ROT — the caller seeds both before
-;             calling, and cam_arm stamps from both
+;             calling, and sh2_arm stamps from both
 ;   out:      all six HDMA tables built over a zeroed claim, the positions
 ;             seeded, all six channel shadows staged
 ;   clobbers: A, X, Y, N, Z, C
@@ -283,10 +283,10 @@ SH2_HEAD_BASE = TS_ONE                    ; one pose per NTSC frame held
 ;             mid-write. The caller ORs the six enable bits into the
 ;             scene_mgr HDMAEN shadow AFTERWARDS; this routine does not
 ;   tail:     rts
-cam_arm:
+sh2_arm:
     .a16
     .i16
-    SF_ASSERT_WIDTH 16, 16, "cam_arm"
+    SF_ASSERT_WIDTH 16, 16, "sh2_arm"
     ; ---- the declared init contract: zero the WHOLE claim first ------------
     ; The bytes past each table's terminator are never stamped, but the DMA
     ; controller's terminator processing still fetches indirect-address bytes
@@ -721,7 +721,7 @@ cam_input:
 ; would stay in lockstep forever and "they rotate separately" would be vacuous.
 ;
 ; ONE POSE PER FRAME IS THE NTSC ANSWER, and US_TSH is that answer for whichever
-; console this is: cam_advance publishes it once per frame through TS_STEP, so
+; console this is: sh2_advance publishes it once per frame through TS_STEP, so
 ; the step is 1 on NTSC (bit-identically to the `inc a` this used to be) and 1
 ; or 2 on PAL. The two cameras stay equal and opposite because they add and
 ; subtract the SAME published word.
@@ -778,7 +778,7 @@ cam_drive:
     SH2_DRIVE_AXIS 2, SH2_F2Y, SH2_POS2Y
     rts
 
-; --- cam_tick: rotate, drive and re-stamp, once per VBlank ------------------
+; --- sh2_tick: rotate, drive and re-stamp, once per VBlank ------------------
 ; In/out: A8/I16, DB=0 — the sm_nmi_hook contract. Clobbers A, X.
 ;
 ; WIDTH-RISK: this is a CROSS-FILE contract. It is entered A8 (the NMI hook's
@@ -822,7 +822,7 @@ cam_drive:
 ; the pixels), but a test that reads the DP state directly must step it back
 ; once to get the state the parked frame is showing — see _state in
 ; tests/test_split_h_2p_demo.py.
-; CONTRACT cam_tick
+; CONTRACT sh2_tick
 ;   entry:    A8 I16 DB=0
 ;   exit:     A8 I16
 ;   in:       SH2_H1/SH2_H2 and the four position words — the state THIS
@@ -832,16 +832,16 @@ cam_drive:
 ;   clobbers: A, N, Z, C. The index registers are untouched, and are never
 ;             narrowed — the A8 window this runs inside is A-only
 ;   assumes:  VBlank (the sm_nmi_hook contract). It stamps only; the state
-;             step is cam_advance's, a few hundred cycles later in the tick
+;             step is sh2_advance's, a few hundred cycles later in the tick
 ;   tail:     rts
 ;
 ; THE A8 ENTRY IS THE HOOK'S, NOT A PREFERENCE: sm_nmi_hook runs in A8/I16 and
 ; this routine widens to A16 for its own work and narrows back before
 ; returning, so the hook's contract is what the caller sees on both sides.
-cam_tick:
+sh2_tick:
     .a8
     .i16
-    SF_ASSERT_WIDTH 8, 16, "cam_tick"
+    SF_ASSERT_WIDTH 8, 16, "sh2_tick"
     rep #$20
     .a16
     jsr cam_ptrs
@@ -851,8 +851,8 @@ cam_tick:
     .a8
     rts
 
-; --- cam_advance: the frame's state step, in the scene TICK -----------------
-; CONTRACT cam_advance
+; --- sh2_advance: the frame's state step, in the scene TICK -----------------
+; CONTRACT sh2_advance
 ;   entry:    A16 I16 DB=0
 ;   exit:     A16 I16
 ;   in:       US_TSH_ACC (the carried rotation fraction) and, on the input
@@ -867,7 +867,7 @@ cam_tick:
 ;   tail:     rts
 ;
 ; THE STATE STEP IS OUT OF THE VBLANK HOOK, and the phase is unchanged by that.
-; Stamping and then advancing inside one VBlank works too; here cam_tick stamps
+; Stamping and then advancing inside one VBlank works too; here sh2_tick stamps
 ; only, and the tick advances a few hundred cycles later — still before
 ; the next VBlank, so the state each frame is stamped from is exactly the state
 ; the same frame's OAM shadow was projected against. What changes is only that
@@ -891,10 +891,10 @@ cam_tick:
 ; the same word. That is the whole per-frame cost of this rail's rotation
 ; compensation, and the translation's is a dp OR inside an index it already
 ; computes.
-cam_advance:
+sh2_advance:
     .a16
     .i16
-    SF_ASSERT_WIDTH 16, 16, "cam_advance"
+    SF_ASSERT_WIDTH 16, 16, "sh2_advance"
     TS_STEP z:US_TSH_ACC, SH2_HEAD_BASE
     sta z:US_TSH
 .ifndef SH2_FREEZE
@@ -907,8 +907,8 @@ cam_advance:
 .endif
     rts
 
-; --- cam_region: pick this console's move arm (scene enter) -----------------
-; CONTRACT cam_region
+; --- sh2_region: pick this console's move arm (scene enter) -----------------
+; CONTRACT sh2_region
 ;   entry:    A16 I16 DB=0
 ;   exit:     A16 I16
 ;   in:       ES_RGN_PAL — the region flag, latched once at boot by
@@ -932,10 +932,10 @@ cam_advance:
 ; a first frame that turns by whatever the console powered on holding. US_TSH is
 ; written by every tick before anything reads it, and is seeded anyway so the
 ; whole claim is written at enter rather than by an ordering.
-cam_region:
+sh2_region:
     .a16
     .i16
-    SF_ASSERT_WIDTH 16, 16, "cam_region"
+    SF_ASSERT_WIDTH 16, 16, "sh2_region"
     lda z:ES_RGN_PAL
     bne @pal
     lda #SH2_MOVE_ARM_NTSC

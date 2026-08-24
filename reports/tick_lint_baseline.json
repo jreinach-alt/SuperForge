@@ -331,16 +331,16 @@
   {
     "file": "engine/features/sh2_cam/sh2_cam.asm",
     "rule": "tick-routine",
-    "site": "cam_tick",
+    "site": "sh2_tick",
     "ordinal": 0,
-    "message": "`cam_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick."
+    "message": "`sh2_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick."
   },
   {
     "file": "engine/features/sh2_cam/sh2_cam.asm",
     "rule": "tick-routine",
-    "site": "cam_advance",
+    "site": "sh2_advance",
     "ordinal": 0,
-    "message": "`cam_advance` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick."
+    "message": "`sh2_advance` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick."
   },
   {
     "file": "engine/features/sh2_swarm/sh2_swarm.asm",

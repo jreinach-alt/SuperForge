@@ -8,7 +8,7 @@
 # would make one of them the other's dependency.
 #
 # The scene sets all three: `move_arm` once at enter (the console cannot change
-# region), the other two once per frame at the top of cam_advance.
+# region), the other two once per frame at the top of sh2_advance.
 
 [scene.split]
 

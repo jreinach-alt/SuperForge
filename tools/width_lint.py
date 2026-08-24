@@ -1316,14 +1316,21 @@ def check_cross_file_calls(
       * same-file calls are left to check 1. Reporting them here as well
         would double-count the one arrival two checks can see.
 
-    AND A BARE NAME DEFINED IN MORE THAN ONE FILE IS NOT RESOLVED. This tree
-    has three `cam_arm`s — sh2_cam's, shg_cam's and shp_cam's — and a whole-
-    tree run sees one flat namespace, so `jsr cam_arm` in a shp_cam rail would
-    otherwise be checked against sh2_cam's declaration: a contract it does not
-    link against. That is the indirect-evidence shape, and it can fail in both
-    directions (a false finding, or a pass that proved nothing). Those calls
-    are counted as AMBIGUOUS and left unchecked; the summary names the count,
-    and the way to buy the check is to make the routine's name unique.
+    AND A BARE NAME DEFINED IN MORE THAN ONE FILE IS NOT RESOLVED. A whole-
+    tree run sees one flat namespace, so a `jsr` on a name two files define
+    would otherwise be checked against whichever declaration this pass read:
+    a contract the caller may not link against. That is the indirect-evidence
+    shape, and it can fail in both directions (a false finding, or a pass that
+    proved nothing). Those calls are counted as AMBIGUOUS and left unchecked;
+    the summary names the count, and the way to buy the check is to make the
+    routine's name unique.
+
+    This tree's own instance was three `cam_arm`s — sh2_cam's, shg_cam's and
+    shp_cam's, seven unresolvable call sites between them — and it was bought
+    back the way this paragraph prescribes rather than by a smarter linter:
+    sh2_cam's four exports carry its feature prefix now (`sh2_arm`,
+    `sh2_tick`, `sh2_advance`, `sh2_region`). The rule outlives the instance,
+    which is why the regression test drives synthetic twins.
     """
     findings: list[Finding] = []
     label_files = label_files or {}

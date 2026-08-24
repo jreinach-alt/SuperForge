@@ -12,7 +12,7 @@ callees and on the tick's own return site, reading Mesen's master clock at every
 hit. Same discipline and the same label twin as `tools/measure_m7dg_logic.py`,
 whose shape this follows.
 
-    cam_advance   the two pads -> the two headings and the two positions
+    sh2_advance   the two pads -> the two headings and the two positions
     swm_ai        the AI: N-2 waypoint followers, each a wrap-residue pair, a
                   4-multiply cross/dot steer and two 8.8 accumulator steps
     swm_players   entities 0/1 take the cameras' positions
@@ -62,7 +62,7 @@ W, MEM = MemoryType.SnesWorkRam, MemoryType.SnesMemory
 OAM = MemoryType.SnesSpriteRam
 
 # The tick's callees, in the order the tick calls them.
-ROUTINES = ["cam_advance", "swm_ai", "swm_players", "obj_project", "swm_beat"]
+ROUTINES = ["sh2_advance", "swm_ai", "swm_players", "obj_project", "swm_beat"]
 
 # The sweep's grid. 24 is the shipped count; the rest bracket it on both sides
 # so the curve is a curve and not two points, and 64 is the table's capacity.

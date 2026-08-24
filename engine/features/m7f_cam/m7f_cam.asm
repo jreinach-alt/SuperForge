@@ -811,7 +811,7 @@ m7f_arm:
     ; ---- the declared init contract: zero the WHOLE claim first ------------
     ; The bytes past each terminator are never stamped, but the DMA controller
     ; still fetches table bytes after the $00 on real hardware, so they must
-    ; not be power-on garbage (rule 5; sh2_cam's cam_arm and mode7_persp's
+    ; not be power-on garbage (rule 5; sh2_cam's sh2_arm and mode7_persp's
     ; persp_arm both open this way for the same reason).
     lda #0
     ldx #(ES_M7F_TBL_SIZE - 2)

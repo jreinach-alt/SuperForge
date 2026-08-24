@@ -5,10 +5,10 @@
 ; arms six channels (a per-band indirect matrix pair plus a per-band direct
 ; origin pair), seeds the swarm and the OAM shadow. After that the FLOOR drives
 ; itself off the PPU — the VBlank hook is two cheap calls, `oam_nmi_dma` and
-; `cam_tick`, and nothing else, because a long hook pushes sm_nmi_core's
+; `sh2_tick`, and nothing else, because a long hook pushes sm_nmi_core's
 ; post-hook channel-shadow MVN into active display.
 ;
-; The per-frame TICK is where the cast lives: `cam_advance`, `swm_ai`,
+; The per-frame TICK is where the cast lives: `sh2_advance`, `swm_ai`,
 ; `swm_players`, `obj_project`, `swm_beat`, all during active display. That
 ; work is MEASURED, not counted — `make sh2-measure` runs the entity-count
 ; sweep and the loop-period sweep that say where the cadence cliff is.
@@ -53,18 +53,18 @@ enter:
     jsr floor_arm                   ; 32 KB interleaved plane + 5 colours + M7SEL
 
     ; ---- the console, read ONCE ------------------------------------------
-    ; FIRST, because everything below moves at the speed it picks: cam_region
+    ; FIRST, because everything below moves at the speed it picks: sh2_region
     ; reads ES_RGN_PAL (region_init set it at boot) and writes the scene's three
     ; region words — which arm of the move LUT this console reads, and the
     ; heading scaler's accumulator and published step. A console does not change
     ; region, so this is the only read of the flag on the motion path; the
     ; per-frame cost afterwards is one OR into an index and one TS_STEP.
-    jsr cam_region
+    jsr sh2_region
 
     ; ---- the two cameras, seeded before anything reads them ---------------
     ; Power-on WRAM is random and sh2_cam declares no `[init] zero` for its dp
     ; claim: these four stores ARE the write-before-read contract for all eight
-    ; bytes (rule 5), not defensive initialisation. cam_arm stamps the origin
+    ; bytes (rule 5), not defensive initialisation. sh2_arm stamps the origin
     ; tables straight out of them on the next line, so a missing one would show
     ; as a band looking at garbage rather than as a subtle drift.
     lda #SH2_P1_X0
@@ -96,7 +96,7 @@ enter:
 
     ; ---- the two headings and the four fraction accumulators --------------
     ; Same write-before-read contract as the positions, over sh2_cam's second
-    ; DP claim: cam_arm derives four pose pointers and four DASB banks straight
+    ; DP claim: sh2_arm derives four pose pointers and four DASB banks straight
     ; out of H1/H2 on the next line, and cam_drive adds into the fractions from
     ; the first frame. Power-on DP is random, so a missing store here is a
     ; camera streaming a heading nobody chose, or a first-frame position jump
@@ -150,7 +150,7 @@ enter:
     rep #$20
     .a16
 
-    jsr cam_arm                     ; six tables + six channel shadows
+    jsr sh2_arm                     ; six tables + six channel shadows
 
     ; ---- the cast, AFTER the cameras are seeded ---------------------------
     ; obj_arm uploads the character block, OBSEL and both OBJ palettes, then
@@ -184,7 +184,7 @@ enter:
 
     ; ---- arm the four channels -------------------------------------------
     ; The scene_mgr NMI applies this shadow to HDMAEN on every armed frame; the
-    ; channel REGISTERS were staged by cam_arm into the 128-byte shadow the same
+    ; channel REGISTERS were staged by sh2_arm into the 128-byte shadow the same
     ; NMI MVNs to $4300. Enabling a channel whose shadow was never staged is
     ; the shape that reads as "the picture is garbage" — hence both halves in
     ; one enter, in this order.
@@ -214,7 +214,7 @@ enter:
 ;
 ; THE WHOLE OF THE RAIL'S MAIN-THREAD COST, in four calls and in this order:
 ;
-;   cam_advance   the two pads (or, under -D SH2_AUTOCAM, the autonomous step)
+;   sh2_advance   the two pads (or, under -D SH2_AUTOCAM, the autonomous step)
 ;                 move the two cameras. FIRST, because everything below is
 ;                 about the state it produces.
 ;   swm_ai        22 waypoint followers steer and step, in world space only.
@@ -223,10 +223,10 @@ enter:
 ;   obj_project   both bands' casts into the OAM shadow.
 ;
 ; ADVANCE THEN PROJECT: the next VBlank stamps the pose pointers, the DASB
-; banks and the origin tables out of the state cam_advance just wrote, and
+; banks and the origin tables out of the state sh2_advance just wrote, and
 ; commits the OAM shadow obj_project just built from that same state — so the
 ; sprites and the floor are always the same frame's. The advance sits here
-; rather than inside `cam_tick`: the phase is identical either way, and this
+; rather than inside `sh2_tick`: the phase is identical either way, and this
 ; keeps the work out of the VBlank window.
 ;
 ; IN THE TICK RATHER THAN THE NMI HOOK, and the reason is measured: 24 entities
@@ -238,7 +238,7 @@ enter:
 tick:
     .a16
     .i16
-    jsr cam_advance
+    jsr sh2_advance
     jsr swm_ai
     jsr swm_players
     jsr obj_project

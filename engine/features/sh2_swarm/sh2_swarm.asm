@@ -390,7 +390,7 @@ swm_ai:
     cmp #$8000
     bcc @move                           ; dot >= 0: the heading is fine
 ; THE CORRECTION IS US_TSH, not a bare +/-1, and it is the same published word
-; the two cameras turn by (sh2_cam's cam_advance computes it once per frame).
+; the two cameras turn by (sh2_cam's sh2_advance computes it once per frame).
 ; A follower's turn and a follower's step are one motion: scaling the step and
 ; not the turn would walk the same path at a different radius, which is the
 ; inconsistency the whole region pair exists to avoid. On NTSC the word is 1 and

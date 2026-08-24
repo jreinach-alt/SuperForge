@@ -1268,10 +1268,13 @@ def test_a_same_file_call_is_left_to_check_one(tmp_path):
 
 
 def test_an_ambiguous_bare_name_is_not_resolved(tmp_path):
-    """A name several files define cannot be resolved by a whole-tree run —
-    this tree has three `cam_arm`s. Checking a caller against a declaration
-    it may not link against is the indirect-evidence shape, and it can fail
-    in either direction."""
+    """A name several files define cannot be resolved by a whole-tree run.
+    Checking a caller against a declaration it may not link against is the
+    indirect-evidence shape, and it can fail in either direction. This tree's
+    own instance was three `cam_arm`s — sh2_cam's, shg_cam's and shp_cam's —
+    and the way it was bought back was a rename, not a smarter linter: the
+    declaring one is `sh2_arm` now. The synthetic twins below keep the shape
+    under test whether or not the tree still has an instance of it."""
     for n in ("a", "b"):
         (tmp_path / f"def_{n}.asm").write_text(textwrap.dedent(f"""
             .p816
@@ -1358,7 +1361,7 @@ def test_the_live_tree_declares_and_the_pass_is_armed():
     table, errs, stats, label_files = width_lint.collect_contracts(files)
     assert errs == [], [f.message for f in errs]
     for name in ("stream_arm", "stream_tick", "stream_nmi_dispatch",
-                 "cam_arm", "cam_tick", "cam_advance", "cam_region",
+                 "sh2_arm", "sh2_tick", "sh2_advance", "sh2_region",
                  "TS_STEP", "TS_SCALED"):
         assert name in table, f"{name} lost its contract"
     findings, stats = width_lint.lint_paths(files)

@@ -1255,7 +1255,7 @@ RAILS = {
     # enter from ES_RGN_PAL, ORed into the index every reader already computes.
     #
     # THE STATE-STEP FORM WAS MEASURED AND REFUSED, and the number is why the
-    # table exists. Running `cam_advance` + `swm_ai` 1 or 2 times per frame
+    # table exists. Running `sh2_advance` + `swm_ai` 1 or 2 times per frame
     # OVERRUNS the PAL frame: SWM_BEAT — the scene tick's own counter, which
     # sh2_swarm.asm pairs with scene_mgr's VBlank count precisely so an overrun
     # is visible — reached 423 against ES_SM_FRAME's 479, so an eighth of PAL

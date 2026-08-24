@@ -110,7 +110,8 @@ sit_arm:
     ; ---- the declared init contract: zero BOTH claims first ----------------
     ; Power-on WRAM is random; the DMA controller's terminator processing still
     ; fetches address bytes after a $00 count, so even never-stamped table tail
-    ; bytes must not be garbage (the cam_arm/persp_arm precedent). The counters
+    ; bytes must not be garbage (sh2_cam's sh2_arm and mode7_persp's persp_arm
+    ; are the precedent, and open the same way). The counters
     ; must start at 0 for the cadence assertions to mean anything at all.
     lda #0
     ldx #(ES_SIT_TBL_SIZE - 2)

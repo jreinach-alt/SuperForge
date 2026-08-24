@@ -520,7 +520,7 @@ def _rewind_axis(pos, frac, vel):
 def _dp_snapshot(runner, advanced=True):
     """The state the PARKED FRAME IS RENDERING — DP, stepped BACK once.
 
-    WHY THE REWIND. `cam_tick` stamps the current state's tables and only then
+    WHY THE REWIND. `sh2_tick` stamps the current state's tables and only then
     advances (sh2_cam.asm's header says why — the cast is projected
     during active display and must read a state that is already committed). So
     while a frame is on screen, DP holds the state the NEXT commit will stamp,
@@ -534,7 +534,7 @@ def _dp_snapshot(runner, advanced=True):
     raw = runner.read_bytes(W, DP_POS, 8)
     rot = runner.read_bytes(W, DP_ROT, 12)
     if not advanced:
-        # On the SHIPPING ROM with no pad held, cam_advance is
+        # On the SHIPPING ROM with no pad held, sh2_advance is
         # cam_input and it steps nothing, so DP already holds the state the
         # parked frame is showing and the rewind below would walk it BACKWARDS
         # off the truth. `advanced` is the caller's statement about what it
@@ -1090,7 +1090,7 @@ def test_the_same_heading_control_folds_both_bands_onto_one_pose(runner, tmp_pat
 def _integrate(pos, frac, h, sense, frames):
     """The rail's own drive model, re-implemented from the gated move LUT.
 
-    Per frame, in cam_tick's order: the heading STEPS first (+1 for camera 1,
+    Per frame, in sh2_tick's order: the heading STEPS first (+1 for camera 1,
     -1 for camera 2), then each axis does `frac += move256[h]` and takes the
     HIGH byte of the 16-bit result as that frame's SIGNED integer delta; the
     position moves by it, masked to the world's period, and the low byte is
@@ -1317,7 +1317,7 @@ def test_the_rail_reads_nothing_it_never_wrote(runner):
     """No CPU-side read-before-write anywhere in volatile RAM, from power-on.
 
     THE MITIGATION THIS ASSERTS IS INVISIBLE TO EVERY OTHER TEST HERE.
-    `cam_arm` zeroes its whole HDMA-table claim before stamping, because the
+    `sh2_arm` zeroes its whole HDMA-table claim before stamping, because the
     DMA controller keeps fetching indirect-address bytes past each table's
     `$00` terminator — the slack is real hardware traffic. Deleting that loop
     left every other test in this module GREEN while the detector reported
@@ -1327,7 +1327,7 @@ def test_the_rail_reads_nothing_it_never_wrote(runner):
     (six tables, two of them with band 2's skip prefix) and a second DP claim
     appeared — two headings and four fraction accumulators, all of which the
     first frame's `cam_ptrs`, `cam_banks` and `cam_drive` read. The scene's
-    enter writes every one of them before cam_arm runs; this is what asserts
+    enter writes every one of them before sh2_arm runs; this is what asserts
     that it really does.
 
     AND AGAIN, and the detector is whole-machine so it followed
