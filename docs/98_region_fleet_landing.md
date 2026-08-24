@@ -8,6 +8,13 @@
 
 ## 1. The result
 
+> **AMENDED 2026-08-24.** `split_h_2p_demo`, one of the two deferrals below,
+> has since been converted by the path §4 named for it. The tree's live counts
+> are therefore **29 of 37 composing** and **one deferral** (`rpg`); the band
+> is unchanged. §4's `split_h_2p_demo` entry carries the addendum and its
+> measurements. Everything else in this section is the sweep's own result and
+> stands as it landed.
+
 **28 of the 37 rails now compose `region` + `tick_scale` and run at measured
 speed parity on PAL** — every playable game in the tree. The measured band
 across the registry's observables is **0.994–1.027** against an uncompensated
@@ -58,7 +65,12 @@ the proof is the deferral counter — `CAM − LAST` at the park point read **0 
 all 3,600 measured frames**, both regions, flat out and sweeping every
 heading. `mode7_stream` itself is untouched.
 
-## 4. The two deferrals, so nobody re-litigates them from scratch
+## 4. The deferrals, so nobody re-litigates them from scratch
+
+*(Two when this landed. One of them, `split_h_2p_demo`, has since been
+converted — its entry carries the addendum. Both entries stay: the reasoning is
+the record, and the converted one is also the worked example of what the path
+it named actually cost.)*
 
 - **`rpg`** — the grid stepper welds "8 pixels" to "8 frames": `try_step`
   commits a destination tile and arms an 8-frame slide that moves 1 px/frame,
@@ -72,6 +84,42 @@ heading. `mode7_stream` itself is untouched.
   The named path is a second LUT at the PAL magnitude selected by
   `ES_RGN_PAL`: +1 KB, zero per-frame cost, asset work across seven variant
   images.
+
+  **ADDENDUM, 2026-08-24 — CONVERTED, by that path.** `sh2_move256` is now a
+  2 KB claim holding two arms of the same table: 2.0 px per NTSC frame at
+  offset 0 and **2.40361** px per PAL frame one stride on, the ratio read out
+  of `tick_scale.asm`'s `TS_GAIN_NUM`/`TS_GAIN_DEN` rather than copied. A
+  scene-enter read of `ES_RGN_PAL` picks the arm into one `dp` word, which is
+  ORed into the `h * 4` index the camera drive and every follower already
+  build — so the state step is **not** repeated and the overrun shape does not
+  return: the scene tick reads **479 against 479 VBlanks in both regions**,
+  where the state-step form read 423.
+
+  **`tick_scale` is composed as well, for the one rate the pair cannot
+  carry.** A held D-pad steps a heading one pose per frame and a follower's
+  steering correction is the same ±1 — a rate in the LUT's own INDEX, which no
+  table indexed by heading can hold. With the arms alone the translation
+  reaches parity and the ROTATION stays at 0.832, which flies the camera round
+  a circle 1.2 times too wide; the registry's `cam1_head` observable is exactly
+  that number. So the heading goes through `TS_STEP`: **one expansion per
+  frame**, published to both cameras and all 22 followers, which §2's sharing
+  rule allows because all three are the same base rate.
+
+  Measured, 14 s real-time window, pad 1 holding B + RIGHT:
+
+  | observable | before | after |
+  |---|---:|---:|
+  | `cam1_x` | 0.80538 | **1.00063** |
+  | `cam1_y` | 0.86167 | **0.99969** |
+  | `cam1_head` | 0.83208 | **1.00088** |
+
+  NTSC is untouched by both the §1 standard and a stricter one: the oracle's
+  NTSC column reads 76.106099 / 76.606327 / 60.098807 px or units per second
+  **before and after**, and the parent plus **all seven `-D` variant images**
+  are pixel-identical against their pre-change captures at frames 120/300/600.
+  The variants' md5s moved — the tables changed — and the pictures did not.
+  The rail also ships a gallery clip from the `sh2_autocam` arm
+  (`reports/gallery_loop_seams.md`).
 
 ## 5. What the sweep found beyond its brief
 

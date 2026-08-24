@@ -3,6 +3,27 @@
 # box with paged text, a battery save, and music that survives the swap.
 #
 # The rail debuts ONE engine feature: `dialog`. Everything else is composed.
+#
+# REGION PARITY IS DEFERRED HERE, and this is the reason rather than an
+# omission — it is the ONE rail in the tree still carrying it (docs/98 §4).
+# The overworld's grid stepper WELDS "8 pixels" to "8 frames": `try_step`
+# commits the destination TILE up front and arms an 8-frame slide that moves
+# 1 px a frame, so after 8 frames the camera origin lands on the tile the index
+# already says it is at. Scale the pixel delta and the origin is 9.6 px along
+# while the index says 8 — the floor and the avatar drift apart a little more
+# on every step. Measured with the slide unscaled: 53.43 px/s at 60.0988 fps,
+# which IS 8 px every 9 frames, so the reading and the mechanism agree.
+#
+# The honest fix counts the slide in PIXELS REMAINING rather than frames. It
+# works arithmetically and it REDEFINES a byte inside `rpg_logic`'s declared
+# 18-byte `rpg_hot` claim, whose layout that feature.toml documents — surgery
+# on a feature's declared claim, not a rate expressed through TS_STEP. Deferred
+# until someone owns that redefinition.
+#
+# The TOWN has no rate to express at all: its avatar renders only at tile*8
+# (town.asm's read_step says so), so its walk IS an integer frame throttle and
+# 8 / 1.2018 has no correct answer. Scaling the overworld alone would leave the
+# two halves of one game on two clocks.
 globals = ["scene_mgr", "input", "fade", "oam_sprites", "mosaic",
            "text_dp", "font_rom", "enter_scr", "save", "audio", "tad_rom",
            "rpg_rom", "dlg_rom", "pose_rom", "rpg_logic"]

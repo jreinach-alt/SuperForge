@@ -72,18 +72,18 @@ frame ratio, carrying the fraction between frames. Everything downstream keeps
 saying "move one step" — what a step *is* becomes a property of the timebase.
 The same ROM then covers the same distance per **second** on both machines.
 
-It is opt-in, per game. **28 of the 37 games compose it** — every playable one
+It is opt-in, per game. **29 of the 37 games compose it** — every playable one
 — and they measure a real-time parity band of **0.994–1.027**, against the
-**0.832** an uncompensated game reads. The other nine say why in their own
+**0.832** an uncompensated game reads. The other eight say why in their own
 `game.toml`: seven are determinism trials whose frame-indexed sweeps are the
-thing under test, and two are deferred with the measurement that defers them.
+thing under test, and `rpg` is deferred with the measurement that defers it.
 NTSC does not move — the picture is pixel-identical against every pre-change
 image, per game. [`docs/98`](docs/98_region_fleet_landing.md) has the band,
-the exemptions and the two deferrals.
+the exemptions and the deferral.
 
 ## The showcase
 
-Eight of the library's games, and what each one proves. Every clip is recorded
+Nine of the library's games, and what each one proves. Every clip is recorded
 from the committed ROM at full gameplay speed, one GIF second to one gameplay
 second, and cut so it rejoins itself — the loop points and their measured seams
 are in [`reports/gallery_loop_seams.md`](reports/gallery_loop_seams.md).
@@ -131,6 +131,20 @@ of the same stage. Walking back in closes it to an invisible seam, where the
 halves are pixel-identical. Then they trade, in close, where the separation is
 small enough that the view stays merged: two pads, life bars, a 3-2-1-FIGHT
 round start, a swing with active frames, and a jump that clears one.
+
+### `split_h_2p_demo`
+
+![split_h_2p_demo — two Mode 7 cameras over one plane, one frame](docs/img/gif_split_h_2p_demo.gif)
+
+Two **independent** Mode 7 cameras in a single frame, and neither one solves a
+perspective matrix: each band streams a ROM-resident per-scanline pose table
+straight through indirect HDMA, so the whole per-frame cost is a handful of
+VBlank stores. The two floors turn opposite ways from their own world positions
+while 24 entities — two tracking the cameras, 22 steering their own waypoint
+loops — are projected into **both** bands every frame. One cart runs it at speed
+on either console: a second baked movement table at the PAL magnitude, picked at
+scene enter, puts PAL at a measured **0.9997–1.0009** of NTSC's real-time rate
+with no repeated state step.
 
 ### `mode7_explore`
 
@@ -187,7 +201,7 @@ two of those numbers shared with claims that run in VBlank.
 
 ---
 
-The other 29 games are in `game/` — among them `microzero`, the smallest
+The other 28 games are in `game/` — among them `microzero`, the smallest
 complete game and the gate the whole architecture was bet on: title → a
 single-track time-trial race → results → title, one 524,288-byte ROM, globals
 surviving the scene edges and scene bytes reused across them. The `gates:` block

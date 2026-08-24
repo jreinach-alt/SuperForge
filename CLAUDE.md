@@ -179,4 +179,4 @@ writing your first test.
 - **Provenance** — what in this tree is not ours, and how that was established → [`docs/92`](docs/92_provenance_audit.md)
 - **Region speed** — the rate oracle, the frame-assumption lint (`make tick-check`), and a prototype timebase measured at 0.99919 parity → [`docs/96`](docs/96_region_timebase_tooling.md)
 - **Region support** — the region flag, the two header corrections, and the timebase promoted to a composable feature (R0 landed) → [`docs/97`](docs/97_region_r0_landing.md)
-- **Region parity across the tree** — the 28 rails of 37 that compose `region` + `tick_scale`, the measured 0.994–1.027 band, the 7 rails exempt by design and the 2 deferred with their measurements → [`docs/98`](docs/98_region_fleet_landing.md)
+- **Region parity across the tree** — the 29 rails of 37 that compose `region` + `tick_scale`, the measured 0.994–1.027 band, the 7 rails exempt by design and the 1 deferred with its measurement → [`docs/98`](docs/98_region_fleet_landing.md)

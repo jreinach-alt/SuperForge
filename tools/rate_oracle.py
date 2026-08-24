@@ -1153,39 +1153,37 @@ RAILS = {
                      "odometer and the ramp were on different clocks."),
         ],
     ),
-    # DEFERRED, NOT CONVERTED, and this entry is the measurement that says so.
-    # The rail reads 0.83208 / 0.80538 / 0.86167 below and the shipping image is
-    # byte-identical to what it was.
+    # CONVERTED 2026-08-24, and this entry is the measurement that says so: the
+    # three observables read 1.00063 / 0.99969 / 1.00088 where they read
+    # 0.80538 / 0.86167 / 0.83208 before. The NTSC column did not move
+    # (76.106099 / 76.606327 / 60.098807 per second, before and after).
     #
-    # WHY. Every velocity on this rail is a RUNTIME word read out of one baked
-    # LUT: `move256[h]`, 8.8 with a constant 2.0 px/frame magnitude, which
-    # SH2_DRIVE_AXIS accumulates for the two cameras and swm_ai accumulates at
-    # half rate for each of 22 followers with its own per-entity 8-bit
-    # fractions. There is no build-time constant for TS_STEP to take, so the
-    # mechanism the other nine rails use does not reach it.
+    # WHY IT TOOK A DIFFERENT SHAPE FROM THE OTHER RAILS' — worth keeping,
+    # because it is what the two mechanisms are FOR. Every velocity here is a
+    # RUNTIME word read out of one baked LUT: `move256[h]`, 8.8, a constant
+    # magnitude at every heading, which SH2_DRIVE_AXIS accumulates for the two
+    # cameras and swm_ai accumulates at half rate for each of 22 followers with
+    # its own per-entity 8-bit fractions. There is no build-time constant for
+    # TS_STEP to take, so a second BAKED TABLE at the PAL magnitude is what
+    # scales it: one 2 KB rom claim holding both arms, picked once at scene
+    # enter from ES_RGN_PAL, ORed into the index every reader already computes.
     #
-    # AND THE STATE-STEP FORM DOES NOT FIT, measured rather than argued. Running
-    # `cam_advance` + `swm_ai` 1 or 2 times per frame OVERRUNS the PAL frame:
-    # SWM_BEAT — the scene tick's own counter, which sh2_swarm.asm pairs with
-    # scene_mgr's VBlank count precisely so an overrun is visible — reached 423
-    # against ES_SM_FRAME's 479, so an eighth of PAL frames dropped their game
-    # update. The pre-change image runs 479/479 in both regions. That is
-    # docs/95 §4.3's O(tick) objection landing on a real rail, and it is the
-    # first time in this lane it has bitten: the other nine rails' state steps
-    # are a dozen adds, and this one steers a 24-entity swarm through a
-    # projection.
+    # THE STATE-STEP FORM WAS MEASURED AND REFUSED, and the number is why the
+    # table exists. Running `cam_advance` + `swm_ai` 1 or 2 times per frame
+    # OVERRUNS the PAL frame: SWM_BEAT — the scene tick's own counter, which
+    # sh2_swarm.asm pairs with scene_mgr's VBlank count precisely so an overrun
+    # is visible — reached 423 against ES_SM_FRAME's 479, so an eighth of PAL
+    # frames dropped their game update. That is docs/95 §4.3's O(tick)
+    # objection landing on a real rail. The converted image reads 479/479 in
+    # both regions, because the table costs no repeated step.
     #
-    # Narrowing the loop to `cam_advance` alone DOES fit (479/479, heading at
-    # 1.2 units a frame), and it is not taken: it would put the floor at parity
-    # and leave the cast it is projected against at 0.832, which is a new
-    # inconsistency rather than a partial fix.
-    #
-    # WHAT WOULD CONVERT IT: a SECOND baked move LUT at the PAL magnitude
-    # (2.4036 px/frame), selected by ES_RGN_PAL at scene enter. Both consumers
-    # read the same blob, so one +1 KB rom claim and a generator argument would
-    # scale the cameras AND the swarm at ZERO per-frame cost — which is the
-    # shape this rail wants and is asset-pipeline work across seven variant
-    # images, not a timebase composition.
+    # ...AND `tick_scale` IS COMPOSED ANYWAY, for the ROTATION. The heading is
+    # a rate in the LUT's own INDEX — one pose per frame held — which no table
+    # indexed by heading can carry, and `cam1_head` below is exactly the
+    # observable that reads it. With the arms alone the translation reaches
+    # parity and the rotation stays at 0.832: the same circle at 1.2 times the
+    # radius. One TS_STEP per frame, shared by both cameras and all 22
+    # followers, closes it. docs/98 §4 carries the addendum.
     "split_h_2p_demo": dict(
         rom="build/split_h_2p_demo.sfc", map="build/sh2/symbol_map.json",
         scene="split",
@@ -1206,11 +1204,14 @@ RAILS = {
                      "origin table HDMA feeds to M7X at scanline 0, so band 1 "
                      "of the picture is drawn FROM this word. Read as a "
                      "PER-AXIS distance rather than as half a path2d: hypot is "
-                     "subadditive and this rail advances its state 1 or 2 "
-                     "times per frame, so a doubled frame would be charged for "
-                     "the shortcut (railshooter's entry carries the "
-                     "measurement). The modulus is the plane's own period, "
-                     "SH2_WRAP + 1 = 1,024, which SH2_DRIVE_AXIS masks to."),
+                     "subadditive, and the two regions' per-frame steps differ "
+                     "in SIZE (2.0 px against 2.40361), so a 2-D path would "
+                     "charge the longer step for the chord it cuts across the "
+                     "turn and read the PAL arm slow for a reason that is not "
+                     "the timebase (railshooter's entry carries the "
+                     "measurement of that effect). The modulus is the plane's "
+                     "own period, SH2_WRAP + 1 = 1,024, which SH2_DRIVE_AXIS "
+                     "masks to."),
             dict(name="cam1_y", kind="distance", unit="world px",
                  mem="wram", fields=[("ES_SH2_POS", 2, 2, 1024)],
                  why="camera 1's world Y, the other axis of the same origin "
@@ -1225,9 +1226,12 @@ RAILS = {
                      "stream a fresh 4-byte matrix unit from on every one of "
                      "its 112 scanlines — so the whole band rotates by it. It "
                      "is also the index the move LUT is read at, which is why "
-                     "the rail scales the state step: the rotation and the "
-                     "translation have to advance together or the camera "
-                     "points somewhere the floor is not."),
+                     "this one has to be measured beside the two positions: "
+                     "the rotation and the translation must reach parity "
+                     "TOGETHER or the same speed traces a circle of a "
+                     "different radius. It is the observable the move-LUT pair "
+                     "alone cannot move, and the reason the rail composes "
+                     "`tick_scale` as well."),
         ],
     ),
     "m7_dungeon": dict(

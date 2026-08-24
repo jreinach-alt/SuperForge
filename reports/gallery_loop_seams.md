@@ -26,7 +26,10 @@ edition of this file claimed `racer`'s sky band contributed ZERO pixels to the
 seam; that was a palette result reported as a picture one, and it is withdrawn.
 
 Read a figure on a flat-sky rail (`split_v_fight`, `boss_saucer`,
-`mode7_explore`, all 0.00) as a statement about the join. Read one on a
+`mode7_explore`, all 0.00) as a statement about the join — and
+`split_h_2p_demo` reads that way too, for a different reason: its whole world
+is five flat colours, so there is nothing for a shared palette to be short of.
+Read one on a
 dithered-sky rail (`racer`, `railshooter`, `mode7_flight`) as a statement about
 the join AND the quantisation together, and compare it only against another
 take of the SAME rail. Tuning a loop mark against this number across rails is
@@ -42,6 +45,7 @@ tuning against the palette.
 | `boss_saucer` | **the fade** — `su_result` runs `fade_start_out`, and the scene re-arms the same ramp behind the black | 0.00 | 0.0% | 0.0 | 0.0 | 412,803 |
 | `railshooter` | the rail's own period — `rs_path` repeats every 256 frames, and a 3-frame capture grid realigns at three of them | 2.51 | 2.1% | 90.3 | 90.3 | 876,805 |
 | `racer` | a mark on the home straight — a flying lap comes back to it at the cap, and the grid is held until the clock puts both ends of the lap on one day-night keyframe | 2.48 | 3.0% | 92.8 | 92.7 | 448,539 |
+| `split_h_2p_demo` | the seeded camera pose — camera 1 back on heading 0, which on this build brings both cameras' positions and all four 8.8 fractions with it | 2.89 | 1.9% | 107.5 | 107.1 | 1,260,283 |
 
 ## Where the residuals come from
 
@@ -70,6 +74,16 @@ inside the 2 MB budget rather than a loose cut:
 - **`meteor_event`** — the walk is one-way and the camera does not return, so a
   couple of platforms sit a few tiles left of where they opened. It stays small
   because the event freezes the level for most of the clip.
+- **`split_h_2p_demo`** — **the floors close exactly; the residual is entirely
+  the cast.** Both cameras' whole state is a function of (frames since enter)
+  mod 256 — the 256 forward vectors of one turn sum to zero on both axes and the
+  8.8 fractions come back with them — so a take of three turns rejoins the two
+  perspective floors pixel for pixel. What does not come round is the swarm: 22
+  followers steer toward waypoint loops whose periods share nothing with 256, so
+  the markers stand wherever the AI walked them. 1.9% of the picture is about
+  what two dozen small sprites cover, which is the check that the residual is
+  the one named here. The take cannot be shortened to trim it — 768 frames is
+  the FIRST return of the mark to the 3-frame capture grid.
 - **`split_v_fight`** — **no residual: 5.40 → 0.00, and the rail is why.** The
   entry above used to describe one that could not be closed: the clip was a
   camera demo whose fighters crossed twice per circuit while the pair's
