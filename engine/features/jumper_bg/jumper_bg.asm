@@ -75,11 +75,18 @@ jr_build_map:
     rts
 
 ; --- jr_arm: CHR, palette, the built map, the pinned scroll (scene enter) ---
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr's enter
-; contract). Clobbers A, X, Y.
+; CONTRACT jr_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      CHR, palette, the built tilemap and the pinned scroll
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. Everything here is written once, at enter
+;   tail:     rts
 jr_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "jr_arm"
     sep #$20
     .a8
     lda #$80

@@ -25,11 +25,17 @@ RPGO_PAL_LONG = (ES_R_OBJ_PAL_BANK << 16) | ES_R_OBJ_PAL_ADDR
 .assert (ES_O_ACTORS & 3) = 0, error, "rpg_obj: the actor claim must start on a hi-table quad boundary, or the byte this feature rebuilds is shared"
 
 ; --- rpgo_arm: OBJ CHR + palette + OBSEL, at scene enter under forced blank --
-; In/out: A16/I16, DB=0. Clobbers A, X. WIDTH-RISK: exported. Entry A16/I16,
-; exit A16/I16.
-.a16
-.i16
+; CONTRACT rpgo_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the OBJ CHR, the palette and OBSEL
+;   clobbers: A, X, N, Z, C
+;   assumes:  forced blank, at scene enter
+;   tail:     rts
 rpgo_arm:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "rpgo_arm"
     sep #$20
     .a8
     lda #$80
@@ -70,13 +76,23 @@ rpgo_arm:
     rts
 
 ; --- rpgo_place: one actor at a screen pixel position -----------------------
+; CONTRACT rpgo_place
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       A = screen x (it may be negative or past 255 — X9 comes out
+;             of bit 8), X = screen y, Y = the actor index (0 or 1)
+;   out:      the actor's four shadow bytes written
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  the A8 window that writes the four shadow bytes is balanced,
+;             and the pushes around it are A16/I16 on both sides
+;   tail:     rts
+;
 ; In: A16 = screen x (may be negative or > 255: X9 comes out of bit 8),
 ;  X = screen y, Y = actor index (0 or 1).
-; In/out: A16/I16, DB=0. Clobbers A, X, Y. WIDTH-RISK: exported. Entry A16/I16,
-; exit A16/I16; the A8 window that writes the four shadow bytes is balanced.
-.a16
-.i16
 rpgo_place:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "rpgo_place"
     pha                             ; screen x  (A16 push: 2 bytes)
     phx                             ; screen y  (I16 push: 2 bytes)
     tya
@@ -119,13 +135,23 @@ rpgo_place:
     rts
 
 ; --- rpgo_hi: rebuild the actors' hi-table byte from their own x ------------
-; In: A16 = actor 0's screen x, X = actor 1's screen x (both 16-bit signed).
-; Both actors are LARGE (16x16), so the size bit is set for both; X9 comes from
-; bit 8 of each x. Written WHOLE — see the header. In/out: A16/I16, DB=0.
-; Clobbers A, X. WIDTH-RISK: exported. Entry A16/I16, exit A16/I16.
-.a16
-.i16
+; CONTRACT rpgo_hi
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       A = actor 0's screen x, X = actor 1's screen x, both 16-bit
+;             signed
+;   out:      the actors' hi-table byte rebuilt WHOLE from their own x
+;             values. Both actors are LARGE (16x16), so the size bit is
+;             set for both, and X9 comes from bit 8 of each x
+;   clobbers: A, N, Z
+;   assumes:  the claim starts on a hi-table quad boundary — asserted at
+;             the top of this file, because otherwise the byte this
+;             rebuilds is shared with a neighbour
+;   tail:     rts
 rpgo_hi:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "rpgo_hi"
     and #256                        ; actor 0's X9
     beq :+
     lda #1
@@ -153,11 +179,17 @@ rpgo_hi:
     rts
 
 ; --- rpgo_park: put both actors below the screen ----------------------------
-; In/out: A16/I16, DB=0. Clobbers A, X. WIDTH-RISK: exported. Entry A16/I16,
-; exit A16/I16.
-.a16
-.i16
+; CONTRACT rpgo_park
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      both actors put below the screen
+;   clobbers: A, N, Z
+;   assumes:  scene exit, or any point the actors must leave the screen
+;   tail:     rts
 rpgo_park:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "rpgo_park"
     sep #$20
     .a8
     lda #RPGO_PARK_Y

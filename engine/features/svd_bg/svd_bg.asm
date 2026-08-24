@@ -113,12 +113,22 @@ svd_up:
     rts
 
 ; --- svd_arm: uploads, layer registers, the window recipe, the channel ------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
+; CONTRACT svd_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the uploads, the layer registers, the window recipe and the
+;             seam channel
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. Everything here is written once, at enter
+;   tail:     rts
+;
 ; Forced blank alone does NOT mask NMI — the enter contract does both, which is
 ; what makes these CPU-side VRAM/CGRAM writes safe.
 svd_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "svd_arm"
     ; ---- the live state, seeded before anything can read it --------------
     lda #SVD_CAM_A0
     sta z:ES_SVD_CAM + 0
@@ -389,7 +399,14 @@ svd_mode_apply:
     rts
 
 ; --- svd_nmi_commit: the two cameras, the seam, the mode -------------------
-; In/out: A8/I16, DB=0 — sm_nmi_hook's contract. Clobbers A, X.
+; CONTRACT svd_nmi_commit
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   out:      the two cameras, the seam and the mode committed
+;   clobbers: A, X, N, Z
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention
+;   tail:     rts
 ;
 ; BOTH CAMERAS AND THE SEAM FROM ONE PLACE, in one VBlank, so they cannot
 ; disagree about the frame they describe. BG1HOFS/BG2HOFS are write-twice 8-bit
@@ -402,6 +419,7 @@ svd_mode_apply:
 svd_nmi_commit:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "svd_nmi_commit"
     lda z:ES_SVD_CAM + 0
     sta a:$210D                     ; BG1HOFS, low  (camera A — the left half)
     lda z:ES_SVD_CAM + 1
@@ -417,7 +435,13 @@ svd_nmi_commit:
     rts
 
 ; --- svd_disarm: put the window and the seam channel back (scene exit) ------
-; In/out: A16/I16, DB=0, forced blank. Clobbers A.
+; CONTRACT svd_disarm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the window and the seam channel put back for the next scene
+;   clobbers: A, N, Z
+;   assumes:  forced blank, at scene exit
+;   tail:     rts
 ;
 ; A single-scene rail still disarms: a window mask left over a screen this
 ; scene no longer owns dims or hides layers a later scene never asked about,
@@ -427,6 +451,7 @@ svd_nmi_commit:
 svd_disarm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "svd_disarm"
     sep #$20
     .a8
     stz a:$212E                     ; TMW: no layer window-masked

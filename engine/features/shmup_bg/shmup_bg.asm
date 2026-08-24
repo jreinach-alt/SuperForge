@@ -241,10 +241,18 @@ shm_palette:
     rts
 
 ; --- shmup_arm: uploads + the two maps + BG1/BG2 registers (scene enter) ------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
+; CONTRACT shmup_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the uploads, both tilemaps and the BG1/BG2 registers
+;   clobbers: A, X, Y, N, Z
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. Everything here is written once, at enter
+;   tail:     rts
 shmup_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "shmup_arm"
     jsr shm_vmain
     ; ---- the BG page: blank + four planets + the band tile ----------------
     sep #$20
@@ -286,7 +294,14 @@ shmup_arm:
     rts
 
 ; --- shm_drift: the field falls one pixel (main thread, every frame) --------
-; In/out: A16/I16, DB=0. Clobbers A.
+; CONTRACT shm_drift
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the star field's scroll shadow advanced one pixel
+;   clobbers: A, N, Z
+;   assumes:  the MAIN thread, once per frame. The commit half is
+;             shm_vblank_scroll's, in the hook
+;   tail:     rts
 ;
 ; THE SIGN IS THE USER-VISIBLE INVARIANT, AND IT IS BACKWARDS FROM THE
 ; INSTINCT. BG1VOFS names where the VIEWPORT sits on the map, so INCREASING it
@@ -303,6 +318,7 @@ shmup_arm:
 shm_drift:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "shm_drift"
     lda z:ES_SHM_SCROLL
     dec a
     and #(SHM_MAP_H * 8 - 1)
@@ -327,7 +343,15 @@ shm_commit_scroll:
     rts
 
 ; --- shm_vblank_scroll: the NMI hook's half ---------------------------------
-; In/out: A8/I16, DB=0 (sm_nmi_hook contract). Clobbers A.
+; CONTRACT shm_vblank_scroll
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   out:      the field's scroll registers committed from the shadow
+;             shm_drift advanced
+;   clobbers: A, N, Z
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention
+;   tail:     rts
 ;
 ; Called ONLY while the play scene is live — main.asm gates on the scene id, so
 ; the title (which owns no BG1 register and runs BG3 alone) never has one
@@ -336,6 +360,7 @@ shm_commit_scroll:
 shm_vblank_scroll:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "shm_vblank_scroll"
     rep #$20
     .a16
     jsr shm_commit_scroll

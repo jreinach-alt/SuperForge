@@ -112,7 +112,15 @@ loop:
 .endmacro
 
 ; --- sv_arm: uploads + BG1/BG2/BG3 registers + the window recipe -----------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
+; CONTRACT sv_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the uploads, the BG1/BG2/BG3 registers and the window recipe
+;   clobbers: A, X, Y, N, Z
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. Everything here is written once, at enter
+;   tail:     rts
+;
 ; Forced blank alone does NOT mask NMI — the enter contract does both, which is
 ; what makes these long CPU-side VRAM writes safe. Under forced blank alone,
 ; an NMI landing mid-upload re-points VMADD and the rest of the transfer lands
@@ -120,6 +128,7 @@ loop:
 sv_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "sv_arm"
     sep #$20
     .a8
     lda #$80
@@ -271,7 +280,14 @@ sv_window_arm:
     rts
 
 ; --- sv_vblank: the two cameras and the divider band, committed ------------
-; In/out: A8/I16, DB=0 (sm_nmi_hook contract). Clobbers A, X.
+; CONTRACT sv_vblank
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   out:      both cameras and the divider band committed
+;   clobbers: A, X, Y, N, Z, C, V
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention
+;   tail:     rts
 ;
 ; BOTH CAMERAS AND THE BAND FROM ONE SHADOW, IN ONE PLACE. Cam A, cam B and the
 ; band half-width are all derived from ES_SV_MID and ES_SV_SPREAD in the same
@@ -282,6 +298,7 @@ sv_window_arm:
 sv_vblank:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "sv_vblank"
     rep #$20
     .a16
     ; ---- cam A = mid - spread, cam B = mid + spread ----------------------

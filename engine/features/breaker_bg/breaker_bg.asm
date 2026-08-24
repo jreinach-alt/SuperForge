@@ -108,10 +108,18 @@ brk_fill_map:
     rts
 
 ; --- brk_arm: uploads + BG1/BG2 registers (scene enter) ---------------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
+; CONTRACT brk_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the uploads and the BG1/BG2 registers
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. Everything here is written once, at enter
+;   tail:     rts
 brk_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "brk_arm"
     sep #$20
     .a8
     lda #$80
@@ -310,7 +318,17 @@ brk_build_level:
     jmp brk_q_init                  ; the round starts with nothing staged
 
 ; --- brk_q_init: the break queue holds nothing ------------------------------
-; In/out: A16/I16, DB=0. Three callers, one contract: BOOT (before the first
+; CONTRACT brk_q_init
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the break queue emptied — its count byte zeroed
+;   clobbers: A, N, Z
+;   assumes:  three callers, one contract: BOOT before the first frame,
+;             and the two scene paths. The queue is drained by the NMI
+;             hook, so a count that was never written is a hook reading
+;             power-on garbage (rule 5)
+;   tail:     rts
+;
 ; NMI ever runs), every scene ENTER, and every scene EXIT.
 ;
 ; This is the one byte of this feature that IS zeroed up front, and the reason
@@ -323,6 +341,7 @@ brk_build_level:
 brk_q_init:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "brk_q_init"
     sep #$20
     .a8
     lda #0                          ; (stz has no long addressing mode)
@@ -332,9 +351,17 @@ brk_q_init:
     rts
 
 ; --- brk_probe: is (US_PROBE_X, US_PROBE_Y) blocked? break a brick if so ----
-; In: A16/I16, DB=0. US_PROBE_X / US_PROBE_Y are screen pixel coordinates. Out:
+; CONTRACT brk_probe
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      whether the probed cell is blocked, and the brick broken and
+;             queued if it was. US_TMP holds the cell index on the way out
+;   clobbers: A, X, N, Z, C, and US_TMP
+;   assumes:  US_PROBE_X / US_PROBE_Y are SCREEN pixel coordinates, set by
+;             the caller
+;   tail:     rts
+;
 ; A16 = the cell class — 0 clear, BRK_CELL_WALL, BRK_CELL_BRICK.
-;  US_TMP holds the cell index. Clobbers A, X.
 ;
 ; TOTAL over the u16 input space, the same discipline col_map states at length:
 ; `and #31` after `lsr x3` on each axis means every input names a real cell, so
@@ -349,6 +376,7 @@ brk_q_init:
 brk_probe:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "brk_probe"
     lda z:US_PROBE_Y
     lsr
     lsr
@@ -427,7 +455,14 @@ brk_break:
     rts
 
 ; --- brk_vblank_commit: write the staged cells to VRAM (NMI hook) -----------
-; In/out: A8/I16, DB=0 (sm_nmi_hook contract). Clobbers A, X, Y.
+; CONTRACT brk_vblank_commit
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   out:      the staged cells written to VRAM and the queue drained
+;   clobbers: A, X, Y, N, Z
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention
+;   tail:     rts
 ;
 ; Programs its own VMAIN and VMADD, so its position in sm_nmi_hook is free —
 ; the rule AGENTS.md states for every VBlank VRAM writer in the tree, and the
@@ -435,6 +470,7 @@ brk_break:
 brk_vblank_commit:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "brk_vblank_commit"
     lda f:ES_BRK_Q_LONG             ; count
     bne @go
     rts

@@ -18,7 +18,14 @@
 MET_BG_REGS = $4300 + ES_D_MET_BG_UP_CH * 16
 
 ; --- bg_arm: the whole Mode-1 layer (scene enter) --------------------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked. Clobbers A, X, Y.
+; CONTRACT bg_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the whole Mode-1 layer: CHR, palette, tilemap and registers
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. Everything here is written once, at enter
+;   tail:     rts
 ;
 ; TWO transfers on the one declared channel, and DAS is armed inside EACH — it
 ; is single-shot, consumed by the transfer, so there is one arming site per
@@ -30,6 +37,7 @@ MET_BG_REGS = $4300 + ES_D_MET_BG_UP_CH * 16
 bg_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "bg_arm"
     jsr bg_paint                    ; the shadow first: the DMA below reads it
 
     sep #$20

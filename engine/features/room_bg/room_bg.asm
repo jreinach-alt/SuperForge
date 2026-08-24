@@ -45,10 +45,18 @@ rb_up:
     rts
 
 ; --- room_arm: uploads + BG1/BG2 registers (scene enter) -------------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
+; CONTRACT room_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the uploads and the BG1/BG2 registers
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. Everything here is written once, at enter
+;   tail:     rts
 room_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "room_arm"
     sep #$20
     .a8
     lda #$80

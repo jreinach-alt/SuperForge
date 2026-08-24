@@ -127,8 +127,14 @@ sr_build_map:
     rts
 
 ; --- sr_arm: CHR, palette, both map pages, the camera (scene enter) ---------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr's enter
-; contract). Clobbers A, X, Y.
+; CONTRACT sr_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      CHR, palette, both map pages and the camera
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. Everything here is written once, at enter
+;   tail:     rts
 ;
 ; The camera write is the `sr_cam` claim's write-before-read contract — the
 ; reason that claim carries no `[init] zero`. The boot camera is 0: the player
@@ -138,6 +144,7 @@ sr_build_map:
 sr_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "sr_arm"
     stz z:ES_SR_CAM + 0             ; cam_x = 0 (the left-edge clamp)
     stz z:ES_SR_CAM + 2             ; cam_y = 0 (pinned for the rail's life)
     sep #$20
@@ -181,7 +188,15 @@ sr_arm:
     rts
 
 ; --- sr_bg_nmi_commit: BG1HOFS/BG1VOFS, every armed VBlank ------------------
-; In/out: A8/I16, DB=0 — sm_nmi_hook's contract. Clobbers A.
+; CONTRACT sr_bg_nmi_commit
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   out:      BG1HOFS and BG1VOFS committed from the camera shadow
+;   clobbers: A, N, Z
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention. The scroll registers are write-twice latches, so
+;             the pair must land inside one VBlank and not straddle two
+;   tail:     rts
 ;
 ; Both are write-twice 8-bit latches: low byte then high byte; the PPU keeps 10
 ; bits, which is what makes the 64x32 map's 512px of horizontal world
@@ -204,6 +219,7 @@ sr_arm:
 sr_bg_nmi_commit:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "sr_bg_nmi_commit"
     lda z:ES_SR_CAM + 0
     sta a:$210D                     ; BG1HOFS, low
     lda z:ES_SR_CAM + 1

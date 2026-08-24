@@ -111,8 +111,14 @@ cf_build_map:
     rts
 
 ; --- cf_arm: CHR, palette, the map, the camera (scene enter) ----------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr's enter
-; contract). Clobbers A, X, Y.
+; CONTRACT cf_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      CHR, palette, the tilemap and the camera
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. Everything here is written once, at enter
+;   tail:     rts
 ;
 ; The camera zeroing is the `cf_cam` claim's write-before-read contract — the
 ; reason that claim carries no `[init] zero` — kept LOCAL to the feature that
@@ -123,6 +129,7 @@ cf_build_map:
 cf_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "cf_arm"
     stz z:ES_CF_CAM + 0             ; cam_x, world px (overwritten by the
     stz z:ES_CF_CAM + 2             ; cam_y            enter-time follow)
     sep #$20
@@ -168,7 +175,15 @@ cf_arm:
     rts
 
 ; --- cf_bg_nmi_commit: BG1HOFS/BG1VOFS, every armed VBlank ------------------
-; In/out: A8/I16, DB=0 — sm_nmi_hook's contract. Clobbers A.
+; CONTRACT cf_bg_nmi_commit
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   out:      BG1HOFS and BG1VOFS committed from the camera shadow
+;   clobbers: A, N, Z
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention. The scroll registers are write-twice latches, so
+;             the pair must land inside one VBlank and not straddle two
+;   tail:     rts
 ;
 ; Both are write-twice 8-bit latches: low byte then high byte, and the PPU
 ; keeps only 10 bits. The map is 32x32 = 256 px on each axis and the camera
@@ -198,6 +213,7 @@ cf_arm:
 cf_bg_nmi_commit:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "cf_bg_nmi_commit"
     lda z:ES_CF_CAM + 0
     sta a:$210D                     ; BG1HOFS, low
     lda z:ES_CF_CAM + 1

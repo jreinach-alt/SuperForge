@@ -262,10 +262,18 @@ plf_palette:
     rts
 
 ; --- plf_arm: uploads + both maps + BG1/BG2 registers (scene enter) ---------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
+; CONTRACT plf_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the uploads, both tilemaps and the BG1/BG2 registers
+;   clobbers: A, X, Y, N, Z
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. Everything here is written once, at enter
+;   tail:     rts
 plf_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "plf_arm"
     jsr plf_vmain
     ; ---- the shared BG page: level tiles AND sky tiles ---------------------
     sep #$20
@@ -312,13 +320,21 @@ plf_arm:
     rts
 
 ; --- plf_park: leave BG1/BG2 as the next scene expects to find them ---------
-; In/out: A16/I16, DB=0, forced blank (scene_mgr exit contract). Clobbers A.
+; CONTRACT plf_park
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      BG1 and BG2 left as the next scene expects to find them
+;   clobbers: A, N, Z
+;   assumes:  forced blank — the scene_mgr exit contract
+;   tail:     rts
+;
 ; The menus run BG3 alone and never write a BG1/BG2 register, so the scroll
 ; latches are returned to zero here rather than left holding a camera position
 ; the next scene has no idea about.
 plf_park:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "plf_park"
     sep #$20
     .a8
     stz a:$210D                     ; BG1HOFS (write-twice)
@@ -430,11 +446,21 @@ plf_plx_build:
     rts
 
 ; --- plf_plx_arm: the channel's shadow slots (scene enter) ------------------
-; In/out: A16/I16, DB=0, forced blank. Clobbers A, X. The caller ORs
+; CONTRACT plf_plx_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the parallax channel's shadow slots filled
+;   clobbers: A, X, N, Z
+;   assumes:  forced blank, at scene enter. The caller ORs the channel's
+;             enable bit into the HDMAEN shadow AFTERWARDS; this routine
+;             does not
+;   tail:     rts
+;
 ; ES_H_PLX_CH's bit into the HDMAEN shadow.
 plf_plx_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "plf_plx_arm"
     sep #$20
     .a8
     ldx #(ES_H_PLX_CH * 16)
@@ -455,10 +481,17 @@ plf_plx_arm:
 ; =============================================================================
 ; THE WORLD, AS A QUESTION — probes against immutable ROM
 ; =============================================================================
+; CONTRACT plf_flags
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the collision flags of the cell containing the probe point
+;   clobbers: A, X, Y, N, Z, C, and US_TMP
+;   assumes:  US_PROBEX / US_PROBEY are WORLD pixel coordinates, set by
+;             the caller
+;   tail:     rts
+;
 ; --- plf_flags: the collision flags of the cell containing (probex, probey) --
-; In: A16/I16, DB=0. US_PROBEX / US_PROBEY are WORLD pixel coordinates. Out:
 ; A16 = the flag byte. X = the cell index, for plf_take_coin.
-;  Clobbers A, X, Y, US_TMP.
 ;
 ; TOTAL over the u16 input space, the discipline col_map states at length and
 ; breaker_bg follows: `and #63` on the column and `and #31` on the row after
@@ -473,6 +506,7 @@ plf_plx_arm:
 plf_flags:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "plf_flags"
     lda z:US_PROBEY
     .repeat 3
         lsr
@@ -568,7 +602,14 @@ plf_coin_taken:
     rts
 
 ; --- plf_take_coin: mark cell X collected AND queue its tilemap cell --------
-; In/out: A16/I16, DB=0. X = the cell index. Clobbers A, X, Y.
+; CONTRACT plf_take_coin
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      cell X marked collected AND its tilemap cell queued for the
+;             next VBlank
+;   clobbers: A, X, Y, N, Z, C, V
+;   assumes:  X is a cell index this level actually holds
+;   tail:     rts
 ;
 ; Two halves, and both are needed: the bitmap makes the probe stop seeing it,
 ; and the queued cell makes the SCREEN stop showing it. The screen half has to
@@ -577,6 +618,7 @@ plf_coin_taken:
 plf_take_coin:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "plf_take_coin"
     phx
     ; ---- the bitmap -------------------------------------------------------
     txa
@@ -649,7 +691,16 @@ plf_take_coin:
     rts
 
 ; --- plf_q_init: the queue's count byte, at boot ----------------------------
-; In/out: A16/I16, DB=0. Clobbers A. Plf_vblank_queue runs on EVERY frame of
+; CONTRACT plf_q_init
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the queue's count byte zeroed
+;   clobbers: A, N, Z
+;   assumes:  at boot, before the first armed frame. plf_vblank_queue runs
+;             on EVERY frame of the run, so a count byte nothing wrote is
+;             a hook reading power-on garbage (rule 5)
+;   tail:     rts
+;
 ; EVERY scene and this byte is its only guard, so power-on garbage here would
 ; make the title's first VBlank write a random word to a random VRAM address.
 ; Plf_taken has no such reader — it is written whole by plf_build_level before
@@ -657,6 +708,7 @@ plf_take_coin:
 plf_q_init:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "plf_q_init"
     sep #$20
     .a8
     stz z:PLF_Q_COUNT
@@ -665,12 +717,22 @@ plf_q_init:
     rts
 
 ; --- plf_vblank_queue: write the staged cell (NMI hook, every frame) --------
-; In/out: A8/I16, DB=0 (sm_nmi_hook contract). Clobbers A, X. It programs its
+; CONTRACT plf_vblank_queue
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   out:      the staged cell written and the queue drained. It programs
+;             its own VMAIN and VMADD, so its position in the hook is free
+;   clobbers: A, X, N, Z
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention
+;   tail:     rts
+;
 ; OWN VMAIN and VMADD, which is what makes the hook's order free (AGENTS.md's
 ; established rule).
 plf_vblank_queue:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "plf_vblank_queue"
     lda z:PLF_Q_COUNT
     beq @no_cell
     stz z:PLF_Q_COUNT
@@ -686,7 +748,15 @@ plf_vblank_queue:
     rts
 
 ; --- plf_vblank: the camera and the sky, committed (NMI hook) ---------------
-; In/out: A8/I16, DB=0 (sm_nmi_hook contract). Clobbers A, X, Y.
+; CONTRACT plf_vblank
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   out:      the camera and the sky committed to their scroll registers
+;   clobbers: A, X, Y, N, Z
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention. The scroll registers are write-twice latches, so
+;             the pair must land inside one VBlank and not straddle two
+;   tail:     rts
 ;
 ; Called ONLY while the play scene is live — main.asm gates on the scene id, so
 ; a menu (which runs BG3 alone and owns no BG1/BG2 register) never has one
@@ -699,6 +769,7 @@ plf_vblank_queue:
 plf_vblank:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "plf_vblank"
     rep #$20
     .a16
     jsr plf_commit_cam
