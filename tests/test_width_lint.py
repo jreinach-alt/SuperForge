@@ -14,6 +14,7 @@ Run with:
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import textwrap
@@ -765,9 +766,21 @@ def test_check4_fixture_on_disk():
 #     under engine/ and game/ was inside the gate and outside the suite. That
 #     gap was written down in this comment and closed nowhere.
 def _lint_targets():
-    out = subprocess.run(["make", "-s", "print-width-targets"], cwd=ROOT,
-                         capture_output=True, text=True, check=True)
-    targets = out.stdout.split()
+    # --no-print-directory is LOAD-BEARING, not politeness. This collection
+    # runs top-level on a dev box, but inside the landing gate the suite runs
+    # UNDER `make test`, and a sub-make inherits `w` through MAKEFLAGS — so
+    # without the flag, stdout gains `make[3]: Entering directory '...'` and
+    # the split below reads `make[3]:` as a target path. That exact shape
+    # took the whole module out of a fresh-clone run once (collection error,
+    # 257 tests uncollected). The line filter is the backstop for any other
+    # banner a make wrapper might add: a target line never starts with
+    # `make`-colon or `make[`.
+    out = subprocess.run(
+        ["make", "-s", "--no-print-directory", "print-width-targets"],
+        cwd=ROOT, capture_output=True, text=True, check=True)
+    targets = [t for ln in out.stdout.splitlines()
+               if not re.match(r"^\s*make(\[\d+\])?:", ln)
+               for t in ln.split()]
     assert targets, "make print-width-targets echoed nothing"
     return [Path(p) for p in width_lint.expand_paths(
         [str(ROOT / t) for t in targets])]
@@ -1337,10 +1350,11 @@ def test_the_live_tree_declares_and_the_pass_is_armed():
     plus their callers declare, and the cross-file pass really compares call
     sites. A contract set that stopped being read would leave this at zero
     while every other test still passed."""
-    out = subprocess.run(["make", "-s", "print-width-targets"], cwd=ROOT,
-                         capture_output=True, text=True, check=True)
-    files = width_lint.expand_paths(
-        [str(ROOT / t) for t in out.stdout.split()])
+    # One derivation, one hardening: _lint_targets carries the
+    # --no-print-directory + banner-filter treatment a sub-make needs, and a
+    # second raw invocation here would fail under the landing gate the same
+    # way the collection-time one once did.
+    files = [str(p) for p in LINT_TARGETS]
     table, errs, stats, label_files = width_lint.collect_contracts(files)
     assert errs == [], [f.message for f in errs]
     for name in ("stream_arm", "stream_tick", "stream_nmi_dispatch",
