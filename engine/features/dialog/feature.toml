@@ -51,7 +51,7 @@
 #  (VRAM+CGRAM to load under forced blank) but the edge budget is 40000 B —
 #  over by 130 B
 #
-# microzero is a PINNED rail (md5 dea58053943943d693d85f89506a2bba) and 119
+# microzero is a PINNED rail (md5 008b19045c002c1026f87696e9350472) and 119
 # tiles does not build it at all. That is the allocator doing its job: the
 # design answer arrived at build time. (room survives it — no address moves,
 # only ES_V_TEXT_CHR_WORDS 880 -> 952 — but microzero is a hard refusal, so the

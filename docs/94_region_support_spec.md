@@ -197,6 +197,22 @@ criterion is asserted here.
    > `docs/96`, `docs/97` and `docs/audit/region_r0_review.md` — and §3's R0
    > landing block in this file, which is the same kind of record.
    > A mismatch against the NEW value is still a finding.
+
+   > **MOVED 2026-08-24, by the shared-macro idiom pass — and the tripwire
+   > FIRED first, which is the clause working:**
+   > `dea58053943943d693d85f89506a2bba` → **`008b19045c002c1026f87696e9350472`**.
+   > The pass (placement assertions, the stack-based data-bank idiom,
+   > bit-instruction conversions, denser latency padding — `vendor/rom/
+   > sf_asm.inc`) changed microzero's bytes while leaving its picture
+   > pixel-identical at fixed frames, and landed WITHOUT moving this pin; the
+   > landing gate's fresh clone went RED on the asserting test, exactly as the
+   > tripwire is meant to. The move then followed this clause's own procedure:
+   > the new value reproduced on two independent trees (the gate's clone and
+   > the working tree), every LIVE site of the old value updated by
+   > value-enumeration — the asserting test, both falsification tools'
+   > `ROM_PIN`, the citing feature comment, and this clause — and both
+   > falsification sets re-run so the new pin is known to BIND. Records of
+   > `dea58053…` as history (`docs/98` §3 among them) keep it.
 3. All 37 rails keep building. `make bare-check` stays GREEN.
 4. Every gate stays clean: `width-check`, `time-check`, `toy-bad`,
    `rom-unbacked`, `measure`, `register`, `rail-registered`, `cleanroom`.
