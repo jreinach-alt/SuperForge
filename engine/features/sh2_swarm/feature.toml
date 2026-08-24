@@ -49,7 +49,15 @@ depends = ["sh2_cam", "m7_persp_project", "sh2_sprite_rom", "sh2_rom",
 # below and ships at 24: the rule is "the largest N that holds the +1/+1
 # loop-vs-NMI cadence lockstep with >=15% headroom". MEASURED here, the loop
 # still takes exactly one frame at 25, 26 and 27, and the cliff is at N=28
-# parked / N=30 turning — so 24 ships with four entities of measured margin.
+# parked / N=29 turning — so 24 ships with four entities of measured margin.
+#
+# THE TURNING ARM LOST ONE ENTITY TO THE REGION PAIR (was N=30, re-measured
+# 2026-08-24 and stable across two runs). What the conversion added to the
+# per-frame path is one TS_STEP in cam_advance and one dp `ora` at each of the
+# four move-LUT index sites — two of them inside this loop, so the cost is
+# O(N) on the arm that draws most. The shipping margin is unchanged because
+# the PARKED arm is the binding one and it did not move; the number is
+# corrected here rather than left as the figure a re-run would contradict.
 # The table is bigger because the cadence sweep POKES that count upward to
 # find the cliff, and every record the sweep reaches must have been written
 # before it is read (rule 5) — which is why scene enter copies all 64 seeds,
