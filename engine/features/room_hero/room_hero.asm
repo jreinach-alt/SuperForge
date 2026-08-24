@@ -42,10 +42,18 @@ RH2_HI_X9     = 1 << RH2_HI_SHIFT
 RH2_HI_CLR    = $FF - (3 << RH2_HI_SHIFT)
 
 ; --- hero_arm: CHR + palette + OBSEL + the resting OAM entry (scene enter) --
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
+; CONTRACT hero_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the hero's CHR, palette and OBSEL written
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract
+;   tail:     rts
 hero_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "hero_arm"
     sep #$20
     .a8
     lda #$80
@@ -116,12 +124,22 @@ hero_arm:
     rts
 
 ; --- hero2_arm: the twin's resting OAM entry (scene enter) ------------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked. Call AFTER hero_arm: CHR
+; CONTRACT hero2_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the twin's palette written and its entries staged
+;   clobbers: A, N, Z
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract, and AFTER hero_arm: the CHR is shared, so this one
+;             adds only what differs
+;   tail:     rts
+;
 ; upload, palette and OBSEL are hero_arm's work and SHARED — this only marks
 ; the twin's slot LARGE and sets its tile + attr.
 hero2_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "hero2_arm"
     sep #$20
     .a8
     lda a:RH2_HI
@@ -136,7 +154,13 @@ hero2_arm:
     rts
 
 ; --- hero_place: write px/py into the OAM shadow ---------------------------
-; In/out: A16/I16, DB=0. Called from the scene tick, every frame. Clobbers A.
+; CONTRACT hero_place
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the bearer's entry staged from px/py
+;   clobbers: A, N, Z
+;   assumes:  once per frame from the scene tick, during active display
+;   tail:     rts
 ;
 ; X9 IS SET FROM BIT 8 EVERY FRAME, both ways. The room clamps px to 8..232 so
 ; bit 8 is never set today — but an OAM X byte is 9 bits wide and a stale X9
@@ -146,6 +170,7 @@ hero2_arm:
 hero_place:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "hero_place"
     lda z:US_PX
     sep #$20
     .a8
@@ -187,12 +212,20 @@ hero_place:
     rts
 
 ; --- hero2_place: write px2/py2 into the twin's OAM entry -------------------
-; In/out: A16/I16, DB=0. Called from room_refresh every frame. Clobbers A. Same
+; CONTRACT hero2_place
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the twin's entry staged from px2/py2
+;   clobbers: A, N, Z
+;   assumes:  once per frame from room_refresh
+;   tail:     rts
+;
 ; X9-derived-every-frame discipline as hero_place — the clamp keeps bit 8 clear
 ; today, and deriving it removes the assumption.
 hero2_place:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "hero2_place"
     lda z:US_PX2
     sep #$20
     .a8
@@ -227,11 +260,20 @@ hero2_place:
     rts
 
 ; --- hero_park: hide the sprite again (scene exit) -------------------------
-; In/out: A16/I16, DB=0. The scene that armed a slot re-parks it, so the next
+; CONTRACT hero_park
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the bearer's slots parked
+;   clobbers: A, N, Z
+;   assumes:  the scene that armed a slot re-parks it, so the next scene
+;             inherits the boot contract rather than this scene's sprites
+;   tail:     rts
+;
 ; scene inherits the boot contract rather than this scene's sprite.
 hero_park:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "hero_park"
     sep #$20
     .a8
     lda #240
@@ -244,10 +286,17 @@ hero_park:
     rts
 
 ; --- hero2_park: hide the twin (scene exit) ---------------------------------
-; In/out: A16/I16, DB=0.
+; CONTRACT hero2_park
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the twin's slots parked
+;   clobbers: A, N, Z
+;   assumes:  the same symmetry hero_park's contract states
+;   tail:     rts
 hero2_park:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "hero2_park"
     sep #$20
     .a8
     lda #240

@@ -53,11 +53,21 @@ RPG_SAVE_LEN = 6
 RPG_SAVE_VER = 1
 
 ; --- rpg_do_save: stage the payload and write slot 0 ------------------------
-; In/out: A16/I16, DB=0. Clobbers A, X, Y. WIDTH-RISK: exported. Entry A16/I16,
+; CONTRACT rpg_do_save
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the payload staged and slot 0 written — header, payload and
+;             CRC-16
+;   clobbers: A, X, Y, N, Z
+;   assumes:  the SRAM window is mapped. sv_save's own contract is A16/I16
+;             on both sides, which is what makes this one's the same
+;   tail:     rts
+;
 ; exit A16/I16 (sv_save's contract too).
-.a16
-.i16
 rpg_do_save:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "rpg_do_save"
     lda z:RPG_TOWN_TX
     sta a:RPG_SAVE_TX
     lda z:RPG_TOWN_TY
@@ -82,14 +92,24 @@ rpg_do_save:
     rts
 
 ; --- rpg_try_load: restore from slot 0 if it verifies -----------------------
+; CONTRACT rpg_try_load
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the save slot loaded into the world state if it verified;
+;             the state is untouched on every reject
+;   clobbers: A, N, Z, C
+;   assumes:  the SRAM window is mapped, and the caller decides what a
+;             reject means
+;   tail:     rts
+;
 ; Out: A16 = 1 if a valid save was applied, 0 otherwise (dest untouched on
 ; every reject — sv_load's contract, and the reason this branches on the RETURN
 ; CODE rather than on any SRAM byte: virgin SRAM is power-on garbage under the
-; random regime, exactly like a real cart's first power-up). In/out: A16/I16,
-; DB=0. Clobbers A, X, Y. WIDTH-RISK: exported. Entry A16/I16, exit A16/I16.
-.a16
-.i16
+; random regime, exactly like a real cart's first power-up).
 rpg_try_load:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "rpg_try_load"
     lda #0
     sta z:SV_SLOT
     lda #RPG_SAVE_LEN

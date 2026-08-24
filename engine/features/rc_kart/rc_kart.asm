@@ -45,10 +45,18 @@ KART_HI_SIZE = 2 << ((ES_O_KART & 3) * 2)   ; this slot's size-select bit
 KART_REGS = $4300 + ES_D_KART_UP_CH * 16
 
 ; --- kart_arm: CHR + palette upload, OBSEL, the OAM slots (scene enter) -----
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr contract).
+; CONTRACT kart_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the kart's CHR, palettes and OBSEL written
+;   clobbers: A, X, Y, N, Z, C, V
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract
+;   tail:     rts
 kart_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "kart_arm"
     ; ---- CHR -> the obj chr claim (word port, DMA mode 1) -----------------
     sep #$20
     .a8
@@ -144,7 +152,15 @@ kart_arm:
     rts
 
 ; --- kart_draw: this frame's kart frame + lit tick count --------------------
-; In: A16/I16, DB=0. X = lean (0 straight, 1 lean-left, 2 lean-right),
+; CONTRACT kart_draw
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       X = the lean (0 straight, 1 lean-left, 2 lean-right)
+;   out:      the kart's entries staged for that lean
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  once per frame from the scene tick, during active display
+;   tail:     rts
+;
 ; Y = number of lit ticks (0..BAR_TICKS). Writes the OAM SHADOW only — the
 ; declared VBlank GP-DMA owns hardware OAM.
 ;
@@ -154,6 +170,7 @@ kart_arm:
 kart_draw:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "kart_draw"
     sep #$20
     .a8
     ; ---- kart frame: tile + attribute from the lean index -----------------
@@ -213,10 +230,17 @@ kart_draw:
     rts
 
 ; --- kart_disarm: re-park every claimed slot (scene exit) -------------------
-; In/out: A16/I16, DB=0, forced blank.
+; CONTRACT kart_disarm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the kart's slots parked and its registers put back
+;   clobbers: A, X, N, Z, C
+;   assumes:  forced blank, at scene exit
+;   tail:     rts
 kart_disarm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "kart_disarm"
     sep #$20
     .a8
     lda #240

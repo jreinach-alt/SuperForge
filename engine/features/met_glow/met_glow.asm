@@ -35,13 +35,21 @@
 ; Must NOT set .p816/.smart — included into a parent that already does.
 
 ; --- glow_arm: the table, the channel slot, colour math off ----------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
-; Clobbers A, X, Y. The CALLER ORs (1 << ES_H_GLOW_CH) into the HDMAEN shadow.
+; CONTRACT glow_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the gradient table built and the channel shadow staged
+;   clobbers: A, X, Y, N, Z
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. The CALLER ORs (1 << ES_H_GLOW_CH) into the HDMAEN
+;             shadow
+;   tail:     rts
 ;
 ; WIDTH-RISK: A16/I16 entry AND exit; `sep #$20` only, I-width never moves.
 glow_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "glow_arm"
     lda #0
     jsr glow_set                    ; every one of the 17 bytes, before the
                                     ;  channel can ever read one (rule 5)
@@ -68,7 +76,16 @@ glow_arm:
     rts
 
 ; --- glow_set: rebuild the eight band entries for intensity A --------------
-; In: A16/I16, DB=0. A = intensity 0..31 (the bottom band's level). Out:
+; CONTRACT glow_set
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       A = the intensity 0..31 — the bottom band's level
+;   out:      the table rewritten at that intensity
+;   clobbers: A, X, Y, N, Z, C, V
+;   assumes:  VBlank or forced blank: the channel reads this table as the
+;             picture draws
+;   tail:     rts
+;
 ; A16/I16. Clobbers A, X, Y.
 ;
 ; band i (0 = top) gets level * (i + 1) / 8, accumulated rather than
@@ -82,6 +99,7 @@ glow_arm:
 glow_set:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "glow_set"
     and #MET_GLOW_MAX               ; five bits is all COLDATA has
     sta z:ES_MET_DRAW + MET_D_TILE  ; the per-band step == the intensity
     stz z:ES_MET_DRAW + MET_D_X     ; the running sum
@@ -119,7 +137,13 @@ glow_set:
 .assert MET_GLOW_BANDS * MET_GLOW_LINES = 224, error, "met_glow: the bands do not tile the 224 active scanlines"
 
 ; --- glow_math_on: ADD the fixed colour to backdrop + BG1 ------------------
-; In/out: A16/I16, DB=0. Clobbers A.
+; CONTRACT glow_math_on
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      CGWSEL/CGADSUB set for the glow's additive blend
+;   clobbers: A, N, Z
+;   assumes:  forced blank or VBlank
+;   tail:     rts
 ;
 ; The layer mask: bit 0 = BG1 (the Mode 7 plane) and bit 5 = BACKDROP, with
 ; bit 4 (OBJ) DELIBERATELY CLEAR so the captured green ground and the white
@@ -130,6 +154,7 @@ glow_set:
 glow_math_on:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "glow_math_on"
     sep #$20
     .a8
     stz a:$2130                     ; CGWSEL: math always, fixed-colour addend
@@ -140,10 +165,19 @@ glow_math_on:
     rts
 
 ; --- glow_math_off: no layers take the addend ------------------------------
-; In/out: A16/I16, DB=0. Clobbers A.
+; CONTRACT glow_math_off
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      CGWSEL/CGADSUB returned to the boot defaults
+;   clobbers: A, N, Z
+;   assumes:  forced blank or VBlank. These are GLOBAL registers, so
+;             leaving them set would tint a scene that never asked for
+;             colour math
+;   tail:     rts
 glow_math_off:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "glow_math_off"
     sep #$20
     .a8
     stz a:$2131                     ; CGADSUB: all layers off
@@ -152,7 +186,14 @@ glow_math_off:
     rts
 
 ; --- glow_disarm: the boot colour-math state (scene exit) ------------------
-; In/out: A16/I16, DB=0, forced blank. Clobbers A.
+; CONTRACT glow_disarm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the channel and the colour-math state put back for the next
+;             scene
+;   clobbers: A, N, Z
+;   assumes:  forced blank, at scene exit
+;   tail:     rts
 ;
 ; COLDATA holds whatever line the disarm caught, so all three planes are reset
 ; to zero: the next scene must not inherit a stray fixed colour. CGWSEL and
@@ -161,6 +202,7 @@ glow_math_off:
 glow_disarm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "glow_disarm"
     sep #$20
     .a8
     lda #(32 | 16)

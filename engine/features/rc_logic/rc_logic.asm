@@ -109,10 +109,17 @@ RC_BAR_TICKS = ES_O_BAR_SPRITES
 RC_BAR_STEP  = RC_SPEED_CAP / RC_BAR_TICKS
 
 ; --- rc_arm: the init contract + the kart at rest on the start line ---------
-; In/out: A16/I16, DB=0, forced blank (scene_mgr enter contract).
+; CONTRACT rc_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the race state seeded — every word written here (rule 5)
+;   clobbers: A, X, N, Z
+;   assumes:  forced blank — the scene_mgr enter contract
+;   tail:     rts
 rc_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rc_arm"
     lda #0
     ldx #(ES_RC_HOT_SIZE - 2)
 :   sta z:ES_RC_HOT, x
@@ -164,7 +171,18 @@ rc_arm:
     rts
 
 ; --- rc_ts_publish: this frame's three region-correct steps, published once -
-; In/out: A16/I16, DB=0. Clobbers A. Called at the top of the scene tick, so
+; CONTRACT rc_ts_publish
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      this frame's scaled steps published, one per rate
+;   clobbers: A, N, Z
+;   assumes:  the TOP of the scene tick, so everything below reads this
+;             frame's steps. It runs unconditionally — TS_STEP carries a
+;             fraction between frames, so a step computed only on the
+;             frames a pad is held would carry a fraction sampled from the
+;             player rather than from the clock
+;   tail:     rts
+;
 ; every consumer reads a settled word.
 ;
 ; On NTSC each publishes the constant this file authored, to the unit, and the
@@ -177,6 +195,7 @@ rc_arm:
 rc_ts_publish:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rc_ts_publish"
     TS_STEP z:RC_TSH_A, TS_STEER_BASE   ; the steering: ONE r (poses/frame)
     sta z:RC_TSH
     lda z:ES_RGN_PAL
@@ -195,6 +214,14 @@ rc_ts_publish:
     rts
 
 ; --- rc_pause: START toggles the freeze. Out: A16, Z set while RACING -------
+; CONTRACT rc_pause
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the freeze toggled by START. Z is SET while racing
+;   clobbers: A, N, Z
+;   assumes:  once per frame from the scene tick, during active display
+;   tail:     rts
+;
 ; The rising edge only (input's per-frame pressed latch is stable for exactly
 ; one frame), so holding START does not strobe. A frozen frame skips the whole
 ; per-frame body: the camera and the day-night clock both hold where they are —
@@ -203,6 +230,7 @@ rc_ts_publish:
 rc_pause:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rc_pause"
     lda z:ES_INP_PRESS
     and #JOY_START
     beq @no_edge
@@ -225,9 +253,17 @@ rc_pause:
     rts
 
 ; --- rc_steer: LEFT/RIGHT turn one pose step per frame, and set the lean ----
+; CONTRACT rc_steer
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the heading stepped by this frame's steer
+;   clobbers: A, Y, N, Z, C, V
+;   assumes:  the pads are already latched and rc_ts_publish has run
+;   tail:     rts
 rc_steer:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rc_steer"
     ldy #0                          ; lean: 0 straight
     lda z:ES_INP_CUR
     and #JOY_LEFT
@@ -270,9 +306,17 @@ rc_steer:
     rts
 
 ; --- rc_throttle: B accelerates toward the cap, releasing coasts to a stop --
+; CONTRACT rc_throttle
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the speed stepped by this frame's accelerate or decelerate
+;   clobbers: A, N, Z, C, V
+;   assumes:  the pads are already latched and rc_ts_publish has run
+;   tail:     rts
 rc_throttle:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rc_throttle"
     lda z:ES_INP_CUR
     and #JOY_B
     beq @coast
@@ -298,6 +342,14 @@ rc_throttle:
     rts
 
 ; --- rc_offroad: the map is collision ground truth --------------------------
+; CONTRACT rc_offroad
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the off-road penalty applied to the speed
+;   clobbers: A, N, Z, C, V
+;   assumes:  the surface has been probed for this frame
+;   tail:     rts
+;
 ; Query the tile under the camera; if it is not drivable, bleed speed toward
 ; RC_GRASS_CAP. THIS FEEDS THE PHYSICS — unlike microzero's read-only cm_tick,
 ; which deliberately feeds nothing to protect a pinned measurement. Grass
@@ -306,6 +358,7 @@ rc_throttle:
 rc_offroad:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rc_offroad"
     lda z:ES_M7ORG + 0              ; the camera's world pixel x (wrapped by
     sta z:CM_PX                     ;   rc_move)
     lda z:ES_M7ORG + 2
@@ -346,9 +399,17 @@ rc_offroad:
     rts
 
 ; --- rc_move: step the camera origin along the heading ----------------------
+; CONTRACT rc_move
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the position stepped along the heading at the current speed
+;   clobbers: A, X, N, Z, C
+;   assumes:  rc_steer and rc_throttle have already run
+;   tail:     rts
 rc_move:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rc_move"
     lda z:US_SPEED
     beq @none                       ; stopped: no step, the accumulators hold
     sta z:RC_UABS
@@ -487,11 +548,21 @@ rc_integrate:
     rts
 
 ; --- rc_bar_ticks: speed -> lit tick count. Out: Y = 0..RC_BAR_TICKS --------
+; CONTRACT rc_bar_ticks
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      Y = the lit tick count, 0..RC_BAR_TICKS, derived from the
+;             speed
+;   clobbers: A, Y, N, Z, C, V
+;   assumes:  nothing — it is a pure function of the speed word
+;   tail:     rts
+;
 ; The bar is a rendered readout of a physics value, so the mapping is here
 ; rather than in rc_kart: how many lights a speed is worth is a game rule.
 rc_bar_ticks:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rc_bar_ticks"
     lda z:US_SPEED
     ldy #0
 @count:

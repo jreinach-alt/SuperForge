@@ -129,10 +129,17 @@ RL_SECTOR0 = 3
 rl_ckpt_bit: .byte 1, 2, 4, 8       ; sector -> checkpoint mask bit
 
 ; --- rl_arm: init contract + race state at the start line -------------------
-; In/out: A16/I16, DB=0, forced blank (scene enter contract).
+; CONTRACT rl_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the race state seeded — every word written here (rule 5)
+;   clobbers: A, X, N, Z
+;   assumes:  forced blank — the scene enter contract
+;   tail:     rts
 rl_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rl_arm"
     ldx #(ES_RL_HOT_SIZE - 2)
 :   stz z:ES_RL_HOT, x
     dex
@@ -213,10 +220,18 @@ rl_ts_publish:
     rts
 
 ; --- rl_tick: one frame of race logic (race::tick) --------------------------
-; In/out: A16/I16, DB=0.
+; CONTRACT rl_tick
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      one frame of race logic: steering, friction and the lap
+;             machine
+;   clobbers: A, X, Y, N, Z, C, V
+;   assumes:  once per frame from the scene tick, during active display
+;   tail:     rts
 rl_tick:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rl_tick"
     jsr rl_ts_publish           ; this frame's region-correct steps, once
     jsr rl_steer
     jsr rl_velocity

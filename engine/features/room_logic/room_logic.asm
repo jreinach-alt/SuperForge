@@ -125,11 +125,20 @@ JOY_UP    = 1 << 11
 .endif
 
 ; --- rm_spawn: put both heroes on the floor (scene enter) ------------------
-; In/out: A16/I16, DB=0. The bearer spawns centred; the twin a step to his left
+; CONTRACT rm_spawn
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      both actors placed — the bearer centred, the twin a step to
+;             his left
+;   clobbers: A, N, Z
+;   assumes:  the room is already armed
+;   tail:     rts
+;
 ; (both inside the clamp bounds, so frame 0 is a legal state).
 rm_spawn:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rm_spawn"
     lda #RM_SPAWN_X
     sta z:US_PX
     lda #RM_SPAWN_Y
@@ -141,11 +150,20 @@ rm_spawn:
     rts
 
 ; --- rm_move: one frame of movement, both pads (scene tick) ----------------
-; In/out: A16/I16, DB=0. Pad 1 moves the bearer (px/py), pad 2 the twin
+; CONTRACT rm_move
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      both actors stepped: pad 1 moves the bearer (px/py), pad 2
+;             the twin (px2/py2) off input2's JOY2 word, same bit layout
+;   clobbers: A, N, Z
+;   assumes:  both pads are already latched
+;   tail:     rts
+;
 ; (px2/py2) — input2's JOY2 word, same bit layout. Clobbers A.
 rm_move:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rm_move"
     stz z:ES_RM_HOT + 4             ; moved-this-frame flag (footstep input)
     RM_MOVE_PAD ES_INP_CUR,  US_PX,  US_PY
     RM_MOVE_PAD ES_INP2_CUR, US_PX2, US_PY2
@@ -183,19 +201,37 @@ rm_move:
     rts
 
 ; --- rm_centre_x / rm_centre_y: the hero's centre, for the lantern --------
-; In/out: A16/I16. Returns in A. The window follows the sprite's middle, not
+; CONTRACT rm_centre_x
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      A = the window's x centre. It follows the sprite's MIDDLE
+;             rather than its corner, which is what keeps the window
+;             steady as the sprite flips
+;   clobbers: A, N, Z, C, V
+;   assumes:  nothing — a pure function of the position words
+;   tail:     rts
+;
 ; its corner, or the light sits up and to the left of the person holding it.
 rm_centre_x:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rm_centre_x"
     lda z:US_PX
     clc
     adc #8
     rts
 
+; CONTRACT rm_centre_y
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      A = the window's y centre, on rm_centre_x's convention
+;   clobbers: A, N, Z, C, V
+;   assumes:  nothing — a pure function of the position words
+;   tail:     rts
 rm_centre_y:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rm_centre_y"
     lda z:US_PY
     clc
     adc #8
@@ -217,13 +253,23 @@ RL_PIP_X0    = 8                ; first pip; then +RL_PIP_DX each
 RL_PIP_DX    = 10
 
 ; --- hud_pips_arm: write the row into the OAM shadow (scene enter) ---------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (enter contract; the shadow
+; CONTRACT hud_pips_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the HUD pips' entries staged
+;   clobbers: A, X, N, Z, C, V
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. The shadow writes and the scene's own are mutually
+;             exclusive by construction
+;   tail:     rts
+;
 ; itself is DMA'd next armed VBlank). Uses ES_RM_HOT+0/+2 as enter-time scratch
 ; — rm_hot is per-tick transient, and enter runs before any tick, so the phases
 ; are mutually exclusive by construction. Clobbers A, X.
 hud_pips_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "hud_pips_arm"
     lda f:US_VISITS_LONG
     cmp #(RL_PIP_COUNT + 1)
     bcc :+
@@ -268,11 +314,19 @@ hud_pips_arm:
     rts
 
 ; --- hud_pips_park: hide the whole row (scene exit) ------------------------
-; In/out: A16/I16, DB=0. The scene that armed the slots re-parks them. Clobbers
+; CONTRACT hud_pips_park
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the pips' slots parked
+;   clobbers: A, X, N, Z, C
+;   assumes:  the scene that armed the slots re-parks them
+;   tail:     rts
+;
 ; A, X.
 hud_pips_park:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "hud_pips_park"
     ldx #0
     sep #$20
     .a8

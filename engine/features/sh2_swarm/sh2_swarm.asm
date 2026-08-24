@@ -142,7 +142,15 @@ SWM_T1  = ES_SWM + 18
 ; =============================================================================
 ; swm_arm — seed the whole table and the control block (scene enter)
 ; =============================================================================
-; In/out: A16/I16, DB=0, forced blank + NMI masked (the scene_mgr enter
+; CONTRACT swm_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the swarm's slots seeded at their waypoints
+;   clobbers: A, X, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract
+;   tail:     rts
+;
 ; contract). Clobbers A, X.
 ;
 ; ALL SWM_MAX RECORDS, not the SWM_N_SHIP the build ticks. Power-on WRAM is
@@ -154,6 +162,7 @@ SWM_T1  = ES_SWM + 18
 swm_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "swm_arm"
     ldx #0
 @copy:
     .a16
@@ -173,7 +182,15 @@ swm_arm:
 ; =============================================================================
 ; swm_beat — the main loop's own frame counter
 ; =============================================================================
-; In/out: A16/I16, DB=0. Clobbers A.
+; CONTRACT swm_beat
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the scene tick's own frame counter bumped — the counter this
+;             rail pairs with scene_mgr's VBlank count precisely so an
+;             overrun is visible
+;   clobbers: A, N, Z
+;   assumes:  once per frame from the scene tick, during active display
+;   tail:     rts
 ;
 ; HALF OF THE CADENCE GATE, and the half nothing else provides. Scene_mgr's
 ; ES_SM_FRAME counts VBLANKS — sm_nmi_core increments it on EVERY NMI, armed or
@@ -187,6 +204,7 @@ swm_arm:
 swm_beat:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "swm_beat"
     lda f:SWM_BEAT
     inc a
     sta f:SWM_BEAT
@@ -195,7 +213,14 @@ swm_beat:
 ; =============================================================================
 ; swm_players — entities 0 and 1 follow the two cameras
 ; =============================================================================
-; In/out: A16/I16, DB=0. Clobbers A.
+; CONTRACT swm_players
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      entities 0 and 1 given the two cameras' positions
+;   clobbers: A, N, Z
+;   assumes:  once per frame from the scene tick, during active display,
+;             after the cameras have stepped
+;   tail:     rts
 ;
 ; Each player's marker renders in the OTHER band only: in its own band the
 ; point is exactly the camera position, so the camera-frame v is 0 and the
@@ -207,6 +232,7 @@ swm_beat:
 swm_players:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "swm_players"
     lda z:SH2_POS1X
     sta f:ES_SWM_ENTS_LONG + 0 * SWM_ENT_BYTES + SWM_E_X
     lda z:SH2_POS1Y
@@ -220,7 +246,18 @@ swm_players:
 ; =============================================================================
 ; swm_ai — one frame of every follower
 ; =============================================================================
-; In/out: A16/I16, DB=0. Clobbers A, X, Y, this feature's scratch and
+; CONTRACT swm_ai
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      every follower steered and moved: a wrap-residue pair, a
+;             four-multiply cross/dot steer and two 8.8 accumulator steps
+;             each
+;   clobbers: A, X, Y, N, Z, C, V, this feature's scratch and the
+;             projector's
+;   assumes:  once per frame from the scene tick, during active display,
+;             after sh2_advance has stepped the cameras
+;   tail:     rts
+;
 ; m7_persp_project's MPP_ACC/MPP_TMPM (through mpp_mul8).
 ;
 ; Entities below SWM_PLAYERS are not touched — they are the cameras' and
@@ -232,6 +269,7 @@ swm_players:
 swm_ai:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "swm_ai"
     lda f:SWM_N
     cmp #(SWM_PLAYERS + 1)
     bcs @go

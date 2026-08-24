@@ -64,11 +64,20 @@ rpgt_upload_one:
     rts
 
 ; --- rpgt_arm: CHR + tilemap + palette + the BG1 register bases -------------
-; In/out: A16/I16, DB=0. Clobbers A, X, Y. WIDTH-RISK: exported. Entry A16/I16,
+; CONTRACT rpgt_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the town's CHR, tilemap and palette uploaded and its
+;             registers written
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank, at the swap into the interior
+;   tail:     rts
+;
 ; exit A16/I16.
-.a16
-.i16
 rpgt_arm:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "rpgt_arm"
     lda #ES_R_TOWN_CHR_SIZE
     sta z:ES_RPG_HOT + 14
     ldx #ES_R_TOWN_CHR_ADDR
@@ -108,15 +117,23 @@ rpgt_arm:
     rts
 
 ; --- rpgt_blocks: does town tile (X=tx, Y=ty) block the player? -------------
+; CONTRACT rpgt_blocks
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the town's blocking map answered for the probed cell
+;   clobbers: A, X, N, Z, C, V
+;   assumes:  the caller has staged the probe coordinates
+;   tail:     rts
+;
 ; Out: A16 = 1 blocked, 0 walkable. Reads the tilemap blob in ROM — the SAME
 ; bytes the PPU draws, so what is drawn IS what blocks. Tiles outside the 32x32
 ; grid block (the brick border already does; this is the guard for a caller
-; that computed a bad tile). In/out: A16/I16, DB=0. Clobbers A, X. WIDTH-RISK:
-; exported. Entry A16/I16, exit A16/I16; the A8 window around the one-byte tile
-; read is balanced on BOTH arms.
-.a16
-.i16
+; that computed a bad tile). WIDTH-RISK: the A8 window around the one-byte
+; tile read is balanced on BOTH arms.
 rpgt_blocks:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "rpgt_blocks"
     cpx #32
     bcs @block
     cpy #32

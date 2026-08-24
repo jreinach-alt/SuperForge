@@ -127,8 +127,16 @@ MXL_CAND_TY = ES_MXL_CAND + 2
 ; =============================================================================
 ; ARMING — once, at scene enter
 ; =============================================================================
+; CONTRACT mxl_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the grid walker's state seeded at the spawn tile
+;   clobbers: A, X, Y, N, Z
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract
+;   tail:     rts
+;
 ; --- mxl_arm: seed the world's state before the first NMI is armed ----------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (the scene_mgr enter
 ; contract). Clobbers A, X, Y.
 ;
 ; Power-on WRAM is random and neither this feature's `m7org` claim nor the
@@ -140,6 +148,7 @@ MXL_CAND_TY = ES_MXL_CAND + 2
 mxl_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "mxl_arm"
     lda #MXL_SPAWN_PX
     sta z:US_CAM_PX
     lda #MXL_SPAWN_PY
@@ -160,8 +169,15 @@ mxl_arm:
 ; =============================================================================
 ; THE FRAME
 ; =============================================================================
+; CONTRACT mxl_tick
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      one frame of the grid slide, or the start of a new one
+;   clobbers: A, X, Y, N, Z
+;   assumes:  once per frame from the scene tick, during active display
+;   tail:     rts
+;
 ; --- mxl_tick: advance a slide, or start one --------------------------------
-; In/out: A16/I16, DB=0. Clobbers A, X, Y.
 ;
 ; A slide in flight OWNS the frame: input is not read at all until it lands.
 ; That is the grid discipline — a step is atomic — and it is also what keeps
@@ -169,6 +185,7 @@ mxl_arm:
 mxl_tick:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "mxl_tick"
     stz z:US_LANDED                 ; one frame's answer, rebuilt every frame
     ; This frame's state steps: 1 on NTSC to the tick, 1 or 2 on PAL in the
     ; pattern that averages 1.2018. See "THE GRID STEP IN TWO REGIONS" above.
@@ -380,7 +397,14 @@ mxl_try_step:
     rts
 
 ; --- mxl_apply_camera: the camera -> the streamer AND the picture -----------
-; In/out: A16/I16, DB=0. Clobbers A, X, Y.
+; CONTRACT mxl_apply_camera
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the Mode-7 camera words written from the walker's position
+;   clobbers: A, X, Y, N, Z, C, V
+;   assumes:  once per frame from the scene tick, during active display,
+;             after mxl_tick has committed this frame's position
+;   tail:     rts
 ;
 ; TWO CONSUMERS, ONE POSITION, and that is the whole point of doing it in one
 ; place:
@@ -397,6 +421,7 @@ mxl_try_step:
 mxl_apply_camera:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "mxl_apply_camera"
     lda z:US_CAM_PX
     sta z:ES_M7ORG + 0              ; M7X px — the streamer's camera
     lda z:US_CAM_PY

@@ -76,9 +76,20 @@ SHG_CGADSUB_ADD_BG1 = 1 << 0
 ; -DSHG_NO_GRAD this routine is not compiled and the scene does not call it: no
 ; table, no channel bit, no colour math — the gradient's flip control.
 ; =============================================================================
+; CONTRACT grad_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the gradient table built, the channel staged and colour math
+;             turned on
+;   clobbers: A, X, N, Z
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. The caller ORs the enable bit into the HDMAEN
+;             shadow AFTERWARDS
+;   tail:     rts
 grad_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "grad_arm"
     jsr grad_build
 
     ; ---- channel shadow: DIRECT, one byte per line -------------------------
@@ -119,12 +130,19 @@ grad_arm:
 ; feature-strict tier then covers them and the claim needs no `scene_writes`
 ; hatch in either direction. Leaving colour math on would wash whatever scene
 ; came next; no edges exist on this rail, so this is the contract kept honest.
-; In/out: A16/I16, DB=0 (the scene exit contract). Clobbers A. WIDTH-RISK:
 ; entry A16/I16; exits A16/I16 (sep/rep balanced).
 ; =============================================================================
+; CONTRACT grad_disarm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the colour-math registers put back
+;   clobbers: A, N, Z
+;   assumes:  the scene exit contract
+;   tail:     rts
 grad_disarm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "grad_disarm"
     sep #$20
     .a8
     stz a:$2131                     ; CGADSUB: no layer in colour math

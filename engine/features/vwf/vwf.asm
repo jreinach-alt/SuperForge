@@ -120,9 +120,20 @@ vwf_begin_line:
 ; staged.
 VWF_REGS = $4300 + ES_H_VWFQ_CH * 16
 
+; CONTRACT vwf_nmi_commit
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   out:      this frame's revealed CHR span committed — one contiguous
+;             run, no tilemap traffic
+;   clobbers: A, X, N, Z, C, V
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention. It programs its own VMAIN/VMADD, which is what
+;             makes its position in the hook free
+;   tail:     rts
 vwf_nmi_commit:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "vwf_nmi_commit"
     lda z:VWF_DIRTY
     beq @done
     stz z:VWF_DIRTY
@@ -325,15 +336,28 @@ vwf_put_glyph:
 VWF_WINDOW_PX = VWF_STRIP_TILES * 8         ; 112 px of composited text
 
 ; --- vwf_map_row: point a tilemap row's cells at the strip tiles -------------
+; CONTRACT vwf_map_row
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       X = the tilemap word address of the row's first cell, A =
+;             the attr word
+;   out:      the row's cells pointed at the strip tiles. After this the
+;             strips are LIVE: changing what the row displays is changing
+;             CHR, never the tilemap — which is why a typewriter tick
+;             costs one contiguous CHR span and no tilemap traffic
+;   clobbers: A, X, N, Z, C, V
+;   assumes:  forced blank, at scene enter, like every other bg_text VRAM
+;             write
+;   tail:     rts
+;
 ; Written ONCE at scene enter under forced blank, like every other bg_text VRAM
 ; write. After this the strips are live: changing what the row displays is
 ; changing CHR, never the tilemap — which is why a typewriter tick costs one
-; contiguous CHR span and no tilemap traffic at all. In: X = tilemap word
-; address of the row's first cell, A16 = attr word. In/out: A16/I16, DB=0.
-; FORCED BLANK asserted by the caller.
+; contiguous CHR span and no tilemap traffic at all.
 vwf_map_row:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "vwf_map_row"
     sta z:VWF_ACC               ; attr; nothing is being composited at enter
     sep #$20
     .a8
@@ -357,11 +381,21 @@ vwf_map_row:
     rts
 
 ; --- vwf_open: point at a 0-terminated string and blank the window -----------
-; In: A16 = string address low16, Y = bank in the low byte. In/out: A16/I16,
+; CONTRACT vwf_open
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       A = the string address low 16, Y = the bank in the low byte
+;   out:      the window blanked and the reveal pointed at that string
+;   clobbers: A, N, Z
+;   assumes:  the main thread; the commit half is vwf_nmi_commit's
+;   tail:     jmp vwf_begin_line — the first line's setup is the tail of
+;             this one
+;
 ; DB=0.
 vwf_open:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "vwf_open"
     sta z:VWF_STR
     tya
     sep #$20

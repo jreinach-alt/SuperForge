@@ -1315,6 +1315,87 @@ def test_an_ambiguous_bare_name_is_not_resolved(tmp_path):
     assert stats.ambiguous_names == {"shared_name"}
 
 
+def test_a_global_scope_qualified_call_is_seen(tmp_path):
+    """`jsr ::name` is ca65's explicit global-scope form and this tree writes
+    it wherever a routine is expanded inside a scene's `.scope` — about ninety
+    call sites. It names the same routine a bare `jsr` does, so the cross-file
+    pass has to see it: while it did not, those calls were neither checked nor
+    counted as skipped, and the summary reported a reach it did not have."""
+    (tmp_path / "callee.asm").write_text(textwrap.dedent("""
+        .p816
+        .smart
+        .segment "CODE"
+        ; CONTRACT narrow_entry
+        ;   entry:    A8 I16
+        ;   exit:     A8 I16
+        ;   clobbers: A
+        narrow_entry:
+            .a8
+            .i16
+            rts
+    """).lstrip("\n"))
+    (tmp_path / "caller.asm").write_text(textwrap.dedent("""
+        .p816
+        .smart
+        .segment "CODE"
+        wide_caller:
+            .a16
+            .i16
+            jsr ::narrow_entry
+            rts
+    """).lstrip("\n"))
+    findings, stats = width_lint.lint_paths(
+        [str(tmp_path / "callee.asm"), str(tmp_path / "caller.asm")])
+    xf = [f for f in findings if f.rule == "cross-file-width"]
+    assert len(xf) == 1, [width_lint.format_finding(f) for f in findings]
+    assert xf[0].label == "narrow_entry"
+    assert "A8" in xf[0].message and ".a16" in xf[0].message
+    # and the same call, correctly narrowed, is CHECKED rather than skipped
+    (tmp_path / "caller.asm").write_text(textwrap.dedent("""
+        .p816
+        .smart
+        .segment "CODE"
+        ok_caller:
+            .a8
+            .i16
+            jsr ::narrow_entry
+            rts
+    """).lstrip("\n"))
+    findings, stats = width_lint.lint_paths(
+        [str(tmp_path / "callee.asm"), str(tmp_path / "caller.asm")])
+    assert findings == [], [width_lint.format_finding(f) for f in findings]
+    assert stats.sites_checked == 2          # both axes of the one call
+    assert stats.callees == {"narrow_entry"}
+
+
+def test_a_global_scope_qualified_call_in_the_defining_file_is_check_1s(tmp_path):
+    """Stripping the `::` also puts a same-file `jsr ::name` back under check
+    1, where it belongs — the cross-file pass must not double-count an arrival
+    the label check already models."""
+    (tmp_path / "one.asm").write_text(textwrap.dedent("""
+        .p816
+        .smart
+        .segment "CODE"
+        ; CONTRACT local_callee
+        ;   entry:    A16 I16
+        ;   exit:     A16 I16
+        ;   clobbers: A
+        local_callee:
+            .a16
+            .i16
+            rts
+        local_caller:
+            .a8
+            .i16
+            jsr ::local_callee
+            rts
+    """).lstrip("\n"))
+    findings, stats = width_lint.lint_paths([str(tmp_path / "one.asm")])
+    assert [f for f in findings if f.rule == "cross-file-width"] == []
+    assert stats.sites_checked == 0
+    assert any(f.rule == "annotation-contradicts-arrival" for f in findings)
+
+
 def test_a_scope_qualified_contract_binds_its_last_segment(tmp_path):
     """`microzero::sm_nmi_hook` is how a name 37 rails share can still
     declare. The qualifier keys it uniquely; the label it binds is the last

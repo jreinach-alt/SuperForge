@@ -184,9 +184,22 @@ m7p_mac_neg:
     rts
 
 ; --- m7p_mul: acc = a * b, one signed 16x16 -> signed 32 product -----------
-; In: A16/I16, DB=0. A = a (the multiplicand), Y = b (the multiplier). Out:
+; CONTRACT m7p_mul
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       A = a (the multiplicand), Y = b (the multiplier)
+;   out:      the accumulator holds the signed 32-bit product — +0 its low
+;             word, +2 its high word. `a` is the wider operand because it
+;             is held in 32 bits and shifted LEFT; `b` is shifted RIGHT
+;             until zero, so the loop costs one iteration per significant
+;             bit of it and the smaller, often-zero operand belongs there
+;   clobbers: A, X, Y, N, Z
+;   assumes:  no sep/rep here or in m7p_mac, so the width survives the
+;             tail call
+;   tail:     jmp m7p_mac — a tail call: m7p_mac's rts returns to this
+;             routine's caller
+;
 ; A16/I16. ES_M7P+M7P_ACC holds the 32-bit product, little-endian:
-;  +0 is its low word, +2 its high word. Clobbers A, X, Y.
 ;
 ; m7p_mac ACCUMULATES; this is the same multiply with the accumulator cleared
 ; first, which is what a caller wanting ONE product needs. It exists because
@@ -204,6 +217,7 @@ m7p_mac_neg:
 m7p_mul:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "m7p_mul"
     stz z:ES_M7P + M7P_ACC + 0
     stz z:ES_M7P + M7P_ACC + 2
     jmp m7p_mac                     ; tail call: m7p_mac's rts returns to ours
@@ -231,10 +245,20 @@ m7p_mul:
 .endmacro
 
 ; --- m7p_project: the world point -> the screen point ----------------------
-; In: A16/I16, DB=0. X = world x, Y = world y (unsigned world px). Out:
+; CONTRACT m7p_project
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       X = world x, Y = world y, both unsigned world pixels
+;   out:      the screen point, with the CARRY as the visibility answer
+;   clobbers: A, X, Y, N, Z, C, V
+;   assumes:  every callee (m7p_mac through M7P_DOT) is A16/I16-preserving
+;             and contains no sep/rep, which is what lets the carry-flag
+;             return convention survive the calls — the `clc`/`sec` are
+;             the LAST flag writes on each path
+;   tail:     rts
+;
 ; A16/I16. Carry SET = pre-culled, nothing written to SX/SY.
 ;  Carry CLEAR = ES_M7P+M7P_SX / +M7P_SY hold the signed screen position.
-;  Clobbers A, X, Y.
 ;
 ; The pivot subtraction is deliberately NOT reduced modulo the 1024 px world
 ; torus. The plane wraps, so a point can be reached the short way round — but
@@ -250,6 +274,7 @@ m7p_mul:
 m7p_project:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "m7p_project"
     txa
     sec
     sbc z:ES_M7AFF + M7P_AFF_X      ; dx = wx - pivot x

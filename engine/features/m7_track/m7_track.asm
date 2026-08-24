@@ -53,11 +53,23 @@
     sta z:ES_M7T_PTR + 2                ;   half lands on the claim's pad byte
 .endmacro
 
+; CONTRACT m7t_apply
+;   entry:    A16 I16
+;   exit:     A16 I16
+;   in:       A = the entry index (ENTRIES, not bytes); ES_M7T_PTR bound
+;             to the track
+;   out:      ES_M7AFF+0..+7 = the entry's M7A/M7B/M7C/M7D. X is
+;             PRESERVED, because consumers keep pool cursors there
+;             (pool.asm's idiom)
+;   clobbers: A, Y, N, Z, C
+;   assumes:  DB is irrelevant — every data access here is [dp] indirect
+;             long. The commit to hardware is NOT here: m7a_nmi_commit
+;             latches the shadow's eight ports during VBlank, so a
+;             mid-frame apply cannot tear
+;   tail:     rts
 ;
 ; m7t_apply — apply track entry A to the m7_affine matrix shadow.
 ;
-; In: A16/I16. A = entry index (ENTRIES, not bytes). ES_M7T_PTR bound. Out:
-; A16/I16. ES_M7AFF+0..+7 = the entry's M7A/M7B/M7C/M7D. X PRESERVED
 ;  (consumers keep pool cursors there — pool.asm's idiom); A and Y
 ;  clobbered. DB irrelevant (all data access is [dp] indirect long).
 ;
@@ -65,11 +77,10 @@
 ; shadow's eight ports during VBlank, so a mid-frame apply cannot tear.
 ;
 ; WIDTH-RISK: A16/I16 entry AND exit, no sep/rep anywhere in the routine.
-; Cross-file callers are invisible to width_lint, so this contract is the
-; checkable statement (CLAUDE.md rule 6's single-file limit).
 m7t_apply:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "m7t_apply"
     cmp [ES_M7T_PTR]                    ; index >= count?
     bcc @in_range
     lda [ES_M7T_PTR]

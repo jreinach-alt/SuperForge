@@ -18,9 +18,19 @@
 ; the game backs it, and `make rom-unbacked` proves the bytes are really there.
 
 ; --- m7a_set_heading: heading byte -> the four matrix words -----------------
-; In: A16/I16, DB=0. A = heading, 0..255 (the high byte is ignored, so a
+; CONTRACT m7a_set_heading
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       A = the heading, 0..255 — the high byte is ignored, so one
+;             full turn per 256
+;   out:      ES_M7AFF+0..+7 = M7A, M7B, M7C, M7D for that heading
+;   clobbers: A, X, N, Z, C
+;   assumes:  the LUT reads are `f:` long-indexed, so the table is
+;             reachable from whichever bank the allocator packed it into
+;             without the caller setting DB
+;   tail:     rts
+;
 ;  caller may pass an unmasked 16-bit angle accumulator straight in).
-; Out: A16/I16. ES_M7AFF+0..+7 = M7A, M7B, M7C, M7D for that heading. Clobbers:
 ; A, X.
 ;
 ; Entry stride is 8 bytes (four signed 1.7.8 words, order A,B,C,D — see
@@ -30,6 +40,7 @@
 m7a_set_heading:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "m7a_set_heading"
     and #255                        ; one full turn per 256 headings
     asl
     asl
@@ -46,8 +57,18 @@ m7a_set_heading:
     rts
 
 ; --- m7a_set_center: world pivot -> M7X/M7Y + BG1HOFS/BG1VOFS --------------
-; In: A16/I16, DB=0. X = world x, Y = world y (pixels). Out: A16/I16.
-; ES_M7AFF+8..+15 set. Clobbers: A.
+; CONTRACT m7a_set_center
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       X = world x, Y = world y, both in pixels
+;   out:      ES_M7AFF+8..+15 set — M7X/M7Y and BG1HOFS/BG1VOFS. That is
+;             the whole 'the camera is centred on you, the floor spins
+;             around you' effect, and it is two subtractions against the
+;             NTSC active area's half, (128,112)
+;   clobbers: A, N, Z, C, V
+;   assumes:  nothing beyond the shadow being this feature's to write; the
+;             commit is m7a_nmi_commit's
+;   tail:     rts
 ;
 ; THE TWO HALVES OF "PUT THE PIVOT AT SCREEN CENTRE". The PPU computes, per
 ; screen pixel (sx,sy):
@@ -66,6 +87,7 @@ m7a_set_heading:
 m7a_set_center:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "m7a_set_center"
     stx z:ES_M7AFF + 8              ; M7X = pivot x (world)
     sty z:ES_M7AFF + 10             ; M7Y = pivot y (world)
     txa
@@ -91,9 +113,9 @@ m7a_set_center:
 ;   tail:     rts
 ;
 ; WIDTH-RISK: entry = A8/I16, DB=0 — the sm_nmi_hook contract. The caller is in
-; ANOTHER FILE (the game's main.asm), which make width-check cannot see in
-; either direction (CLAUDE.md rule 6, "the single-file limit remains"), so this
-; contract is proven only on the emulator and this marker is what carries it.
+; ANOTHER FILE (the game's main.asm). That used to be invisible to the gate in
+; both directions; the CONTRACT block above is what the cross-file pass reads
+; those call sites against now.
 ;
 ; ALL EIGHT PORTS ARE WRITE-TWICE, LOW BYTE FIRST. $211B-$211E (M7A-M7D) latch
 ; a signed 1.7.8 word; $211F/$2120 (M7X/M7Y) latch a 13-bit signed world

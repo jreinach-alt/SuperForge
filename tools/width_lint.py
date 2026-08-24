@@ -155,8 +155,17 @@ RE_BRANCH = re.compile(
 # at the target label — modelling it closed the phantom-fallthrough false
 # positives on subroutine entry labels and makes the label check useful for
 # in-file caller/callee width contracts.
+# A LEADING `::` is ca65's explicit global-scope qualifier and is written all
+# over this tree: a macro or a routine expanded INSIDE a scene's `.scope` has
+# to say `jsr ::fade_start_in`, because a bare name would resolve against the
+# scope first. It names the same routine a bare `jsr` does. Until it was in
+# this pattern the cross-file pass could not see those calls at all — not
+# checked, and not counted as unprovable or ambiguous either, so the summary
+# reported a reach it did not have. It is stripped from the captured name
+# rather than carried, so the same-file test and the contract-table lookup
+# both see the plain symbol.
 RE_CALL = re.compile(
-    r"^\s*(jsr|jsl)\s+([A-Za-z_@][\w@:.]*)",
+    r"^\s*(jsr|jsl)\s+(?:::)?([A-Za-z_@][\w@:.]*)",
     re.IGNORECASE,
 )
 

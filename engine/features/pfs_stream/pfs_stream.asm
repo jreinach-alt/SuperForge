@@ -240,7 +240,14 @@ PFS_LEFT    = ES_PFS_NMI + 1    ; the drain's remaining-slot counter
 ; =============================================================================
 ; pfs_stream_init — the [init] zero contract, as CODE
 ; =============================================================================
-; In/out: A16/I16, DB=0. Clobbers A, X.
+; CONTRACT pfs_stream_init
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the whole hot block zeroed — the tracking state's
+;             write-before-read establishment (rule 5)
+;   clobbers: A, X, N, Z
+;   assumes:  ONCE, before the first arm
+;   tail:     rts
 ;
 ; `[init] zero` HAS NO GATE: the allocator emits the contract as a comment and
 ; nothing checks that anybody honoured it. `mosaic` shipped declaring it with
@@ -254,6 +261,7 @@ PFS_LEFT    = ES_PFS_NMI + 1    ; the drain's remaining-slot counter
 pfs_stream_init:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "pfs_stream_init"
     ldx #(ES_PFS_HOT_SIZE - 2)
 :   stz z:ES_PFS_HOT, x
     dex
@@ -269,7 +277,16 @@ pfs_stream_init:
 ; =============================================================================
 ; pfs_stream_set_cam — the camera, in the game's units
 ; =============================================================================
-; In: A16/I16, DB=0. A = camera world pixel X, X = camera world pixel Y. Out:
+; CONTRACT pfs_stream_set_cam
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       A = the camera's world pixel X, X = its world pixel Y
+;   out:      CAM_TX / CAM_TY updated. NOTHING is staged — this only moves
+;             the tracker
+;   clobbers: A, N, Z, C
+;   assumes:  the caller stages separately, through pfs_stream_tick
+;   tail:     rts
+;
 ; A16/I16. Clobbers A. CAM_TX/CAM_TY updated; nothing is staged.
 ;
 ; The camera arrives as a PARAMETER rather than being read out of some other
@@ -283,6 +300,7 @@ pfs_stream_init:
 pfs_stream_set_cam:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "pfs_stream_set_cam"
     lsr
     lsr
     lsr
@@ -299,7 +317,15 @@ pfs_stream_set_cam:
 ; =============================================================================
 ; pfs_stream_arm — fill the WHOLE ring, through the per-frame staging path
 ; =============================================================================
-; In/out: A16/I16, DB=0. Clobbers A, X, Y.
+; CONTRACT pfs_stream_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the seed window uploaded and the tracking counters seeded
+;             level with it
+;   clobbers: A, X, Y, N, Z, C, V
+;   assumes:  forced blank, at scene enter. Tracking starts in sync with
+;             the seed upload and this routine does not verify it
+;   tail:     rts
 ;
 ; CALLER CONTRACT: forced blank asserted AND NMI masked. Forced blank alone is
 ; not enough — `$2100 = $80` blanks the display but NMI is still governed by
@@ -325,6 +351,7 @@ pfs_stream_set_cam:
 pfs_stream_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "pfs_stream_arm"
     lda z:PFS_CAM_TX
     sta z:PFS_LAST_TX
     lda z:PFS_CAM_TY
@@ -402,7 +429,17 @@ pfs_stream_arm:
 ; =============================================================================
 ; pfs_stream_tick — camera delta -> staged slots
 ; =============================================================================
-; In/out: A16/I16, DB=0. Clobbers A, X, Y. Call once per frame, after the game
+; CONTRACT pfs_stream_tick
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      this frame's leading-edge rows and columns staged, clamped
+;             to the quota
+;   clobbers: A, X, Y, N, Z, C, V
+;   assumes:  once per frame, AFTER the game has moved the camera. The
+;             staging is main thread; the transfer is
+;             pfs_stream_nmi_dispatch's
+;   tail:     rts
+;
 ; has moved the camera and called `pfs_stream_set_cam`.
 ;
 ; Walks LAST toward CAM one tile at a time per axis, staging the entering edge
@@ -454,6 +491,7 @@ pfs_stream_arm:
 pfs_stream_tick:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "pfs_stream_tick"
     sep #$20
     .a8
     lda #1
@@ -554,7 +592,14 @@ pfs_stream_tick:
 ; =============================================================================
 ; pfs_stage_col — K0 = world column c -> the next free slot
 ; =============================================================================
-; In/out: A16/I16, DB=0. Clobbers A, X, Y, K1..K4, K6. Bumps COL_CNT.
+; CONTRACT pfs_stage_col
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      one column staged and COL_CNT bumped
+;   clobbers: A, X, Y, N, Z, C, V, K1..K4 and K6
+;   assumes:  the staging buffers have room — the tick's clamp is what
+;             guarantees it
+;   tail:     rts
 ;
 ; A column's 64 tiles are 64 consecutive world ROWS of one column, which is
 ; exactly what the COLUMN-major blob stores contiguously (col N's 128 words at
@@ -568,6 +613,7 @@ pfs_stream_tick:
 pfs_stage_col:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "pfs_stage_col"
     jsr _pfs_slot_base              ; A = slot buffer base, X = meta offset
     sta z:PFS_K4
     ; --- meta: VMADD for both pages, and the axis stride --------------------
@@ -622,7 +668,14 @@ pfs_stage_col:
 ; =============================================================================
 ; pfs_stage_row — K0 = world row r -> the next free slot
 ; =============================================================================
-; In/out: A16/I16, DB=0. Clobbers A, X, Y, K1..K4, K6. Bumps ROW_CNT.
+; CONTRACT pfs_stage_row
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      one row staged and ROW_CNT bumped
+;   clobbers: A, X, Y, N, Z, C, V, K1..K4 and K6
+;   assumes:  the staging buffers have room — the tick's clamp is what
+;             guarantees it
+;   tail:     rts
 ;
 ; The mirror of pfs_stage_col over the ROW-major blob: the two sub-transfers
 ; are the ring's left 32 columns and its right 32, one $400 apart, walked with
@@ -633,6 +686,7 @@ pfs_stage_col:
 pfs_stage_row:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "pfs_stage_row"
     jsr _pfs_slot_base
     sta z:PFS_K4
     ; --- meta ---------------------------------------------------------------
@@ -729,7 +783,16 @@ _pfs_slot_base:
 ; =============================================================================
 ; _pfs_copy_line — 64 world tiles -> one slot buffer, position-wrapped
 ; =============================================================================
-; In: A16/I16, DB=0. A = w0, the window start on the VARYING axis (0..127).
+; CONTRACT _pfs_copy_line
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       A = w0, the window start on the VARYING axis (0..127)
+;   out:      one line copied into the staging buffer at its wrapped
+;             position
+;   clobbers: A, X, Y, N, Z, C, V, K2 and K3
+;   assumes:  the caller has set the fixed axis and the source pointer
+;   tail:     rts
+;
 ;  K1 = source line base inside the blob's LoROM window.
 ;  K4 = dest slot buffer base (a 16-bit offset in bank PFS_WRAM).
 ;  K6 = the MVN stub for this line's blob bank.
@@ -745,6 +808,7 @@ _pfs_slot_base:
 _pfs_copy_line:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "_pfs_copy_line"
     sta z:PFS_K2                    ; the span cursor starts at w0
     and #(PFS_RING - 1)
     eor #(PFS_RING - 1)
@@ -820,7 +884,18 @@ _pfs_mvn_row:
 ; =============================================================================
 ; pfs_stream_nmi_dispatch — drain the staged slots as GP-DMA
 ; =============================================================================
-; In/out: A8/I16, DB=0 (the sm_nmi_hook contract). Clobbers A, X, Y and
+; CONTRACT pfs_stream_nmi_dispatch
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   out:      every staged row and column transferred, and the counters
+;             cleared
+;   clobbers: A, X, Y, N, Z, C, V
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention. DAS is single-shot, so it is re-armed inside the
+;             slot loop rather than once at entry — a single arming site
+;             fires only the first transfer
+;   tail:     rts
+;
 ; PFS_LEFT. Resets both counters — the TICK never does, which is what makes a
 ; deferred drain self-heal (see ES_PFS_NMI above).
 ;
@@ -845,6 +920,7 @@ _pfs_mvn_row:
 pfs_stream_nmi_dispatch:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "pfs_stream_nmi_dispatch"
     lda z:PFS_BUSY
     bne @drain_done                 ; a stage is mid-flight — defer, don't
                                     ; drain a half-published slot table

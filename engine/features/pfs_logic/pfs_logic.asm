@@ -198,11 +198,20 @@ ts_publish:
     rts
 
 ; --- ts_arm: the accumulators, and the region's three velocity constants ----
-; In/out: A16/I16, DB=0. Clobbers A. Called from the scene enter. Power-on DP
+; CONTRACT ts_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the timebase accumulators seeded — every word written here,
+;             because power-on DP is random (rule 5)
+;   clobbers: A, N, Z
+;   assumes:  the scene enter, before the first tick
+;   tail:     rts
+;
 ; is RANDOM (rule 5), so these stores ARE the write-before-read contract.
 ts_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "ts_arm"
     lda #0
     sta z:PL_TSW_A
     sta z:PL_TSW
@@ -766,7 +775,14 @@ pl_up:
     rts
 
 ; --- pl_arm: the OBJ half of the scene's display (scene enter) -------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked. Clobbers A, X, Y.
+; CONTRACT pl_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the player's state seeded and its sheet uploaded
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract
+;   tail:     rts
 ;
 ; `pfs_bg` owns the BG half — its CHR page, its 16-word palette, the backdrop
 ; word. This is the OBJ half: the hero's CHR page, OBJ palette 0 at CGRAM 128,
@@ -776,6 +792,7 @@ pl_up:
 pl_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "pl_arm"
     sep #$20
     .a8
     lda #$80
@@ -887,8 +904,15 @@ pl_draw:
 ; =============================================================================
 ; THE SCENE'S TWO ENTRY POINTS
 ; =============================================================================
+; CONTRACT pfs_spawn
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the player placed at the spawn point
+;   clobbers: A, N, Z
+;   assumes:  the level is already armed
+;   tail:     rts
+;
 ; --- pfs_spawn: every byte of both DP claims, at scene enter ---------------
-; In/out: A16/I16, DB=0. Clobbers A.
 ;
 ; THE WRITE-BEFORE-READ CONTRACT, and the reason neither claim declares `[init]
 ; zero`. Power-on RAM is random (CLAUDE.md rule 5); this routine writes all 26
@@ -902,6 +926,7 @@ pl_draw:
 pfs_spawn:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "pfs_spawn"
     lda #PFS_SPAWN_X
     sta z:PL_PX
     lda #PFS_SPAWN_Y
@@ -920,7 +945,16 @@ pfs_spawn:
     rts
 
 ; --- pfs_logic_tick: one game frame ----------------------------------------
-; In/out: A16/I16, DB=0. Display is ACTIVE here, so nothing below may touch
+; CONTRACT pfs_logic_tick
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      one frame of player physics and animation
+;   clobbers: A, X, Y, N, Z, C, V
+;   assumes:  once per frame from the scene tick, during ACTIVE DISPLAY —
+;             so nothing below it may touch a PPU port that is not
+;             write-safe outside VBlank
+;   tail:     rts
+;
 ; VRAM: the draw writes the oam_sprites SHADOW and the camera writes DP, and
 ; both reach hardware through the NMI hook's declared transfers.
 ;
@@ -932,6 +966,7 @@ pfs_spawn:
 pfs_logic_tick:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "pfs_logic_tick"
     jsr ts_publish                  ; this frame's region-correct steps, once
     jsr pl_anim
     jsr pl_walk

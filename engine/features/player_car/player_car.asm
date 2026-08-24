@@ -14,14 +14,23 @@ CAR_HI_BYTE  = ES_OAM_SHADOW + OAM_LOW_BYTES + (ES_O_CAR >> 2)
 CAR_HI_SIZE  = 2 << ((ES_O_CAR & 3) * 2)   ; this slot's size-select bit
 
 ; --- car_arm: CHR + palette upload, OBSEL, OAM slot (scene enter) -----------
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr contract).
 ; GP-DMA register file addressed through the channel the car_up
 ; dma_init claim names — the channel number is declared, not assumed.
 CAR_REGS = $4300 + ES_D_CAR_UP_CH * 16
 
+; CONTRACT car_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the car's CHR, palette and OBSEL written and its entries
+;             staged
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract
+;   tail:     rts
 car_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "car_arm"
     ; ---- CHR: 1024 B -> the obj chr claim (word port, DMA mode 1) ---------
     sep #$20
     .a8
@@ -88,10 +97,17 @@ car_arm:
     rts
 
 ; --- car_disarm: re-park the claimed slot (scene exit) ----------------------
-; In/out: A16/I16, DB=0, forced blank.
+; CONTRACT car_disarm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the car's slots parked and its registers put back
+;   clobbers: A, N, Z
+;   assumes:  forced blank, at scene exit
+;   tail:     rts
 car_disarm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "car_disarm"
     sep #$20
     .a8
     lda #240

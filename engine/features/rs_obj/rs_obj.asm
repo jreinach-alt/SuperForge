@@ -124,8 +124,8 @@ RS_HI_BYTES  = RS_OAM_N / 4
 ;   tail:     rts
 ;
 ; WIDTH-RISK: A16/I16 entry AND exit; toggles A8 for the byte ports and
-; restores A16 before rts. I is never touched. Cross-file callers (the scene's
-; enter) are invisible to width_lint.
+; restores A16 before rts. I is never touched. The cross-file caller (the
+; scene's enter) is checked against the CONTRACT block above.
 rs_obj_arm:
     .a16
     .i16

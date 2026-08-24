@@ -37,7 +37,14 @@ RSL_AEND    = ES_RS_HOT + 14        ; ...and its base + 2*slots
 ; =============================================================================
 ; rs_logic_arm — the rail's whole starting state (scene enter, and the restart)
 ; =============================================================================
-; In/out: A16/I16, DB=0. At scene enter this runs under forced blank with NMI
+; CONTRACT rs_logic_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the rail's state seeded — every word written here (rule 5)
+;   clobbers: A, X, N, Z
+;   assumes:  at scene enter, under forced blank with the NMI masked
+;   tail:     rts
+;
 ; masked (scene_mgr contract); it is ALSO the self-restart the fail state calls
 ; on a running frame, which is safe because it touches no PPU port.
 ;
@@ -56,6 +63,7 @@ RSL_AEND    = ES_RS_HOT + 14        ; ...and its base + 2*slots
 rs_logic_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rs_logic_arm"
     ; ---- the odometer and the camera it drives ----------------------------
     lda #0
     sta f:US_DIST_LONG
@@ -131,7 +139,13 @@ rs_path_at:
 ; =============================================================================
 ; rs_path_step — the odometer, the camera's lateral position, and the bank
 ; =============================================================================
-; In/out: A16/I16, DB=0.
+; CONTRACT rs_path_step
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the bank ramp advanced ONE quantiser step toward its target
+;   clobbers: A, X, N, Z, C, V
+;   assumes:  once per frame from the scene tick, during active display
+;   tail:     rts
 ;
 ; THE CAMERA ORIGIN IS THE ONLY THING THIS WRITES. `US_CAM_X` lands in the M7X
 ; shadow in `rs_advance`, and M7X is a free per-frame CPU-written VBlank shadow
@@ -153,6 +167,7 @@ rs_path_at:
 rs_path_step:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rs_path_step"
     lda f:US_DIST_LONG
     inc a
     sta f:US_DIST_LONG
@@ -232,7 +247,13 @@ rs_path_step:
 ; =============================================================================
 ; rs_advance — the rail walks forward, always, at 1.5 world px/frame
 ; =============================================================================
-; In/out: A16/I16, DB=0.
+; CONTRACT rs_advance
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the rail advanced — the camera never stops
+;   clobbers: A, N, Z, C, V
+;   assumes:  once per frame from the scene tick, during active display
+;   tail:     rts
 ;
 ; The forward axis is DECOUPLED from the hazards' depth axis: this drives the
 ; Mode 7 floor's texture scroll (the speed cue) and nothing else, while each
@@ -248,6 +269,7 @@ rs_path_step:
 rs_advance:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rs_advance"
     lda f:US_ADV_FRAC_LONG
     clc
     adc #RS_RAIL_SPEED_88
@@ -281,7 +303,13 @@ rs_advance:
 ; =============================================================================
 ; rs_reticle_move — the d-pad, and the ONLY thing the player controls
 ; =============================================================================
-; In/out: A16/I16, DB=0.
+; CONTRACT rs_reticle_move
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the reticle moved by the pad and clamped
+;   clobbers: A, N, Z, C, V
+;   assumes:  the pads are already latched
+;   tail:     rts
 ;
 ; A point on the ground plane in WORLD coordinates. LEFT/RIGHT slide it along
 ; the world's lateral axis (wrapping with the plane); UP/DOWN push it further
@@ -296,6 +324,7 @@ rs_advance:
 rs_reticle_move:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rs_reticle_move"
     lda z:ES_INP_CUR
     bit #RS_JOY_LEFT
     beq @no_left
@@ -384,7 +413,13 @@ rs_lane_tab:
 ; =============================================================================
 ; rs_spawn — the scheduled field: a hazard every RS_OBS_GAP, a pylon per bend
 ; =============================================================================
-; In/out: A16/I16, DB=0.
+; CONTRACT rs_spawn
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      this frame's spawns claimed out of their pools
+;   clobbers: A, N, Z, C, V
+;   assumes:  once per frame from the scene tick, during active display
+;   tail:     rts
 ;
 ; BOTH SPAWNS PLACE THEIR ACTOR AGAINST THE CAMERA'S FUTURE, not its present.
 ; `rs_path_at(dist + RS_LEAD)` is where the camera will be when the actor
@@ -398,6 +433,7 @@ rs_lane_tab:
 rs_spawn:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rs_spawn"
     ; ---- hazards ----------------------------------------------------------
     lda f:US_SPAWN_T_LONG
     inc a
@@ -643,12 +679,21 @@ rs_hurt:
 ; =============================================================================
 ; rs_fail_step — count the fail state down, then restart the rail
 ; =============================================================================
-; In/out: A16/I16, DB=0. Returns with Z SET while the rail is playable and Z
+; CONTRACT rs_fail_step
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the fail countdown stepped. Z comes back SET while the rail
+;             is playable and CLEAR once it is not
+;   clobbers: A, N, Z
+;   assumes:  once per frame from the scene tick, during active display
+;   tail:     rts
+;
 ; CLEAR while it is failing, so the caller's gate is one `beq`. WIDTH-RISK:
 ; A16/I16 entry AND exit; no sep/rep. Every label annotated.
 rs_fail_step:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rs_fail_step"
     lda f:US_FAIL_T_LONG
     beq @done                       ; playing: Z set
     dec a
@@ -664,7 +709,16 @@ rs_fail_step:
 ; =============================================================================
 ; rs_bul_move — every tracer recedes toward the horizon; freed at the far edge
 ; =============================================================================
-; In/out: A16/I16, DB=0. A tracer's z INCREASES, faster than the rail closes
+; CONTRACT rs_bul_move
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      every live tracer stepped. A tracer's z INCREASES, faster
+;             than the rail closes, so it leaves the front of the world
+;             rather than the back
+;   clobbers: A, X, N, Z, C, V
+;   assumes:  once per frame from the scene tick, during active display
+;   tail:     rts
+;
 ; hazards, so it climbs the screen toward the horizon. Reaching the far edge
 ; frees the slot — the pool's free path, and the one a reuse test drives.
 ; WIDTH-RISK: A16/I16 entry AND exit; no sep/rep. POOL_BIND and pool_kill both
@@ -672,6 +726,7 @@ rs_fail_step:
 rs_bul_move:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rs_bul_move"
     lda #0
     sta RSL_BUL_OFF
 @lp:
@@ -802,11 +857,20 @@ rs_tier_step:
 ; =============================================================================
 ; rs_step_pools — run the depth pass and the hysteresis over BOTH actor pools
 ; =============================================================================
-; In/out: A16/I16, DB=0. The one place that names the two pools, so the generic
+; CONTRACT rs_step_pools
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      both pools stepped. This is the ONE place that names the two
+;             of them, which is what keeps the generic stepper generic
+;   clobbers: A, N, Z
+;   assumes:  once per frame from the scene tick, during active display
+;   tail:     rts
+;
 ; loops above never have to. WIDTH-RISK: A16/I16 entry AND exit; no sep/rep.
 rs_step_pools:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rs_step_pools"
     lda #RS_OBS_BASE
     sta RSL_ABASE
     lda #(RS_OBS_BASE + 2 * RS_OBS_N)
@@ -828,7 +892,16 @@ rs_step_pools:
 ; =============================================================================
 ; rs_fire — A (rising edge): a SCREEN-SPACE hitscan, then a tracer for feel
 ; =============================================================================
-; In/out: A16/I16, DB=0. Runs AFTER `rs_cache_build`, because the cache it
+; CONTRACT rs_fire
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      a shot fired and hit-tested against the cache
+;   clobbers: A, X, N, Z, C, V
+;   assumes:  once per frame from the scene tick, during active display,
+;             and AFTER rs_cache_build — the cache it hit-tests against is
+;             that routine's output
+;   tail:     rts
+;
 ; tests against is the same projection the OAM emit is about to draw from.
 ;
 ; WHY SCREEN-SPACE AND NOT WORLD-SPACE, and it is the redesign's core fix. A
@@ -847,6 +920,7 @@ rs_step_pools:
 rs_fire:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rs_fire"
     lda z:ES_INP_PRESS
     bit #RS_JOY_A
     bne :+
@@ -990,10 +1064,19 @@ rs_kill:
     rts
 
 ; --- rs_burst_step: the flash counts itself down ---------------------------
+; CONTRACT rs_burst_step
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the burst flash countdown stepped
+;   clobbers: A, N, Z, C
+;   assumes:  once per frame from the scene tick, during active display
+;   tail:     rts
+;
 ; WIDTH-RISK: A16/I16 entry AND exit; no sep/rep. Every label annotated.
 rs_burst_step:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rs_burst_step"
     lda f:US_BURST_T_LONG
     beq @done
     dec a
@@ -1014,7 +1097,13 @@ rs_burst_step:
 ; =============================================================================
 ; rs_pool_census — publish every pool's live count for this frame
 ; =============================================================================
-; In/out: A16/I16, DB=0.
+; CONTRACT rs_pool_census
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the live counts of both pools
+;   clobbers: A, X, N, Z
+;   assumes:  nothing — it is a read
+;   tail:     rts
 ;
 ; TWO COUNTS PER FRAME, PUBLISHED: the live bullet count and the live obstacle
 ; count. Those are the two observables the pool mechanism actually has — one
@@ -1042,6 +1131,7 @@ rs_burst_step:
 rs_pool_census:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rs_pool_census"
     POOL_BIND ES_RS_ACTORS_LONG + RS_BUL_ALIVE
     ldx #RS_BUL_N
     jsr pool_count

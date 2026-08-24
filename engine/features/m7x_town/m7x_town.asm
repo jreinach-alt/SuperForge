@@ -118,18 +118,28 @@ TOWN_JOY_UP    = 1 << 11
 ; =============================================================================
 ; ARMING — once, when the wipe's swap brings the interior in
 ; =============================================================================
+; CONTRACT town_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the interior's CHR, tilemap and palette uploaded and its
+;             registers written
+;   clobbers: A, X, Y, N, Z, and the classifier's call frame
+;   assumes:  FORCED BLANK must already be on screen and the NMI must be
+;             masked — this is a mid-scene swap, not a scene enter, so the
+;             caller establishes both
+;   tail:     rts
+;
 ; --- town_arm: the whole interior ------------------------------------------
-; In/out: A16/I16, DB=0. FORCED BLANK must already be on screen and NMI must be
 ; masked — the caller (game/mode7_explore/scenes/town.asm, through main.asm's
 ; swap service) guarantees both, and the guarantee is load-bearing twice over:
 ; the 1,024 CPU-side tilemap writes below take far longer than one frame, and
 ; an NMI landing inside them would set VMADD for the OAM/affine commits and
 ; drop the rest of the sweep at whatever addresses followed.
 ;
-; Clobbers A, X, Y and the classifier's call frame.
 town_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "town_arm"
     jsr town_upload_chr             ; 4 tiles -> VRAM word $5000
     jsr town_upload_pal             ; 16 words -> CGRAM 0..15 (over the world's)
     jsr town_build_map              ; 32x32 classes -> VRAM word $5800
@@ -340,8 +350,15 @@ town_classify:
 ; =============================================================================
 ; THE FRAME
 ; =============================================================================
+; CONTRACT town_spawn
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the walker placed at the interior's spawn tile
+;   clobbers: A, N, Z
+;   assumes:  town_arm has already run
+;   tail:     rts
+;
 ; --- town_spawn: seed the avatar --------------------------------------------
-; In/out: A16/I16, DB=0. Clobbers A.
 ;
 ; Power-on DP is random and these three words carry no `[init] zero` (rule 5):
 ; this IS their write-before-read contract, and it runs inside the swap, before
@@ -349,6 +366,7 @@ town_classify:
 town_spawn:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "town_spawn"
     lda #TOWN_SPAWN_TX
     sta z:US_TOWN_TX
     lda #TOWN_SPAWN_TY
@@ -358,7 +376,16 @@ town_spawn:
     rts
 
 ; --- town_step: one grid step per D-pad PRESS -------------------------------
-; In/out: A16/I16, DB=0. Clobbers A, X, Y and the call frame. Out: A = 1 if she
+; CONTRACT town_step
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      one grid step attempted. A = 1 if she left the building, 0
+;             otherwise
+;   clobbers: A, X, Y, N, Z, V, and the call frame
+;   assumes:  once per frame from the scene tick, during active display,
+;             while the interior is up
+;   tail:     rts
+;
 ; is now standing ON THE DOOR, else 0.
 ;
 ; PRIORITY L, R, U, D with NO fall-through, which is the other deliberate
@@ -372,6 +399,7 @@ town_spawn:
 town_step:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "town_step"
     lda z:ES_INP_PRESS
     bit #TOWN_JOY_LEFT
     beq @chk_right
@@ -471,7 +499,13 @@ town_try_step:
     rts
 
 ; --- town_draw: the avatar at her tile --------------------------------------
-; In/out: A16/I16, DB=0. Clobbers A, X.
+; CONTRACT town_draw
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the interior's cast staged into the OAM shadow
+;   clobbers: A, X, N, Z, C
+;   assumes:  once per frame from the scene tick, during active display
+;   tail:     rts
 ;
 ; The camera is fixed at scroll 0, so screen position is tile * 8 and there is
 ; no projection to do. One OAM entry into the oam_sprites shadow; hardware OAM
@@ -487,6 +521,7 @@ town_try_step:
 town_draw:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "town_draw"
     ; ---- facing -> (tile, attr), through the word LUT ---------------------
     ; Masked to 0..3 before `tax`, so I16's transfer of the full 16-bit C
     ; register cannot carry a stray high byte into X.
@@ -520,7 +555,13 @@ town_draw:
     rts
 
 ; --- town_park: every slot this feature owns, off the bottom of the screen ---
-; In/out: A16/I16, DB=0. Clobbers A, X.
+; CONTRACT town_park
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the interior's slots parked off screen
+;   clobbers: A, X, N, Z, C
+;   assumes:  the exit path, before the overworld is restaged
+;   tail:     rts
 ;
 ; OBJ HAS NO HARDWARE MOSAIC. $2106 pixelates BG layers only, so an unparked
 ; sprite floats un-dissolved over a dissolving room and the wipe reads as
@@ -533,6 +574,7 @@ town_draw:
 town_park:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "town_park"
     ldx #(ES_O_TOWN_AVATAR * 4)
 @loop:
     .a16

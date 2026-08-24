@@ -136,13 +136,23 @@ met_obj_arm:
     rts
 
 ; --- met_park_all: every slot this feature owns, off the bottom ------------
-; In/out: A16/I16, DB=0. Clobbers A, X. Called at boot and again by
+; CONTRACT met_park_all
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      every slot this feature owns parked off the bottom of the
+;             screen
+;   clobbers: A, X, N, Z, C
+;   assumes:  at boot, and again whenever the captured ground and the
+;             meteor are dropped
+;   tail:     rts
+;
 ; `level::enter`, which is what DROPS the captured ground when the cutscene
 ; hands control back — the captured ground is dropped the moment the cutscene
 ; is over.
 met_park_all:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "met_park_all"
     ldx #(ES_O_PLAYER * 4)
 @loop:
     .a16
@@ -160,7 +170,14 @@ met_park_all:
     rts
 
 ; --- met_hi_clear: the eleven hi-table bytes this feature owns -------------
-; In/out: A16/I16, DB=0. Clobbers A, X.
+; CONTRACT met_hi_clear
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the eleven hi-table bytes this feature owns zeroed
+;   clobbers: A, X, N, Z, C
+;   assumes:  before the draw, every frame — which is what lets met_put OR
+;             its two bits in without inheriting last frame's X9 or SIZE
+;   tail:     rts
 ;
 ; Clearing before a rebuild is what lets met_put OR its two bits in without
 ; inheriting a stale X9 or SIZE (mo_hi_clear's lesson: the direction that hurts
@@ -170,6 +187,7 @@ met_park_all:
 met_hi_clear:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "met_hi_clear"
     sep #$20
     .a8
     ldx #0
@@ -191,13 +209,20 @@ met_hi_clear:
 ; =============================================================================
 ; DRAWING
 ; =============================================================================
+; CONTRACT met_put
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      one OAM entry plus its two hi-table bits. X is PRESERVED
+;   clobbers: A, Y, N, Z, C
+;   assumes:  the per-frame hi clear has already run
+;   tail:     rts
+;
 ; --- met_put: one OAM entry, plus its two hi-table bits --------------------
 ; In: A16/I16, DB=0.
 ;  X = the slot's BYTE offset in the shadow (slot * 4)
 ;  A = tile | (attr << 8) — the entry's bytes 2 and 3
 ;  ES_MET_DRAW+MET_D_X = the OAM x (9 bits; bit 8 becomes X9),
 ;  +MET_D_Y = y, +MET_D_SIZE = MET_LARGE or 0
-; Out: X preserved. Clobbers A, Y.
 ;
 ; bs_put's body, mechanism for mechanism: entry bytes 2-3 in one store, y into
 ; byte 1, x's low eight into byte 0, then the two hi-table bits shifted to
@@ -215,6 +240,7 @@ met_hi_clear:
 met_put:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "met_put"
     sta a:ES_OAM_SHADOW + 2, x      ; bytes 2,3: tile and attr, in one store
     lda z:ES_MET_DRAW + MET_D_Y
     xba
@@ -267,10 +293,18 @@ met_put:
     rts
 
 ; --- met_park_slot: one slot, off-screen -----------------------------------
-; In: A16/I16, DB=0. X = the slot's byte offset. Out: X preserved; clobbers A.
+; CONTRACT met_park_slot
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       X = the slot's byte offset
+;   out:      the slot's entry moved off screen. X is PRESERVED
+;   clobbers: A, N, Z
+;   assumes:  X names a slot this feature owns
+;   tail:     rts
 met_park_slot:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "met_park_slot"
     lda #(MET_PARK_Y << 8)
     sta a:ES_OAM_SHADOW + 0, x
     stz a:ES_OAM_SHADOW + 2, x

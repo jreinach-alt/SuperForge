@@ -123,10 +123,20 @@ mosaic_init:
     rts
 
 ; --- mosaic_arm: start a wipe ----------------------------------------------
-; In: A8/I16, DB=0. A = the affected-BG nibble for $2106's low nibble
+; CONTRACT mosaic_arm
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   in:       A = the affected-BG nibble for $2106's low nibble
+;   out:      the wipe armed. Arming writes NEITHER shadow: the first tick
+;             reads curve[0] = 15 and applies it, which is the same clean,
+;             full-brightness frame the display is already showing
+;   clobbers: A, N, Z
+;   assumes:  the caller drops OBJ here if its scene needs it — this
+;             feature cannot
+;   tail:     rts
+;
 ;  (1 = BG1, 3 = BG1+BG2, ...). X = the swap routine's address in the
 ;  program bank, or 0 for none (a pure flash / fade-out-fade-in).
-; Out: A8/I16. Clobbers A.
 ;
 ; Arming does not itself write either shadow: the first tick reads curve[0] =
 ; 15 and applies it, which is the same "clean, full brightness" frame the
@@ -135,6 +145,7 @@ mosaic_init:
 mosaic_arm:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "mosaic_arm"
     sta z:ES_MOS_CTL + 3            ; affected-BG nibble, held for both phases
     stx z:ES_MOS_CTL + 4            ; swap routine (I16, so both bytes)
     lda #MOS_OUT

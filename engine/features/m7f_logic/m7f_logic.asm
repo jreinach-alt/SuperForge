@@ -71,7 +71,19 @@ M7F_SPEED_CAP_PAL = M7F_RGAIN(M7F_SPEED_CAP)
 M7F_SPEED_MAG_PAL = M7F_RGAIN(M7F_SPEED_MAG)
 
 ; --- m7f_region_rates: the four numbers, in the running console's units -----
-; In/out: A16/I16, DB=0. Clobbers A. Called ONCE, from the scene's `enter`,
+; CONTRACT m7f_region_rates
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       ES_RGN_PAL — the region flag, latched once at boot
+;   out:      the scene's per-frame rates published in the running
+;             console's units, on BOTH arms of the branch (the
+;             write-before-read establishment for them)
+;   clobbers: A, N, Z, C, V
+;   assumes:  ONCE, from the scene's `enter`, which runs with the NMI
+;             masked — so the words are written before the first armed
+;             VBlank reads them (rule 5)
+;   tail:     rts
+;
 ; before the first armed VBlank and before anything reads one.
 ;
 ; WIDTH-RISK: A16/I16 in and out; no sep/rep. `@pal` is reached A16 by branch,
@@ -79,6 +91,7 @@ M7F_SPEED_MAG_PAL = M7F_RGAIN(M7F_SPEED_MAG)
 m7f_region_rates:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "m7f_region_rates"
     lda z:ES_RGN_PAL
     bne @pal
     lda #M7F_ACCEL                  ; NTSC: today's constants, to the LSB
@@ -126,12 +139,21 @@ M7F_JOY_Y     = 1 << 14
 M7F_JOY_B     = 1 << 15
 
 ; --- m7f_tick_state: the whole frame's state step ---------------------------
-; In/out: A16/I16, DB=0. Clobbers A, X, Y. Called FIRST in the scene tick, so
+; CONTRACT m7f_tick_state
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the flight state advanced one frame
+;   clobbers: A, X, Y, N, Z
+;   assumes:  FIRST in the scene tick, so everything downstream projects
+;             this frame's state rather than last frame's
+;   tail:     rts
+;
 ; everything downstream (the join, the origin, the sprites) sees one frame's
 ; answer rather than a mixture of two.
 m7f_tick_state:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "m7f_tick_state"
     jsr m7f_turn
     jsr m7f_throttle
     jsr m7f_altitude

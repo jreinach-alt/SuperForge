@@ -58,12 +58,21 @@ RCG_MAX_KEY = RCG_KEYS_COUNT - 1    ; index mask (the count is a power of two)
 .assert RCG_KEYS_ADDR >= $8000, error, "rc_grad: keyframe blob is not in a LoROM window"
 
 ; --- rcg_arm: build the three header tables + channel shadow (scene enter) --
-; In/out: A16/I16, DB=0, forced blank (scene_mgr enter contract). Leaves the
+; CONTRACT rcg_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the gradient table built, the channel staged and colour math
+;             turned on
+;   clobbers: A, X, Y, N, Z, C, V
+;   assumes:  forced blank — the scene_mgr enter contract
+;   tail:     rts
+;
 ; tables pointed at keyframe 0; the caller ORs the three ES_H_RCG*_CH bits into
 ; the HDMAEN shadow.
 rcg_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rcg_arm"
     ; ---- the declared init contract: zero the WHOLE claim first ----------
     ; The DMA controller fetches indirect-address bytes PAST the terminator on
     ; real hardware (mode7_persp's persp_arm carries the same measurement), so
@@ -148,13 +157,22 @@ rcg_arm:
     rts
 
 ; --- rcg_set_key: point all three planes at keyframe A (0..RC_TOD_KEYS-1) ---
-; In: A16 = keyframe index. Out: A16/I16. VBlank- or forced-blank-safe: it
+; CONTRACT rcg_set_key
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       A = the keyframe index
+;   out:      the table rewritten at that keyframe
+;   clobbers: A, X, N, Z, C, V
+;   assumes:  VBlank OR forced blank — it writes table values only
+;   tail:     rts
+;
 ; writes only the WRAM header tables, which HDMA re-reads next frame. The plane
 ; tables are RCG_PLANE apart inside the keyframe, so one multiply and three
 ; adds cover all six pointers.
 rcg_set_key:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rcg_set_key"
     ; k -> the keyframe's byte offset. A TABLE rather than a shift chain: the
     ; multiply would need DP scratch, and the only scratch in this scene
     ; belongs to rc_logic — reaching across a feature boundary for a spare word
@@ -191,11 +209,21 @@ rcg_set_key:
     rts
 
 ; --- rcg_disarm: colour math back to the boot state (scene exit) ------------
-; In/out: A16/I16, DB=0. CGWSEL/CGADSUB are GLOBAL registers: a scene that
+; CONTRACT rcg_disarm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      CGWSEL and CGADSUB put back
+;   clobbers: A, N, Z
+;   assumes:  scene exit. Those two are GLOBAL registers, so a scene that
+;             leaves them set tints the next one through registers it has
+;             no reason to look at
+;   tail:     rts
+;
 ; leaves them set washes the next scene through registers it never wrote.
 rcg_disarm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rcg_disarm"
     sep #$20
     .a8
     stz a:$2130                     ; CGWSEL: boot state
