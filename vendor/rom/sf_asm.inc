@@ -30,7 +30,10 @@
 ;   1. Placement assertions — SF_ASSERT_DP / SF_ASSERT_NO_PAGE_CROSS /
 ;      SF_ASSERT_NO_BANK_CROSS. A routine states where its data must LIVE for
 ;      its own addressing modes to be correct.
-;   2. Data-bank idioms — SF_SET_DB / SF_SET_P_DB. The push-effective-address
+;   2. Width assertions — SF_ASSERT_A / SF_ASSERT_I / SF_ASSERT_WIDTH. A
+;      routine or macro states what register widths it must be ENTERED in,
+;      and ca65 checks the statement at every site that reaches it.
+;   3. Data-bank idioms — SF_SET_DB / SF_SET_P_DB. The push-effective-address
 ;      forms that establish DB (and, in the second, the status byte with it)
 ;      from a build-time constant without spending the accumulator.
 ;
@@ -144,6 +147,112 @@ SF_BANK_SYS = 0
 .macro SF_ASSERT_NO_BANK_CROSS sf_base, sf_size, sf_msg
     .assert (sf_size) > 0, error, "SF_ASSERT_NO_BANK_CROSS: size must be positive"
     .assert (((sf_base) + (sf_size) - 1) / SF_BANK) = ((sf_base) / SF_BANK), error, sf_msg
+.endmacro
+
+; =============================================================================
+; THE WIDTH ASSERTIONS — a contract's entry widths, checked by the assembler
+; =============================================================================
+; ca65 V2.18 exposes `.ASIZE` and `.ISIZE`: the width, in bits, that the
+; assembler currently BELIEVES the accumulator and the index registers have.
+; Under `.smart` (which every file in this tree sets) it tracks them through
+; `sep`/`rep` as well as through the `.a8`/`.a16`/`.i8`/`.i16` directives, so
+; the two pseudo-variables are readable at any point in any file and the
+; assertions below need no shadow variable, no equate, and no state of their
+; own.
+;
+; WHAT THEY ACTUALLY CHECK, precisely — this is the part to get right before
+; trusting one. They compare a routine's DECLARED entry widths against what
+; ca65 believes at the site. They do NOT read the CPU: the runtime width is a
+; property of the P register at the instant control arrives, and nothing at
+; assembly time can see it. What that makes them is a check on the assembler's
+; belief, which is exactly the quantity that decides how many bytes an
+; immediate operand gets — the mechanism behind rule 6's silent `BRK`. A wrong
+; belief is the bug; these assert against the belief.
+;
+; So the three of them buy two different things depending on where they sit:
+;
+;   * IN A ROUTINE, immediately under its entry width directives, an assertion
+;     binds the CONTRACT to the DIRECTIVES. The header says `entry: A16 I16`
+;     and the code says `.a16` / `.i16`; the assertion refuses the build the
+;     day somebody changes one and not the other. It says nothing about the
+;     routine's callers — that is the width lint's cross-file pass, which
+;     reads the same declaration (AGENTS.md, "The routine contract").
+;
+;   * IN A MACRO, an assertion is the CALLER check, and it is cross-file for
+;     free: a macro body is expanded AT the call site, so `.asize` inside it
+;     is the caller's tracked width in the caller's file. `TS_STEP`'s A16
+;     requirement is enforced at every one of its expansions in every rail
+;     this way, and ca65 names the expansion line, not the definition.
+;
+; They cost nothing: `.if` / `.error` / `.endif` emit no bytes and no cycles,
+; and they leave the tracked widths exactly as they found them. A ROM whose
+; source gains one is byte-identical to the ROM before it.
+;
+; The failure is a build stop with the requirement, the routine's own name,
+; and what ca65 actually tracked, so the log line is readable without opening
+; the file. UNKNOWN — a routine that establishes its own widths and accepts
+; any arrival — is written by NOT asserting; there is no "assert anything"
+; form, because an assertion that always passes is a stamp.
+
+; -----------------------------------------------------------------------------
+; SF_ASSERT_A — the accumulator width this site requires
+; -----------------------------------------------------------------------------
+;   SF_ASSERT_A <8 or 16>, "<routine or macro name>"
+;
+; In/out: nothing. Emits no bytes, touches no register, leaves both tracked
+; widths unchanged, is legal in any segment.
+.macro SF_ASSERT_A sf_bits, sf_who
+    .if (sf_bits) = 8 || (sf_bits) = 16
+      .if .asize <> (sf_bits)
+      .error .sprintf("%s: requires A%d on entry; ca65 tracks A%d here", sf_who, sf_bits, .asize)
+      .endif
+    .else
+    ; A width that is neither 8 nor 16 is a typo in the contract, and the
+    ; comparison below it would report a requirement that cannot exist —
+    ; so this arm REPLACES it rather than preceding it.
+    .error .sprintf("%s: SF_ASSERT_A takes 8 or 16, not %d", sf_who, sf_bits)
+    .endif
+.endmacro
+
+; -----------------------------------------------------------------------------
+; SF_ASSERT_I — the index width this site requires
+; -----------------------------------------------------------------------------
+;   SF_ASSERT_I <8 or 16>, "<routine or macro name>"
+;
+; In/out: nothing. Emits no bytes, touches no register, leaves both tracked
+; widths unchanged, is legal in any segment.
+.macro SF_ASSERT_I sf_bits, sf_who
+    .if (sf_bits) = 8 || (sf_bits) = 16
+      .if .isize <> (sf_bits)
+      .error .sprintf("%s: requires I%d on entry; ca65 tracks I%d here", sf_who, sf_bits, .isize)
+      .endif
+    .else
+    .error .sprintf("%s: SF_ASSERT_I takes 8 or 16, not %d", sf_who, sf_bits)
+    .endif
+.endmacro
+
+; -----------------------------------------------------------------------------
+; SF_ASSERT_WIDTH — both axes at once: the routine-entry form
+; -----------------------------------------------------------------------------
+;   SF_ASSERT_WIDTH <A bits>, <I bits>, "<routine or macro name>"
+;
+; In/out: nothing. Emits no bytes, touches no register, leaves both tracked
+; widths unchanged.
+;
+; This is the one to reach for. A contract that names both axes is written as
+; ONE line under the routine's own `.aN` / `.iN` pair, which is where a reader
+; is already looking, and the single-axis forms above are for the contracts
+; that genuinely constrain one axis and leave the other UNKNOWN.
+;
+; WRITE IT AFTER THE ENTRY DIRECTIVES, not before them. The directives are what
+; tell ca65 the width control arrives in; an assertion placed above them tests
+; whatever the previous routine left behind, which is a different question and
+; usually a false one. (It also keeps the width lint's label-prelude window
+; open across the annotations — the window closes at the first real
+; instruction, and a macro invocation is one.)
+.macro SF_ASSERT_WIDTH sf_a, sf_i, sf_who
+    SF_ASSERT_A sf_a, sf_who
+    SF_ASSERT_I sf_i, sf_who
 .endmacro
 
 ; =============================================================================
