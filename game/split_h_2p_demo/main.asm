@@ -42,6 +42,10 @@ SF_HDR_TITLE_SET = 1
 .include "engine_state_split.inc"   ; GENERATED — the split scene's map
 .include "header.inc"
 .include "init.inc"                 ; RESET: native, A16/I16, forced blank
+.include "sf_asm.inc"               ; shared macros — here for sh2_cam's entry
+                                    ;   width assertions, which emit no bytes
+                                    ;   (this rail's ROM md5 is unchanged by
+                                    ;   the include)
 
 .segment "CODE"
 
@@ -254,6 +258,24 @@ sh2_pose256_cd_s3_bin:
 ; NO MEASURED CYCLE FIGURE, and none is claimed: the overrun above is an
 ; observation about a rendered frame, not a budget. A rail that wants to state
 ; headroom has to measure it.
+; CONTRACT split_h_2p_demo::sm_nmi_hook
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   in:       the scene's committed shadows and staged buffers
+;   out:      both bands' pose pointers, DASB bytes and origin words stamped from one
+;             state, and the OAM shadow committed
+;   clobbers: A, X, Y and the flags — sm_nmi_core saves and restores around
+;             the call, so the hook owns all three for its duration
+;   assumes:  VBlank, from sm_nmi_core. The A8/I16 pair is sm_nmi_core's
+;             contract, and it is what every routine this hook calls declares
+;             on its own entry
+;   tail:     rts, back into sm_nmi_core — which then MVNs the 128-byte
+;             channel shadow to $4300 and applies HDMAEN
+;
+; THE NAME IS QUALIFIED because every rail has an `sm_nmi_hook` and they are
+; 37 different routines. The qualifier keys this declaration uniquely; a bare
+; `jsr sm_nmi_hook` from scene_mgr.asm links against a different one in every
+; rail's build, so the cross-file pass deliberately does not resolve it.
 sm_nmi_hook:
     .a8
     .i16

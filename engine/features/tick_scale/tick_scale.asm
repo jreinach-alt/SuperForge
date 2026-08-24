@@ -70,14 +70,32 @@ TS_BASE_MAX = 42000             ; ~164 units per frame; keeps base * TS_GAIN_NUM
 ; -----------------------------------------------------------------------------
 ;   TS_STEP  <accumulator>, <base step in 8.8>
 ;
-; In/out: A16/I16 in AND out — this macro contains no sep/rep at all, so it
-; cannot leak a width to its caller. Clobbers A and one stack word (balanced:
-; one pha, one pla, both in A16). `ts_acc` is a dp operand the CALLER owns and
-; declares; `ts_base` is a build-time constant expression.
+; CONTRACT TS_STEP
+;   entry:    A16 I16
+;   exit:     A16 I16
+;   in:       ts_acc — a dp operand the CALLER owns and declares, holding the
+;             fraction carried out of last frame; ts_base — a build-time
+;             constant expression, the NTSC step in 8.8
+;   out:      A = the whole units to apply this frame; ts_acc = the new
+;             carried fraction. The caller stores A where it wants and every
+;             downstream add reads it — compute ONCE per frame per rate,
+;             consume as many times as the frame needs
+;   clobbers: A, N, Z, C, and one stack word (balanced: one pha, one pla,
+;             both in A16)
+;   assumes:  ES_RGN_PAL is already latched — region_init runs at boot, and
+;             composing tick_scale without region is a build error rather
+;             than a silent scale of 1
+;   tail:     falls through to the caller — this is a macro, not a call
 ;
-; Out: A = the whole units to apply this frame. The caller stores that where it
-; wants and every downstream add reads it — compute ONCE per frame per rate,
-; consume as many times as the frame needs.
+; It contains no sep/rep at all, so it cannot leak a width to its caller and
+; needs no directive after it. THE ENTRY WIDTHS ARE NOT ASSERTED HERE, and
+; that is a stated gap rather than an oversight: SF_ASSERT_WIDTH lives in
+; `sf_asm.inc`, which is included per ROM by the rail's `main.asm`, and most
+; of the rails expanding this macro do not include it yet. Putting the
+; assertion in before they do would fail their builds on a missing macro. The
+; assertion belongs here the moment that include is tree-wide; until then the
+; contract above is a declaration a reader and the lint can both read, and
+; the machine check is the caller-side one this macro does not yet get.
 ;
 ; WIDTH-RISK: none by construction, and that is deliberate. The prototype's
 ; equivalent toggled width around the $213F read; here the read is `region`'s
@@ -153,6 +171,20 @@ ts_apply:
 ;   introduces.
 .define TS_SCALE(v) ((v) + ((v) * TS_GAIN_NUM + TS_GAIN_DEN / 2) / TS_GAIN_DEN)
 
+; CONTRACT TS_SCALED
+;   entry:    A? I?
+;   exit:     A? I?
+;   in:       v — a positive build-time constant, the NTSC value to scale
+;   out:      `name` DEFINED as the PAL-scaled constant, bounds-checked
+;   clobbers: nothing — this macro emits no bytes and touches no register
+;   assumes:  v is a MAGNITUDE. A negative velocity is scaled as a magnitude
+;             and negated afterwards, so the rounding lands on the number the
+;             physics means; the assert below refuses the other spelling
+;   tail:     falls through to the caller — this is a macro, not a call
+;
+; The UNKNOWN entry widths are the literal truth here, not a hedge: nothing
+; this macro expands to reads or writes a register, so every arrival is legal
+; and there is nothing for an assertion to check.
 .macro TS_SCALED name, v
     .assert (v) > 0, error, "TS_SCALED: the value to scale must be positive — a negative velocity is scaled as a MAGNITUDE and negated afterwards, so the rounding lands on the number the physics means"
     .assert (v) <= TS_BASE_MAX, error, "TS_SCALED: value too large — v * TS_GAIN_NUM would overflow ca65's 32-bit expression arithmetic (see TS_BASE_MAX)"

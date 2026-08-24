@@ -40,12 +40,11 @@ checks against single-file ca65 source:
                reported at lower severity (still gating) instead of being
                silently dropped -> 'unknown-arrival'.
 
-           SINGLE-FILE LIMITATION (deliberate): only same-file arrivals
-           exist. Callers of an exported routine that live in another file
-           (e.g. `col_map_at`'s callers in race.asm) are invisible from
-           the defining file in either direction — a cross-file
-           caller/callee width-contract violation is NOT caught. In-file
-           `jsr`/`jsl` sites ARE checked against the entry annotation.
+           SINGLE-FILE BY CONSTRUCTION: only same-file arrivals exist here.
+           A caller in another file is invisible to this check in both
+           directions. That hole is closed for DECLARED routines by check 5
+           below and is otherwise unchanged — in-file `jsr`/`jsl` sites ARE
+           checked against the entry annotation.
 
   Check 2: tax / tay cross-width transfers are documented.
            Every `tax` or `tay` must be preceded within 5 lines by either
@@ -64,6 +63,41 @@ checks against single-file ca65 source:
            This check flags it BEFORE the build and names the fix:
            `lda #0` + `sta f:$7E0000+addr,x` (abs-long-indexed). `stz a:...`
            (forced absolute, a legal 16-bit form) is NOT flagged.
+
+  Check 5: The ROUTINE CONTRACT, and the cross-file call sites it opens.
+           An exported routine may DECLARE its entry contract in a fixed
+           comment grammar above its label (AGENTS.md, "The routine
+           contract"); the declaration is what turns check 1's stated
+           single-file limit from unclosable into closed:
+
+             - a `jsr`/`jsl` whose target is defined in ANOTHER file and
+               carries a contract is compared against that contract's
+               `entry:` widths -> 'cross-file-width', naming both ends;
+             - a declaration the parser cannot read is its own finding
+               -> 'contract-malformed'. A header that reads to a human as
+               a checked contract while nothing checks it is worse than
+               no header at all;
+             - a contract whose `entry:` disagrees with the bare
+               `.aN`/`.iN` on its own label -> 'contract-directive-
+               mismatch'. The declaration and the code cannot drift;
+             - `A?` / `I?` declare an explicit UNKNOWN — any arrival is
+               legal because the routine establishes its own width. The
+               body must then actually do that before its first
+               width-sensitive instruction -> 'contract-unknown-not-
+               established', so UNKNOWN is a statement rather than an
+               opt-out.
+
+           THE PASS ACTIVATES ONLY WHERE THE CALLEE DECLARES. An
+           undeclared routine is exactly as unchecked as it was before,
+           which is what lets a tree adopt this one routine at a time with
+           no baseline and no flood. An UNKNOWN ARRIVAL at a call site
+           (the caller's own width is not tracked there) is unprovable
+           rather than wrong: it is counted and reported in the summary,
+           never fired. Stated limits: the target must be a literal label
+           on the `jsr`/`jsl` line (an indirect dispatch through a vector
+           is invisible), the pass reads DECLARED entry widths and does
+           not verify `exit:`, DB or DP, and the `A?` establishment scan
+           walks forward without following branches.
 
 Override mechanism:
   Suppress a single line's findings with
@@ -918,26 +952,527 @@ def check_stz_long(fa: FileAnalysis) -> list[Finding]:
     return findings
 
 
+# --- The routine contract: a declaration the linter can read ----------------
+#
+# The grammar is documented for humans in AGENTS.md, "The routine contract".
+# What follows is the parser for it — fixed slots, one line each, in a comment
+# block that sits immediately above the routine or macro it binds:
+#
+#     ; CONTRACT stream_arm
+#     ;   entry:    A16 I16 DB=0
+#     ;   exit:     A16 I16
+#     ;   in:       the enter camera's tile position
+#     ;   out:      ST_CAM_* / ST_LAST_* seeded, the staging counters zeroed
+#     ;   clobbers: A, X, N, Z
+#     ;   assumes:  the seed upload already covers the window around CAM0
+#     ;   tail:     rts
+#
+# `entry:` and `exit:` are the MACHINE slots and are parsed; the rest are
+# prose and are only checked for presence. A8 / A16 / I8 / I16 name a width;
+# `A?` / `I?` name an explicit UNKNOWN — "any arrival is legal on this axis,
+# the routine establishes its own". DB= and DP= are optional and free-form
+# (an expression the reader resolves, not one the linter evaluates).
+#
+# DEGRADING GRACEFULLY IS PART OF THE DESIGN. A file with no CONTRACT block
+# is UNDECLARED: every check below finds nothing in it and the cross-file pass
+# does not activate for its routines. That is why this could land on a tree
+# whose width-lint baseline is zero without moving it by one finding.
+
+RE_CONTRACT = re.compile(r"^\s*;\s*CONTRACT\s+(\S+)\s*$")
+
+CONTRACT_SLOTS_REQUIRED = ("entry", "exit", "clobbers")
+CONTRACT_SLOTS_OPTIONAL = ("in", "out", "assumes", "tail")
+CONTRACT_SLOTS = CONTRACT_SLOTS_REQUIRED + CONTRACT_SLOTS_OPTIONAL
+
+RE_CONTRACT_SLOT = re.compile(
+    r"^\s*;\s{1,}([A-Za-z][A-Za-z-]*)\s*:\s*(.*?)\s*$")
+# A comment line that continues the previous slot's prose: indented past the
+# slot names, carrying text, and not itself a `name:` slot line.
+RE_CONTRACT_CONT = re.compile(r"^\s*;\s{6,}(\S.*?)\s*$")
+RE_COMMENT_LINE = re.compile(r"^\s*;")
+
+RE_CONTRACT_A = re.compile(r"^A(8|16|\?)$")
+RE_CONTRACT_I = re.compile(r"^I(8|16|\?)$")
+RE_CONTRACT_KV = re.compile(r"^(DB|DP)=(\S+)$")
+
+# Instructions that do not depend on either register width, so a routine
+# declared UNKNOWN on an axis may run them before it establishes that axis.
+# `plp` is deliberately NOT here: it establishes the width AT RUNTIME and ca65
+# cannot see through it (sf_asm.inc's SF_SET_P_DB says the same), so a routine
+# that plp's still owes the tracker a directive.
+WIDTH_NEUTRAL_OPS = {
+    "php", "phb", "phd", "phk", "plb", "pld",
+    "sei", "cli", "clc", "sec", "cld", "sed", "clv", "xce", "nop",
+}
+RE_FIRST_TOKEN = re.compile(r"^\s*([a-z]{3})\b", re.IGNORECASE)
+
+
+@dataclass
+class Contract:
+    """One parsed CONTRACT block, bound to the routine or macro below it."""
+
+    name: str
+    file: str
+    line: int              # 1-indexed line of the `; CONTRACT <name>` line
+    kind: str              # 'routine' | 'macro'
+    bound_line: int        # 1-indexed line of the label / `.macro` directive
+    entry_a: str = UNKNOWN  # 'a8' | 'a16' | UNKNOWN
+    entry_i: str = UNKNOWN  # 'i8' | 'i16' | UNKNOWN
+    exit_a: str = UNKNOWN
+    exit_i: str = UNKNOWN
+    slots: dict = field(default_factory=dict)
+
+    def entry(self, axis: str) -> str:
+        return self.entry_a if axis == "a" else self.entry_i
+
+    def location(self) -> str:
+        return f"{self.file}:{self.line}"
+
+
+def _parse_machine_slot(axis_prefix: str, text: str) -> tuple[str, str, list]:
+    """Parse an `entry:` / `exit:` slot body into (a_width, i_width, errors).
+
+    `none` — for an `exit:` that never happens — parses as UNKNOWN on both
+    axes with no error, because "control does not come back" is not a claim
+    about widths.
+    """
+    errs: list[str] = []
+    a = i = UNKNOWN
+    seen_a = seen_i = False
+    toks = text.replace(",", " ").split()
+    if not toks:
+        return a, i, [f"`{axis_prefix}:` is empty — it must name both axes "
+                      f"(e.g. `A16 I16`, or `A? I16` where the width is "
+                      f"established by the routine itself)"]
+    if len(toks) == 1 and toks[0].lower() == "none":
+        return a, i, errs
+    for t in toks:
+        if m := RE_CONTRACT_A.match(t):
+            a = UNKNOWN if m.group(1) == "?" else f"a{m.group(1)}"
+            seen_a = True
+        elif m := RE_CONTRACT_I.match(t):
+            i = UNKNOWN if m.group(1) == "?" else f"i{m.group(1)}"
+            seen_i = True
+        elif RE_CONTRACT_KV.match(t):
+            continue                      # DB= / DP= — read by humans
+        else:
+            errs.append(
+                f"`{axis_prefix}: {text}` carries the token {t!r}, which is "
+                f"none of A8/A16/A?, I8/I16/I?, DB=<expr>, DP=<expr>")
+    if not seen_a:
+        errs.append(f"`{axis_prefix}:` names no A width — say A8, A16, or A? "
+                    f"(A? = any arrival is legal, the routine establishes it)")
+    if not seen_i:
+        errs.append(f"`{axis_prefix}:` names no index width — say I8, I16, "
+                    f"or I?")
+    return a, i, errs
+
+
+def parse_contracts(fa: FileAnalysis) -> tuple[list[Contract], list[Finding]]:
+    """Every CONTRACT block in one file, plus the malformed ones as findings.
+
+    A malformed block is a FINDING, never a silent skip: a declaration the
+    linter cannot read is worse than no declaration, because the header still
+    reads to a human as a checked contract while nothing checks it.
+    """
+    contracts: list[Contract] = []
+    findings: list[Finding] = []
+    lines = fa.lines
+    n = len(lines)
+
+    def bad(line: int, name: str, why: str) -> None:
+        findings.append(Finding(
+            file=fa.path, line=line, rule="contract-malformed", label=name,
+            message=f"CONTRACT {name}: {why}"))
+
+    for idx in range(n):
+        m = RE_CONTRACT.match(lines[idx])
+        if not m:
+            continue
+        name = m.group(1)
+        slots: dict[str, str] = {}
+        slot_line: dict[str, int] = {}
+        last: Optional[str] = None
+        j = idx + 1
+        while j < n and RE_COMMENT_LINE.match(lines[j]):
+            if RE_CONTRACT.match(lines[j]):
+                break                     # the next contract starts here
+            sm = RE_CONTRACT_SLOT.match(lines[j])
+            cm = RE_CONTRACT_CONT.match(lines[j])
+            if sm and sm.group(1).lower() in CONTRACT_SLOTS:
+                last = sm.group(1).lower()
+                if last in slots:
+                    bad(j + 1, name, f"the `{last}:` slot is written twice")
+                slots[last] = sm.group(2)
+                slot_line[last] = j + 1
+            elif sm and not cm:
+                bad(j + 1, name,
+                    f"`{sm.group(1)}:` is not a contract slot. The slots are "
+                    f"{', '.join(CONTRACT_SLOTS)} — a line that is prose "
+                    f"continuing the slot above it must be indented under it, "
+                    f"and a block comment goes above the CONTRACT line, not "
+                    f"inside the block")
+                last = None
+            elif cm and last:
+                slots[last] = (slots[last] + " " + cm.group(1)).strip()
+            elif lines[j].strip() in (";", ""):
+                break                     # a blank comment line closes it
+            else:
+                break                     # prose resumes: the block is over
+            j += 1
+
+        # What the block binds: the first label definition or `.macro` below
+        # it, skipping blanks and further prose.
+        kind = bound = None
+        k = j
+        while k < n:
+            raw = lines[k]
+            if RE_COMMENT_OR_BLANK.match(raw):
+                k += 1
+                continue
+            if mm := RE_MACRO_START.match(strip_comment(raw)):
+                kind, bound = "macro", (mm.group(1), k + 1)
+            elif lm := RE_LABEL.match(raw):
+                kind, bound = "routine", (lm.group(1), k + 1)
+            break
+        if bound is None:
+            bad(idx + 1, name,
+                "the block is attached to nothing — a CONTRACT must sit "
+                "immediately above the label it describes (or above the "
+                "`.macro` directive, for a macro), with only blank lines and "
+                "prose comments in between")
+            continue
+        bound_name, bound_line = bound
+        # A contract name may be QUALIFIED — `race::stream_arm`,
+        # `microzero::sm_nmi_hook` — and then only its last segment has to
+        # match the label. That is not decoration: this tree gives every rail
+        # a `sm_nmi_hook` and every scene an `enter`, so a table keyed by bare
+        # name could hold at most one of 37 and would report the other 36 as
+        # duplicates. A qualified declaration documents the contract and keys
+        # uniquely; the cross-file pass then resolves only calls written with
+        # the same qualifier, which is the honest reach — a bare `jsr
+        # sm_nmi_hook` links against a different routine in every rail's
+        # build, and one lint run over the whole tree cannot say which.
+        if bound_name != name.rsplit("::", 1)[-1]:
+            bad(idx + 1, name,
+                f"names {name!r} but the {kind} below it is {bound_name!r} — "
+                f"a contract and the thing it describes must carry the same "
+                f"name (or a `scope::`-qualified form of it), or a rename "
+                f"silently detaches one from the other")
+
+        missing = [s for s in CONTRACT_SLOTS_REQUIRED if s not in slots]
+        if missing:
+            bad(idx + 1, name,
+                f"required slot(s) missing: {', '.join(missing)}. Every "
+                f"contract states the machine state it needs on entry, the "
+                f"state it leaves, and what it destroys")
+
+        c = Contract(name=name, file=fa.path, line=idx + 1, kind=kind,
+                     bound_line=bound_line, slots=slots)
+        for slot, attr in (("entry", "entry"), ("exit", "exit")):
+            if slot not in slots:
+                continue
+            a, i, errs = _parse_machine_slot(slot, slots[slot])
+            for e in errs:
+                bad(slot_line[slot], name, e)
+            setattr(c, f"{attr}_a", a)
+            setattr(c, f"{attr}_i", i)
+        contracts.append(c)
+
+    return contracts, findings
+
+
+def check_contract_agrees_with_directives(
+        fa: FileAnalysis, contracts: list[Contract]) -> list[Finding]:
+    """The declaration and the code must say the same thing about entry width.
+
+    A contract is documentation FIRST, and documentation drifts. This is the
+    cheap half of stopping that: inside the defining file, a routine's
+    declared `entry:` width must equal the BARE `.aN`/`.iN` the label carries
+    — the annotation that already asserts the arriving width for check 1. The
+    two are then impossible to change independently, which is what makes the
+    cross-file pass's reading of the declaration trustworthy.
+
+    A `sep`/`rep` + directive prelude is a forced NARROWING, not an assertion
+    about the arrival, so it is not compared — the contract is free to declare
+    what arrives while the code immediately narrows it.
+    """
+    findings: list[Finding] = []
+    for c in contracts:
+        if c.kind != "routine":
+            continue
+        pre = scan_label_prelude(fa.lines, c.bound_line)
+        for axis in ("a", "i"):
+            req = c.entry(axis)
+            ann = pre.ann(axis)
+            if req == UNKNOWN or ann is None or ann.forced is not None:
+                continue
+            if ann.value != req:
+                findings.append(Finding(
+                    file=fa.path, line=c.line,
+                    rule="contract-directive-mismatch", label=c.name,
+                    message=(
+                        f"'{c.name}' declares `entry: {req.upper()}` but the "
+                        f"label carries a bare .{ann.value} at line "
+                        f"{ann.line} — the contract and the directive assert "
+                        f"different arriving widths, so one of them is "
+                        f"lying to every reader of the other"),
+                ))
+    return findings
+
+
+def check_unknown_is_established(
+        fa: FileAnalysis, contracts: list[Contract]) -> list[Finding]:
+    """`A?` means "I establish my own" — so the body has to actually do it.
+
+    An UNKNOWN entry width tells every caller that any arrival is legal. That
+    promise is only true if the routine narrows the axis with a `sep`/`rep`
+    before it runs anything whose meaning depends on the width. Without this
+    check `A?` would be a way to opt a routine OUT of the cross-file pass by
+    writing one character, which is exactly how a declaration convention rots.
+
+    The scan is deliberately shallow — it walks forward from the label over
+    the width-neutral instructions and stops at the first thing that is not
+    one. It does not follow branches. A routine that establishes its width on
+    each arm of an early branch instead of before it will be reported; the
+    honest fix there is to narrow before the branch, and the override exists
+    for the case where it genuinely cannot.
+    """
+    findings: list[Finding] = []
+    for c in contracts:
+        if c.kind != "routine":
+            continue
+        for axis, bit in (("a", 0x20), ("i", 0x10)):
+            if c.entry(axis) != UNKNOWN:
+                continue
+            established, blocker, blocker_line = False, None, None
+            for k in range(c.bound_line, min(c.bound_line + 40, len(fa.lines))):
+                code = strip_label_prefix(strip_comment(fa.lines[k]))
+                if not code.strip() or RE_DIRECTIVE.match(code):
+                    continue
+                sm = RE_SEP.match(code) or RE_REP.match(code)
+                if sm and (int(sm.group(1), 16) & bit):
+                    established = True
+                    break
+                tok = RE_FIRST_TOKEN.match(code)
+                if tok and tok.group(1).lower() in WIDTH_NEUTRAL_OPS:
+                    continue
+                blocker, blocker_line = code.strip(), k + 1
+                break
+            if not established and not has_override(fa.lines, c.bound_line - 1):
+                where = (f"'{blocker}' at line {blocker_line}"
+                         if blocker else "the end of the scan window")
+                findings.append(Finding(
+                    file=fa.path, line=c.line,
+                    rule="contract-unknown-not-established", label=c.name,
+                    message=(
+                        f"'{c.name}' declares `entry: {axis.upper()}?` — any "
+                        f"arrival legal, the routine establishes its own — "
+                        f"but no sep/rep on the {axis.upper()} axis runs "
+                        f"before {where}. Either narrow the axis at the top "
+                        f"of the routine, or declare the width the callers "
+                        f"must actually arrive in"),
+                ))
+    return findings
+
+
+def check_cross_file_calls(
+        fa: FileAnalysis, contracts: dict,
+        label_files: Optional[dict] = None) -> tuple[list[Finding], dict]:
+    """THE HOLE CLOSED: a `jsr`/`jsl` into ANOTHER file, checked.
+
+    Check 1 models every same-file arrival at a label, including `jsr`/`jsl`
+    sites, and has always said so — and has always said what it could not do:
+    a caller in a different file is invisible in both directions, so an
+    exported routine's width contract was proven only on the emulator.
+
+    This pass closes that for the routines that DECLARE. For each call whose
+    target is not defined in the calling file and does carry a contract, the
+    caller's tracked width at the call site is compared against the callee's
+    declared `entry:`. Four properties hold it in shape:
+
+      * it activates ONLY where the callee declares. An undeclared routine is
+        exactly as unchecked as it was before this pass existed, so the gate
+        gains no baseline and no flood, and a tree adopts the grammar one
+        routine at a time;
+      * an UNKNOWN declaration (`A?`) accepts any arrival, and
+        check_unknown_is_established makes the callee earn that;
+      * an UNKNOWN ARRIVAL — the caller's own tracked width is not known at
+        the site — is not a finding. It is unprovable, not wrong, and firing
+        on it would reintroduce the flood by the back door. It is COUNTED and
+        the summary reports it, so a pass that proved nothing says so;
+      * same-file calls are left to check 1. Reporting them here as well
+        would double-count the one arrival two checks can see.
+
+    AND A BARE NAME DEFINED IN MORE THAN ONE FILE IS NOT RESOLVED. This tree
+    has three `cam_arm`s — sh2_cam's, shg_cam's and shp_cam's — and a whole-
+    tree run sees one flat namespace, so `jsr cam_arm` in a shp_cam rail would
+    otherwise be checked against sh2_cam's declaration: a contract it does not
+    link against. That is the indirect-evidence shape, and it can fail in both
+    directions (a false finding, or a pass that proved nothing). Those calls
+    are counted as AMBIGUOUS and left unchecked; the summary names the count,
+    and the way to buy the check is to make the routine's name unique.
+    """
+    findings: list[Finding] = []
+    label_files = label_files or {}
+    stats = {"checked": 0, "unprovable": 0, "callees": set(),
+             "ambiguous": 0, "ambiguous_names": set()}
+    for idx, raw in enumerate(fa.lines):
+        m = RE_CALL.match(strip_label_prefix(strip_comment(raw)))
+        if not m:
+            continue
+        target = m.group(2)
+        if target in fa.label_def_line:
+            continue                       # same file — check 1 owns it
+        # A scene-scoped call is written `jsr race::stream_nmi_dispatch`, and
+        # the contract is declared on the bare label inside that scope. Try
+        # the written token first, then its last `::` segment — a name the
+        # contract table refuses to hold twice, so the fallback cannot resolve
+        # to the wrong routine.
+        c = contracts.get(target) or contracts.get(target.rsplit("::", 1)[-1])
+        if c is None:
+            continue                       # undeclared — unchecked, as before
+        if "::" not in c.name and len(label_files.get(c.name, ())) > 1:
+            # The declaration is on a bare name that several files define. A
+            # qualified contract is disambiguated by its own qualifier and is
+            # not subject to this.
+            stats["ambiguous"] += 1
+            stats["ambiguous_names"].add(c.name)
+            continue
+        stats["callees"].add(c.name)       # the RESOLVED name, so `race::f`
+        #                                    and `world::f` are one callee
+        state = fa.width_at[idx]
+        overridden = has_override(fa.lines, idx)
+        for axis, got in (("a", state.a), ("i", state.i)):
+            req = c.entry(axis)
+            if req == UNKNOWN:
+                continue
+            if got == UNKNOWN:
+                stats["unprovable"] += 1
+                continue
+            stats["checked"] += 1
+            if got == req or overridden:
+                continue
+            findings.append(Finding(
+                file=fa.path, line=idx + 1, rule="cross-file-width",
+                label=target,
+                message=(
+                    f"{m.group(1).lower()} {target} arrives in .{got}, but "
+                    f"'{target}' declares `entry: {req.upper()}` at "
+                    f"{c.file}:{c.line}. Narrow at the call site "
+                    f"(sep/rep + directive) or fix whichever end is wrong — "
+                    f"the two files cannot both be right"),
+            ))
+    return findings, stats
+
+
 # --- Public API --------------------------------------------------------------
 
-def lint_file(path: str | Path) -> list[Finding]:
-    """Run all four checks against a single ASM file. Returns findings."""
+@dataclass
+class ContractStats:
+    """What the contract pass actually did, so a disarmed run reads as one."""
+
+    declared: int = 0          # CONTRACT blocks parsed, tree-wide
+    routines: int = 0          # of those, ones that bind a routine
+    macros: int = 0            # of those, ones that bind a macro
+    sites_checked: int = 0     # cross-file call-site AXES actually compared
+    sites_unprovable: int = 0  # axes skipped: the caller's own width is UNKNOWN
+    sites_ambiguous: int = 0   # calls skipped: the callee's bare name is
+    #                            defined in more than one file in the run
+    callees: set = field(default_factory=set)  # declared routines called
+    #                                            from another file
+    ambiguous_names: set = field(default_factory=set)
+
+    def merge(self, other: dict) -> None:
+        self.sites_checked += other["checked"]
+        self.sites_unprovable += other["unprovable"]
+        self.sites_ambiguous += other["ambiguous"]
+        self.callees |= other["callees"]
+        self.ambiguous_names |= other["ambiguous_names"]
+
+
+def collect_contracts(paths: list[str]) -> tuple[dict, list[Finding],
+                                                 ContractStats]:
+    """Phase one: every CONTRACT block in the whole file set, by name.
+
+    The cross-file pass needs the declarations of files it is not currently
+    reading, so the run is two-phase. A name declared twice keeps the FIRST
+    and reports the second — silently preferring one of two contracts for the
+    same symbol is how a caller ends up checked against a declaration that is
+    not the one it links against.
+    """
+    table: dict[str, Contract] = {}
+    findings: list[Finding] = []
+    stats = ContractStats()
+    label_files: dict[str, set] = {}
+    for p in paths:
+        fa = analyze_file(p)
+        for name in fa.label_def_line:
+            label_files.setdefault(name, set()).add(fa.path)
+        contracts, errs = parse_contracts(fa)
+        findings.extend(errs)
+        for c in contracts:
+            stats.declared += 1
+            if c.kind == "macro":
+                stats.macros += 1
+            else:
+                stats.routines += 1
+            prev = table.get(c.name)
+            if prev is not None:
+                findings.append(Finding(
+                    file=c.file, line=c.line, rule="contract-malformed",
+                    label=c.name,
+                    message=(
+                        f"CONTRACT {c.name}: a contract for this name is "
+                        f"already declared at {prev.location()} — two "
+                        f"declarations for one symbol means a caller is "
+                        f"checked against whichever the linter happened to "
+                        f"read first")))
+                continue
+            table[c.name] = c
+    return table, findings, stats, label_files
+
+
+def lint_file(path: str | Path, contracts: Optional[dict] = None,
+              stats: Optional[ContractStats] = None,
+              label_files: Optional[dict] = None) -> list[Finding]:
+    """Run every check against a single ASM file. Returns findings.
+
+    `contracts` is the tree-wide declaration table from `collect_contracts`.
+    Without it the file is linted ALONE — the single-file checks are exactly
+    as they were, and the cross-file pass sees only this file's own
+    declarations (so it finds nothing, every call being either same-file or
+    to an undeclared name). That is the shape the per-file tests use.
+    """
     fa = analyze_file(path)
     findings: list[Finding] = []
     findings.extend(check_multipath_labels(fa))
     findings.extend(check_tax_tay_cross_width(fa))
     findings.extend(check_macro_contracts(fa))
     findings.extend(check_stz_long(fa))
+
+    own, errs = parse_contracts(fa)
+    if contracts is None:
+        findings.extend(errs)
+        contracts = {c.name: c for c in own}
+    findings.extend(check_contract_agrees_with_directives(fa, own))
+    findings.extend(check_unknown_is_established(fa, own))
+    xf, xstats = check_cross_file_calls(fa, contracts, label_files)
+    findings.extend(xf)
+    if stats is not None:
+        stats.merge(xstats)
+
     findings.sort(key=lambda f: (f.file, f.line, f.rule))
     return findings
 
 
-def lint_paths(paths: list[str]) -> list[Finding]:
-    """Run linter against multiple paths. Files only — caller globs."""
-    all_findings: list[Finding] = []
+def lint_paths(paths: list[str]) -> tuple[list[Finding], ContractStats]:
+    """The whole-tree run: collect declarations, then lint against them."""
+    contracts, findings, stats, label_files = collect_contracts(paths)
     for p in paths:
-        all_findings.extend(lint_file(p))
-    return all_findings
+        findings.extend(lint_file(p, contracts, stats, label_files))
+    findings.sort(key=lambda f: (f.file, f.line, f.rule))
+    return findings, stats
 
 
 def detect_bare_overrides(path: str | Path) -> list[Finding]:
@@ -1020,9 +1555,8 @@ def main(argv: list[str]) -> int:
             print(f"width_lint: file not found: {p}", file=sys.stderr)
             return 2
 
-    findings: list[Finding] = []
+    findings, stats = lint_paths(files)
     for f in files:
-        findings.extend(lint_file(f))
         findings.extend(detect_bare_overrides(f))
 
     # Baseline suppression — findings present in the baseline are silenced.
@@ -1067,10 +1601,45 @@ def main(argv: list[str]) -> int:
             print(
                 "  checked: label annotations present AND true against every "
                 "same-file arrival\n"
-                "  (fallthrough/branch/jmp/jsr/jsl; cross-file callers "
-                "invisible), tax/tay in\n"
-                "  A8/I16, macro sep/rep contracts, stz-long"
+                "  (fallthrough/branch/jmp/jsr/jsl), tax/tay in A8/I16, macro "
+                "sep/rep contracts,\n"
+                "  stz-long"
             )
+            # The cross-file pass's own reach. It activates only where the
+            # CALLEE declares, so these three numbers are the difference
+            # between "checked nothing" and "checked something" — a run with
+            # 0 declarations is disarmed and says so rather than printing a
+            # clean line.
+            print(
+                f"  contracts: {stats.declared} declared "
+                f"({stats.routines} routine, {stats.macros} macro); "
+                f"{stats.sites_checked} cross-file call-site width(s) "
+                f"compared across {len(stats.callees)} declared callee(s)"
+            )
+            if stats.sites_unprovable:
+                print(
+                    f"  unprovable: {stats.sites_unprovable} cross-file "
+                    f"width(s) skipped — the CALLER's own tracked width is "
+                    f"unknown at the site, which is not a finding and is not "
+                    f"a proof either"
+                )
+            if stats.sites_ambiguous:
+                print(
+                    f"  ambiguous: {stats.sites_ambiguous} call(s) NOT "
+                    f"resolved — the callee's name is defined in more than "
+                    f"one file in this run\n"
+                    f"  ({', '.join(sorted(stats.ambiguous_names))}), so a "
+                    f"whole-tree pass cannot say which one a caller links "
+                    f"against.\n"
+                    f"  A unique name is what buys the check"
+                )
+            if stats.declared == 0:
+                print(
+                    "  NOTE: no contract declared in this file set, so the "
+                    "cross-file pass is inert — an exported routine's width\n"
+                    "  contract is proven only on the emulator until it "
+                    "declares (AGENTS.md, 'The routine contract')"
+                )
             for rule, n in sorted(counts.items()):
                 print(f"  {rule}: {n}")
 

@@ -270,12 +270,23 @@ SH2_HEAD_BASE = TS_ONE                    ; one pose per NTSC frame held
 .endmacro
 
 ; --- cam_arm: build all six tables + the channel shadow (scene enter) -------
-; In/out: A16/I16, DB=0, forced blank + NMI masked. Clobbers A, X, Y. The
-; caller seeds ES_SH2_POS and ES_SH2_ROT first (cam_arm stamps from both) and
-; ORs the six enable bits into the scene_mgr HDMAEN shadow after.
+; CONTRACT cam_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       ES_SH2_POS and ES_SH2_ROT — the caller seeds both before
+;             calling, and cam_arm stamps from both
+;   out:      all six HDMA tables built over a zeroed claim, the positions
+;             seeded, all six channel shadows staged
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — it writes the whole table
+;             claim and the channel shadow, neither of which may be read
+;             mid-write. The caller ORs the six enable bits into the
+;             scene_mgr HDMAEN shadow AFTERWARDS; this routine does not
+;   tail:     rts
 cam_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "cam_arm"
     ; ---- the declared init contract: zero the WHOLE claim first ------------
     ; The bytes past each table's terminator are never stamped, but the DMA
     ; controller's terminator processing still fetches indirect-address bytes
@@ -811,9 +822,26 @@ cam_drive:
 ; the pixels), but a test that reads the DP state directly must step it back
 ; once to get the state the parked frame is showing — see _state in
 ; tests/test_split_h_2p_demo.py.
+; CONTRACT cam_tick
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   in:       SH2_H1/SH2_H2 and the four position words — the state THIS
+;             frame's picture is to be stamped from
+;   out:      the four live pose pointers, the four DASB bytes, and both
+;             bands' origin words, all committed from the same state
+;   clobbers: A, N, Z, C. The index registers are untouched, and are never
+;             narrowed — the A8 window this runs inside is A-only
+;   assumes:  VBlank (the sm_nmi_hook contract). It stamps only; the state
+;             step is cam_advance's, a few hundred cycles later in the tick
+;   tail:     rts
+;
+; THE A8 ENTRY IS THE HOOK'S, NOT A PREFERENCE: sm_nmi_hook runs in A8/I16 and
+; this routine widens to A16 for its own work and narrows back before
+; returning, so the hook's contract is what the caller sees on both sides.
 cam_tick:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "cam_tick"
     rep #$20
     .a16
     jsr cam_ptrs
@@ -824,7 +852,19 @@ cam_tick:
     rts
 
 ; --- cam_advance: the frame's state step, in the scene TICK -----------------
-; In/out: A16/I16, DB=0. Clobbers A, X.
+; CONTRACT cam_advance
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       US_TSH_ACC (the carried rotation fraction) and, on the input
+;             build, the latched pads
+;   out:      US_TSH published for this frame; both headings and all four
+;             position words stepped unless SH2_FREEZE is defined
+;   clobbers: A, X, N, Z, C
+;   assumes:  the pads are already LATCHED — input_read / input2_read run at
+;             the top of the main loop, not here. And it runs FIRST in the
+;             tick, before the swarm and the projection, so what those
+;             project is this frame's state rather than last frame's
+;   tail:     rts
 ;
 ; THE STATE STEP IS OUT OF THE VBLANK HOOK, and the phase is unchanged by that.
 ; Stamping and then advancing inside one VBlank works too; here cam_tick stamps
@@ -854,6 +894,7 @@ cam_tick:
 cam_advance:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "cam_advance"
     TS_STEP z:US_TSH_ACC, SH2_HEAD_BASE
     sta z:US_TSH
 .ifndef SH2_FREEZE
@@ -867,7 +908,18 @@ cam_advance:
     rts
 
 ; --- cam_region: pick this console's move arm (scene enter) -----------------
-; In/out: A16/I16, DB=0. Clobbers A.
+; CONTRACT cam_region
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       ES_RGN_PAL — the region flag, latched once at boot by
+;             region_init
+;   out:      US_MOVE_ARM selected on BOTH arms of the branch; US_TSH_ACC
+;             zeroed and US_TSH seeded with the NTSC step
+;   clobbers: A, N, Z
+;   assumes:  region_init has already run in MAIN. Power-on DP is random
+;             (rule 5), so every word this writes is a write-before-read
+;             obligation this routine discharges at enter
+;   tail:     rts
 ;
 ; ONCE, AT ENTER. The console cannot change region, so this is the only place
 ; the flag is read on the motion path — everything after it is an OR against a
@@ -883,6 +935,7 @@ cam_advance:
 cam_region:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "cam_region"
     lda z:ES_RGN_PAL
     bne @pal
     lda #SH2_MOVE_ARM_NTSC

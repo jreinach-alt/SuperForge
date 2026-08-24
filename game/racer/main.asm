@@ -132,6 +132,23 @@ kart_pal_bin:
 
 ; --- sm_nmi_hook: per-frame VBlank work (after the scene: scope refs resolve)
 ; In: A8/I16, DB=0 (from sm_nmi_core). May clobber A/X/Y.
+; CONTRACT racer::sm_nmi_hook
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   in:       the scene's committed shadows and staged buffers
+;   out:      the OAM shadow committed and the scene's VBlank writers drained
+;   clobbers: A, X, Y and the flags — sm_nmi_core saves and restores around
+;             the call, so the hook owns all three for its duration
+;   assumes:  VBlank, from sm_nmi_core. The A8/I16 pair is sm_nmi_core's
+;             contract, and it is what every routine this hook calls declares
+;             on its own entry
+;   tail:     rts, back into sm_nmi_core — which then MVNs the 128-byte
+;             channel shadow to $4300 and applies HDMAEN
+;
+; THE NAME IS QUALIFIED because every rail has an `sm_nmi_hook` and they are
+; 37 different routines. The qualifier keys this declaration uniquely; a bare
+; `jsr sm_nmi_hook` from scene_mgr.asm links against a different one in every
+; rail's build, so the cross-file pass deliberately does not resolve it.
 sm_nmi_hook:
     .a8
     .i16

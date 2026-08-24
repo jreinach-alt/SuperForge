@@ -175,11 +175,22 @@ SF_ASSERT_NO_BANK_CROSS ES_STREAM_ROWS_LONG, ES_STREAM_ROWS_SIZE, "mode7_stream:
 SF_ASSERT_NO_BANK_CROSS ES_STREAM_COLS_LONG, ES_STREAM_COLS_SIZE, "mode7_stream: the col staging buffer crosses a bank — the VBlank DMA's A1T wraps within A1B"
 
 ; --- stream_arm: init contract + tile tracking from the enter camera --------
-; In/out: A16/I16, DB=0 (scene enter contract). The seed upload already covers
-; the whole 128x128 window around CAM0; tracking starts in sync.
+; CONTRACT stream_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       CAM0_TX / CAM0_TY — the enter camera's tile position, as
+;             build-time constants the rail supplies
+;   out:      the whole hot block zeroed; ST_CAM_* and ST_LAST_* seeded level
+;             with each other, so the first tick's delta is zero
+;   clobbers: A, X, N, Z
+;   assumes:  the scene's own seed upload already covers the whole 128x128
+;             window around CAM0. Tracking starts in sync with that upload
+;             and this routine does not verify it
+;   tail:     rts
 stream_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "stream_arm"
     ldx #(ES_STREAM_HOT_SIZE - 2)
 :   stz z:ES_STREAM_HOT, x
     dex
@@ -200,12 +211,26 @@ stream_arm:
     rts
 
 ; --- stream_tick: camera delta -> staged slots (race tick, after movement) --
-; In/out: A16/I16, DB=0. Reads the M7ORG pixel shadows; walks LAST toward CAM
-; one tile at a time, staging each entering edge. Clamp: stops when a frame's
-; slots are full — NEVER snaps LAST to CAM (the skipped-tile class).
+; CONTRACT stream_tick
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       ES_M7ORG — the M7X/M7Y pixel shadows, already stepped by this
+;             frame's movement
+;   out:      ST_CAM_* re-read from the camera; LAST walked toward CAM one
+;             tile at a time with each entering edge staged into a row/col
+;             slot; ST_ROW_CNT / ST_COL_CNT bumped per slot
+;   clobbers: A, X, Y, N, Z, C  (X and Y through stream_stage_row/col)
+;   assumes:  called from the scene tick AFTER the frame's movement, so the
+;             shadows it reads are this frame's
+;   tail:     rts
+;
+; THE CLAMP NEVER SNAPS. It stops when a frame's slots are full and leaves the
+; rest for the next frame — snapping LAST to CAM would skip tiles whose VRAM
+; still holds data from 128 world-columns ago.
 stream_tick:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "stream_tick"
     lda z:ES_M7ORG + 0              ; M7X px
     lsr
     lsr
@@ -610,13 +635,24 @@ stream_stage_col:
     rts
 
 ; --- stream_nmi_dispatch: drain staged slots as multi-queue GP-DMA ----------
-; In: A8/I16, DB=0 (sm_nmi_hook contract). Clobbers A/X/Y + ES_STREAM_NMI. Uses
-; the vblank-phase channel's $43xx regs directly — the NMI core re-arms every
-; channel from the scene_mgr shadow after the hook, so time-sharing with an
-; active-phase channel is safe by construction.
+; CONTRACT stream_nmi_dispatch
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   in:       ST_ROW_CNT / ST_COL_CNT and the staged slot buffers, filled by
+;             this frame's stream_tick
+;   out:      every staged slot transferred to VRAM; both counters zeroed
+;   clobbers: A, X, Y, N, Z, C, ES_STREAM_NMI (the drain counter), and the
+;             vblank-phase channel's $43xx registers
+;   assumes:  VBlank — it writes VRAM through $2115/$2116 and the DMA port.
+;             It programs its own VMAIN and VMADD, so its position in
+;             sm_nmi_hook is free. The NMI core re-arms every channel from
+;             the scene_mgr shadow after the hook, which is what makes
+;             time-sharing the $43xx block with an active-phase channel safe
+;   tail:     rts
 stream_nmi_dispatch:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "stream_nmi_dispatch"
     lda z:ST_ROW_CNT
     beq @rows_done
     sta z:ES_STREAM_NMI
