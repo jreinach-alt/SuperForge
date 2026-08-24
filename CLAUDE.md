@@ -121,11 +121,15 @@ from a clone of HEAD — the landing gate).
    The semantics: a **bare** directive after a label *asserts* the arriving
    width and must equal every known arrival on its axis; **`sep`/`rep` +
    directive** is a *forced narrowing*, legal from any arrival. **The
-   single-file limit remains**: callers in other files are invisible in both
-   directions, so a cross-file caller/callee width contract (e.g.
-   `col_map_at`'s callers in race.asm) is still checked only by the emulator
-   — `; WIDTH-RISK:` contract markers on exported routines stay
-   load-bearing.
+   single-file limit is now CONDITIONAL** (2026-08-24): an exported routine
+   that declares a routine contract (AGENTS.md, "The routine contract") has
+   its cross-file `jsr`/`jsl` arrivals checked by the lint's contract pass,
+   and a macro's `SF_ASSERT_WIDTH` checks every expansion site at assembly
+   time. Everything UNDECLARED keeps the old limit — callers in other files
+   invisible in both directions, checked only by the emulator — so
+   `; WIDTH-RISK:` markers stay load-bearing on every routine that has not
+   yet migrated, and the lint's summary counts how many declarations and
+   call sites the pass actually reached.
 7. **The emulator is not the bug.** Before claiming a quirk you MUST: reproduce
    on a 2nd emulator (bsnes), read the Mesen2 source
    (`/tmp/Mesen2/Core/SNES/`), cite a known-good open-source SNES codebase or a
