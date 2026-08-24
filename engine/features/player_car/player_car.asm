@@ -76,9 +76,13 @@ car_arm:
     stz a:CAR_ENTRY + 2             ; tile 0 (grid row pair base)
     lda #CAR_ATTR
     sta a:CAR_ENTRY + 3
-    lda a:CAR_HI_BYTE
-    ora #CAR_HI_SIZE                ; large (16x16); X9 stays 0
-    sta a:CAR_HI_BYTE
+    lda #CAR_HI_SIZE
+    tsb a:CAR_HI_BYTE               ; large (16x16); X9 stays 0. test-and-set
+                                    ;   instead of the load/or/store: the byte
+                                    ;   is three other slots' bits too, and the
+                                    ;   mask is the only thing this owns. `tsb`
+                                    ;   sets Z from A AND memory rather than
+                                    ;   from the result — nothing below reads it
     rep #$20
     .a16
     rts
@@ -92,9 +96,10 @@ car_disarm:
     .a8
     lda #240
     sta a:CAR_ENTRY + 1             ; Y = $F0: off-screen
-    lda a:CAR_HI_BYTE
-    and #(255 - CAR_HI_SIZE)
-    sta a:CAR_HI_BYTE               ; size back to small, X9 untouched
+    lda #CAR_HI_SIZE
+    trb a:CAR_HI_BYTE               ; size back to small, X9 untouched — and
+                                    ;   the mask now names the bit being
+                                    ;   cleared rather than the seven kept
     rep #$20
     .a16
     rts

@@ -22,11 +22,13 @@ RH_HI   = RH_HI_BASE + (ES_O_HERO / 4)          ; ...and its hi-table byte
 RH_HI_SHIFT = (ES_O_HERO .MOD 4) * 2
 RH_HI_SIZE  = 2 << RH_HI_SHIFT
 RH_HI_X9    = 1 << RH_HI_SHIFT
-; Clear-masks by SUBTRACTION rather than ~: the bits are disjoint, so $FF -
-; bits is exactly the complement, and it stays an immediate < $100 (which
-; no_literals reads as data, not as an address).
+; RH_HI_CLR is a clear-mask by SUBTRACTION rather than ~: the bits are
+; disjoint, so $FF - bits is exactly the complement, and it stays an immediate
+; < $100 (which no_literals reads as data, not as an address). It survives for
+; the one site that clears and sets in the same pass (hero_arm); the two sites
+; that only CLEAR now use `trb`, whose mask names the bits being cleared
+; directly and so needs no complement at all — RH_HI_X9CLR went with them.
 RH_HI_CLR   = $FF - (3 << RH_HI_SHIFT)
-RH_HI_X9CLR = $FF - RH_HI_X9
 
 ; The second hero (pad 2): the same equate family over the hero2
 ; claim's slot. Identical twin by construction — same CHR block, same OBJ
@@ -38,7 +40,6 @@ RH2_HI_SHIFT  = (ES_O_HERO2 .MOD 4) * 2
 RH2_HI_SIZE   = 2 << RH2_HI_SHIFT
 RH2_HI_X9     = 1 << RH2_HI_SHIFT
 RH2_HI_CLR    = $FF - (3 << RH2_HI_SHIFT)
-RH2_HI_X9CLR  = $FF - RH2_HI_X9
 
 ; --- hero_arm: CHR + palette + OBSEL + the resting OAM entry (scene enter) --
 ; In/out: A16/I16, DB=0, forced blank + NMI masked (scene_mgr enter contract).
@@ -162,9 +163,12 @@ hero_place:
     beq @x9_clear
     sep #$20
     .a8
-    lda a:RH_HI
-    ora #RH_HI_X9
-    sta a:RH_HI
+    lda #RH_HI_X9
+    tsb a:RH_HI                     ; test-and-set: the load/or/store this
+                                    ;   replaces read the whole byte to change
+                                    ;   one bit. Nothing below reads Z, which
+                                    ;   `tsb` sets from A AND memory rather
+                                    ;   than from the result.
     rep #$20
     .a16
     rts
@@ -173,9 +177,11 @@ hero_place:
     .i16
     sep #$20
     .a8
-    lda a:RH_HI
-    and #RH_HI_X9CLR
-    sta a:RH_HI
+    lda #RH_HI_X9
+    trb a:RH_HI                     ; test-and-reset: the mask now names the
+                                    ;   bit being cleared instead of the 7 bits
+                                    ;   being kept (RH_HI_X9CLR was its
+                                    ;   complement). Z unread below.
     rep #$20
     .a16
     rts
@@ -204,9 +210,8 @@ hero2_place:
     beq @x9_clear
     sep #$20
     .a8
-    lda a:RH2_HI
-    ora #RH2_HI_X9
-    sta a:RH2_HI
+    lda #RH2_HI_X9
+    tsb a:RH2_HI                    ; as hero_place, for the twin's slot
     rep #$20
     .a16
     rts
@@ -215,9 +220,8 @@ hero2_place:
     .i16
     sep #$20
     .a8
-    lda a:RH2_HI
-    and #RH2_HI_X9CLR
-    sta a:RH2_HI
+    lda #RH2_HI_X9
+    trb a:RH2_HI                    ; as hero_place, for the twin's slot
     rep #$20
     .a16
     rts
@@ -232,9 +236,9 @@ hero_park:
     .a8
     lda #240
     sta a:RH_OAM + 1                ; Y = $F0: off-screen
-    lda a:RH_HI
-    and #RH_HI_CLR                  ; small + X9 clear, as oam_park_all left it
-    sta a:RH_HI
+    lda #(RH_HI_SIZE | RH_HI_X9)    ; small + X9 clear, as oam_park_all left it
+    trb a:RH_HI                     ; ...and the mask says WHICH two bits, which
+                                    ;   RH_HI_CLR ($FF minus them) did not
     rep #$20
     .a16
     rts
@@ -248,9 +252,8 @@ hero2_park:
     .a8
     lda #240
     sta a:RH2_OAM + 1               ; Y = $F0: off-screen
-    lda a:RH2_HI
-    and #RH2_HI_CLR                 ; small + X9 clear, the boot-park state
-    sta a:RH2_HI
+    lda #(RH2_HI_SIZE | RH2_HI_X9)  ; small + X9 clear, the boot-park state
+    trb a:RH2_HI
     rep #$20
     .a16
     rts

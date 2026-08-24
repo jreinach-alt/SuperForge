@@ -157,6 +157,23 @@ ST_K3      = ES_STREAM_HOT + 16
 ST_K4      = ES_STREAM_HOT + 18
 ST_K5      = ES_STREAM_HOT + 20
 
+; --- what this feature needs of the placement it was handed -----------------
+; The allocator decides WHERE these land; these state what the code above needs
+; of wherever that is (vendor/rom/sf_asm.inc). Every one is true today — they
+; codify a dependency that was previously only a reader's assumption.
+;
+; The hot block: every ST_* alias above is reached with `z:`, a FORCED
+; direct-page mode, so a claim that started or ended outside the page would
+; assemble without complaint and address the wrong byte of page zero.
+SF_ASSERT_DP ES_STREAM_HOT, "mode7_stream: the hot block is outside the direct page — every ST_* alias is reached with z:"
+SF_ASSERT_NO_PAGE_CROSS ES_STREAM_HOT, ES_STREAM_HOT_SIZE, "mode7_stream: the hot block runs out of the direct page — the ST_K5 end of it would not be addressable with z:"
+; The two staging buffers: mzs_arm_row/col stamp A1B from `_BANK` and A1T from
+; the 16-bit base, then walk A1T slot by slot. A DMA's A-bus address wraps
+; WITHIN its bank, so a buffer straddling a bank seam would have its tail
+; transferred from the bank's own low bytes.
+SF_ASSERT_NO_BANK_CROSS ES_STREAM_ROWS_LONG, ES_STREAM_ROWS_SIZE, "mode7_stream: the row staging buffer crosses a bank — the VBlank DMA's A1T wraps within A1B"
+SF_ASSERT_NO_BANK_CROSS ES_STREAM_COLS_LONG, ES_STREAM_COLS_SIZE, "mode7_stream: the col staging buffer crosses a bank — the VBlank DMA's A1T wraps within A1B"
+
 ; --- stream_arm: init contract + tile tracking from the enter camera --------
 ; In/out: A16/I16, DB=0 (scene enter contract). The seed upload already covers
 ; the whole 128x128 window around CAM0; tracking starts in sync.
@@ -571,14 +588,12 @@ stream_stage_col:
     bra @col_tail
 @col_span_end:
     .a16
-    ; restore DB = 0, wrap wr, continue while rows remain
-    sep #$20
-    .a8
-    lda #0
-    pha
-    plb
-    rep #$20
-    .a16
+    ; restore DB = 0, wrap wr, continue while rows remain. The pea/plb/plb form
+    ; (vendor/rom/sf_asm.inc) works at any width, so the A8 window this used to
+    ; open purely to hold a bank byte is gone with it: 13 cycles in 5 bytes
+    ; against 15 in 8, and two fewer width transitions for the assembler and
+    ; the reader to track.
+    SF_SET_DB SF_BANK_SYS
     lda z:ST_K1
     and #511
     sta z:ST_K1

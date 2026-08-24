@@ -26,6 +26,8 @@ JOY_START = 1 << 12                 ; $4218 bit 12 — a bit POSITION.
                                     ; cannot know which one you meant).
 .include "header.inc"
 .include "init.inc"                 ; RESET: native, A16/I16, forced blank
+.include "sf_asm.inc"              ; shared macros: placement assertions + the
+                                    ;   data-bank idioms (vendor/rom)
 
 .segment "CODE"
 

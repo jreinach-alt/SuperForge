@@ -131,6 +131,16 @@ M7F_AB_LONG = ES_M7F_TBL_LONG + 0
 M7F_CD_LONG = ES_M7F_TBL_LONG + M7F_TBL_ONE
 M7F_SHDW_CH = ES_SM_HDMA_SIZE / 8               ; 16 B of register file per channel
 
+; What this feature needs of the placement the allocator handed it
+; (vendor/rom/sf_asm.inc). The channels are DIRECT, so the table IS the data:
+; m7f_arm_channels stamps A1B from `_BANK` once and every byte the two channels
+; ever read is found by A1T walking from there. A1T is 16 bits and wraps WITHIN
+; A1B, so a table straddling a bank seam would feed the second half of the band
+; from the bank's own low bytes — a floor that renders, with the wrong geometry
+; below the seam line. True today at $7E04A2 + 2592; asserted so a re-pack says
+; so instead.
+SF_ASSERT_NO_BANK_CROSS ES_M7F_TBL_LONG, ES_M7F_TBL_SIZE, "m7f_cam: the HDMA table crosses a bank — a direct channel's A1T wraps within A1B and the far half of the band would read the bank's low bytes"
+
 ; --- the pose state, inside the 14-byte dp claim ----------------------------
 M7F_POSX    = ES_M7F_POSE + 0                   ; 16.16 world position
 M7F_POSY    = ES_M7F_POSE + 4
@@ -180,6 +190,20 @@ M7F_M7X     = ES_M7F_ORG + 0
 M7F_M7Y     = ES_M7F_ORG + 2
 M7F_HOFS    = ES_M7F_ORG + 4
 M7F_VOFS    = ES_M7F_ORG + 6
+
+; Every alias in the four blocks above is reached with `z:`, which is a FORCED
+; direct-page mode — ca65 emits the two-byte form whatever the symbol's value
+; turns out to be, so a claim placed or grown outside the page produces a store
+; to the wrong byte of page zero rather than an assembler error. Two assertions
+; per claim: the base is in the page, and the claim does not run out of it.
+SF_ASSERT_DP ES_M7F_JOIN, "m7f_cam: the join scratch is outside the direct page"
+SF_ASSERT_NO_PAGE_CROSS ES_M7F_JOIN, ES_M7F_JOIN_SIZE, "m7f_cam: the join scratch runs out of the direct page"
+SF_ASSERT_DP ES_M7F_MUL, "m7f_cam: the movement scratch is outside the direct page"
+SF_ASSERT_NO_PAGE_CROSS ES_M7F_MUL, ES_M7F_MUL_SIZE, "m7f_cam: the movement scratch runs out of the direct page"
+SF_ASSERT_DP ES_M7F_POSE, "m7f_cam: the pose block is outside the direct page"
+SF_ASSERT_NO_PAGE_CROSS ES_M7F_POSE, ES_M7F_POSE_SIZE, "m7f_cam: the pose block runs out of the direct page"
+SF_ASSERT_DP ES_M7F_ORG, "m7f_cam: the origin shadow is outside the direct page"
+SF_ASSERT_NO_PAGE_CROSS ES_M7F_ORG, ES_M7F_ORG_SIZE, "m7f_cam: the origin shadow runs out of the direct page"
 
 ; The world is the Mode 7 plane's own period, DERIVED from the map claim's size
 ; rather than narrated: the blob is 2 bytes per tile (tilemap even, CHR odd)
@@ -467,15 +491,14 @@ m7f_compose:
     ; bank and pulling it back after made `plx` read the bank byte plus half
     ; the variant — a garbage vector, an indirect JSR into it, and a table with
     ; one correct line and 159 wrong ones. Bank first, variant second, and the
-    ; pulls mirror them: count push/pop BYTES per arm, never pushes.
+    ; pulls mirror them: count push/pop BYTES per arm, never pushes. The
+    ; pea/plb/plb form (vendor/rom/sf_asm.inc) does not change that reasoning:
+    ; it pushes two bytes and pulls two, so it is stack-neutral across itself
+    ; and the phb below it still owns exactly one byte.
     phb
-    sep #$20
-    .a8
-    lda #ES_M7F_TBL_BANK
-    pha
-    plb
-    rep #$20
-    .a16
+    SF_SET_DB ES_M7F_TBL_BANK   ; 13 cycles / 5 bytes, at A16, A intact — the
+                                ;   A8 window this used to open existed only to
+                                ;   hold a bank byte in the accumulator
     phx                         ; the variant, for the second call
 
     ; ---- segment 0: band lines 0..79 ---------------------------------------
@@ -620,20 +643,26 @@ m7f_mul_mag:
     sta z:M7F_MAGTMP
     ora z:M7F_SPDLO8            ; (spd_lo << 8) | mag — one word, both operands
     sta f:$004202               ; $4202 = mag, $4203 = spd_lo: multiply starts
-    nop
-    nop
-    nop
-    nop                         ; the multiplier's 8 cycles
+    ; THE MULTIPLIER'S 8 CYCLES, counted per instruction rather than counted by
+    ; the reader. Four `nop`s spent 8 cycles in 4 bytes; this spends the same 8
+    ; in 3. The densest padding this CPU has is a stack pair — `phb`/`plb` is 7
+    ; cycles in 2 bytes — but 7 does not divide 8 and there is no one-cycle
+    ; instruction to finish it, so the exact form is the `xba` pair (3 + 3,
+    ; which puts A back where it was) plus one `nop`. A is dead here (the `lda`
+    ; below reloads it) and so are the flags the pair touches; the carry, which
+    ; the adc chain further down depends on, is not one of them.
+    xba                         ; 3
+    xba                         ; 3   — A restored
+    nop                         ; 2   = 8
     lda f:$004216               ; mag * spd_lo
     sta z:M7F_P32 + 0
     stz z:M7F_P32 + 2
     lda z:M7F_MAGTMP
     ora z:M7F_SPDHI8            ; (spd_hi << 8) | mag
     sta f:$004202
-    nop
-    nop
-    nop
-    nop
+    xba                         ; 3   — the same 8-cycle latency window as above
+    xba                         ; 3
+    nop                         ; 2   = 8
     lda f:$004216               ; mag * spd_hi — weighted 256
     tay                         ; keep it: both halves are needed
     and #$00FF

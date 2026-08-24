@@ -68,8 +68,11 @@ from pathlib import Path
 
 UNROLL = 4                      # lines per group
 MUL_LATENCY = 8                 # CPU cycles between the $4203 write and $4216
-                                #   (race_logic.asm:245-248 spends four `nop`s
-                                #   on exactly this)
+                                #   (race_logic.asm and rc_logic.asm spend it
+                                #   as explicit padding -- an `xba` pair plus a
+                                #   `nop`, annotated 3/3/2 -- because their
+                                #   windows have no work to put there. This
+                                #   generator's whole point is not needing to)
 
 # --- the instruction cost table ---------------------------------------------
 # CPU cycles at A16/I16 with DP page-aligned (D = $0000, which substrate.toml

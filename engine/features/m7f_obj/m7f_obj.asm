@@ -530,9 +530,12 @@ cloud_draw:
     lda z:M7F_CLOUD_TMP
     and #$0100
     beq :+
-    lda z:M7F_CLOUD_HI
-    ora #1
-    sta z:M7F_CLOUD_HI
+    lda #1
+    tsb z:M7F_CLOUD_HI          ; this cloud's X9 into bit 0 — test-and-set
+                                ;   rather than load/or/store. Z is set from A
+                                ;   AND memory, not from the result; the label
+                                ;   below is reached from a `beq` that has
+                                ;   already branched and nothing there reads it
 :
     .a16
     .i16

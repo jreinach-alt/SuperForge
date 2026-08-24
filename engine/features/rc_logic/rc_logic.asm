@@ -408,10 +408,16 @@ rc_scale:
     sta a:$4202
     lda z:RC_UABS                   ; vl
     sta a:$4203
-    nop                             ; 8 CPU cycles before RDMPY is valid
-    nop
-    nop
-    nop
+    ; 8 CPU CYCLES BEFORE RDMPY IS VALID, counted per instruction rather than
+    ; counted by the reader, and spent in 3 bytes instead of 4. The densest
+    ; padding this CPU has is a stack pair — `phb`/`plb` is 7 cycles in 2 bytes
+    ; — but 7 does not divide 8 and there is no one-cycle instruction to finish
+    ; it, so the exact form is the `xba` pair (3 + 3, which puts A back) plus
+    ; one `nop`. A and the flags are both dead here: the `lda a:$4216` below
+    ; reloads A at the full width and nothing between reads a flag.
+    xba                             ; 3
+    xba                             ; 3   — A restored
+    nop                             ; 2   = 8
     rep #$20
     .a16
     lda a:$4216
@@ -425,10 +431,9 @@ rc_scale:
     sta a:$4202
     lda z:RC_UABS + 1               ; vh
     sta a:$4203
-    nop
-    nop
-    nop
-    nop
+    xba                             ; 3   — the same 8-cycle RDMPY window as above
+    xba                             ; 3
+    nop                             ; 2   = 8
     rep #$20
     .a16
     lda a:$4216

@@ -12,10 +12,17 @@
 ; macro is the one place a width mistake is written ONCE and assembled many
 ; times.
 ;
-; Include it AFTER the generated `engine_state_*.inc` (nothing here reads an
-; emitted symbol, but every CALLER's arguments do) and before the code that
-; uses it. It emits NO bytes on its own: everything here is either an equate,
-; an assertion, or a macro that is only expanded where it is written.
+; INCLUDE IT ONCE PER ROM, AT TOP LEVEL, from the rail's `main.asm` beside
+; `header.inc` and `init.inc` — the same convention the generated
+; `engine_state_globals.inc` states for itself, and for the same two reasons:
+; ca65 refuses a second definition of a macro, and an equate defined inside a
+; `.scope` is not visible to the scenes that are not in it. A feature file
+; therefore USES these macros and never includes this header; a rail whose
+; `main.asm` forgot the include fails to assemble naming the missing macro,
+; which is a loud failure rather than a silent one.
+;
+; It emits NO bytes on its own: everything here is either an equate, an
+; assertion, or a macro that is only expanded where it is written.
 ;
 ; -----------------------------------------------------------------------------
 ; WHAT IS IN HERE

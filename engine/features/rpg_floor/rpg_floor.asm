@@ -14,7 +14,11 @@
 ;
 ; A DMA source may not cross a bank. The m7_world claim is 32,768 B, which
 ; fills ONE LoROM window exactly ($8000..$FFFF), so the transfer ends on the
-; boundary rather than carrying past it.
+; boundary rather than carrying past it. That sentence is now an assertion
+; (below), because it is a property of an ALLOCATION and the allocator is free
+; to re-pack: a claim that grew or was placed at a non-zero window offset would
+; have its tail transferred from the bank's own low bytes, which renders as a
+; plausible ground plane made of the wrong tiles.
 ;
 ; Called from scene enter, under FORCED BLANK with NMI masked (the scene_mgr
 ; enter contract). Nothing here runs while the screen is live.
@@ -22,6 +26,14 @@ RPGF_REGS = $4300 + ES_D_RPGF_UP_CH * 16
 ; The 24-bit constants the CPU-side palette read needs. Derived from the
 ; emitted claim symbols, never spelled (sh2_cam.asm:117's form).
 RPGF_PAL_LONG = (ES_R_M7_PAL_BANK << 16) | ES_R_M7_PAL_ADDR
+
+; What this feature needs of the placement the allocator handed it
+; (vendor/rom/sf_asm.inc). ADDR is the claim's offset WITHIN its bank, so the
+; test reads "does this run past $FFFF" — which is the same statement as "the
+; DMA's A1T does not have to carry into A1B". The palette read below is
+; `lda f:...,x`, absolute-long indexed, which DOES carry across a bank on this
+; CPU — so it has no such requirement and gets no assertion.
+SF_ASSERT_NO_BANK_CROSS ES_R_M7_WORLD_ADDR, ES_R_M7_WORLD_SIZE, "rpg_floor: the m7_world DMA source crosses a bank — a DMA's A-bus address wraps within A1B and the tail would transfer the bank's own low bytes"
 
 ; --- rpgf_arm: the whole ground plane ---------------------------------------
 ; In/out: A16/I16, DB=0. Clobbers A, X, Y. WIDTH-RISK: exported. Entry A16/I16,
