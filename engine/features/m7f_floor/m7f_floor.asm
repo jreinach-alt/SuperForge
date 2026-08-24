@@ -113,7 +113,21 @@ M7F_TM_BG1 = 1 << 0
 M7F_TM_OBJ = 1 << 4
 
 ; --- floor_arm: the whole plane + the sky split (scene enter) ---------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked. Clobbers A, X, Y.
+; CONTRACT m7f_floor::floor_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the whole 32 KB interleaved Mode-7 plane uploaded by ONE
+;             DMA, the Mode-7 registers and the palette, AND the sky
+;             split's tables and channel
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. The upload is ONE 32,768-byte DMA: mode 1 writes
+;             $2118/$2119 alternately, which is exactly the blob's
+;             tilemap/CHR interleave, and VMAIN $80 steps the word address
+;             after the HIGH byte. DAS is single-shot and is armed here
+;             for THIS transfer; 32,768 B is one whole LoROM window, so it
+;             cannot cross a bank
+;   tail:     rts
 ;
 ; THE ONE-DMA UPLOAD, and why it is one and not two. The Mode 7 region is a
 ; single 32 KB interleaved image: the PPU reads the TILEMAP out of the even
@@ -133,6 +147,7 @@ M7F_TM_OBJ = 1 << 4
 floor_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "floor_arm"
     sep #$20
     .a8
     lda #$80
@@ -328,29 +343,26 @@ m7f_sky_arm:
     sta f:ES_SM_HDMA_LONG+2, x      ; A1T
     rts
 
-; --- sky_reanchor: re-point the split at the live horizon, IN VBLANK --------
-; In/out: A8/I16, DB=0 — the sm_nmi_hook contract. Clobbers A.
-;
-; IN VBLANK, and that is the whole tear argument. The sky table is SINGLE
-; buffered (five bytes), and HDMA reads its count byte at the top of the frame;
-; rewriting it during active display would move the split under a channel
-; part-way through it. The matrix tables solve the same problem by writing only
-; the back buffer and riding the atomic swap — five bytes do not justify a
-; second buffer, so this one takes the other route and writes where no channel
-; is reading.
-;
-; Unconditional: comparing against the last value would cost more than the
-; single store it guards.
 ; --- floor_region_rates: the day/night phase step, per console -------------
-; In/out: A16/I16, DB=0. Clobbers A, X. Called ONCE, from the scene's `enter`,
-; which runs with NMI masked — so the word is written before tod_commit's first
-; armed VBlank reads it (rule 5).
+; CONTRACT floor_region_rates
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       ES_RGN_PAL — the region flag, latched once at boot
+;   out:      US_R_TOD and US_R_TODF seeded for this console's day/night
+;             rate, and US_TOD_ACC zeroed. Both arms write both words,
+;             which is the write-before-read establishment for them
+;   clobbers: A, X, N, Z
+;   assumes:  ONCE, from the scene's `enter`, which runs with the NMI
+;             masked — so the words are written before tod_commit's first
+;             armed VBlank reads them (rule 5)
+;   tail:     rts
 ;
 ; WIDTH-RISK: A16/I16 in and out; no sep/rep. The anonymous label below is
 ; reached A16 by branch and A16 by fall-through.
 floor_region_rates:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "floor_region_rates"
     stz z:US_TOD_ACC            ; the remainder accumulator starts empty
     lda z:ES_RGN_PAL
     bne @is_pal                 ; NOT `@pal`: `tod_commit` below already has a
@@ -373,7 +385,17 @@ floor_region_rates:
     rts
 
 ; --- tod_commit: advance the day/night clock, IN VBLANK --------------------
-; In/out: A8/I16, DB=0 — the sm_nmi_hook contract. Clobbers A, X.
+; CONTRACT tod_commit
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   out:      the day/night clock advanced by this console's rate and the
+;             interpolated palette written to CGRAM
+;   clobbers: A, X, Y, N, Z, C, V
+;   assumes:  VBlank, from the rail's sm_nmi_hook. That is a hardware
+;             requirement here rather than an ordering preference: this
+;             writes CGRAM, and the CGRAM port is only safely writable
+;             during VBlank or forced blank (rule 4)
+;   tail:     rts
 ;
 ; IN VBLANK for a hardware reason of its own, not just the sky table's: this
 ; writes CGRAM, and the CGRAM port is only safely writable during VBlank or
@@ -392,6 +414,7 @@ floor_region_rates:
 tod_commit:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "tod_commit"
     rep #$20
     .a16
     ; The remainder FIRST, so its carry lands in the phase add below. `sta`
@@ -472,9 +495,39 @@ tod_commit:
     .a8
     rts
 
+; --- sky_reanchor: re-point the split at the live horizon, IN VBLANK --------
+; CONTRACT sky_reanchor
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   in:       M7F_HORIZON — the live horizon scanline
+;   out:      the sky split's header table re-pointed at that horizon
+;   clobbers: A, N, Z, and everything fog_reanchor clobbers (it falls into
+;             it)
+;   assumes:  VBlank, from the rail's sm_nmi_hook. HDMA latches each
+;             channel's A1T at the top of the frame and walks the header
+;             table as the picture draws, so a table rewritten during
+;             active display moves the split under a channel part-way down
+;             it
+;   tail:     FALLS THROUGH to fog_reanchor, deliberately. The split and
+;             the fog are two readings of ONE number, and a build where
+;             they can disagree is the tear this exists to prevent — so
+;             both are re-anchored by the same call, from the same
+;             M7F_HORIZON, in the same VBlank
+;
+; IN VBLANK, and that is the whole tear argument. The sky table is SINGLE
+; buffered (five bytes), and HDMA reads its count byte at the top of the frame;
+; rewriting it during active display would move the split under a channel
+; part-way through it. The matrix tables solve the same problem by writing only
+; the back buffer and riding the atomic swap — five bytes do not justify a
+; second buffer, so this one takes the other route and writes where no channel
+; is reading.
+;
+; Unconditional: comparing against the last value would cost more than the
+; single store it guards.
 sky_reanchor:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "sky_reanchor"
     lda z:M7F_HORIZON
     sta f:M7F_SKY_TBL_LONG + 0
     ; FALLS THROUGH, deliberately. The split and the fog are two readings of

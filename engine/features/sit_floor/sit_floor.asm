@@ -21,7 +21,20 @@ SIT_REGS = $4300 + ES_D_SIT_UP_CH * 16
 SIT_TM_BG1 = $01
 
 ; --- floor_arm: the whole plane (scene enter) ------------------------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked. Clobbers A, X, Y.
+; CONTRACT sit_floor::floor_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the whole 32 KB interleaved Mode-7 plane uploaded by ONE
+;             DMA, plus the Mode-7 registers and the palette
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. The upload is ONE 32,768-byte DMA: mode 1 writes
+;             $2118/$2119 alternately, which is exactly the blob's
+;             tilemap/CHR interleave, and VMAIN $80 steps the word address
+;             after the HIGH byte. DAS is single-shot and is armed here
+;             for THIS transfer; 32,768 B is one whole LoROM window, so it
+;             cannot cross a bank
+;   tail:     rts
 ;
 ; ONE mode-1 DMA: the 32,768 B blob is the interleaved Mode 7 image (tilemap
 ; in even bytes, 8bpp CHR in odd), and BBAD = VMDATAL under VMAIN = $80 makes
@@ -31,6 +44,7 @@ SIT_TM_BG1 = $01
 floor_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "floor_arm"
     sep #$20
     .a8
     lda #$80

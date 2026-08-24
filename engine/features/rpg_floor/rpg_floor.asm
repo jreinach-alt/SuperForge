@@ -36,11 +36,22 @@ RPGF_PAL_LONG = (ES_R_M7_PAL_BANK << 16) | ES_R_M7_PAL_ADDR
 SF_ASSERT_NO_BANK_CROSS ES_R_M7_WORLD_ADDR, ES_R_M7_WORLD_SIZE, "rpg_floor: the m7_world DMA source crosses a bank — a DMA's A-bus address wraps within A1B and the tail would transfer the bank's own low bytes"
 
 ; --- rpgf_arm: the whole ground plane ---------------------------------------
-; In/out: A16/I16, DB=0. Clobbers A, X, Y. WIDTH-RISK: exported. Entry A16/I16,
-; exit A16/I16; A8 windows are balanced.
-.a16
-.i16
+; CONTRACT rpgf_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the whole ground plane uploaded and the Mode-7 registers and
+;             palette written
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  scene enter. The m7_world DMA source is asserted not to
+;             cross a bank (the assertion sits above this block); the
+;             palette read beside it is `lda f:...,x`, absolute-long
+;             indexed, which DOES carry across a bank and so needs no such
+;             assertion
+;   tail:     rts
 rpgf_arm:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "rpgf_arm"
     sep #$20
     .a8
     lda #$80

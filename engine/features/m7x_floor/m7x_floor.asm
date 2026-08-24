@@ -16,7 +16,21 @@
 M7X_REGS = $4300 + ES_D_M7X_UP_CH * 16
 
 ; --- floor_arm: the whole plane (scene enter) ------------------------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked. Clobbers A, X, Y.
+; CONTRACT m7x_floor::floor_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the 32 KB WRAPPED seed uploaded by ONE DMA — built with
+;             mode7_stream's own torus placement, so a re-written row
+;             cannot tear — plus the Mode-7 registers and the palette
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. The upload is ONE 32,768-byte DMA: mode 1 writes
+;             $2118/$2119 alternately, which is exactly the blob's
+;             tilemap/CHR interleave, and VMAIN $80 steps the word address
+;             after the HIGH byte. DAS is single-shot and is armed here
+;             for THIS transfer; 32,768 B is one whole LoROM window, so it
+;             cannot cross a bank
+;   tail:     rts
 ;
 ; THE ONE-DMA UPLOAD, and why it is one and not two. The Mode 7 region is a
 ; single 32 KB interleaved image: the PPU reads the TILEMAP out of the even
@@ -47,6 +61,7 @@ M7X_REGS = $4300 + ES_D_M7X_UP_CH * 16
 floor_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "floor_arm"
     sep #$20
     .a8
     lda #$80
@@ -119,7 +134,19 @@ floor_arm:
     rts
 
 ; --- floor_restage: everything floor_arm did EXCEPT the 32 KB upload --------
-; In/out: A16/I16, DB=0, forced blank + NMI masked. Clobbers A, X.
+; CONTRACT floor_restage
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      everything floor_arm establishes EXCEPT the 32 KB upload:
+;             CGRAM 0..11 and M7SEL, which are the only two things the
+;             town visit destroys
+;   clobbers: A, X, N, Z, C
+;   assumes:  forced blank AND the NMI masked, on the return from the
+;             interior. Re-uploading the seed here would UNDO the feature
+;             this exists for — the seed is centred on spawn, so it would
+;             put the plane back at the start of the world; the prose
+;             above works through what survives and why
+;   tail:     rts
 ;
 ; WHAT THE TOWN VISIT ACTUALLY DESTROYS, and it is exactly two things.
 ;
@@ -140,6 +167,7 @@ floor_arm:
 floor_restage:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "floor_restage"
     sep #$20
     .a8
     lda #ES_C_M7X_PAL

@@ -7,11 +7,22 @@
 ; enter) — direct port writes throughout. Scratch: ES_ESCR (enter_scr).
 
 ; --- m7_upload_pal: floor colors to CGRAM 0.. -------------------------------
-; In: A16/I16, DB=0. X = source addr low16, A = source bank (low byte),
+; CONTRACT m7_upload_pal
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       X = source address low 16, A = source bank in the low byte,
+;             Y = byte count (colours * 2)
+;   out:      the floor colours in CGRAM from index 0 — index 0 is the
+;             hardware contract for Mode 7, not a choice
+;   clobbers: A, Y, N, Z, C, and the ES_ESCR scratch
+;   assumes:  forced blank or VBlank: this writes the CGRAM port
+;   tail:     rts
+;
 ;  Y = byte count (colors * 2). CGRAM index 0 is the hardware contract.
 m7_upload_pal:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "m7_upload_pal"
     stx z:ES_ESCR               ; 24-bit source ptr: low16
     sty z:ES_ESCR+4             ; byte count
     sep #$20
@@ -36,11 +47,20 @@ M7CHR_REGS = $4300 + ES_D_M7CHR_UP_CH * 16
 M7MAP_REGS = $4300 + ES_D_M7MAP_UP_CH * 16
 
 ; --- m7_upload_chr: N 8bpp tiles into the Mode 7 CHR (odd VRAM bytes) -------
-; In: A16/I16, DB=0. X = source low16, Y = byte count, A = source bank. VMAIN
-; $80 + single-reg DMA to $2119 walks the interleaved CHR bytes.
+; CONTRACT m7_upload_chr
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       X = source low 16, Y = byte count, A = source bank
+;   out:      N 8bpp tiles written into the Mode-7 CHR — the ODD VRAM
+;             bytes. VMAIN $80 plus a single-register DMA to $2119 is what
+;             walks the interleave
+;   clobbers: A, N, Z
+;   assumes:  forced blank: this writes the VRAM port
+;   tail:     rts
 m7_upload_chr:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "m7_upload_chr"
     sep #$20
     .a8
     sta a:M7CHR_REGS + 4        ; A1B = source bank
@@ -66,7 +86,6 @@ m7_upload_chr:
 ; =============================================================================
 ; m7_upload_seed — position-wrapped 128x128 seed window of the world map
 ; =============================================================================
-; In: A16/I16, DB=0. X = cam tile x, Y = cam tile y (world space, 0..511). Rows
 ; [cy-64, cy+64) x cols [cx-64, cx+64), each byte at VRAM tilemap LOW byte
 ; position (row & 127, col & 127) — the PPU samples mod 128, so bytes land at
 ; the WRAPPED position, never sequentially (position-space rule).
@@ -81,9 +100,30 @@ m7_upload_chr:
 ;
 ; Scratch: ESCR+0 wr · +2 col0 · +4 c · +6 dest row base.
 M7SEED_ROWS = 128
+; CONTRACT m7_upload_seed
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       X = camera tile x, Y = camera tile y, both world space
+;             0..511
+;   out:      the 128x128 window rows [cy-64, cy+64) x cols [cx-64, cx+64)
+;             written at their WRAPPED tilemap positions (row & 127, col &
+;             127) — the PPU samples mod 128, so a sequentially-built seed
+;             looks right on frame 0 and tears the first time a row is
+;             re-written. Each world row splits into two spans; VMADD is
+;             re-set per span because auto-increment would walk into the
+;             next VRAM row, and DAS is re-armed per span because it is
+;             single-shot
+;   clobbers: A, X, Y, N, Z, C, V, and the ES_ESCR scratch (wr, col0, c,
+;             dest row base)
+;   assumes:  forced blank: this writes the VRAM port. The world edge
+;             (512) is a multiple of 128, so a source wrap always lands
+;             exactly on the destination wrap and two spans cover every
+;             case
+;   tail:     rts
 m7_upload_seed:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "m7_upload_seed"
     txa
     sec
     sbc #(M7SEED_ROWS / 2)

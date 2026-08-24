@@ -29,7 +29,17 @@ RS_WORLD_MASK = RS_WORLD_PX - 1             ; the camera's wrap (`and #MASK`)
 RS_CENTRE   = RS_WORLD_PX / 2               ; 512 — the rail's spawn column
 
 ; --- rs_floor_arm: the whole plane (scene enter) ---------------------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked. Clobbers A, X, Y.
+; CONTRACT rs_floor_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the whole 32 KB interleaved Mode-7 plane uploaded by ONE
+;             DMA, plus the Mode-7 registers and the palette
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. A8 is toggled internally for the $43xx register
+;             file and the byte-wide ports; every toggle is balanced and
+;             the I width never moves
+;   tail:     rts
 ;
 ; THE ONE-DMA UPLOAD, and why it is one and not two. The Mode 7 region is a
 ; single 32 KB interleaved image: the PPU reads the TILEMAP out of the even
@@ -52,10 +62,12 @@ RS_CENTRE   = RS_WORLD_PX / 2               ; 512 — the rail's spawn column
 ;
 ; WIDTH-RISK: A16/I16 entry AND exit. Toggles A8 internally for the $43xx and
 ; PPU byte ports and restores A16 before every fall-through; I16 is never
-; touched. Cross-file callers (the scene's enter) are invisible to width_lint.
+; touched. The cross-file caller (the scene's enter) used to be invisible to
+; width_lint; the CONTRACT block above is what the gate reads it against now.
 rs_floor_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "rs_floor_arm"
     sep #$20
     .a8
     lda #$80
