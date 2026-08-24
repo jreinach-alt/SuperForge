@@ -120,7 +120,7 @@ SF_BANK_SYS = 0
 ; byte to test and would pass vacuously, so it is refused rather than allowed.
 .macro SF_ASSERT_NO_PAGE_CROSS sf_base, sf_size, sf_msg
     .assert (sf_size) > 0, error, "SF_ASSERT_NO_PAGE_CROSS: size must be positive"
-    .assert (((sf_base) + (sf_size) - 1) >> 8) = ((sf_base) >> 8), error, sf_msg
+    .assert (((sf_base) + (sf_size) - 1) / SF_PAGE) = ((sf_base) / SF_PAGE), error, sf_msg
 .endmacro
 
 ; =============================================================================
@@ -139,11 +139,11 @@ SF_BANK_SYS = 0
 ; `base` may be a 16-bit in-bank offset (an emitted `ES_R_*_ADDR`, where the
 ; test reads "does this run past $FFFF") or a full 24-bit address (an emitted
 ; `_LONG`, or a `(BANK << 16) | ADDR` built from the pair). Both work: the
-; expression compares the bank byte of the first and last bytes of the block,
+; expression compares the bank INDEX of the first and last bytes of the block,
 ; and a 16-bit base simply has bank 0 on both sides of the comparison.
 .macro SF_ASSERT_NO_BANK_CROSS sf_base, sf_size, sf_msg
     .assert (sf_size) > 0, error, "SF_ASSERT_NO_BANK_CROSS: size must be positive"
-    .assert (((sf_base) + (sf_size) - 1) >> 16) = ((sf_base) >> 16), error, sf_msg
+    .assert (((sf_base) + (sf_size) - 1) / SF_BANK) = ((sf_base) / SF_BANK), error, sf_msg
 .endmacro
 
 ; =============================================================================
