@@ -131,11 +131,9 @@ SHO_W0    = ES_SHO + 16                 ; OAM word 0 under construction
 ;             rather than nothing: OBJ VRAM and CGRAM 128.. are random at
 ;             power-on (rule 5), and an entry pointing at them is a
 ;             perfectly valid sprite made of garbage. The caller seeds
-;             sh2_cam's positions first
+;             sh2_cam's positions and headings FIRST — this routine's
+;             closing projection reads them
 ;   tail:     rts
-;
-; In/out: A16/I16, DB=0, forced blank + NMI masked (the scene_mgr enter
-; headings FIRST — obj_arm's closing projection reads them.
 ;
 ; WIDTH-RISK: A16/I16 in and out; every 8-bit window is a byte-wide PPU or DMA
 ; register store inside a balanced sep/rep, and the index registers stay 16-bit

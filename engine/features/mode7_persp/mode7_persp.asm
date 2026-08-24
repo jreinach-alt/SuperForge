@@ -18,11 +18,20 @@ PERSP_LINES = 224 - HUD_LINES
 BAND_TAIL   = PERSP_LINES - 127
 
 ; --- persp_arm: build index tables + channel shadow (scene enter) -----------
-; In: A16/I16, DB=0. Uses the scene's emitted ES_H_*_CH + ES_PERSP_IDX. Caller
-; then persp_set_pose to point at a heading, and ORs the enable bits.
+; CONTRACT persp_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the index tables built over a zeroed claim and the channel
+;             shadow staged
+;   clobbers: A, X, N, Z
+;   assumes:  the scene's emitted ES_H_*_CH and ES_PERSP_IDX are what it
+;             reads. The caller then calls persp_set_pose to point at a
+;             heading, and ORs the enable bits in
+;   tail:     rts
 persp_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "persp_arm"
     ; ---- the declared init contract: zero the WHOLE claim first ----------
     ; The tail bytes past each table's terminator are never stamped, but the
     ; DMA controller's terminator processing still fetches indirect-address
@@ -80,13 +89,27 @@ persp_arm:
     rts
 
 ; --- persp_set_pose: point both channels at heading A (0..63) ---------------
-; In: A16 = heading. VBlank- or forced-blank-safe (index tables + DASB only).
+; CONTRACT persp_set_pose
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       A = the heading, 0..63
+;   out:      both channels pointed at that heading. ptr = the
+;             $8000-window ADDR + (h & 31) * 1024, bank = the blob base +
+;             (h >> 5); the AB and CD blobs share one in-window layout, so
+;             the three pointer words are identical for both tables and
+;             only the DASB banks differ
+;   clobbers: A, X, N, Z, C, V
+;   assumes:  VBlank OR forced blank — it touches index tables and DASB
+;             only
+;   tail:     rts
+;
 ; ptr = $8000-window ADDR + (h & 31)*1024; bank = blob base + (h >> 5).
 ; AB and CD blobs share the same in-window layout, so the three pointer words
 ; are identical for both tables; only the DASB banks differ.
 persp_set_pose:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "persp_set_pose"
     pha
     and #31
     xba                             ; *256
@@ -131,10 +154,19 @@ persp_set_pose:
     rts
 
 ; --- persp_commit_origin: NMI-side M7X/Y/HOFS/VOFS from the DP shadows ------
-; In: A8/I16, DB=0 (NMI hook context). ES_M7ORG: +0 M7X +2 M7Y +4 HOFS +6 VOFS.
+; CONTRACT persp_commit_origin
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   in:       ES_M7ORG: +0 M7X, +2 M7Y, +4 HOFS, +6 VOFS
+;   out:      all four written through to their ports
+;   clobbers: A, N, Z
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention
+;   tail:     rts
 persp_commit_origin:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "persp_commit_origin"
     lda z:ES_M7ORG+0
     sta a:$211F
     lda z:ES_M7ORG+1

@@ -244,7 +244,7 @@ bs_hi_clear:
 ;   tail:     rts
 ;
 ; --- bs_put: one OAM entry, plus its two hi-table bits ---------------------
-; In: A16/I16, DB=0.
+; The parameters:
 ;  X = the slot's BYTE offset in the shadow (slot * 4)
 ;  A = tile | (attr << 8) — the entry's bytes 2 and 3
 ;  ES_BS_DRAW+BS_D_X = the OAM x (9 bits; bit 8 becomes X9), +BS_D_Y = y,

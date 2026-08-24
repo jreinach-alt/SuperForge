@@ -98,15 +98,25 @@ SIT_XY_REGS = $4300 + ES_H_SITXY_CH * 16
 SIT_HV_REGS = $4300 + ES_H_SITHV_CH * 16
 
 ; =============================================================================
-; sit_arm — build every table, stage every channel (scene enter). In/out:
-; A16/I16, DB=0, forced blank + NMI masked. Clobbers A, X. The caller ORs the
-; HDMAEN bits into the scene_mgr shadow after (matrix pair always; plus the
+; sit_arm — build every table, stage every channel (scene enter). The caller ORs
+; the HDMAEN bits into the scene_mgr shadow after (matrix pair always; plus the
 ; origin pair ONLY under -DSIT_HDMA_ORIGIN — the seam channels staying out of
 ; that mask IS the shipping mechanism).
 ; =============================================================================
+; CONTRACT sit_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      every table built over a zeroed claim and every channel
+;             staged
+;   clobbers: A, X, N, Z
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. The caller ORs the enable bits into the HDMAEN
+;             shadow AFTERWARDS
+;   tail:     rts
 sit_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "sit_arm"
     ; ---- the declared init contract: zero BOTH claims first ----------------
     ; Power-on WRAM is random; the DMA controller's terminator processing still
     ; fetches address bytes after a $00 count, so even never-stamped table tail
@@ -483,13 +493,22 @@ sit_stamp_otbl:
 ; re-stamp the staged bytes (static here; the live-seam shape kept honest).
 ; The A1T/DAS re-arm is NOT here — it is sm_nmi_core's shadow MVN, which runs
 ; after the hook returns. Control build: re-stamp the table value slots (the
-; registers themselves are HDMA's to write from line 0). In/out: A8/I16, DB=0
-; (the sm_nmi_hook contract). Clobbers A. WIDTH-RISK: A8 entry -> rep to A16
-; for the stampers -> sep back to A8.
+; registers themselves are HDMA's to write from line 0). WIDTH-RISK: A8 entry
+; -> rep to A16 for the stampers -> sep back to A8.
 ; =============================================================================
+; CONTRACT sit_vblank
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   out:      the table VALUE slots re-stamped — the registers themselves
+;             are HDMA's to write from line 0
+;   clobbers: A, N, Z
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention
+;   tail:     rts
 sit_vblank:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "sit_vblank"
     rep #$20
     .a16
 .ifndef SIT_HDMA_ORIGIN

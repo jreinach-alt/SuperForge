@@ -113,15 +113,25 @@ SHG_XY_REGS = $4300 + ES_H_SHGXY_CH * 16
 SHG_HV_REGS = $4300 + ES_H_SHGHV_CH * 16
 
 ; =============================================================================
-; cam_arm — build every table, seed the positions, stage every channel. In/out:
-; A16/I16, DB=0, forced blank + NMI masked (scene enter). Clobbers A, X. The
+; cam_arm — build every table, seed the positions, stage every channel. The
 ; caller ORs the HDMAEN bits into the scene_mgr shadow after (matrix pair
 ; always; plus the origin pair ONLY under -DSHG_HDMA_ORIGIN — the seam channels
 ; staying out of that mask is what frees shg_grad's).
 ; =============================================================================
+; CONTRACT shg_cam::cam_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      every table built, the positions seeded and every channel
+;             shadow staged
+;   clobbers: A, X, N, Z
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. The caller ORs the enable bits into the HDMAEN
+;             shadow AFTERWARDS
+;   tail:     rts
 cam_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "cam_arm"
     ; ---- the declared init contract: zero BOTH claims first ----------------
     ; Power-on WRAM is random; the DMA controller's terminator processing still
     ; fetches address bytes after a $00 count, so even never-stamped table tail
@@ -315,12 +325,20 @@ cam_arm:
 ; pans +1 px/frame in Y, camera 2 +2. X is untouched: each band must stay over
 ; its own colour stripe, because band-2 red IS the position oracle every
 ; framebuffer assertion reads. Both wrap at the world width. Under -DSHG_FREEZE
-; both deltas are 0 and this is a pair of no-op adds. In/out: A16/I16, DB=0.
-; Clobbers A.
+; both deltas are 0 and this is a pair of no-op adds.
 ; =============================================================================
+; CONTRACT cam_advance
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      both cameras stepped by this frame's deltas — a pair of
+;             no-op adds when both deltas are 0
+;   clobbers: A, N, Z, C, V
+;   assumes:  once per frame from the scene tick
+;   tail:     rts
 cam_advance:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "cam_advance"
     lda f:SHG_POS1Y_LONG
     clc
     adc #SHG_CAM1_DY
@@ -552,13 +570,22 @@ cam_stamp_otbl:
 ; mid-frame) and re-stage band 2's eight bytes — both from the positions the
 ; tick just advanced. The A1T/DAS re-arm is NOT here: it is sm_nmi_core's
 ; shadow MVN, which runs after the hook returns. Control build: re-stamp the
-; table value slots (the registers are HDMA's to write from line 0). In/out:
-; A8/I16, DB=0 (the sm_nmi_hook contract). Clobbers A. WIDTH-RISK: A8 entry ->
-; rep to A16 for the stampers -> sep back to A8.
+; table value slots. WIDTH-RISK: A8 entry -> rep to A16 for the stampers ->
+; sep back to A8.
 ; =============================================================================
+; CONTRACT cam_vblank
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   out:      the table VALUE slots re-stamped — the registers themselves
+;             are HDMA's to write from line 0
+;   clobbers: A, N, Z
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention
+;   tail:     rts
 cam_vblank:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "cam_vblank"
     rep #$20
     .a16
 .ifndef SHG_HDMA_ORIGIN

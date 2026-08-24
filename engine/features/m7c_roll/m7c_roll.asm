@@ -316,7 +316,14 @@ roll_new_leg:
 ; =============================================================================
 ; roll_init — seed the machine and stamp the constant half of the origin
 ; =============================================================================
-; In/out: A16/I16, DB=0, forced blank (scene enter). Clobbers A.
+; CONTRACT roll_init
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the roll's state seeded — every word written here, because
+;             power-on DP is random (rule 5)
+;   clobbers: A, N, Z, C, V
+;   assumes:  forced blank, at scene enter
+;   tail:     rts
 ;
 ; Power-on DP is random and neither this feature nor the state declares an
 ; `[init] zero` for it: these stores ARE the write-before-read contract (rule
@@ -326,6 +333,7 @@ roll_new_leg:
 roll_init:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "roll_init"
     lda #ROLL_SEED_F
     sta z:US_RNG_F
     lda #ROLL_SEED_R
@@ -361,7 +369,13 @@ roll_init:
 ; =============================================================================
 ; roll_tick — one frame of the leg cycle
 ; =============================================================================
-; In/out: A16/I16, DB=0. Clobbers A.
+; CONTRACT roll_tick
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the roll integrated one frame and applied
+;   clobbers: A, N, Z, C, V
+;   assumes:  once per frame from the scene tick
+;   tail:     rts
 ;
 ; WIDTH-RISK: A16/I16 on entry and exit. The body DOES toggle — the
 ; sign-extension byte and the 24-bit add's high half are 8-bit — so every label
@@ -371,6 +385,7 @@ roll_init:
 roll_tick:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "roll_tick"
     lda z:US_RSTATE
     beq @active
 

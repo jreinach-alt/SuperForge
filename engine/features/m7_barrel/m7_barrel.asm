@@ -121,11 +121,21 @@ mb_point:
 ; =============================================================================
 ; mb_arm — build both index tables + both channel shadows (scene enter)
 ; =============================================================================
-; In/out: A16/I16, DB=0, forced blank + NMI masked. Clobbers A, X. The caller
+; CONTRACT mb_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the barrel tables built and the channel shadow staged
+;   clobbers: A, X, N, Z, C, V
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. The caller ORs the enable bit into the HDMAEN
+;             shadow AFTERWARDS
+;   tail:     rts
+;
 ; ORs the two enable bits into the scene_mgr HDMAEN shadow after.
 mb_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "mb_arm"
     ; ---- the declared init contract: zero the WHOLE claim first -----------
     ; The bytes past each table's terminator are never stamped, but the DMA
     ; controller's terminator processing still fetches indirect-address bytes
@@ -232,7 +242,14 @@ mb_arm:
 ; =============================================================================
 ; mb_commit_origin — the four write-twice origin ports, from the DP shadow
 ; =============================================================================
-; In/out: A8/I16, DB=0 — the sm_nmi_hook contract. Clobbers A.
+; CONTRACT mb_commit_origin
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   out:      the origin words committed from their DP shadows
+;   clobbers: A, N, Z
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention
+;   tail:     rts
 ;
 ; WIDTH-RISK: this is a CROSS-FILE contract. Entered A8/I16 from the NMI hook
 ; and returns A8/I16 with no toggle in the body; width-check cannot see across
@@ -248,6 +265,7 @@ mb_arm:
 mb_commit_origin:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "mb_commit_origin"
     lda z:MB_M7X+0
     sta a:$211F
     lda z:MB_M7X+1
@@ -269,7 +287,14 @@ mb_commit_origin:
 ; =============================================================================
 ; mb_tick — re-point the A column when the bow step moved (VBlank)
 ; =============================================================================
-; In/out: A8/I16, DB=0 — the sm_nmi_hook contract. Clobbers A.
+; CONTRACT mb_tick
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   out:      the barrel's applied step advanced one frame
+;   clobbers: A, N, Z, C
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention
+;   tail:     rts
 ;
 ; WIDTH-RISK: CROSS-FILE, and this one widens. Entered A8 (the hook's width),
 ; goes A16 for the 16-bit compare and for mb_point's arithmetic, and MUST
@@ -286,6 +311,7 @@ mb_commit_origin:
 mb_tick:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "mb_tick"
     rep #$20
     .a16
     lda z:MB_BOW
@@ -311,7 +337,13 @@ MB_JOY_UP   = 1 << 11
 ; =============================================================================
 ; mb_input — one pad axis: the bow step
 ; =============================================================================
-; In/out: A16/I16, DB=0. Clobbers A.
+; CONTRACT mb_input
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the pad folded into the barrel's target
+;   clobbers: A, N, Z, C, V
+;   assumes:  the pads are already latched
+;   tail:     rts
 ;
 ; Up steps the bow toward its maximum, Down toward FLAT, both CLAMPED — a bow
 ; is a segment, not a cycle, and its two ends are this rail's runtime controls.
@@ -333,6 +365,7 @@ MB_JOY_UP   = 1 << 11
 mb_input:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "mb_input"
     lda z:ES_INP_CUR
     bit #MB_JOY_UP
     beq @noup

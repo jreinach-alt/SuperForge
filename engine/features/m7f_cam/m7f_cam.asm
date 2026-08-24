@@ -289,7 +289,14 @@ M7F_WRAP     = M7F_WORLD_PX - 1                 ; the mask M7SEL's wrap makes ex
 ; =============================================================================
 ; m7f_compose_timed — the change gate, then the join, bracketed
 ; =============================================================================
-; In/out: A16/I16, DB=0. Clobbers A, X, Y. What the scene tick calls.
+; CONTRACT m7f_compose_timed
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the frame's matrix composed and the timing counters updated
+;             — what the scene tick calls
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  once per frame from the scene tick
+;   tail:     rts
 ;
 ; THE SKIP, AND WHY IT IS A COUNTDOWN RATHER THAN A FLAG. The obvious shape —
 ; "if the pose did not change, skip" — is WRONG under a double buffer, and
@@ -320,6 +327,7 @@ M7F_WRAP     = M7F_WORLD_PX - 1                 ; the mask M7SEL's wrap makes ex
 m7f_compose_timed:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "m7f_compose_timed"
     M7F_LATCH 0
     ; ---- did the pose move, and WHICH axis? --------------------------------
     ; THE TWO AXES DIRTY DIFFERENT THINGS, and that is the whole trick.
@@ -564,7 +572,13 @@ m7f_compose:
 ; =============================================================================
 ; m7f_move — pos -= (sin, cos) * speed, in 16.16
 ; =============================================================================
-; In/out: A16/I16, DB=0. Clobbers A, X, Y.
+; CONTRACT m7f_move
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the camera stepped along its heading
+;   clobbers: A, X, Y, N, Z
+;   assumes:  once per frame, before the compose reads the pose
+;   tail:     rts
 ;
 ; IT LIVES HERE, NOT IN `m7f_logic`, AND THE REASON IS A CLAIM. The hardware
 ; multiplier is ONE resource under one name and it is WHOLE — one owner per
@@ -587,6 +601,7 @@ m7f_compose:
 m7f_move:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "m7f_move"
     ; ---- |speed|, its sign, and the two pre-shifted operand halves --------
     lda z:M7F_SPEED
     bne :+
@@ -802,12 +817,23 @@ m7f_reanchor:
 ; =============================================================================
 ; m7f_arm — build both buffers' table skeletons and stage both channels
 ; =============================================================================
-; In/out: A16/I16, DB=0, forced blank + NMI masked (scene enter). Clobbers A,
+; CONTRACT m7f_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the matrix tables built over a zeroed claim and every
+;             channel shadow staged
+;   clobbers: A, X, Y, N, Z
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. The caller ORs the enable bits into the HDMAEN
+;             shadow AFTERWARDS
+;   tail:     rts
+;
 ; X, Y. The caller seeds ES_M7F_POSE first, and ORs the two enable bits into
 ; the scene_mgr HDMAEN shadow after.
 m7f_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "m7f_arm"
     ; ---- the declared init contract: zero the WHOLE claim first ------------
     ; The bytes past each terminator are never stamped, but the DMA controller
     ; still fetches table bytes after the $00 on real hardware, so they must
@@ -936,7 +962,15 @@ m7f_stamp_origin:
 ; =============================================================================
 ; m7f_nmi_commit — the atomic swap + the origin, once per VBlank
 ; =============================================================================
-; In/out: A8/I16, DB=0 — the sm_nmi_hook contract. Clobbers A, X, Y.
+; CONTRACT m7f_nmi_commit
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   out:      the Mode-7 centre and origin words committed from their DP
+;             shadows
+;   clobbers: A, X, Y, N, Z
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention
+;   tail:     rts
 ;
 ; WIDTH-RISK: this is a CROSS-FILE contract. It is entered A8 (the NMI hook's
 ; width), widens for its own 16-bit work, and MUST restore A8 before returning
@@ -953,6 +987,7 @@ m7f_stamp_origin:
 m7f_nmi_commit:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "m7f_nmi_commit"
     rep #$20
     .a16
     ; The tick has finished the back buffer, so it becomes the front one: flip

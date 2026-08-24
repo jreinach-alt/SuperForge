@@ -79,11 +79,21 @@ m7a_set_center:
     rts
 
 ; --- m7a_nmi_commit: the shadow -> the eight ports -------------------------
+; CONTRACT m7a_nmi_commit
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   in:       the eight-word matrix shadow
+;   out:      the shadow written through to the eight Mode-7 ports. DB is
+;             unchanged
+;   clobbers: A, N, Z
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention
+;   tail:     rts
+;
 ; WIDTH-RISK: entry = A8/I16, DB=0 — the sm_nmi_hook contract. The caller is in
 ; ANOTHER FILE (the game's main.asm), which make width-check cannot see in
 ; either direction (CLAUDE.md rule 6, "the single-file limit remains"), so this
 ; contract is proven only on the emulator and this marker is what carries it.
-; Exits A8/I16, DB unchanged. Clobbers A only.
 ;
 ; ALL EIGHT PORTS ARE WRITE-TWICE, LOW BYTE FIRST. $211B-$211E (M7A-M7D) latch
 ; a signed 1.7.8 word; $211F/$2120 (M7X/M7Y) latch a 13-bit signed world
@@ -99,6 +109,7 @@ m7a_set_center:
 m7a_nmi_commit:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "m7a_nmi_commit"
     lda z:ES_M7AFF + 0
     sta a:$211B
     lda z:ES_M7AFF + 1

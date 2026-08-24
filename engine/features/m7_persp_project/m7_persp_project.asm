@@ -138,9 +138,21 @@ MPP_TIER = ES_MPP + 34
 ; =============================================================================
 ; mpp_mul8 — a signed 8x8 product, through the ALU this feature owns
 ; =============================================================================
+; CONTRACT mpp_mul8
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       A = a and X = b, both signed and both inside [-128, 128]
+;   out:      A = a * b. The sign-mask staging between the $4203 write and
+;             the $4216 read is COVER WORK — 13 cycles against the
+;             multiplier's 8 — so the product is ready when it is read and
+;             there is no wait loop
+;   clobbers: A, X, Y, N, Z, C, V, MPP_TMPM and MPP_ACC
+;   assumes:  the ONE 8-bit window is the operand pair, inside a balanced
+;             sep/rep; X stays 16-bit across it because it carries |b|
+;   tail:     rts
+;
 ; In: A16 = a, X = b, both signed and both within [-128, 128]. Out: A16 = a *
 ; b, signed (|product| <= 16384, so it fits s16).
-;  Clobbers A, X, Y, MPP_TMPM and MPP_ACC.
 ;
 ; WHY IT LIVES HERE AND NOT IN THE CALLER. `$4202-$4206` + `$4214-$4217` is ONE
 ; whole resource under the name `ALU` (schemas.py), claimed by this feature's
@@ -167,6 +179,7 @@ MPP_TIER = ES_MPP + 34
 mpp_mul8:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "mpp_mul8"
     ldy #0
     cmp #$8000
     bcc @apos
@@ -209,7 +222,16 @@ mpp_mul8:
 ; =============================================================================
 ; mpp_band_coeffs — A = heading (0..255) -> the band's split-sign coefficients
 ; =============================================================================
-; In/out: A16/I16, DB=0. Clobbers A, X, Y.
+; CONTRACT mpp_band_coeffs
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the band's projection coefficients, derived from the heading
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  the only 8-bit windows are the two magnitude byte stores,
+;             each inside a balanced sep/rep; the index registers are
+;             never narrowed, which matters because X carries the LUT
+;             offset across one of them
+;   tail:     rts
 ;
 ; Called ONCE PER BAND, not per marker: the coefficients are the camera's, and
 ; every marker in the band is projected against the same pair. Magnitudes go to
@@ -224,6 +246,7 @@ mpp_mul8:
 mpp_band_coeffs:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "mpp_band_coeffs"
     and #((1 << 8) - 1)
     asl a
     asl a                           ; heading * 4: a cos word and a sin word
@@ -287,11 +310,29 @@ mpp_band_coeffs:
 ; =============================================================================
 ; mpp_project — one world point against the staged band
 ; =============================================================================
+; CONTRACT mpp_project
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       MPP_WX / MPP_WY — the world point — staged by the caller,
+;             plus the band's coefficients
+;   out:      CARRY SET means visible, and MPP_SX / MPP_SY / MPP_TIER then
+;             hold the answer. The carry IS the return protocol on
+;             purpose: a culled marker must cost the caller no store at
+;             all, which is what makes OAM slot compaction possible; a
+;             convention that returned an off-screen coordinate instead
+;             would force a park store per culled sprite, which is most of
+;             them
+;   clobbers: A, X, Y, N, Z, C, V and the scratch block
+;   assumes:  every 8-bit window is a $4202/$4203 operand pair inside a
+;             balanced sep/rep, and the index registers are NEVER narrowed
+;             — X carries the band-local row k from the sp_vk lookup all
+;             the way through the u dot to the reciprocal and the tier
+;             read, across three of those windows
+;   tail:     rts
+;
 ; In: A16/I16, DB=0. The caller stages MPP_WX/MPP_WY (the world point) and,
 ;  once per band, MPP_PX/MPP_PY/MPP_TOP plus mpp_band_coeffs' output.
-; Out: CARRY SET -> visible; MPP_SX / MPP_SY / MPP_TIER hold the answer.
 ;  CARRY CLEAR -> culled, and NOTHING was written to the caller's OAM slot.
-;  Clobbers A, X, Y and the scratch block.
 ;
 ; The carry is the whole return protocol on purpose: a culled marker must cost
 ; the caller no store at all, which is what makes OAM slot COMPACTION possible
@@ -305,6 +346,7 @@ mpp_band_coeffs:
 mpp_project:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "mpp_project"
     ; ---- dx: the wrapped residue, split into magnitude and sign ------------
     ; The plane wraps, so `wx - px` is only meaningful modulo the period. The
     ; residue is read directly: [0, 176] is a positive delta, [848, 1023] a

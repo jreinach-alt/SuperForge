@@ -143,7 +143,14 @@ SHM_ZOOM_STEP = 4
 .endmacro
 
 ; --- shm_zero: the declared init contract, before any SHM_BAND -------------
-; In/out: A16/I16, DB=0. Clobbers A, X.
+; CONTRACT shm_zero
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the whole claim zeroed — the declared init contract,
+;             discharged before any SHM_BAND
+;   clobbers: A, X, N, Z
+;   assumes:  ONCE, before the first band is armed
+;   tail:     rts
 ;
 ; ZERO THE WHOLE CLAIM FIRST. The bytes past each table's terminator are never
 ; stamped, but the DMA controller's terminator processing still fetches the
@@ -154,6 +161,7 @@ SHM_ZOOM_STEP = 4
 shm_zero:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "shm_zero"
     lda #0
     ldx #(ES_SHM_TBL_SIZE - 2)
 :   sta f:ES_SHM_TBL_LONG, x
@@ -163,7 +171,14 @@ shm_zero:
     rts
 
 ; --- shm_arm: stage both channels into the scene_mgr shadow ----------------
-; In/out: A16/I16, DB=0, forced blank + NMI masked. Clobbers A, X.
+; CONTRACT shm_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      both channels staged into the scene_mgr shadow
+;   clobbers: A, X, N, Z
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract
+;   tail:     rts
 ;
 ; Called AFTER the SHM_BAND expansions, because a channel whose table is not
 ; yet built is a channel that streams whatever the zero left behind. The caller
@@ -179,6 +194,7 @@ shm_zero:
 shm_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "shm_arm"
     sep #$20
     .a8
     ldx #(ES_H_SHMAB_CH * SHM_SHDW_CH_SIZE)
@@ -209,7 +225,14 @@ shm_arm:
     rts
 
 ; --- shm_zoom_step: the pad moves the live band's camera -------------------
-; In/out: A16/I16, DB=0. Clobbers A.
+; CONTRACT shm_zoom_step
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the live band's camera moved by the pad, with the clamps
+;             applied
+;   clobbers: A, N, Z, C, V
+;   assumes:  the pads are already latched, and it runs once per frame
+;   tail:     rts
 ;
 ; THE LIVE BAND, MADE DRIVABLE. Animating the bottom band's scale on the frame
 ; counter would show the band is LIVE just as well — but a free-running
@@ -233,6 +256,7 @@ shm_arm:
 shm_zoom_step:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "shm_zoom_step"
     lda z:ES_INP_CUR
     bit #SHM_JOY_RIGHT
     beq @noright
@@ -270,7 +294,14 @@ shm_zoom_step:
     rts
 
 ; --- shm_zoom_stamp: the live band's two matrix words, once per VBlank -----
-; In/out: A8/I16, DB=0 — the sm_nmi_hook contract. Clobbers A, X.
+; CONTRACT shm_zoom_stamp
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   out:      the live band's two matrix words stamped
+;   clobbers: A, X, N, Z
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention
+;   tail:     rts
 ;
 ; WIDTH-RISK: this is a CROSS-FILE contract. It is entered A8 (the NMI hook's
 ; width), widens for the two 16-bit stores, and MUST restore A8 before
@@ -292,6 +323,7 @@ shm_zoom_step:
 shm_zoom_stamp:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "shm_zoom_stamp"
     rep #$20
     .a16
     ldx z:SHM_OFF

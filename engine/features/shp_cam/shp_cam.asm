@@ -257,11 +257,21 @@ cam_origins:
     rts
 
 ; --- cam_arm: build all six tables + the channel shadow (scene enter) -------
-; In/out: A16/I16, DB=0, forced blank + NMI masked. Clobbers A, X. The caller
+; CONTRACT shp_cam::cam_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      all six tables built and the channel shadow staged
+;   clobbers: A, X, N, Z
+;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
+;             contract. The caller ORs the enable bits into the HDMAEN
+;             shadow AFTERWARDS
+;   tail:     rts
+;
 ; ORs the six enable bits into the scene_mgr HDMAEN shadow after.
 cam_arm:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "cam_arm"
     ; ---- the declared init contract: zero the WHOLE claim first ------------
     ; The bytes past each table's terminator are never stamped, but the DMA
     ; controller's terminator processing still fetches indirect-address bytes
@@ -450,7 +460,13 @@ SHP_JOY_DOWN  = 1 << 10
 SHP_JOY_UP    = 1 << 11
 
 ; --- cam_input: one pad, two axes, one per BAND -----------------------------
-; In/out: A16/I16, DB=0. Clobbers A.
+; CONTRACT shp_cam::cam_input
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      one pad read onto two axes, one per BAND
+;   clobbers: A, N, Z, C, V
+;   assumes:  the pads are already latched
+;   tail:     rts
 ;
 ; Left/Right steps camera A's heading one pose per frame HELD and WRAPS (a
 ; heading is cyclic). Up/Down steps camera B's zoom and CLAMPS at both ends (a
@@ -479,6 +495,7 @@ SHP_JOY_UP    = 1 << 11
 cam_input:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "cam_input"
     lda z:ES_INP_CUR
     bit #SHP_JOY_RIGHT
     beq @noright
@@ -519,7 +536,14 @@ cam_input:
     rts
 
 ; --- cam_tick: re-point both bands, once per VBlank -------------------------
-; In/out: A8/I16, DB=0 — the sm_nmi_hook contract. Clobbers A.
+; CONTRACT cam_tick
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   out:      both bands re-pointed at their current poses
+;   clobbers: A, N, Z
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention
+;   tail:     rts
 ;
 ; WIDTH-RISK: this is a CROSS-FILE contract. It is entered A8 (the NMI hook's
 ; width), widens for its own 16-bit arithmetic, and MUST restore A8 before
@@ -536,6 +560,7 @@ cam_input:
 cam_tick:
     .a8
     .i16
+    SF_ASSERT_WIDTH 8, 16, "cam_tick"
     rep #$20
     .a16
     jsr cam_ptrs

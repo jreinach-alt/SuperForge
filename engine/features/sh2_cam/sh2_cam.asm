@@ -688,7 +688,14 @@ nob:
 .endmacro
 
 ; --- cam_input: the two pads, one per camera --------------------------------
-; In/out: A16/I16, DB=0. Clobbers A, X.
+; CONTRACT sh2_cam::cam_input
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the two pads read, one per camera
+;   clobbers: A, X, N, Z, C, V
+;   assumes:  the pads are already latched — input_read and input2_read
+;             run at the top of the main loop, not here
+;   tail:     rts
 ;
 ; THE SHIPPING BUILD'S ADVANCE. Pad control REPLACES the autonomous step
 ; rather than adding to it: with nothing held the cameras stand still and only
@@ -704,6 +711,7 @@ nob:
 cam_input:
     .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "cam_input"
     SH2_CAM_PAD ES_INP_CUR,  SH2_H1, SH2_F1X, SH2_F1Y, SH2_POS1X, SH2_POS1Y
     SH2_CAM_PAD ES_INP2_CUR, SH2_H2, SH2_F2X, SH2_F2Y, SH2_POS2X, SH2_POS2Y
     rts
