@@ -50,7 +50,7 @@
   },
   {
     "file": "engine/features/m7f_cam/m7f_cam.asm",
-    "line": 688,
+    "line": 707,
     "rule": "tick-routine",
     "message": "`m7f_apply_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
@@ -1261,7 +1261,7 @@
   },
   {
     "file": "game/mode7_explore/main.asm",
-    "line": 331,
+    "line": 332,
     "rule": "tick-routine",
     "message": "`mxx_fade_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
@@ -1653,7 +1653,7 @@
   },
   {
     "file": "game/rpg/main.asm",
-    "line": 345,
+    "line": 346,
     "rule": "tick-routine",
     "message": "`rpg_fade_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"

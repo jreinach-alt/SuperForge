@@ -15,6 +15,7 @@ SF_HDR_TITLE_SET = 1
 ; knows how big the image is. It used to be declared here, in 17 rails,
 ; beside 20 that inherited a 32 KB default and shipped 524,288 B.
 .include "engine_state_globals.inc" ; GENERATED — system + game-lifetime map
+.assert SF_INC_FORMAT = 1, error, "this rail was written against allocator include format 1 — allocate.py now emits a different symbol shape; re-read the emitted engine_state_globals.inc before bumping this"
 .include "tad-audio.inc"            ; vendor/tad — the TAD API imports + enums
 .include "tad_audio_enums.inc"      ; GENERATED — Song:: / SFX:: ids for this
                                     ; game's export (assets/audio/export)

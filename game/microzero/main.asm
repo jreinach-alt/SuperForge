@@ -15,6 +15,7 @@ SF_HDR_TITLE_SET = 1
 ; knows how big the image is. It used to be declared here, in 17 rails,
 ; beside 20 that inherited a 32 KB default and shipped 524,288 B.
 .include "engine_state_globals.inc" ; GENERATED — system + game-lifetime map
+.assert SF_INC_FORMAT = 1, error, "this rail was written against allocator include format 1 — allocate.py now emits a different symbol shape; re-read the emitted engine_state_globals.inc before bumping this"
 .include "world.inc"                ; world geometry constants (not addresses)
 JOY_START = 4096                    ; $4218 bit 12 (decimal: not an address)
 .include "header.inc"

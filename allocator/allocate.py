@@ -1221,6 +1221,17 @@ def _sym(p: Placement) -> str:
     return f"{prefix}_{p.name.upper()}"
 
 
+# The FORMAT VERSION of the emitted includes — the shape of the symbol set
+# above, not the values in it. A rail pins the number it was written against
+# with `.assert SF_INC_FORMAT = N` at its own include site, so a change to what
+# an emitted symbol MEANS stops each consumer's build with its own message
+# instead of quietly re-pointing an offset. Bump it when the emitted symbols
+# change shape — a renamed or removed companion, a different unit for a class,
+# a claim's symbols restructured. Do NOT bump it for a re-pack: a placement
+# moving is the normal case and is exactly what the _ADDR/_BANK asserts at the
+# claim sites already cover.
+INC_FORMAT_VERSION = 1
+
 _INC_CONVENTIONS = [
     "; Do not edit, do not hand-place. The map is derived, never narrated.",
     "; Conventions: DP symbols are direct-page offsets; WRAM symbols are",
@@ -1416,6 +1427,13 @@ def emit(alloc: Allocation, out_dir: str | Path) -> list[Path]:
         "; Include this file ONCE at top level (never inside a .scope), before",
         "; any engine_state_<scene>.inc.",
         "",
+        "; ---- format version (the SHAPE of these symbols, not their values) ----",
+        "; Pin it at the include site: `.assert SF_INC_FORMAT = N, error, \"...\"`,",
+        "; so a change to what an emitted symbol MEANS stops your build by name",
+        "; rather than re-pointing an offset under you. A claim MOVING does not",
+        "; bump this — the _ADDR/_BANK asserts at the claim sites cover that.",
+        f"SF_INC_FORMAT = {INC_FORMAT_VERSION}",
+        "",
         "; ---- system (substrate data: the reserved low WRAM = DP page + stack) ----",
         f"SYS_STACK_TOP = ${sub.wram_reserved_low - 1:04X}",
         "",
@@ -1493,11 +1511,24 @@ def emit(alloc: Allocation, out_dir: str | Path) -> list[Path]:
             if not ps:
                 continue
             used = sum(p.size for p in ps)
-            cap = {"dp": sub.dp_bytes, "wram": sub.wram_bytes,
-                   "vram": sub.vram_words, "cgram": sub.cgram_words,
-                   "oam": sub.oam_sprites, "rom": None}[cls]
-            cap_s = f"/{cap}" if cap else ""
-            rep.append(f"  {cls.upper():6} {used}{cap_s} {unit} used")
+            # ROM is the one class with no SUBSTRATE capacity — the linker
+            # config owns the real cartridge size, so a fixed denominator here
+            # would be a number this file cannot know. What it CAN say is the
+            # space it actually laid claims into: the windows spanned by the
+            # placements, less the code windows the linker owns. That reads the
+            # same way as the other classes and, unlike a cartridge size, it
+            # moves when packing does — which is the fragmentation the free
+            # column is there to show.
+            if cls == "rom":
+                last_win = max(p.end - 1 for p in ps) // sub.rom_window_bytes
+                cap = ((last_win + 1 - sub.rom_code_windows)
+                       * sub.rom_window_bytes)
+            else:
+                cap = {"dp": sub.dp_bytes, "wram": sub.wram_bytes,
+                       "vram": sub.vram_words, "cgram": sub.cgram_words,
+                       "oam": sub.oam_sprites}[cls]
+            rep.append(f"  {cls.upper():6} {used}/{cap} {unit} used, "
+                       f"{cap - used} free")
             for p in ps:
                 scope = "global" if p.scope == GLOBAL else "scene"
                 rep.append(f"    [{p.start:{fmt}}..{p.end:{fmt}}) "

@@ -83,9 +83,19 @@ M7F_UNROLL    = 4                               ; gen_m7f_join.py's group size
 M7F_HALF_W    = 128                             ; half the 256 px screen
 M7F_FOCUS_Y   = 168                             ; FOCUS_Y_FLIGHT, the anchor row
 
-; --- the two factor blobs' shapes, ASSERTED against their claims ------------
-; Not narrated: if tools/gen_m7f_factors.py ever changes a stride or a level
-; count, the build stops here instead of streaming a neighbouring altitude.
+; --- the two factor blobs' shapes, ASSERTED against the GENERATOR -----------
+; This block used to say the build stopped here if gen_m7f_factors.py changed a
+; stride or a level count, and it did not: the two asserts below check a
+; PRODUCT against the allocator's claim size, and a layout refactor that keeps
+; the product — 80 lines of 4 B instead of 160 of 2 — passes both while every
+; offset the join reads moves. So the generator now emits its own layout beside
+; the bytes (m7f_factors.inc) and this block pins it. Two kinds of check, and
+; they are not the same question: the claim asserts are the ALLOCATOR contract
+; (is the blob the size the declaration reserved), the format assert is the
+; GENERATOR contract (is it still divided up the way this code reads it).
+.include "m7f_factors.inc"                      ; GENERATED beside the blobs
+.assert M7F_FACTORS_FORMAT = 1, error, "m7f_cam reads m7f_prof/m7f_trig at layout format 1 — gen_m7f_factors.py now emits a different record layout; re-read its header and re-derive the offsets in this file before bumping this number"
+
 M7F_ALT_LEVELS  = 81                            ; {0,3,...,240}, measured
 M7F_ALT_MAXIDX  = M7F_ALT_LEVELS - 1
 M7F_ALT_SPAWN   = 40                            ; index of altitude 120
@@ -97,6 +107,15 @@ M7F_TRIG_STRIDE = 8                             ; cmag, smag, cneg, sneg
 M7F_PROF_GUARD  = 8                             ; the join's read-ahead
 .assert M7F_ALT_LEVELS * M7F_PROF_STRIDE + M7F_PROF_GUARD = ES_R_M7F_PROF_SIZE, error, "m7f_cam altitude model disagrees with the m7f_prof claim"
 .assert M7F_HEADINGS * M7F_TRIG_STRIDE = ES_R_M7F_TRIG_SIZE, error, "m7f_cam heading model disagrees with the m7f_trig claim"
+; ...and each narrated constant against the one the generator actually baked,
+; which is what makes the format pin above sharp instead of ceremonial.
+.assert M7F_LINES = M7F_FACTORS_LINES, error, "m7f_cam's band length disagrees with the baked profile's"
+.assert M7F_ALT_LEVELS = M7F_FACTORS_ALT_LEVELS, error, "m7f_cam's altitude count disagrees with the baked profile's"
+.assert M7F_ALT_SPAWN = M7F_FACTORS_ALT_SPAWN, error, "m7f_cam's spawn altitude index disagrees with the baked profile's"
+.assert M7F_PROF_STRIDE = M7F_FACTORS_PROF_STRIDE, error, "m7f_cam's profile stride disagrees with the baked profile's"
+.assert M7F_PROF_GUARD = M7F_FACTORS_PROF_GUARD, error, "m7f_cam's read-ahead guard disagrees with the baked profile's"
+.assert M7F_HEADINGS = M7F_FACTORS_HEADINGS, error, "m7f_cam's heading count disagrees with the baked trig table's"
+.assert M7F_TRIG_STRIDE = M7F_FACTORS_TRIG_STRIDE, error, "m7f_cam's trig record size disagrees with the baked trig table's"
 
 M7F_PROF_LONG = (ES_R_M7F_PROF_BANK << 16) | ES_R_M7F_PROF_ADDR
 M7F_TRIG_LONG = (ES_R_M7F_TRIG_BANK << 16) | ES_R_M7F_TRIG_ADDR

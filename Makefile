@@ -1872,7 +1872,8 @@ M7F_ASM    := $(M7F)/main.asm $(wildcard $(M7F)/scenes/*.asm) \
 M7F_ASSETS := $(BUILD)/assets/m7f_ground.bin $(BUILD)/assets/m7f_pal.bin \
               $(BUILD)/assets/m7f_obj_chr.bin $(BUILD)/assets/m7f_ship_pal.bin \
               $(BUILD)/assets/m7f_shadow_pal.bin
-M7F_FACTORS := $(BUILD)/assets/m7f_prof.bin $(BUILD)/assets/m7f_trig.bin
+M7F_FACTORS := $(BUILD)/assets/m7f_prof.bin $(BUILD)/assets/m7f_trig.bin \
+               $(BUILD)/assets/m7f_factors.inc
 # The COLDATA sky ramp + horizon fog: rgb_gradient's `grad_tabs` claim, backed
 # by THIS rail's blob. A third generator, kept apart from the other two for the
 # reason already recorded above — it answers a different question (the look)
@@ -1899,7 +1900,7 @@ $(M7F_MAP)/engine_state_globals.inc $(M7F_MAP)/symbol_map.json: \
 	$(PY) allocator/allocate.py --game $(M7F) --features-dir engine/features \
 		--out $(M7F_MAP)
 
-M7F_INC := -I $(M7F_MAP) -I $(VROM) -I $(M7F) \
+M7F_INC := -I $(M7F_MAP) -I $(VROM) -I $(M7F) -I $(BUILD)/assets \
            -I engine/features/scene_mgr -I engine/features/input \
            -I engine/features/fade -I engine/features/oam_sprites \
            -I engine/features/m7f_cam -I engine/features/m7f_floor \
