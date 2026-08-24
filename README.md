@@ -72,14 +72,14 @@ frame ratio, carrying the fraction between frames. Everything downstream keeps
 saying "move one step" — what a step *is* becomes a property of the timebase.
 The same ROM then covers the same distance per **second** on both machines.
 
-It is opt-in, per game. **29 of the 37 games compose it** — every playable one
+It is opt-in, per game. **30 of the 37 games compose it** — every playable one
 — and they measure a real-time parity band of **0.994–1.027**, against the
-**0.832** an uncompensated game reads. The other eight say why in their own
-`game.toml`: seven are determinism trials whose frame-indexed sweeps are the
-thing under test, and `rpg` is deferred with the measurement that defers it.
-NTSC does not move — the picture is pixel-identical against every pre-change
-image, per game. [`docs/98`](docs/98_region_fleet_landing.md) has the band,
-the exemptions and the deferral.
+**0.832** an uncompensated game reads. The other seven decline in their own
+`game.toml`: all are determinism trials whose frame-indexed sweeps are the
+thing under test. NTSC does not move — the picture is pixel-identical against
+every pre-change image, per game.
+[`docs/98`](docs/98_region_fleet_landing.md) has the band, the exemptions and
+the two one-time deferrals with the addenda that converted them.
 
 ## The showcase
 

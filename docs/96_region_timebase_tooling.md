@@ -286,7 +286,9 @@ Both false positives are regression fixtures
 
 ### 3.4 The count, against `docs/95` §5.5's 185
 
-**356 findings across 697 files.** The classes are not comparable one-to-one,
+**356 findings across 697 files** *(as landed; 2026-08-24 the live baseline
+holds 350 across 708 — the `rpg` conversion retired the sites that WERE its
+deferral, and the tree has grown)*. The classes are not comparable one-to-one,
 and pretending they are would be the wrong reconciliation:
 
 | rule | this gate | `docs/95` §5.5 | why they differ |

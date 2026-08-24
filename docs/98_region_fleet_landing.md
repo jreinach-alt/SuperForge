@@ -8,12 +8,13 @@
 
 ## 1. The result
 
-> **AMENDED 2026-08-24.** `split_h_2p_demo`, one of the two deferrals below,
-> has since been converted by the path §4 named for it. The tree's live counts
-> are therefore **29 of 37 composing** and **one deferral** (`rpg`); the band
-> is unchanged. §4's `split_h_2p_demo` entry carries the addendum and its
-> measurements. Everything else in this section is the sweep's own result and
-> stands as it landed.
+> **AMENDED 2026-08-24, twice in one day.** Both deferrals below have since
+> been converted, each by the path §4 named for it — `split_h_2p_demo` by the
+> move-LUT pair, `rpg` by the pixels-remaining redefinition. The tree's live
+> counts are therefore **30 of 37 composing** and **no deferrals**; the band
+> is unchanged. §4's entries carry the addenda and their measurements.
+> Everything else in this section is the sweep's own result and stands as it
+> landed.
 
 **28 of the 37 rails now compose `region` + `tick_scale` and run at measured
 speed parity on PAL** — every playable game in the tree. The measured band
@@ -67,10 +68,10 @@ heading. `mode7_stream` itself is untouched.
 
 ## 4. The deferrals, so nobody re-litigates them from scratch
 
-*(Two when this landed. One of them, `split_h_2p_demo`, has since been
-converted — its entry carries the addendum. Both entries stay: the reasoning is
-the record, and the converted one is also the worked example of what the path
-it named actually cost.)*
+*(Two when this landed; both have since been converted — each entry carries
+its addendum. Both entries stay: the reasoning is the record, and the two
+conversions are the worked examples of what the paths they named actually
+cost.)*
 
 - **`rpg`** — the grid stepper welds "8 pixels" to "8 frames": `try_step`
   commits a destination tile and arms an 8-frame slide that moves 1 px/frame,
