@@ -758,12 +758,23 @@ def test_check4_fixture_on_disk():
 # because it is an instrumented copy of frozen reference sources — so a probe
 # added later is covered by default rather than silently escaping.
 #
+# vendor/rom/ is in for the same reason and is the one entry that is `.inc`
+# rather than `.asm`: it is first-party, every rail assembles against it, and
+# it holds sf_asm.inc — the shared macro header, i.e. the one file where a
+# width mistake would be written once and assembled into every ROM expanding
+# it. NOTE the asymmetry this makes explicit: the Makefile hands DIRECTORIES to
+# the CLI, which expands each to `*.asm` AND `*.inc`, while this list globs
+# `*.asm` only — so engine/ and game/ `.inc` files are covered by the target
+# and not by this test. Naming vendor/rom's `.inc` files here closes the gap
+# for the header without pretending the general one is closed.
+#
 # This list mirrors WIDTH_LINT_TARGETS in the Makefile — keep them together.
 VENDORED_ASM = {"probe_cpu_ref.asm"}
 LINT_TARGETS = sorted(
     [p for d in ("engine", "game") for p in (ROOT / d).rglob("*.asm")]
     + [p for p in (ROOT / "vendor" / "probes").glob("*.asm")
        if p.name not in VENDORED_ASM]
+    + sorted((ROOT / "vendor" / "rom").glob("*.inc"))
 )
 
 

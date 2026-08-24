@@ -2957,12 +2957,20 @@ cleanroom:
 # findings in frozen code nobody here is going to fix, which is what the
 # whole-directory exclusion existed for.
 #
+# vendor/rom/ is the third exception, and for the same reason as the probes:
+# it is FIRST-PARTY (docs/92 §, "authored here") rather than frozen, it is the
+# include directory every one of the rails assembles against, and it now holds
+# sf_asm.inc — the shared macro header. A macro is the one place a width
+# mistake is written ONCE and assembled into every ROM that expands it, which
+# is precisely the file the strict lint should be watching. All four files
+# there measure clean, so the zero baseline is unchanged.
+#
 # The same gate is asserted from pytest (tests/test_width_lint.py::
 # test_repo_width_lint_is_clean) so a violation fails the suite too, not only
 # this target. That list mirrors this one — keep them together.
 WIDTH_LINT          = $(PY) tools/width_lint.py
 WIDTH_LINT_SALVAGE  = vendor/probes/probe_cpu_ref.asm
-WIDTH_LINT_TARGETS  = engine game \
+WIDTH_LINT_TARGETS  = engine game vendor/rom \
                       $(filter-out $(WIDTH_LINT_SALVAGE),$(wildcard vendor/probes/*.asm))
 
 width-check:
