@@ -280,20 +280,6 @@
     "severity": "error"
   },
   {
-    "file": "engine/features/rpg_logic/rpg_logic.asm",
-    "line": 18,
-    "rule": "tick-constant",
-    "message": "`RPG_STEP_DX = ES_RPG_HOT + 8` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
-    "severity": "error"
-  },
-  {
-    "file": "engine/features/rpg_logic/rpg_logic.asm",
-    "line": 20,
-    "rule": "tick-constant",
-    "message": "`RPG_STEP_N = ES_RPG_HOT + 12` carries a frame unit in its comment. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
-    "severity": "error"
-  },
-  {
     "file": "engine/features/rs_logic/rs_logic.asm",
     "line": 153,
     "rule": "tick-routine",
@@ -1667,58 +1653,30 @@
   },
   {
     "file": "game/rpg/main.asm",
-    "line": 70,
-    "rule": "tick-constant",
-    "message": "`STEP_FRAMES = 8` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
-    "severity": "error"
-  },
-  {
-    "file": "game/rpg/main.asm",
-    "line": 335,
+    "line": 343,
     "rule": "tick-routine",
     "message": "`rpg_fade_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
   },
   {
     "file": "game/rpg/scenes/overworld.asm",
-    "line": 226,
-    "rule": "tick-routine",
-    "message": "`advance_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
-    "severity": "error"
-  },
-  {
-    "file": "game/rpg/scenes/overworld.asm",
-    "line": 255,
+    "line": 347,
     "rule": "tick-routine",
     "message": "`read_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
   },
   {
     "file": "game/rpg/scenes/overworld.asm",
-    "line": 300,
+    "line": 392,
     "rule": "tick-routine",
     "message": "`try_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
     "severity": "error"
   },
   {
     "file": "game/rpg/scenes/town.asm",
-    "line": 319,
-    "rule": "tick-routine",
-    "message": "`read_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
-    "severity": "error"
-  },
-  {
-    "file": "game/rpg/scenes/town.asm",
-    "line": 389,
+    "line": 429,
     "rule": "tick-routine",
     "message": "`try_step` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick.",
-    "severity": "error"
-  },
-  {
-    "file": "game/rpg/scenes/town.asm",
-    "line": 497,
-    "rule": "tick-constant",
-    "message": "`TOWN_FLARE_FRAMES = 12` carries a frame unit in its name. A constant measured in frames is the hardest class to region-scale \u2014 docs/95 \u00a75.1 names `MXL_STEP_FRAMES = MXL_TILE_PX` as the specimen: at x6/5 it is 1.2 px/frame, which the grid cannot express.",
     "severity": "error"
   },
   {

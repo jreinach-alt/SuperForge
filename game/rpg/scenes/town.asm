@@ -330,6 +330,9 @@ adj_to:
 ; machines, which is the property that was asked for.
 ; In/out: A16/I16, DB=0. Clobbers A, X, Y.
 TOWN_STEP_UNITS = ::TILE_PX             ; one tile's worth of throttle units
+; TICK: ok — this throttle counts the region's published UNITS, not frames.
+;   The frame is what TS_STEP converts out of; how many frames a tile takes
+;   here is the output, and it is 8 on NTSC and ~6.65 on PAL by measurement.
 read_step:
     .a16
     .i16
@@ -531,7 +534,19 @@ draw_actors:
 ; WIDTH-RISK: entered A8/I16 from sm_nmi_hook and MUST exit A8/I16, DB
 ; unchanged. Reached ONLY through the hook's function call — no same-file
 ; arrival exists — so these markers ARE the width contract.
-TOWN_FLARE_FRAMES = 12                          ; ~0.2 s: brief but visible
+TOWN_FLARE_FRAMES = 12                          ; ~0.2 s on NTSC: brief but
+                                                ;   visible
+                                                ; TICK: ok — a DURATION, not a
+                                                ;   rate, and the one number
+                                                ;   on this rail the timebase
+                                                ;   deliberately leaves alone.
+                                                ;   docs/98 §2 keeps a
+                                                ;   countdown integer and
+                                                ;   DISCLOSES it: the PAL
+                                                ;   flare is the same 12
+                                                ;   frames and so runs 0.24 s.
+                                                ;   It confirms a save; it
+                                                ;   paces nothing.
 TOWN_SAVE_MAP_WORD = ES_V_TOWN_MAP + (::TOWN_SAVE_TY * 32) + ::TOWN_SAVE_TX
 .a8
 .i16

@@ -227,6 +227,11 @@ tick:
 ; ends inside it or exactly on the boundary with nothing left over — the
 ; deciding frame is never merged and the walk is the same nine frames per tile
 ; it always was, store for store.
+;
+; TICK: ok — the frame is what this routine converts OUT of, not a unit it
+;   counts in. It reads the region's published step and spends it in PIXELS;
+;   how many frames a tile takes is the OUTPUT. That is the whole of the
+;   redefinition this rail took to leave the deferral list.
 walk_tick:
     .a16
     .i16
