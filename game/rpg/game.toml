@@ -30,12 +30,22 @@
 # pixel left over, the deciding frame is never free, and the walk is the same
 # nine frames it always was — to the store.
 #
-# MEASURED (tools/rate_oracle.py rpg, 2026-08-24): the overworld camera path
-# reads 53.430 px/s NTSC and 53.581 px/s PAL, ratio 1.00283, against the
-# uncompensated 0.83142. The town walk reads 7.512 tiles/s NTSC and 7.521 PAL,
-# ratio 1.00111. NTSC is unmoved: the oracle's NTSC column and every
-# tools/tb_picture_diff.py capture in BOTH scenes are identical to the
-# pre-change image.
+# MEASURED, not derived (tools/rate_oracle.py, 2026-08-24). Two entries,
+# because the two scenes are two consumers on one rate and neither reading
+# can be inferred from the other:
+#
+#   rpg        m7_path    the Mode 7 camera origin the floor is drawn from
+#                         53.430 px/s NTSC   53.508 PAL   ratio 1.00145
+#                         against an uncompensated 0.83142
+#   rpg_town   avatar_x   the avatar's OAM X byte, the drawn position
+#                         60.015 px/s NTSC   60.675 PAL   ratio 1.01100
+#                         against an uncompensated 0.83324
+#
+# NTSC IS UNMOVED. Both NTSC columns are identical to the pre-change image's,
+# tools/tb_picture_diff.py reads NTSC pixel-identical in BOTH scenes (and PAL
+# differing, the non-vacuity control), and a per-frame trace of the camera
+# origin, both camera tiles, the town tile and the avatar's OAM is
+# byte-identical over 200 frames on both drives.
 globals = ["scene_mgr", "input", "fade", "oam_sprites", "mosaic",
            "text_dp", "font_rom", "enter_scr", "save", "audio", "tad_rom",
            "rpg_rom", "dlg_rom", "pose_rom", "rpg_logic", "region",

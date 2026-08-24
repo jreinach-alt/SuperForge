@@ -332,7 +332,8 @@ adj_to:
 TOWN_STEP_UNITS = ::TILE_PX             ; one tile's worth of throttle units
 ; TICK: ok — this throttle counts the region's published UNITS, not frames.
 ;   The frame is what TS_STEP converts out of; how many frames a tile takes
-;   here is the output, and it is 8 on NTSC and ~6.65 on PAL by measurement.
+;   here is the OUTPUT — 8 on NTSC, and whatever PAL's step makes it. The
+;   measured rate for both machines is in game.toml's region note.
 read_step:
     .a16
     .i16
