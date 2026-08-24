@@ -20,7 +20,7 @@ SF_HDR_TITLE_SET = 1
 JOY_START = 4096                    ; $4218 bit 12 (decimal: not an address)
 .include "header.inc"
 .include "init.inc"                 ; RESET: native, A16/I16, forced blank
-.include "sf_asm.inc"              ; shared macros: placement assertions + the
+.include "sf_asm.inc"               ; shared macros: placement assertions + the
                                     ;   data-bank idioms (vendor/rom)
 
 .segment "CODE"

@@ -88,14 +88,20 @@ TS_BASE_MAX = 42000             ; ~164 units per frame; keeps base * TS_GAIN_NUM
 ;   tail:     falls through to the caller — this is a macro, not a call
 ;
 ; It contains no sep/rep at all, so it cannot leak a width to its caller and
-; needs no directive after it. THE ENTRY WIDTHS ARE NOT ASSERTED HERE, and
-; that is a stated gap rather than an oversight: SF_ASSERT_WIDTH lives in
-; `sf_asm.inc`, which is included per ROM by the rail's `main.asm`, and most
-; of the rails expanding this macro do not include it yet. Putting the
-; assertion in before they do would fail their builds on a missing macro. The
-; assertion belongs here the moment that include is tree-wide; until then the
-; contract above is a declaration a reader and the lint can both read, and
-; the machine check is the caller-side one this macro does not yet get.
+; needs no directive after it. THE ENTRY WIDTHS ARE ASSERTED HERE, and the
+; assertion is the CALLER's check rather than this file's: a macro body
+; expands AT the call site, so `.asize` inside it is the arriving width in the
+; expanding file, and ca65 names the expansion line. That makes every one of
+; the expansions across the tree checked by the assembler, in both directions,
+; without a call-graph — which is the one thing the single-file width lint
+; cannot do for a routine.
+;
+; It could not be written until `sf_asm.inc` — where SF_ASSERT_WIDTH lives —
+; was included by every rail's `main.asm`, because a rail without the include
+; would have failed on the missing macro rather than on a width. That include
+; is now tree-wide (37 rails), which is what discharges the debt this comment
+; used to record. Every rail that expands TS_STEP includes `sf_asm.inc` ahead
+; of `tick_scale.asm`, so the macro is defined before the first expansion.
 ;
 ; WIDTH-RISK: none by construction, and that is deliberate. The prototype's
 ; equivalent toggled width around the $213F read; here the read is `region`'s
@@ -105,6 +111,7 @@ TS_BASE_MAX = 42000             ; ~164 units per frame; keeps base * TS_GAIN_NUM
 ;   frame" is the unit it converts OUT of, not one it introduces.
 .macro TS_STEP ts_acc, ts_base
     .local ts_ntsc_arm, ts_apply
+    SF_ASSERT_WIDTH 16, 16, "TS_STEP"
     .assert (ts_base) > 0, error, "TS_STEP: the base step must be positive"
     .assert (ts_base) <= TS_BASE_MAX, error, "TS_STEP: base step too large — the build-time PAL scale would overflow ca65's 32-bit expression arithmetic (see TS_BASE_MAX)"
     lda z:ES_RGN_PAL

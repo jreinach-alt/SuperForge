@@ -564,8 +564,11 @@ The full rule is CLAUDE.md #2. What it means in practice here:
   call site, so `.asize` inside it is the caller's tracked width in the
   caller's file. Note the adoption order — `sf_asm.inc` is included once per
   ROM from the rail's `main.asm`, so a macro cannot carry an assertion until
-  every rail that expands it includes the header. `TS_STEP` declares its
-  contract and says so in place of asserting, for exactly that reason.
+  every rail that expands it includes the header. That include is now on all
+  37 rails, which is what let `TS_STEP` take its own assertion: its 73
+  expansion sites across `engine/features/**` and `game/**` are now each
+  checked by the assembler in the expanding file, and a wrong arrival stops
+  the build naming the expansion line rather than the macro's definition.
 
   **Nothing is required.** A file with an old-style prose header is simply
   UNDECLARED — no finding, no baseline, and its callers stay as unchecked as

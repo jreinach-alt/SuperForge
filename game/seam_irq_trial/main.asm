@@ -52,6 +52,8 @@ SF_IRQ_VECTOR = sit_seam_irq        ; the $FFEE opt-in (vendor/rom/header.inc)
 .endif
 .include "header.inc"
 .include "init.inc"                 ; RESET: native, A16/I16, forced blank,
+.include "sf_asm.inc"               ; shared macros: placement assertions + the
+                                    ;   data-bank idioms (vendor/rom)
                                     ; SEI — IRQ stays masked until MAIN's cli
 
 .segment "CODE"

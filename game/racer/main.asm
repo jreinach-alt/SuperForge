@@ -25,7 +25,7 @@ SF_HDR_TITLE_SET = 1
 .include "tad_audio_enums.inc"      ; GENERATED — Song:: / SFX:: ids
 .include "header.inc"
 .include "init.inc"                 ; RESET: native, A16/I16, forced blank
-.include "sf_asm.inc"              ; shared macros: placement assertions + the
+.include "sf_asm.inc"               ; shared macros: placement assertions + the
                                     ;   data-bank idioms (vendor/rom)
 
 .segment "CODE"
