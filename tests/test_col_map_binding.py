@@ -43,6 +43,7 @@ KERNEL_DIR = F / "engine" / "features" / "col_map"
 PREAMBLE = """\
 .p816
 .smart
+.include "sf_asm.inc"
 ES_CM_HOT = $30
 CM_WORLD_W_LOG2      = {w}
 CM_WORLD_H_LOG2      = {h}
@@ -107,7 +108,11 @@ def assemble(tmp_path, src):
     s = tmp_path / "frag.s"
     s.write_text(src)
     (tmp_path / "f.cfg").write_text(CFG)
+    # -I vendor/rom: the kernel's contract migration gave it entry
+    # assertions from the shared macro header, so a harness that assembles
+    # it standalone owes the same include every rail's main.asm carries.
     r = subprocess.run(["ca65", "-I", str(KERNEL_DIR),
+                        "-I", str(F / "vendor" / "rom"),
                         "-o", str(tmp_path / "frag.o"), str(s)],
                        capture_output=True, text=True)
     if r.returncode != 0:
