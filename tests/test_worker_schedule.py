@@ -181,7 +181,7 @@ def test_each_run_truncates_the_file_so_rows_are_one_run(tmp_path):
     assert rows2[0]["run"] != rows1[0]["run"], (rows1[0], rows2[0])
 
 
-def test_a_nested_session_cannot_clobber_the_owner_record(tmp_path):
+def test_a_nested_run_cannot_clobber_the_owner_record(tmp_path):
     """The evidence-destroying case, asserted directly.
 
     Several modules here start a pytest of their own and load this conftest
