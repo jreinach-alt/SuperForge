@@ -1271,40 +1271,50 @@ def _game_files(game: Path) -> list[Path]:
 
 @pytest.mark.parametrize("game,label", [("game/microzero", "mz"),
                                         ("game/room", "rm")])
-def test_shipped_tree_is_clean(tmp_path, game, label):
+def test_shipped_tree_is_clean(tmp_path, game, label, repo_tree_read_lock):
+    # LOCK_SH for the whole pair: both invocations READ the live tree (the
+    # allocator globs engine/features/, the gate loads each scanned file's
+    # feature.toml) and both assert SUCCESS — the reader class conftest's
+    # repo-tree lock names as needing the shared lock, so a concurrent
+    # planter (test_register / test_make_gates) cannot overlap the read.
     out = tmp_path / label
-    r = subprocess.run(
-        [sys.executable, str(SUPERFORGE / "allocator" / "allocate.py"),
-         "--game", str(SUPERFORGE / game),
-         "--features-dir", str(SUPERFORGE / "engine" / "features"),
-         "--out", str(out)],
-        capture_output=True, text=True)
-    assert r.returncode == 0, r.stderr
-    r = subprocess.run(
-        [sys.executable, str(TOOL), "--map", str(out / "symbol_map.json"),
-         *[str(f) for f in _game_files(SUPERFORGE / game)]],
-        capture_output=True, text=True)
+    with repo_tree_read_lock():
+        r = subprocess.run(
+            [sys.executable, str(SUPERFORGE / "allocator" / "allocate.py"),
+             "--game", str(SUPERFORGE / game),
+             "--features-dir", str(SUPERFORGE / "engine" / "features"),
+             "--out", str(out)],
+            capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        r = subprocess.run(
+            [sys.executable, str(TOOL), "--map", str(out / "symbol_map.json"),
+             *[str(f) for f in _game_files(SUPERFORGE / game)]],
+            capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
 
 
-def test_guard_is_armed_against_a_planted_copy(tmp_path):
+def test_guard_is_armed_against_a_planted_copy(tmp_path, repo_tree_read_lock):
     """Prove the previous test's invocation shape actually runs the pass:
     copy a real feature dir under the same path shape, plant an undeclared
     BGMODE store, and require the finding. A guard that can only go green is
     the toothless-gate failure mode (AGENTS.md: prove the gate fails on a
     real violation before believing it)."""
     out = tmp_path / "mz"
-    subprocess.run(
-        [sys.executable, str(SUPERFORGE / "allocator" / "allocate.py"),
-         "--game", str(SUPERFORGE / "game" / "microzero"),
-         "--features-dir", str(SUPERFORGE / "engine" / "features"),
-         "--out", str(out)],
-        capture_output=True, text=True, check=True)
-    plant = tmp_path / "engine" / "features" / "mode7_stream"
-    plant.mkdir(parents=True)
-    src = SUPERFORGE / "engine" / "features" / "mode7_stream"
-    shutil.copy(src / "feature.toml", plant / "feature.toml")
-    body = (src / "mode7_stream.asm").read_text()
+    # LOCK_SH for the live reads (the allocation this asserts succeeds + the
+    # source copy) — conftest's reader rule; the tmp-side plant and scan
+    # below run outside the window.
+    with repo_tree_read_lock():
+        subprocess.run(
+            [sys.executable, str(SUPERFORGE / "allocator" / "allocate.py"),
+             "--game", str(SUPERFORGE / "game" / "microzero"),
+             "--features-dir", str(SUPERFORGE / "engine" / "features"),
+             "--out", str(out)],
+            capture_output=True, text=True, check=True)
+        plant = tmp_path / "engine" / "features" / "mode7_stream"
+        plant.mkdir(parents=True)
+        src = SUPERFORGE / "engine" / "features" / "mode7_stream"
+        shutil.copy(src / "feature.toml", plant / "feature.toml")
+        body = (src / "mode7_stream.asm").read_text()
     (plant / "mode7_stream.asm").write_text(
         body + "\nrg_plant:\n    sep #$20\n    .a8\n"
                "    lda #1\n    sta a:$2105\n    rts\n")
@@ -1776,7 +1786,8 @@ def test_the_lies_check_scope_is_a_feature_toml_not_a_path_shape(tmp_path):
     assert "OWNS this port" not in r.stderr, r.stderr
 
 
-def test_intree_guard_is_armed_against_a_planted_absent_co_write(tmp_path):
+def test_intree_guard_is_armed_against_a_planted_absent_co_write(
+        tmp_path, repo_tree_read_lock):
     """item 5, M5 rule 2 — the in-tree plant plant J did not have. Rule 1's plant (below) proves the shipped-tree invocation enforces
     the "owner also writes it" direction; nothing proved the other direction
     outside the fixture tree, and the two rules have different inputs — rule 1
@@ -1787,21 +1798,24 @@ def test_intree_guard_is_armed_against_a_planted_absent_co_write(tmp_path):
     BGMODE/TM, which room_bg.asm does NOT write (the disjoint shape). Declaring
     either as `scene_writes_shared` claims a co-write that is not there."""
     out = tmp_path / "rm"
-    subprocess.run(
-        [sys.executable, str(SUPERFORGE / "allocator" / "allocate.py"),
-         "--game", str(SUPERFORGE / "game" / "room"),
-         "--features-dir", str(SUPERFORGE / "engine" / "features"),
-         "--out", str(out)], capture_output=True, text=True, check=True)
-    plant = tmp_path / "engine" / "features" / "room_bg"
-    plant.mkdir(parents=True)
-    src = SUPERFORGE / "engine" / "features" / "room_bg"
-    toml = (src / "feature.toml").read_text()
+    # LOCK_SH for the live reads (a success-asserted live-tree allocation +
+    # the source copies) — conftest's reader rule.
+    with repo_tree_read_lock():
+        subprocess.run(
+            [sys.executable, str(SUPERFORGE / "allocator" / "allocate.py"),
+             "--game", str(SUPERFORGE / "game" / "room"),
+             "--features-dir", str(SUPERFORGE / "engine" / "features"),
+             "--out", str(out)], capture_output=True, text=True, check=True)
+        plant = tmp_path / "engine" / "features" / "room_bg"
+        plant.mkdir(parents=True)
+        src = SUPERFORGE / "engine" / "features" / "room_bg"
+        toml = (src / "feature.toml").read_text()
+        shutil.copy(src / "room_bg.asm", plant / "room_bg.asm")
     anchor = 'scene_writes = ["BGMODE", "TM"]'
     assert anchor in toml, "room_layers' opened set moved"              # guard
     assert "scene_writes_shared" not in toml, "room_bg grew a co-write"  # guard
     (plant / "feature.toml").write_text(
         toml.replace(anchor, anchor + '\nscene_writes_shared = ["BGMODE"]', 1))
-    shutil.copy(src / "room_bg.asm", plant / "room_bg.asm")
     # --partial-files: one planted file against a whole game's map — see the
     # sibling plant test above for why the whole-composition rom-backing check
     # has to be told this list is a subset (docs/37 §3).
@@ -1814,10 +1828,12 @@ def test_intree_guard_is_armed_against_a_planted_absent_co_write(tmp_path):
     assert "room_layers" in r.stderr and "BGMODE" in r.stderr
     assert "no `.asm`" in r.stderr                      # rule 2's wording
     # ...and the UNPLANTED original is silent in the same invocation shape.
-    r2 = subprocess.run(
-        [sys.executable, str(TOOL), "--map", str(out / "symbol_map.json"),
-         "--partial-files", str(src / "room_bg.asm")],
-        capture_output=True, text=True)
+    # (A live-tree scan asserting success: shared lock, same rule as above.)
+    with repo_tree_read_lock():
+        r2 = subprocess.run(
+            [sys.executable, str(TOOL), "--map", str(out / "symbol_map.json"),
+             "--partial-files", str(src / "room_bg.asm")],
+            capture_output=True, text=True)
     assert r2.returncode == 0, r2.stdout + r2.stderr
     assert "1 claim(s) validated" in r2.stdout, r2.stdout
 
@@ -1858,7 +1874,8 @@ def test_the_summary_line_discloses_how_many_claims_were_validated(tmp_path):
     assert "scene_writes: 0 claim(s) validated" in r.stdout, r.stdout
 
 
-def test_intree_guard_is_armed_against_an_owned_but_unopened_scene_write(tmp_path):
+def test_intree_guard_is_armed_against_an_owned_but_unopened_scene_write(
+        tmp_path, repo_tree_read_lock):
     """item 5, M4/M4b: prove the SHIPPED-TREE invocation actually enforces the
     narrowed rule, not just that it goes green.
 
@@ -1872,14 +1889,19 @@ def test_intree_guard_is_armed_against_an_owned_but_unopened_scene_write(tmp_pat
     $2130 CGWSEL is owned by rgb_gradient's `grad_math` claim, which does not
     open it. Before item 5 this exact plant was ACCEPTED, exit 0."""
     out = tmp_path / "mz"
-    subprocess.run(
-        [sys.executable, str(SUPERFORGE / "allocator" / "allocate.py"),
-         "--game", str(SUPERFORGE / "game" / "microzero"),
-         "--features-dir", str(SUPERFORGE / "engine" / "features"),
-         "--out", str(out)], capture_output=True, text=True, check=True)
+    # LOCK_SH for the live reads (a success-asserted live-tree allocation +
+    # the scene source) — conftest's reader rule; the planted scan below
+    # touches only tmp_path and the emitted map.
+    with repo_tree_read_lock():
+        subprocess.run(
+            [sys.executable, str(SUPERFORGE / "allocator" / "allocate.py"),
+             "--game", str(SUPERFORGE / "game" / "microzero"),
+             "--features-dir", str(SUPERFORGE / "engine" / "features"),
+             "--out", str(out)], capture_output=True, text=True, check=True)
+        src = (SUPERFORGE / "game" / "microzero" / "scenes"
+               / "race.asm").read_text()
     d = tmp_path / "game" / "microzero" / "scenes"     # path shape matters:
     d.mkdir(parents=True)                              # reg_context reads it
-    src = (SUPERFORGE / "game" / "microzero" / "scenes" / "race.asm").read_text()
     assert "rg_plant" not in src                       # the guard
     (d / "race.asm").write_text(
         src + "\nrg_plant:\n    sep #$20\n    .a8\n"
@@ -1897,7 +1919,8 @@ def test_intree_guard_is_armed_against_an_owned_but_unopened_scene_write(tmp_pat
     assert "OWNS this port" in r.stderr and "grad_math" in r.stderr
 
 
-def test_intree_guard_is_armed_against_a_planted_co_write(tmp_path):
+def test_intree_guard_is_armed_against_a_planted_co_write(
+        tmp_path, repo_tree_read_lock):
     """item 5, M5: the same proof for the lies-check, and the reason the
     fail-loud requirement could be discharged as a COUNT.
 
@@ -1921,19 +1944,22 @@ def test_intree_guard_is_armed_against_a_planted_co_write(tmp_path):
     feature's own first NMITIMEN write", so it now finds that line the way
     the gate does."""
     out = tmp_path / "mz"
-    subprocess.run(
-        [sys.executable, str(SUPERFORGE / "allocator" / "allocate.py"),
-         "--game", str(SUPERFORGE / "game" / "microzero"),
-         "--features-dir", str(SUPERFORGE / "engine" / "features"),
-         "--out", str(out)], capture_output=True, text=True, check=True)
-    plant = tmp_path / "engine" / "features" / "scene_mgr"
-    plant.mkdir(parents=True)
-    src = SUPERFORGE / "engine" / "features" / "scene_mgr"
-    toml = (src / "feature.toml").read_text()
+    # LOCK_SH for the live reads (a success-asserted live-tree allocation +
+    # the source copies) — conftest's reader rule.
+    with repo_tree_read_lock():
+        subprocess.run(
+            [sys.executable, str(SUPERFORGE / "allocator" / "allocate.py"),
+             "--game", str(SUPERFORGE / "game" / "microzero"),
+             "--features-dir", str(SUPERFORGE / "engine" / "features"),
+             "--out", str(out)], capture_output=True, text=True, check=True)
+        plant = tmp_path / "engine" / "features" / "scene_mgr"
+        plant.mkdir(parents=True)
+        src = SUPERFORGE / "engine" / "features" / "scene_mgr"
+        toml = (src / "feature.toml").read_text()
+        shutil.copy(src / "scene_mgr.asm", plant / "scene_mgr.asm")
     anchor = 'scene_writes_shared = ["NMITIMEN"]'
     assert anchor in toml, "the tree's one co-write declaration moved"   # guard
     (plant / "feature.toml").write_text(toml.replace(anchor, "", 1))
-    shutil.copy(src / "scene_mgr.asm", plant / "scene_mgr.asm")
     # --partial-files: this invocation deliberately hands ONE planted file
     # a whole game's map, so the whole-composition rom-backing check has no
     # claim sites to find and would report all 24 claims unbacked. Saying
@@ -1947,8 +1973,10 @@ def test_intree_guard_is_armed_against_a_planted_co_write(tmp_path):
     assert "declaration that lies" in r.stderr, r.stderr
     assert "sm_display" in r.stderr and "NMITIMEN" in r.stderr
     # ...and it names the co-write SITE: the feature's own first write to
-    # NMITIMEN, located in the source rather than remembered from it.
-    asm = (src / "scene_mgr.asm").read_text().splitlines()
+    # NMITIMEN, located in the source rather than remembered from it. The
+    # planted COPY is byte-identical to the live source, so derive the site
+    # from the copy — no live read needed here.
+    asm = (plant / "scene_mgr.asm").read_text().splitlines()
     site = next(n for n, line in enumerate(asm, 1)
                 if "a:$4200" in line
                 and line.split(";")[0].split()[0] in ("stz", "sta"))
@@ -1956,10 +1984,12 @@ def test_intree_guard_is_armed_against_a_planted_co_write(tmp_path):
     # ...and the UNPLANTED original is silent in the same invocation shape,
     # so the finding is attributable to the removed declaration and nothing
     # else. This pairing is what a bare "it fired" cannot establish.
-    r2 = subprocess.run(
-        [sys.executable, str(TOOL), "--map", str(out / "symbol_map.json"),
-         "--partial-files", str(src / "scene_mgr.asm")],
-        capture_output=True, text=True)
+    # (A live-tree scan asserting success: shared lock, the reader rule.)
+    with repo_tree_read_lock():
+        r2 = subprocess.run(
+            [sys.executable, str(TOOL), "--map", str(out / "symbol_map.json"),
+             "--partial-files", str(src / "scene_mgr.asm")],
+            capture_output=True, text=True)
     assert r2.returncode == 0, r2.stdout + r2.stderr
     assert "1 claim(s) validated" in r2.stdout, r2.stdout
 
