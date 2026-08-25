@@ -103,7 +103,7 @@ SHO_HI_HI  = (ES_O_SHO_CAST + ES_O_SHO_CAST_SPRITES) / 4
 ; NOTHING ELSE ABOUT THE DRAW CHANGED. A record's first two words are (x, y) in
 ; exactly the layout the marker blob had, which is why the entity stride is the
 ; only edit inside obj_band.
-.assert SWM_E_X = 0 && SWM_E_Y = 2, error, "sh2_obj: an entity record no longer opens with (x, y) — obj_band reads them positionally"
+.assert SWM_E::wx = 0 && SWM_E::wy = 2, error, "sh2_obj: an entity record no longer opens with (x, y) — obj_band reads them positionally"
 
 ; --- the bookkeeping, inside the 18-byte dp claim ---------------------------
 SHO_SLOT  = ES_SHO + 0                  ; the compaction cursor (byte offset)
@@ -320,9 +320,9 @@ obj_band:
     .a16
     .i16
     ldx z:SHO_MENT
-    lda f:ES_SWM_ENTS_LONG + SWM_E_X, x
+    lda f:ES_SWM_ENTS_LONG + SWM_E::wx, x
     sta z:MPP_WX
-    lda f:ES_SWM_ENTS_LONG + SWM_E_Y, x
+    lda f:ES_SWM_ENTS_LONG + SWM_E::wy, x
     sta z:MPP_WY
     jsr mpp_project
     bcc @next                       ; culled: NOT ONE STORE — the compaction
@@ -332,7 +332,7 @@ obj_band:
     .i16
     lda z:SHO_MENT
     clc
-    adc #SWM_ENT_BYTES
+    adc #.sizeof(SWM_E)
     sta z:SHO_MENT
     dec z:SHO_MCNT
     bne @loop

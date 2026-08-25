@@ -931,15 +931,15 @@ rs_fire:
     sta RSL_BEST
     sta RSL_BESTZ
     lda #0
-    sta RSL_OFF                     ; the cache cursor, entry * RSC_STRIDE
+    sta RSL_OFF                     ; the cache cursor, entry * .sizeof(RSC)
 @lp:
     .a16
     .i16
     ldx RSL_OFF
-    lda f:ES_RS_CACHE_LONG + RSC_VIS, x
+    lda f:ES_RS_CACHE_LONG + RSC::vis, x
     beq @next                       ; culled or dead: nothing on screen to hit
     ; ---- the target's box: 32 px at the two near tiers, 16 at the far two --
-    lda f:ES_RS_CACHE_LONG + RSC_TIER, x
+    lda f:ES_RS_CACHE_LONG + RSC::tier, x
     cmp #2
     bcs @small
     lda #(32 + 2 * RS_RET_TOL)
@@ -957,14 +957,14 @@ rs_fire:
     clc
     adc #RS_RET_TOL
     sec
-    sbc f:ES_RS_CACHE_LONG + RSC_SX, x
+    sbc f:ES_RS_CACHE_LONG + RSC::sx, x
     cmp RSL_T0
     bcs @next
     lda RSD_RSY
     clc
     adc #RS_RET_TOL
     sec
-    sbc f:ES_RS_CACHE_LONG + RSC_SY, x
+    sbc f:ES_RS_CACHE_LONG + RSC::sy, x
     cmp RSL_T0
     bcs @next
     ; ---- a hit. keep it only if it is NEARER than the best so far ---------
@@ -983,9 +983,9 @@ rs_fire:
     .i16
     lda RSL_OFF
     clc
-    adc #RSC_STRIDE
+    adc #.sizeof(RSC)
     sta RSL_OFF
-    cmp #(RSC_STRIDE * RS_OBS_N)    ; hazards only — a pylon is not a target
+    cmp #(.sizeof(RSC) * RS_OBS_N)    ; hazards only — a pylon is not a target
     bcc @lp
     lda RSL_BEST
     cmp #RS_NO_HIT
@@ -1024,12 +1024,12 @@ rs_kill:
     .a16
     .i16
     ldx RSL_BEST
-    lda f:ES_RS_CACHE_LONG + RSC_SX, x
+    lda f:ES_RS_CACHE_LONG + RSC::sx, x
     sta f:US_BURST_SX_LONG
-    lda f:ES_RS_CACHE_LONG + RSC_SY, x
+    lda f:ES_RS_CACHE_LONG + RSC::sy, x
     sta f:US_BURST_SY_LONG
     ; a 16x16 target needs the 32x32 flash pulled back half a frame to centre
-    lda f:ES_RS_CACHE_LONG + RSC_TIER, x
+    lda f:ES_RS_CACHE_LONG + RSC::tier, x
     cmp #2
     bcc @centred
     lda f:US_BURST_SX_LONG

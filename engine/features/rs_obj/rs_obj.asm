@@ -71,18 +71,27 @@ RSD_PATTR = RSD_MA + 2              ; rs_put's attr|size
 ; lets the hitscan go from "the aim point is inside THIS box" to "free THAT
 ; pool slot" without a second search.
 ;
-; RSC_VIS IS A KIND, NOT A BOOLEAN: 0 = nothing to draw, 1 = hazard, 2 = pylon.
+; RSC::vis IS A KIND, NOT A BOOLEAN: 0 = nothing to draw, 1 = hazard, 2 = pylon.
 ; One word carries both facts because the emit needs both and the cache stride
 ; is what the (cheap) index arithmetic is built on.
-RSC_SX     = 0                      ; the already-centre-adjusted LEFT x
-RSC_SY     = 2                      ; the ground point, and the sprite's top
-RSC_TIER   = 4                      ; the STORED (hysteresis-applied) tier
-RSC_VIS    = 6                      ; 0 dead/culled, 1 hazard, 2 pylon
-RSC_STRIDE = 8
+;
+; The entry is a `.struct`, so the field offsets and the STRIDE the index
+; arithmetic walks are ONE statement rather than two that have to agree by
+; hand. `.sizeof(RSC)` is the sum of the members: adding a fifth word moves
+; the pylon base and the two loop bounds below with it, and cannot leave a
+; stride behind. The allocator still owns the BASE (`ES_RS_CACHE`); this names
+; only the interior, and the assert underneath is what binds the two.
+.struct RSC
+    sx   .word                      ; the already-centre-adjusted LEFT x
+    sy   .word                      ; the ground point, and the sprite's top
+    tier .word                      ; the STORED (hysteresis-applied) tier
+    vis  .word                      ; 0 dead/culled, 1 hazard, 2 pylon
+.endstruct
+
 RSC_KIND_HAZ = 1
 RSC_KIND_PYL = 2
-RSC_PYL0   = RSC_STRIDE * RS_OBS_N  ; where the pylon entries start
-.assert RSC_STRIDE * (RS_OBS_N + RS_PYL_N) = ES_RS_CACHE_SIZE, error, "rs_cache is not (hazards + pylons) x 4 words"
+RSC_PYL0   = .sizeof(RSC) * RS_OBS_N    ; where the pylon entries start
+.assert .sizeof(RSC) * (RS_OBS_N + RS_PYL_N) = ES_RS_CACHE_SIZE, error, "rs_cache is not (hazards + pylons) x 4 words"
 
 ; --- OAM addressing ----------------------------------------------------------
 ; The window starts at the RETICLE now: OAM index order is priority and the
@@ -675,7 +684,7 @@ rs_cache_pool:
     jsr rs_cache_one
     lda RSD_CUR
     clc
-    adc #RSC_STRIDE
+    adc #.sizeof(RSC)
     sta RSD_CUR
     lda RSD_IDX
     clc
@@ -687,7 +696,7 @@ rs_cache_pool:
 
 ; --- rs_cache_one: project the actor at absolute byte offset X -------------
 ; In: X = the actor's byte offset inside rs_actors. RSD_CUR = the cache byte
-; offset to write, RSD_KIND = what to stamp in RSC_VIS when it is visible. The
+; offset to write, RSD_KIND = what to stamp in RSC::vis when it is visible. The
 ; STORED tier (hysteresis-applied) decides the frame and the centre offset; the
 ; projection supplies sx/sy/culled. Which FRAME is drawn is the game's
 ; grow-only decision, not the projection's raw answer.
@@ -698,7 +707,7 @@ rs_cache_pool:
 ; written. The rail was the only ROM in the tree the emulator's
 ; read-before-write detector flagged (38 reads in 400 frames, against 0 for
 ; both `m7_oshoot` and `racer`, which build on the same pool). Nothing reached
-; the picture — `RSC_VIS` is stamped 0 and both consumers gate on it — but the
+; the picture — `RSC::vis` is stamped 0 and both consumers gate on it — but the
 ; garbage TIER was used unmasked as the index into a 24-byte descriptor table,
 ; which is an out-of-bounds read one refactor away from mattering, and
 ; CLAUDE.md rule 5 asks for that to be treated as a ROM bug rather than harness
@@ -739,10 +748,10 @@ rs_cache_one:
     .i16
     ldx RSD_CUR
     lda #0
-    sta f:ES_RS_CACHE_LONG + RSC_SX, x
-    sta f:ES_RS_CACHE_LONG + RSC_SY, x
-    sta f:ES_RS_CACHE_LONG + RSC_TIER, x
-    sta f:ES_RS_CACHE_LONG + RSC_VIS, x
+    sta f:ES_RS_CACHE_LONG + RSC::sx, x
+    sta f:ES_RS_CACHE_LONG + RSC::sy, x
+    sta f:ES_RS_CACHE_LONG + RSC::tier, x
+    sta f:ES_RS_CACHE_LONG + RSC::vis, x
     rts
 @culled:
     .a16
@@ -767,13 +776,13 @@ rs_cache_one:
     ; ---- write the entry ---------------------------------------------------
     ldx RSD_CUR
     lda RSD_SX
-    sta f:ES_RS_CACHE_LONG + RSC_SX, x
+    sta f:ES_RS_CACHE_LONG + RSC::sx, x
     lda RSD_SY
-    sta f:ES_RS_CACHE_LONG + RSC_SY, x
+    sta f:ES_RS_CACHE_LONG + RSC::sy, x
     lda RSD_PASS
-    sta f:ES_RS_CACHE_LONG + RSC_TIER, x
+    sta f:ES_RS_CACHE_LONG + RSC::tier, x
     pla
-    sta f:ES_RS_CACHE_LONG + RSC_VIS, x
+    sta f:ES_RS_CACHE_LONG + RSC::vis, x
     rts
 
 ; --- rs_cache_reticle: the aim point, projected like everything else -------
@@ -948,15 +957,15 @@ rs_draw_actors:
     .a16
     .i16
     ldx RSD_IDX
-    lda f:ES_RS_CACHE_LONG + RSC_VIS, x
+    lda f:ES_RS_CACHE_LONG + RSC::vis, x
     beq @next
     sta RSD_TMP                     ; the kind, wanted after the tier test
-    lda f:ES_RS_CACHE_LONG + RSC_TIER, x
+    lda f:ES_RS_CACHE_LONG + RSC::tier, x
     cmp RSD_PASS
     bne @next
-    lda f:ES_RS_CACHE_LONG + RSC_SX, x
+    lda f:ES_RS_CACHE_LONG + RSC::sx, x
     sta RSD_SX
-    lda f:ES_RS_CACHE_LONG + RSC_SY, x
+    lda f:ES_RS_CACHE_LONG + RSC::sy, x
     sta RSD_SY
     lda RSD_TMP
     cmp #RSC_KIND_PYL
@@ -972,9 +981,9 @@ rs_draw_actors:
     .i16
     lda RSD_IDX
     clc
-    adc #RSC_STRIDE
+    adc #.sizeof(RSC)
     sta RSD_IDX
-    cmp #(RSC_STRIDE * (RS_OBS_N + RS_PYL_N))
+    cmp #(.sizeof(RSC) * (RS_OBS_N + RS_PYL_N))
     bcc @scan
     lda RSD_PASS
     inc a

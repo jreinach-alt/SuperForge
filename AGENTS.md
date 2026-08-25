@@ -728,6 +728,29 @@ The full rule is CLAUDE.md #2. What it means in practice here:
   which is a product — 80 lines of 4 B passes exactly where 160 of 2 B did,
   with every offset the join reads moved. Six rails carry the allocator pin
   today; this establishes the pattern rather than sweeping the tree.
+- **State that repeats is a `.struct`, not a column of hand-computed
+  offsets.** Where a claim holds N copies of one record — an entity table, a
+  per-actor cache — declare the record with ca65's `.struct` and read it as
+  `REC::field`. The allocator still owns the BASE (`ES_*`); the struct names
+  only the INTERIOR, and `.assert .sizeof(REC) * N = ES_<claim>_SIZE` is what
+  binds the two. **What it buys is one statement where there were two that had
+  to agree**: today a record is a column of `FIELD = <literal>` plus a separate
+  `_BYTES`/`_STRIDE` constant, and nothing checks that the stride is the sum of
+  the fields — insert a word and every offset after it needs a hand-edit the
+  assembler will not ask for. `.sizeof` IS the sum, so the stride cannot be
+  left behind. The two conversions that establish this are `sh2_swarm`'s
+  entity record (`SWM_E`, read by `sh2_obj` too) and `rs_obj`'s projection
+  cache (`RSC`, read by `rs_logic` too) — both cross-feature record contracts,
+  both byte-identical after conversion, which is the property to hold any
+  other conversion to. Two cautions: **`x` and `y` cannot be member names** —
+  ca65 tokenises them as index registers and the member line fails with
+  "Invalid storage allocator in struct/union", so spell them `wx`/`wy` or
+  `sx`/`sy`; and a `.struct` declared inside a scene's `.scope` is visible only
+  inside it, which is fine while every reader is in that scope and is the thing
+  to check before moving one. **Do not reach for it for a flat block** — a
+  single-instance scratch or call-frame layout (`mode7_stream`'s `ST_*`,
+  `pfs_logic`'s `PL_*`/`PB_*`) is not a record, and a struct over one buys no
+  check and costs a rename.
 
 ---
 

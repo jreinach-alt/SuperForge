@@ -197,7 +197,7 @@ PLANTS = [
     Plant(
         id="rail-emit-in-pool-slot-order",
         file=OBJ,
-        old="    lda f:ES_RS_CACHE_LONG + RSC_TIER, x\n"
+        old="    lda f:ES_RS_CACHE_LONG + RSC::tier, x\n"
             "    cmp RSD_PASS\n"
             "    bne @next",
         new="    ; PLANT: the tier filter is dropped — every visible actor is\n"
@@ -496,7 +496,7 @@ PLANTS = [
             T + "test_the_rail_reads_no_uninitialised_wram",
         ],
         why="This is the one plant in the set whose defect CANNOT "
-            "reach the picture by construction — RSC_VIS is stamped 0 for a "
+            "reach the picture by construction — RSC::vis is stamped 0 for a "
             "dead slot and both consumers gate on it — so no rendered-output "
             "case can falsify it and the uninit detector is the only "
             "instrument that can. It is planted precisely to prove that case "

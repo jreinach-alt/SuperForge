@@ -1650,7 +1650,7 @@ def test_the_rail_reads_no_uninitialised_wram(rail):
     and TIER and ran the projection BEFORE testing `alive`, so every dead pool
     slot read three words spawn had never written — 38 flagged reads in 400
     frames, against 0 for `m7_oshoot` and `racer`, which build on the SAME pool
-    contract. Nothing reached the picture, because `RSC_VIS` is stamped 0 and
+    contract. Nothing reached the picture, because `RSC::vis` is stamped 0 and
     both consumers gate on it, which is exactly why no rendered-output case
     here could see it and why this one exists alongside them rather than
     instead.

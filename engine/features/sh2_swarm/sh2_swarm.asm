@@ -59,14 +59,20 @@
 ; broke it.
 
 ; --- the entity record, and the table, from the claims ----------------------
-SWM_ENT_BYTES = 8
-SWM_E_X   = 0                           ; u16 world x
-SWM_E_Y   = 2                           ; u16 world y
-SWM_E_HWP = 4                           ; wp << 8 | heading
-SWM_E_FRC = 6                           ; fracy << 8 | fracx
+; The record is a `.struct`, so the field offsets and the STRIDE are one
+; statement instead of two that have to agree: `.sizeof(SWM_E)` is the sum of
+; the members, and inserting a field moves every offset after it without a
+; hand-edit. The allocator still owns the BASE (`ES_SWM_ENTS`); this names
+; only the interior, and the assert below is what binds the two.
+.struct SWM_E
+    wx  .word                           ; u16 world x
+    wy  .word                           ; u16 world y
+    hwp .word                           ; wp << 8 | heading
+    frc .word                           ; fracy << 8 | fracx
+.endstruct
 
-SWM_MAX = ES_SWM_ENTS_SIZE / SWM_ENT_BYTES
-.assert SWM_MAX * SWM_ENT_BYTES = ES_SWM_ENTS_SIZE, error, "sh2_swarm: the entity claim is not a whole number of records"
+SWM_MAX = ES_SWM_ENTS_SIZE / .sizeof(SWM_E)
+.assert SWM_MAX * .sizeof(SWM_E) = ES_SWM_ENTS_SIZE, error, "sh2_swarm: the entity claim is not a whole number of records"
 .assert ES_R_SH2_ENTS_SIZE = ES_SWM_ENTS_SIZE, error, "sh2_swarm: the seed blob does not fill the entity table — swm_arm copies it wholesale, so a short blob would leave records nobody wrote (rule 5)"
 
 ; The two players, then the followers. Entity 0 is camera 1's marker and 1 is
@@ -234,13 +240,13 @@ swm_players:
     .i16
     SF_ASSERT_WIDTH 16, 16, "swm_players"
     lda z:SH2_POS1X
-    sta f:ES_SWM_ENTS_LONG + 0 * SWM_ENT_BYTES + SWM_E_X
+    sta f:ES_SWM_ENTS_LONG + 0 * .sizeof(SWM_E) + SWM_E::wx
     lda z:SH2_POS1Y
-    sta f:ES_SWM_ENTS_LONG + 0 * SWM_ENT_BYTES + SWM_E_Y
+    sta f:ES_SWM_ENTS_LONG + 0 * .sizeof(SWM_E) + SWM_E::wy
     lda z:SH2_POS2X
-    sta f:ES_SWM_ENTS_LONG + 1 * SWM_ENT_BYTES + SWM_E_X
+    sta f:ES_SWM_ENTS_LONG + 1 * .sizeof(SWM_E) + SWM_E::wx
     lda z:SH2_POS2Y
-    sta f:ES_SWM_ENTS_LONG + 1 * SWM_ENT_BYTES + SWM_E_Y
+    sta f:ES_SWM_ENTS_LONG + 1 * .sizeof(SWM_E) + SWM_E::wy
     rts
 
 ; =============================================================================
@@ -280,7 +286,7 @@ swm_ai:
     sec
     sbc #SWM_PLAYERS
     sta z:SWM_CNT
-    lda #(SWM_PLAYERS * SWM_ENT_BYTES)
+    lda #(SWM_PLAYERS * .sizeof(SWM_E))
     sta z:SWM_ENT
 @loop:
     .a16
@@ -300,7 +306,7 @@ swm_ai:
     asl a                               ; loop * SWM_WAY_STRIDE
     sta z:SWM_T0
     ldx z:SWM_ENT
-    lda f:ES_SWM_ENTS_LONG + SWM_E_HWP, x
+    lda f:ES_SWM_ENTS_LONG + SWM_E::hwp, x
     xba
     and #(SWM_WAYPOINTS - 1)            ; -> wp
     asl a
@@ -317,12 +323,12 @@ swm_ai:
     ldx z:SWM_ENT
     lda z:SWM_TX
     sec
-    sbc f:ES_SWM_ENTS_LONG + SWM_E_X, x
+    sbc f:ES_SWM_ENTS_LONG + SWM_E::wx, x
     and #SWM_WRAP
     sta z:SWM_DX
     lda z:SWM_TY
     sec
-    sbc f:ES_SWM_ENTS_LONG + SWM_E_Y, x
+    sbc f:ES_SWM_ENTS_LONG + SWM_E::wy, x
     and #SWM_WRAP
     sta z:SWM_DY
 
@@ -350,11 +356,11 @@ swm_ai:
     ; wp = (wp + 1) & 3, the heading byte kept, and NO move this frame — the
     ; one-frame pause is what stops a follower jittering back and forth
     ; across a waypoint it has just claimed.
-    lda f:ES_SWM_ENTS_LONG + SWM_E_HWP, x
+    lda f:ES_SWM_ENTS_LONG + SWM_E::hwp, x
     clc
     adc #SWM_HEADS                      ; +1 in the high byte
     and #SWM_WPMASK
-    sta f:ES_SWM_ENTS_LONG + SWM_E_HWP, x
+    sta f:ES_SWM_ENTS_LONG + SWM_E::hwp, x
     jmp @next
 
 @steer:
@@ -378,7 +384,7 @@ swm_ai:
 
     ; ---- the forward vector, >>3 the same way ------------------------------
     ldx z:SWM_ENT
-    lda f:ES_SWM_ENTS_LONG + SWM_E_HWP, x
+    lda f:ES_SWM_ENTS_LONG + SWM_E::hwp, x
     and #SWM_HMASK
     asl a
     asl a
@@ -437,7 +443,7 @@ swm_ai:
     .a16
     .i16
     ldx z:SWM_ENT
-    lda f:ES_SWM_ENTS_LONG + SWM_E_HWP, x
+    lda f:ES_SWM_ENTS_LONG + SWM_E::hwp, x
     tay
     clc
     adc z:US_TSH
@@ -446,13 +452,13 @@ swm_ai:
     tya
     and #SWM_HIBYTE                     ; keep wp
     ora z:SWM_T0
-    sta f:ES_SWM_ENTS_LONG + SWM_E_HWP, x
+    sta f:ES_SWM_ENTS_LONG + SWM_E::hwp, x
     bra @move
 @hminus:
     .a16
     .i16
     ldx z:SWM_ENT
-    lda f:ES_SWM_ENTS_LONG + SWM_E_HWP, x
+    lda f:ES_SWM_ENTS_LONG + SWM_E::hwp, x
     tay
     sec
     sbc z:US_TSH
@@ -461,7 +467,7 @@ swm_ai:
     tya
     and #SWM_HIBYTE
     ora z:SWM_T0
-    sta f:ES_SWM_ENTS_LONG + SWM_E_HWP, x
+    sta f:ES_SWM_ENTS_LONG + SWM_E::hwp, x
 
 @move:
     .a16
@@ -470,7 +476,7 @@ swm_ai:
     ; Half, so a follower cannot outpace the camera that is chasing it; the same
     ; move256 LUT and the same 8.8 accumulator shape as the drive.
     ldx z:SWM_ENT
-    lda f:ES_SWM_ENTS_LONG + SWM_E_HWP, x
+    lda f:ES_SWM_ENTS_LONG + SWM_E::hwp, x
     and #SWM_HMASK
     asl a
     asl a
@@ -493,7 +499,7 @@ swm_ai:
     ; axis rather than macro'd because the two differ only in which byte of one
     ; word the fraction lives in, and a macro parameterised on `xba` would hide
     ; that rather than express it.
-    lda f:ES_SWM_ENTS_LONG + SWM_E_FRC, x
+    lda f:ES_SWM_ENTS_LONG + SWM_E::frc, x
     and #SWM_BYTE                       ; fracx
     clc
     adc z:SWM_FX
@@ -505,19 +511,19 @@ swm_ai:
     ora #SWM_HIBYTE                     ; sign-extend the s8 delta
 :
     clc
-    adc f:ES_SWM_ENTS_LONG + SWM_E_X, x
+    adc f:ES_SWM_ENTS_LONG + SWM_E::wx, x
     and #SWM_WRAP                       ; the world's own period
-    sta f:ES_SWM_ENTS_LONG + SWM_E_X, x
-    lda f:ES_SWM_ENTS_LONG + SWM_E_FRC, x
+    sta f:ES_SWM_ENTS_LONG + SWM_E::wx, x
+    lda f:ES_SWM_ENTS_LONG + SWM_E::frc, x
     and #SWM_HIBYTE                     ; ...keeping fracy untouched
     sta z:SWM_T1
     lda z:SWM_T0
     and #SWM_BYTE
     ora z:SWM_T1
-    sta f:ES_SWM_ENTS_LONG + SWM_E_FRC, x
+    sta f:ES_SWM_ENTS_LONG + SWM_E::frc, x
 
     ; y axis — its fraction is the HIGH byte of the same word.
-    lda f:ES_SWM_ENTS_LONG + SWM_E_FRC, x
+    lda f:ES_SWM_ENTS_LONG + SWM_E::frc, x
     xba
     and #SWM_BYTE                       ; fracy
     clc
@@ -530,24 +536,24 @@ swm_ai:
     ora #SWM_HIBYTE
 :
     clc
-    adc f:ES_SWM_ENTS_LONG + SWM_E_Y, x
+    adc f:ES_SWM_ENTS_LONG + SWM_E::wy, x
     and #SWM_WRAP
-    sta f:ES_SWM_ENTS_LONG + SWM_E_Y, x
+    sta f:ES_SWM_ENTS_LONG + SWM_E::wy, x
     lda z:SWM_T0
     and #SWM_BYTE
     xba                                 ; the kept fraction back into the high
     sta z:SWM_T1                        ;   byte...
-    lda f:ES_SWM_ENTS_LONG + SWM_E_FRC, x
+    lda f:ES_SWM_ENTS_LONG + SWM_E::frc, x
     and #SWM_BYTE                       ; ...over fracx, which is untouched
     ora z:SWM_T1
-    sta f:ES_SWM_ENTS_LONG + SWM_E_FRC, x
+    sta f:ES_SWM_ENTS_LONG + SWM_E::frc, x
 
 @next:
     .a16
     .i16
     lda z:SWM_ENT
     clc
-    adc #SWM_ENT_BYTES
+    adc #.sizeof(SWM_E)
     sta z:SWM_ENT
     dec z:SWM_CNT
     beq @done
