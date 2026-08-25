@@ -279,21 +279,38 @@ def check_reg_ownership(reg: list[tuple], hdma: list[tuple],
             if a.seed and kind == "hdma":
                 overriders.append(f"{c.name} ({wc})")
                 continue
-            if _is_vocab_who(wa):
-                # The reg side is the synthesized screen/blend composition.
-                # It has no `seed` for an author to mark, on purpose: the
-                # vocabulary has no per-scanline story (a stated limit).
+            # KIND FIRST, then the claimant. The two axes are independent and
+            # the advice differs on both, so a single `if vocab` ahead of the
+            # kind test hands a dma_init conflict the per-scanline sentence —
+            # advice naming `seed = true` beside an hdma claim, for a
+            # conflict the dma_init arm below exists to say `seed` cannot
+            # answer. A message that misdirects is the defect here.
+            if kind == "dma_init":
+                hint = ("A dma_init is a one-shot enter-time ESTABLISHER, "
+                        "not an ongoing overrider, so `seed` does not "
+                        "exempt it")
+                if _is_vocab_who(wa):
+                    hint += (", and the composed screen/blend state is "
+                             "established at scene enter too — so these are "
+                             "two enter-time writers of one port with no "
+                             "ordering between them, which no declaration "
+                             "makes compose. Drop the port from the "
+                             "dma_init claim if the transfer does not "
+                             "really drive it, or keep the RAW claim shape "
+                             "in a scene that composes no vocabulary half "
+                             "on it")
+            elif _is_vocab_who(wa):
+                # The reg side is the synthesized screen/blend composition
+                # against an HDMA claim. It has no `seed` for an author to
+                # mark, on purpose: the vocabulary has no per-scanline story
+                # (a stated limit).
                 hint = ("The screen/blend vocabulary has no per-scanline "
                         "story — a per-scanline rewrite of these ports "
                         "keeps the RAW claim shape (a [[claims.reg]] with "
                         "`seed = true` beside the hdma claim), in a scene "
                         "that does not compose the vocabulary on them")
             else:
-                hint = ("A dma_init is a one-shot enter-time ESTABLISHER, "
-                        "not an ongoing overrider, so `seed` does not "
-                        "exempt it"
-                        if kind == "dma_init" else
-                        "If the transfer is meant to overwrite this base "
+                hint = ("If the transfer is meant to overwrite this base "
                         "value, mark the reg claim `seed = true`")
             raise AllocationError(
                 f"REGISTER ownership contention in scene '{scope}': {a.name} "
@@ -413,16 +430,24 @@ def compose_screen_blend(screen: list[tuple], blend: list[tuple],
 
     if blend:
         checks += 2                      # R4 + R5 live
-        g, gwho = blend[0]
+        g, _gwho = blend[0]
         # R4 — a sub-screen blend needs a sub screen. Where the sub screen
         # holds no pixel the hardware substitutes the FIXED COLOR and
         # disables halving (Mesen2 SnesPpu.cpp ApplyColorMathToPixel,
         # :1352-1362), so a sub-source blend in a scene with no
         # sub-designated layer never sees its declared source.
         if g.source == "sub" and not subs:
+            # NAME EVERY CLAIMANT, as R1/R2/R3/R6 do. R2 has already proven
+            # the scene's blend claims agree on `source`, so every one of
+            # them declares the offending value and every one of them is an
+            # author who has to act — naming blend[0] alone sends a
+            # three-feature scene to one of three tomls, arbitrarily.
+            offenders = [(c, who) for c, who in blend if c.source == "sub"]
+            claimants = ", ".join(f"{c.name} ({who})" for c, who in offenders)
             raise AllocationError(
-                f"BLEND source contention in scene '{scope}': {g.name} "
-                f"({gwho}) declares source = \"sub\" but no layer in this "
+                f"BLEND source contention in scene '{scope}': {claimants} "
+                f"declare{'' if len(offenders) > 1 else 's'} "
+                f"source = \"sub\" but no layer in this "
                 f"scene is designated to the sub screen. Where the sub "
                 f"screen has no pixel the hardware substitutes the FIXED "
                 f"COLOR and disables halving (Mesen2 SnesPpu.cpp "
@@ -1547,6 +1572,47 @@ def verify(alloc: Allocation):
                 [*alloc.global_dma_inits, *sm.dma_inits], sid)
         except AllocationError as e:
             raise AssertionError(f"VERIFY: {e}") from e
+        # C5, same discipline: re-compose the screen/blend vocabulary from
+        # the claims the solver recorded and require byte-for-byte agreement
+        # with what it stored. R1-R5 run again here as a side effect, so a
+        # refusal the solver somehow skipped still stops the build.
+        #
+        # WHAT THIS BUYS AND WHAT IT DOES NOT, stated rather than implied:
+        # compose_screen_blend is pure over its inputs, so re-running it on
+        # the same claim objects cannot disagree about a legal composition —
+        # this is not an independent derivation of the four bytes. What it
+        # catches is the values or the ownership set being MUTATED after
+        # composition and before emission, and the claim lists in the stored
+        # dict drifting from what those values were computed from. Held
+        # anyway because the alternative is a checker that mirrors every
+        # class but this one, and the tree's rule is that the solver and the
+        # checker do not get to disagree about what a legal map is.
+        sb = sm.screen_blend
+        if sb is not None:
+            try:
+                again = compose_screen_blend(
+                    sb["screen"], sb["blend"],
+                    [*alloc.global_regs, *sm.regs], sid)
+            except AllocationError as e:
+                raise AssertionError(f"VERIFY: {e}") from e
+            for k in ("tm", "ts", "cgwsel", "cgadsub", "registers",
+                      "warnings"):
+                if again[k] != sb[k]:
+                    raise AssertionError(
+                        f"VERIFY: screen/blend '{k}' in scene '{sid}' does "
+                        f"not re-compose from its own claims: stored "
+                        f"{sb[k]!r}, recomposed {again[k]!r}")
+    # C5 transition hygiene, mirrored over the same edges the solver read.
+    e_warns, e_checked = check_blend_edges(
+        [(src, dst) for src, dst, _b, _budget in alloc.edge_reloads],
+        alloc.scenes, alloc.global_regs)
+    if (e_warns, e_checked) != (alloc.blend_edge_warnings,
+                                alloc.blend_edges_checked):
+        raise AssertionError(
+            f"VERIFY: the blend-edge check does not reproduce: stored "
+            f"{alloc.blend_edges_checked} edge(s)/"
+            f"{len(alloc.blend_edge_warnings)} warning(s), recomputed "
+            f"{e_checked}/{len(e_warns)}")
 
 
 # --------------------------------------------------------------------------

@@ -154,8 +154,8 @@ if not os.environ.get("SF_MESEN_CORE", "").strip() and os.path.exists(_LOCKSTEP_
 # than widening the exclusive lock — and no reader can overlap a plant.
 #
 # WHAT IS DELIBERATELY *NOT* LOCKED, because the sweep that found the three
-# measured it rather than assuming: `test_reg_gate.py` (`--features-dir` the
-# live tree) and `test_reg_ownership.py` (`_all_shipping()` globs it) also read
+# measured it rather than assuming: `test_reg_ownership.py` (`_all_shipping()`
+# globs the live tree) reads
 # it at test time, as does every fixture that shells out to `make microzero` /
 # `make room` / `make toy`. Those reads ARE structurally exposed — planting
 # `[[claims.dp]]` -> `[[claims.wram]]` in `fade/feature.toml` and re-running
@@ -181,6 +181,14 @@ if not os.environ.get("SF_MESEN_CORE", "").strip() and os.path.exists(_LOCKSTEP_
 # which is most of the suite, and that would serialise away the parallel
 # speedup the lock exists to make safe. If a future test asserts on the CONTENT
 # of a live-tree allocation rather than on a refusal, it needs `LOCK_SH` too.
+#
+# `test_reg_gate.py` USED to be named above as an unlocked live-tree reader,
+# and stopped being one. Its live-tree tests assert on the CONTENT of a
+# live-tree allocation — a clean shipped tree, and four planted-copy guards
+# whose baseline invocation must go green before the plant is judged — which
+# is exactly the class the sentence above names, so all five now take
+# `LOCK_SH` for the length of the read (`repo_tree_read_lock`). Nothing in
+# that file reads the live tree outside the lock.
 REPO_TREE_LOCK = SUPERFORGE / "build" / ".repo_tree.lock"
 
 

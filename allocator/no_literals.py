@@ -1117,7 +1117,8 @@ class RegContext:
                  names: set[str] | None = None,
                  res: set[str] | None = None,
                  tier: str = "feature-strict",
-                 owned: dict[int, list[tuple[str, str, str]]] | None = None):
+                 owned: dict[int, list[tuple[str, str, str]]] | None = None,
+                 vocab: dict[int, str] | None = None):
         self.label = label            # e.g. "feature 'vwf'" / "scene 'race'"
         # Which TIER checked this file. The tiers are not equally
         # strong — a scene file is checked against the union of its whole
@@ -1140,6 +1141,17 @@ class RegContext:
         # the refusal names who to go and ask. Empty at the feature-strict
         # tier, which is not narrowed.
         self.owned = owned or {}
+        # port -> the vocabulary claim class this file declares that COMPOSES
+        # that port (docs/99). Never accepts anything either: a feature that
+        # declares [[claims.screen]] still must not write TM itself, because
+        # the composed value is the SCENE's to establish. It exists so the
+        # refusal can say that instead of "declared by nobody" — which is
+        # false when the file's own claim is what put the port under the
+        # composition — and so the advice does not name the [[claims.reg]]
+        # the allocator's R6 then refuses. A refusal whose only named fix is
+        # refused by the next gate is how an author learns to route around
+        # the gate.
+        self.vocab = vocab or {}
 
     def satisfies_resource(self, resource: str, port_name: str) -> bool:
         """Is a latch/data port of `resource` covered here? See
@@ -1229,9 +1241,22 @@ def _feature_reg_context(path: Path) -> "RegContext | Finding":
         covered |= _ports_of_names(c.registers, fp)
     for cls in res:
         covered.update(DATA_PORTS[cls])
+    # docs/99: the ports this feature's own screen/blend claims put under a
+    # per-scene composition. NOT added to `covered` — the write is still
+    # refused, and correctly: the composed value is established by the SCENE,
+    # from the emitted ES_SCR_* symbols, not by the feature that declared a
+    # half of it.
+    vocab = {}
+    for claims, cls, regs in ((decl.screen, "[[claims.screen]]",
+                               schemas.SCREEN_REGS),
+                              (decl.blend, "[[claims.blend]]",
+                               schemas.BLEND_REGS)):
+        if claims:
+            for p in _ports_of_names(regs, fp):
+                vocab[p] = cls
     return RegContext(
         f"feature '{decl.name}'", declared, covered,
-        f"add a [[claims.reg]] to {toml}", names, res)
+        f"add a [[claims.reg]] to {toml}", names, res, vocab=vocab)
 
 
 def _resource_claim_label(decl, resource: str, port_name: str) -> str:
@@ -2544,6 +2569,13 @@ def _reg_verdict(path: Path, port: int, kind: str, info,
     who = (f"declared elsewhere by {', '.join(owners)} — a second writer is "
            f"the silent fight claims.reg exists to refuse"
            if owners else "declared by nobody")
+    # docs/99: this file's own screen/blend claim composes this port, so
+    # "declared by nobody" would be false and `ctx.hint`'s [[claims.reg]] is
+    # the edit the allocator's R6 refuses. Say what actually writes it.
+    vocab_cls = ctx.vocab.get(port)
+    if vocab_cls:
+        who = (f"composed by this feature's {vocab_cls} into the per-scene "
+               f"screen/blend state")
     if kind in ("latch", "data"):
         import schemas
         resource, name = info
@@ -2694,6 +2726,19 @@ def _reg_verdict(path: Path, port: int, kind: str, info,
     if all(schemas.REGISTER_FOOTPRINT[n][0] != port for n in port_names[port]):
         alias = (f", which is inside `{sorted(port_names[port])[0]}`'s span "
                  f"(one resource, one name, several ports)")
+    if vocab_cls:
+        return (f"undeclared CPU write to ${port:04X} ({names}){alias} — "
+                f"{ctx.label} declares {vocab_cls}, so this port is "
+                f"{who}, and a feature does not write it itself: the "
+                f"composed byte is one scene's OR of every contributing "
+                f"claim, so no single feature holds the whole value. The "
+                f"SCENE writes it, from the emitted "
+                f"`ES_SCR_<SCENEID>_{sorted(port_names[port])[0]}` symbol, "
+                f"under the composition's own scene_writes consent. Move "
+                f"this write into the scene's enter path. Do NOT add a "
+                f"[[claims.reg]] naming {names} — inside a scene that "
+                f"composes this half the allocator refuses it, two "
+                f"vocabularies over one write-only port (docs/99 §5-6)")
     return (f"undeclared CPU write to ${port:04X} ({names}){alias} — "
             f"{ctx.label} holds no [[claims.reg]] naming it and no claim "
             f"covers it; {who}. {ctx.hint} (docs/09 §2.1)")

@@ -343,6 +343,60 @@ def test_r6_is_asymmetric_raw_cgwsel_composes_beside_screen_only(tmp_path):
     assert b.scenes["s"].screen_blend["registers"] == ("CGWSEL", "CGADSUB")
 
 
+def test_r4_names_every_claimant_declaring_the_offending_source(tmp_path):
+    """R4 names each blend claim that declares source = "sub", the way
+    R1/R2/R3/R6 name both sides. R2 has already proven they agree, so in a
+    two-blender scene BOTH authors have to act and both tomls are named."""
+    body = ('[[claims.blend]]\nop = "add"\nsource = "sub"\n'
+            'math = ["%s"]\n')
+    feats = features(
+        tmp_path,
+        world=('[[claims.screen]]\nlayer = "bg1"\non = "main"\n'
+               '[[claims.screen]]\nlayer = "bg2"\non = "main"\n'),
+        haze=body % "bg1", glow=body % "bg2")
+    with pytest.raises(AllocationError) as e:
+        alloc(tmp_path, feats, "world", "haze", "glow")
+    msg = str(e.value)
+    assert "haze_blend (engine:haze)" in msg
+    assert "glow_blend (engine:glow)" in msg          # not just blend[0]
+    assert "declare source = \"sub\"" in msg          # plural, two claimants
+    assert "no layer in this scene is designated to the sub screen" in msg
+
+
+def test_vocab_against_a_dma_init_gets_the_dma_init_hint(tmp_path):
+    """The hint follows the KIND of the transfer, not just the claimant. A
+    dma_init conflict must not be told to mark `seed = true` beside an hdma
+    claim — `seed` never exempts a dma_init, which is what the message's own
+    first sentence says."""
+    feats = features(
+        tmp_path,
+        sky='[[claims.screen]]\nlayer = "bg1"\non = "main"\n',
+        boot=('[[claims.dma_init]]\nname = "boot_up"\nchannel = 0\n'
+              'registers = ["TM"]\n'))
+    with pytest.raises(AllocationError) as e:
+        alloc(tmp_path, feats, "sky", "boot")
+    msg = str(e.value)
+    assert "screen_blend" in msg and "boot" in msg
+    assert "one-shot enter-time ESTABLISHER" in msg   # the right sentence
+    assert "two enter-time writers of one port" in msg
+    assert "no per-scanline story" not in msg         # and not the wrong one
+    assert "`seed = true` beside the hdma claim" not in msg
+
+
+def test_hdma_conflict_still_gets_the_per_scanline_hint(tmp_path):
+    """The control arm of the branch order above: the vocabulary-vs-HDMA
+    conflict keeps the per-scanline hint, which is correct there."""
+    feats = features(
+        tmp_path,
+        sky='[[claims.screen]]\nlayer = "bg1"\non = "main"\n',
+        bands='[[claims.hdma]]\nregisters = ["TM"]\nphase = "active"\n')
+    with pytest.raises(AllocationError) as e:
+        alloc(tmp_path, feats, "sky", "bands")
+    msg = str(e.value)
+    assert "no per-scanline story" in msg
+    assert "one-shot enter-time ESTABLISHER" not in msg
+
+
 def test_vocab_against_active_hdma_on_tm_refuses_with_its_own_hint(tmp_path):
     """The stated limit made loud: the vocabulary has no per-scanline story,
     so composing screen claims against an active-phase HDMA TM rewrite
@@ -621,6 +675,29 @@ def test_edge_out_of_a_screen_only_scene_is_not_a_candidate(tmp_path):
     assert a.blend_edge_warnings == []
 
 
+def test_verify_mirrors_the_composition_and_the_edge_check(tmp_path):
+    """The checker re-composes rather than trusting the solver's record —
+    the tree's rule that the solver and the checker do not get to disagree
+    about what a legal map is. Proven by mutating the stored map behind
+    verify()'s back, on both the per-scene half and the per-edge half."""
+    from allocate import verify
+    feats = features(tmp_path, glow=BLENDER,
+                     plain='[[claims.dp]]\nbytes = 2\n')
+    a = _two_scene_game(tmp_path, feats, ["glow"], ["plain"])
+    verify(a)                                       # the clean map passes
+
+    a.scenes["a"].screen_blend["cgadsub"] ^= 0x80   # flip add -> subtract
+    with pytest.raises(AssertionError) as e:
+        verify(a)
+    assert "does not re-compose from its own claims" in str(e.value)
+    a.scenes["a"].screen_blend["cgadsub"] ^= 0x80
+
+    a.blend_edge_warnings = []                      # drop a real warning
+    with pytest.raises(AssertionError) as e:
+        verify(a)
+    assert "blend-edge check does not reproduce" in str(e.value)
+
+
 def test_no_warnings_for_a_clean_composition(tmp_path):
     """The warnings' control arm: the worked two-feature scene produces no
     warning lines, so a warning pass that fired unconditionally would fail
@@ -721,6 +798,50 @@ def _game_tree(tmp_path, feats_bodies, scene_features):
     asm = g / "scenes" / "s.asm"
     asm.write_text(SCENE_ASM)
     return out / "symbol_map.json", asm
+
+
+def test_feature_tier_refusal_routes_to_the_scene_not_in_a_circle(
+        tmp_path, capsys):
+    """A feature that declares [[claims.screen]] and writes TM in its OWN
+    ASM is refused — correctly, the composed byte is the scene's to write.
+    But the refusal has to route somewhere the build accepts: the generic
+    advice ("add a [[claims.reg]]") is the edit R6 then refuses inside a
+    composing scene, and "declared by nobody" is false when this file's own
+    claim is what put the port under the composition.
+
+    The feature tier reads only the feature's own toml (it cannot see a
+    scene), which is why this is answered from the claim in front of it.
+    Both arms: the screen-claiming feature gets the routed message, and a
+    feature declaring NO vocabulary half still gets the ordinary one — so a
+    branch that fired unconditionally would fail the control.
+    """
+    import no_literals as NL
+    map_path, _asm = _game_tree(
+        tmp_path / "g", {"shore": SHORE, "water": WATER}, ["shore", "water"])
+
+    def probe(name, body):
+        d = tmp_path / name / "engine" / "features" / name
+        d.mkdir(parents=True)
+        (d / "feature.toml").write_text(
+            f'name = "{name}"\nrole = "feature"\n{body}')
+        (d / f"{name}.asm").write_text(".a8\nlda #$11\nsta a:$212C\n")
+        rc = NL.main(["--map", str(map_path), "--partial-files",
+                      str(d / f"{name}.asm")])
+        return rc, capsys.readouterr().err
+
+    rc, err = probe("sky", '[[claims.screen]]\nlayer = "bg1"\non = "main"\n')
+    assert rc == 1                                     # still refused
+    assert "$212C" in err
+    assert "declared by nobody" not in err             # it is not
+    assert "[[claims.screen]]" in err                  # what actually does
+    assert "ES_SCR_<SCENEID>_TM" in err                # what to write from
+    assert "Do NOT add a [[claims.reg]]" in err        # the circle, closed
+
+    rc, err = probe("plain", '[[claims.dp]]\nbytes = 2\n')
+    assert rc == 1
+    assert "declared by nobody" in err                 # the ordinary refusal
+    assert "add a [[claims.reg]]" in err
+    assert "ES_SCR_" not in err
 
 
 def test_reg_gate_accepts_the_four_writes_under_a_vocabulary_composition(
