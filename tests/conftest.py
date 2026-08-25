@@ -59,6 +59,7 @@ import ast
 import contextlib
 import ctypes
 import fcntl
+import json
 import os
 import shutil
 import subprocess
@@ -474,6 +475,233 @@ def _park_guard_applies(item, nextitem) -> bool:
             and _is_module_boundary(item, nextitem))
 
 
+# --------------------------------------------------------------------------
+# the worker schedule record
+# --------------------------------------------------------------------------
+#
+# THE PROBLEM THIS EXISTS FOR. The parked-core guard above catches ONE named
+# way a module poisons its successor, and it catches it by asking the core a
+# question at the module boundary. It is silent about everything else that
+# crosses a boundary — and when a red lands on a module whose own inputs are
+# byte-identical to the last green run's, the first question is "what ran
+# BEFORE it, in the same process?" Today that question has no answer at all:
+# pytest prints failures, never the ORDER, and under `-n N` the order is
+# xdist's to choose and differs run to run. A red therefore arrives with its
+# most load-bearing fact — its neighbours — already discarded.
+#
+# So: one line per MODULE, naming the worker that ran it, its position in
+# that worker's sequence, and the state the shared core was in when it
+# handed on. Reading the file backwards from a failing module gives its
+# predecessors on the same process (the shared-core adjacency) and, through
+# the timestamps, what was running CONCURRENTLY on the other workers (the
+# shared-filesystem adjacency — `build/`, the repo tree, the `make`
+# subprocesses several fixtures shell out to). Both are real here and they
+# are different mechanisms, so the record carries both rather than picking.
+#
+# WHY ONE LINE PER MODULE AND NOT PER TEST. The unit of the hazard is the
+# module: runners are module-scoped, the park guard fires at module
+# boundaries, and a per-test file would be ~4,000 rows of which 3,990 are
+# noise. Failing TEST names are carried inside the module's own row (capped),
+# so nothing needed for attribution is lost.
+#
+# WHY IT PIGGYBACKS ON THE PARK GUARD instead of adding a second boundary
+# mechanism. The guard already computes the one expensive fact worth
+# recording (`core_is_parked()`, up to 0.75 s when the flag says stopped),
+# already knows where the boundary is, and already runs after the real
+# teardown. A parallel autouse fixture would run at a DIFFERENT point in the
+# finalisation order, would recompute the same predicate, and would then be
+# a second opinion about where a module ends. The verdict is computed once
+# and shared.
+#
+# WHAT IT COSTS WHEN NOTHING IS WRONG. One `IsExecutionStopped()` plus one
+# `GetPpuState` per module — the same two calls the guard already makes on
+# its fast-negative path — and a single `os.write` of a few hundred bytes.
+# Nothing is added to the per-test path.
+#
+# ATOMICITY. Workers are separate PROCESSES appending to one file. The write
+# is a single `os.write` on an `O_APPEND` descriptor and every row is far
+# under `PIPE_BUF`, so rows from concurrent workers interleave whole and
+# never tear. Deliberately not a lock: a lock around an instrumentation write
+# would be a new serialisation point in the very schedule it is trying to
+# observe.
+#
+# NEVER FATAL. Every write is wrapped: instrumentation that can fail a test
+# run is worse than no instrumentation, because the first thing it would do
+# is add a second intermittent failure to an investigation into the first.
+_SCHEDULE_DISABLE = "SF_NO_SCHEDULE_LOG"
+_SCHEDULE_ENV = "SF_SCHEDULE_LOG"
+_SCHEDULE_DEFAULT = SUPERFORGE / "build" / "worker_schedule.jsonl"
+
+# Failing test names carried per module row. Enough to name the shape of a
+# red without turning the row into the pytest log it is meant to be read
+# BESIDE.
+_SCHEDULE_MAX_NAMES = 12
+
+_sched_state: dict = {
+    "seq": 0,           # this process's module counter
+    "module": None,     # the module currently open
+    "t_start": None,    # when its first test started (epoch seconds)
+    "tests": 0,
+    "failed": 0,
+    "names": [],
+}
+
+
+def schedule_path() -> Optional[Path]:
+    """Where the schedule is being written, or None when it is off."""
+    if os.environ.get(_SCHEDULE_DISABLE, "").strip():
+        return None
+    override = os.environ.get(_SCHEDULE_ENV, "").strip()
+    return Path(override) if override else _SCHEDULE_DEFAULT
+
+
+def worker_id() -> str:
+    """This process's xdist worker name; "main" for a serial run.
+
+    Serial runs record too — the whole point is to be able to compare a
+    packing that failed against one that did not, and a serial run is the
+    packing every isolated reproduction uses.
+    """
+    return os.environ.get("PYTEST_XDIST_WORKER") or "main"
+
+
+def _run_id() -> str:
+    """An id shared by every worker of ONE `pytest` invocation.
+
+    xdist sets `PYTEST_XDIST_TESTRUNUID` in every worker of a run, which is
+    exactly the grouping key needed to tell this run's rows from the rows of
+    the run before it in an appended file. Serial runs have no such value, so
+    the controller stamps one at configure time.
+    """
+    return (os.environ.get("PYTEST_XDIST_TESTRUNUID")
+            or os.environ.get("SF_SCHEDULE_RUN_ID") or "-")
+
+
+def _core_snapshot() -> dict:
+    """Cheap, NON-BLOCKING core state for a schedule row.
+
+    Deliberately the raw `IsExecutionStopped()` flag and the (frame,
+    scanline) pair rather than `core_is_parked()`: the confirmed verdict can
+    cost 0.75 s and the guard already pays for it when it applies. Recording
+    the raw flag ALONGSIDE the confirmed verdict is also what makes the
+    "flag said stopped but the machine was moving" state — the contended-box
+    false positive `core_is_parked` was written to reject — visible in the
+    record instead of collapsed into a boolean.
+    """
+    lib = _mesen_core_lib()
+    if lib is None:
+        return {"core": "unloaded"}
+    snap: dict = {"core": "loaded"}
+    try:
+        snap["stopped_flag"] = (bool(lib.IsExecutionStopped())
+                                if hasattr(lib, "IsExecutionStopped") else None)
+    except Exception:      # pragma: no cover - a torn-down ctypes handle
+        snap["stopped_flag"] = None
+    prog = _core_progress()
+    if prog is not None:
+        snap["frame"], snap["scanline"] = prog
+    return snap
+
+
+def _machine_snapshot() -> Optional[str]:
+    """The ROM of the lockstep Machine still owning the core, if any.
+
+    A Machine that outlives its module holds the core the same way a park
+    does — `vendor/machine.py` documents that a second load STEALS the core
+    and the old handle starts refusing — so which ROM `_current` points at
+    when a module hands on is a boundary fact worth having.
+    """
+    cls = _machine_class()
+    cur = getattr(cls, "_current", None) if cls is not None else None
+    if cur is None:
+        return None
+    try:
+        return os.path.basename(getattr(cur, "rom_path", "") or "?")
+    except Exception:      # pragma: no cover
+        return "?"
+
+
+def schedule_row(module: str, parked, teardown_failed: bool = False) -> dict:
+    """The row for one finished module. Split out so it is testable.
+
+    `parked` is the guard's CONFIRMED verdict, or None when the guard did not
+    run (it is disabled) and therefore nobody paid for the confirmation.
+    """
+    st = _sched_state
+    now = time.time()
+    row = {
+        "run": _run_id(),
+        "worker": worker_id(),
+        "pid": os.getpid(),
+        "seq": st["seq"],
+        "module": module,
+        "t_start": round(st["t_start"], 3) if st["t_start"] else None,
+        "t_end": round(now, 3),
+        "tests": st["tests"],
+        "failed": st["failed"],
+        "parked": parked,
+    }
+    if st["names"]:
+        row["failed_tests"] = st["names"][:_SCHEDULE_MAX_NAMES]
+    if teardown_failed:
+        row["teardown_failed"] = True
+    row.update(_core_snapshot())
+    machine = _machine_snapshot()
+    if machine is not None:
+        row["machine_current"] = machine
+    return row
+
+
+def _schedule_write(row: dict) -> None:
+    """Append one row. Single `os.write` on an O_APPEND fd; never raises."""
+    path = schedule_path()
+    if path is None:
+        return
+    try:
+        line = (json.dumps(row, sort_keys=True) + "\n").encode()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+        try:
+            os.write(fd, line)
+        finally:
+            os.close(fd)
+    except Exception:      # pragma: no cover - instrumentation is never fatal
+        pass
+
+
+def _schedule_close_module(module: str, parked, teardown_failed=False) -> None:
+    if schedule_path() is not None:
+        _schedule_write(schedule_row(module, parked, teardown_failed))
+    _sched_state.update(seq=_sched_state["seq"] + 1, module=None,
+                        t_start=None, tests=0, failed=0, names=[])
+
+
+def pytest_runtest_setup(item):
+    """Open a module's window at its first test.
+
+    The close is at the boundary the park guard already identifies, so the
+    two ends of a module come from the same definition of where a module
+    begins and ends.
+    """
+    if schedule_path() is None:
+        return
+    mod = _module_id(item)
+    if _sched_state["module"] != mod:
+        _sched_state.update(module=mod, t_start=time.time(), tests=0,
+                            failed=0, names=[])
+    _sched_state["tests"] += 1
+
+
+def pytest_runtest_logreport(report):
+    """Count this module's reds, so a row says whether it was a victim."""
+    if schedule_path() is None or not report.failed:
+        return
+    _sched_state["failed"] += 1
+    name = report.nodeid.split("::", 1)[-1]
+    if name not in _sched_state["names"]:
+        _sched_state["names"].append(name)
+
+
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_teardown(item, nextitem):
     # The teardown this wraps can itself raise — a module-scoped fixture whose
@@ -483,18 +711,41 @@ def pytest_runtest_teardown(item, nextitem):
     # same way. So the repair happens on both paths and the report differs:
     # on the exception path the original error is preserved and the repair is
     # announced on stderr (never swallowed into it).
+    #
+    # The boundary is also where the schedule row is written. The park verdict
+    # is computed ONCE here and handed to both consumers: the guard, which
+    # decides whether to fail the module, and the row, which records what the
+    # module left behind. Recomputing it for the record would double the one
+    # expensive call on this path (`core_is_parked` spends up to 0.75 s
+    # confirming a stopped flag) and could disagree with the guard's answer,
+    # which is the one thing a record of the guard's boundary must not do.
+    #
+    # `parked` is None — not False — when SF_NO_PARK_GUARD is set: nobody paid
+    # for the confirmation, so the row says "unknown" rather than inventing a
+    # verdict. The cheap raw flag in `_core_snapshot` is recorded either way.
+    boundary = _is_module_boundary(item, nextitem)
+    guard_on = not os.environ.get(_PARK_GUARD_DISABLE, "").strip()
     try:
         result = yield
     except BaseException:
-        if _park_guard_applies(item, nextitem) and core_is_parked():
-            ok = _unpark_core()
-            print(f"\nPARKED CORE: {_module_id(item)} left the shared Mesen2 "
-                  f"core parked while its teardown was failing; the guard "
-                  f"{'resumed' if ok else 'FAILED to resume'} it. The error "
-                  f"below is the teardown's own — but this module is also the "
-                  f"one that leaked the park.", file=sys.stderr)
+        if boundary:
+            parked = core_is_parked() if guard_on else None
+            _schedule_close_module(_module_id(item), parked,
+                                   teardown_failed=True)
+            if parked:
+                ok = _unpark_core()
+                print(f"\nPARKED CORE: {_module_id(item)} left the shared "
+                      f"Mesen2 core parked while its teardown was failing; the "
+                      f"guard {'resumed' if ok else 'FAILED to resume'} it. "
+                      f"The error below is the teardown's own — but this "
+                      f"module is also the one that leaked the park.",
+                      file=sys.stderr)
         raise
-    if not (_park_guard_applies(item, nextitem) and core_is_parked()):
+    if not boundary:
+        return result
+    parked = core_is_parked() if guard_on else None
+    _schedule_close_module(_module_id(item), parked)
+    if not parked:
         return result
     mod = _module_id(item)
     repaired = _unpark_core()
@@ -660,6 +911,24 @@ def pytest_configure(config):
     absent, so the shared default stands and nothing about the default path
     changes.
     """
+    # The schedule file holds ONE run. The controller (`pytest_configure` runs
+    # there before any worker is spawned, and is the only configure a serial
+    # run has) truncates it and stamps a run id; workers then only ever
+    # append, so no truncation can race a sibling's write. An appended-forever
+    # file was the first shape and was thrown away: every reader of it began
+    # by working out where the current run started, which is exactly the
+    # archaeology this record exists to abolish.
+    if not os.environ.get("PYTEST_XDIST_WORKER"):
+        os.environ.setdefault("SF_SCHEDULE_RUN_ID",
+                              f"{int(time.time())}-{os.getpid()}")
+        path = schedule_path()
+        if path is not None:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("")
+            except OSError:
+                pass
+
     worker = os.environ.get("PYTEST_XDIST_WORKER")
     if worker and not os.environ.get("SF_MESEN_HOME", "").strip():
         home = Path(tempfile.gettempdir()) / f"mesen_home_{worker}"

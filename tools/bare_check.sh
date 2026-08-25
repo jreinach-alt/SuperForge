@@ -138,6 +138,19 @@ if [ "${1:-}" = "--inside" ]; then
         printf 'gates\tskipped\n' >> "$PARTS/steps.tsv"
     fi
 
+    # --- who ran next to whom ----------------------------------------------
+    # The suite writes one row per module (tests/conftest.py, "the worker
+    # schedule record"). Preserve it as a part so a kept clone has the raw
+    # file; the SUMMARY goes into the artifact itself, because the clone is
+    # deleted on green and a file inside it is not evidence.
+    #
+    # Unconditional: the packing that PASSES is the control, and an
+    # investigation with only red schedules cannot tell an incriminating
+    # neighbour from one that is simply always there.
+    if [ -f build/worker_schedule.jsonl ]; then
+        cp build/worker_schedule.jsonl "$PARTS/worker_schedule.jsonl"
+    fi
+
     # --- the extra assertions the workflow used to carry -------------------
     # These lived in ci.yml's steps, NOT in `make gates`, and were restated
     # here so they would survive the workflow. They did: ci.yml was deleted on
@@ -456,6 +469,23 @@ for ln in lines("probe.tsv"):
     if len(f) == 3:
         probe = {"expected": f[1], "actual": f[2], "ok": f[1] == f[2]}
 
+# WHO RAN NEXT TO WHOM. The suite's per-module schedule, folded to per-worker
+# module order plus, for every red module, its predecessors in ITS OWN worker
+# (the Mesen core is a process-global singleton, so only same-process
+# neighbours can reach it). This is embedded rather than referenced because
+# the clone — and every part inside it — is deleted on green.
+#
+# The summariser never raises (`tools/schedule_summary.py` says why), but the
+# import is still guarded: a bare-check must not go red because its own
+# post-mortem tooling is missing from the tree it cloned.
+schedule = {"note": "tools/schedule_summary.py not importable in the clone"}
+try:
+    sys.path.insert(0, str(clone / "tools"))
+    from schedule_summary import summarise_schedule
+    schedule = summarise_schedule(parts / "worker_schedule.jsonl")
+except Exception as exc:
+    schedule = {"note": f"schedule summary unavailable: {exc!r}"}
+
 # The suite summary line pytest prints last ("N passed, M skipped in T s").
 suite = None
 log = clone / "build" / "pytest.log"
@@ -507,6 +537,7 @@ doc = {
     "rom_md5": md5s,
     "probe_cpu_md5": probe,
     "suite": suite,
+    "suite_schedule": schedule,
 }
 pathlib.Path(report).write_text(json.dumps(doc, indent=2) + "\n")
 
@@ -527,6 +558,13 @@ else:
           f"{', '.join(bad) if bad else 'see the log above'} ({elapsed}s)")
 if suite:
     print(f"  suite: {suite}")
+# A RED names its neighbours HERE, on the surface a reader already reads.
+# The whole record is in the JSON, but a fact that only lives in a file
+# nobody opens is a fact nobody has.
+for entry in schedule.get("red_modules", [])[:6]:
+    prev = ", ".join(entry.get("predecessors", [])[:3]) or "(first on its worker)"
+    print(f"  red: {entry['module']} on {entry['worker']} "
+          f"#{entry['seq']} — after: {prev}")
 # The COUNT, on the surface everyone reads. The census is derived, so a
 # shrunken one is the shape a silently-dropped build takes — and a number
 # that only lives in the JSON is a number nobody compares.
