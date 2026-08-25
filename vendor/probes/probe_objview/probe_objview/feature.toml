@@ -1,0 +1,54 @@
+# probe_objview — a viewer ladder for 32x32 4bpp OBJ frames, at true scale.
+#
+# A DISPLAY instrument, the probe family's shape (probe_vblank/probe_colmap):
+# a one-scene allocator-mapped ROM whose only job is to put candidate sprite
+# art on hardware where it can be judged. Eight static frames tile the ladder
+# row edge to edge; a ninth slot below cycles through the frames at a fixed
+# emulated-frame rate, and pressing A advances it manually. CHR and palette
+# come from two blobs a build variable can swap (PROBE_OBJVIEW_CHR= /
+# PROBE_OBJVIEW_PAL=, documented at the Makefile rule); the committed
+# placeholders are numbered test blocks from tools/gen_objview_assets.py.
+name = "probe_objview"
+role = "fixture"
+
+[[claims.vram]]
+name = "objv_chr"
+kind = "chr"
+obj = true
+words = 2048             # 128 tiles x 16 words: 8 frames of 4x4 tiles laid
+                         # out in the hardware's 16-tile-wide OBJ grid
+
+[[claims.cgram]]
+name = "objv_pal"
+words = 16
+at = 128                 # hardware contract: OBJ palette 0 = CGRAM 128..143
+
+[[claims.cgram]]
+name = "objv_back"
+words = 1
+at = 0                   # hardware contract: CGRAM word 0 IS the backdrop —
+                         # the neutral mid-gray the frames are judged against
+
+[[claims.oam]]
+name = "ladder"
+sprites = 9              # 8 static frames + the cycling slot
+
+[[claims.rom]]
+name = "objv_chr_rom"
+bytes = 4096             # the 128-tile 4bpp OBJ page, .incbin'd verbatim
+
+[[claims.rom]]
+name = "objv_pal_rom"
+bytes = 32               # 16 BGR555 words, OBJ palette 0
+
+# The probe's boot/display writes, on probe_vblank's model: a standalone
+# instrument owns its own display bring-up and interrupt enable. OBSEL is the
+# one register whose VALUE is emitted (ES_V_OBJV_CHR_OBSEL_BASE). The OAM and
+# CGRAM data/address ports ride the oam/cgram claims above.
+[[claims.reg]]
+name = "objv_boot"
+registers = ["INIDISP", "TM", "NMITIMEN", "OBSEL"]
+scene_writes = ["INIDISP", "TM", "NMITIMEN", "OBSEL"]
+
+[init]
+zero = []

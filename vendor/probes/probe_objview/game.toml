@@ -1,0 +1,10 @@
+# One-scene "game" wrapping the OBJ viewer probe so its map is
+# allocator-emitted. A display instrument, not a measurement one: it renders
+# a ladder of 32x32 4bpp OBJ frames at true scale so sprite art can be judged
+# in-ROM. Like the other probes it is a fixture — no engine/features/ dir, no
+# game wiring, nothing includes it.
+globals = []
+
+[[scene]]
+id = "probe"
+features = ["probe_objview"]

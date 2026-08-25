@@ -1,0 +1,6 @@
+# Probe state block — the host reads these to drive and verify the viewer.
+[scene]
+cur = "u8"           # the cycling slot's current frame index (0..7)
+tick = "u8"          # frames left until the next automatic advance
+prev = "u8"          # previous pad byte, for the manual-advance edge detect
+seq = "u16"          # NMI frame counter — liveness, and a wait target
