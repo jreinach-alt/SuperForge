@@ -736,6 +736,16 @@ def test_the_always_modes_compose_but_say_they_can_never_fire(tmp_path):
     w = _blend_scene(tmp_path / "ok")
     assert not any("can never fire" in x or "blackout" in x for x in w), w
 
+    # and like the refusals, it names EVERY claim declaring the mode — R2
+    # has already forced them to agree, so all of them declared it
+    w = _blend_scene(
+        tmp_path / "two", 'prevent = "always"\n',
+        more={"tint": ('[[claims.blend]]\nop = "add"\nsource = "fixed"\n'
+                       'math = ["backdrop"]\nprevent = "always"\n')})
+    hit = next(x for x in w if "can never fire" in x)
+    assert "wash_blend (engine:wash)" in hit
+    assert "tint_blend (engine:tint)" in hit
+
 
 def test_a_window_mode_with_no_window_names_what_it_degenerates_to(tmp_path):
     """clip/prevent of "outside"/"inside" read the COLOR WINDOW, which the

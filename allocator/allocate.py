@@ -513,7 +513,16 @@ def compose_screen_blend(screen: list[tuple], blend: list[tuple],
             "material — wherever math fires, a sub-screen sprite pixel is "
             "the blender's second operand")
     if blend:
-        g, gwho = blend[0]
+        g, _ = blend[0]
+
+        def declarers(fld: str, val) -> str:
+            """Every blend claim declaring `fld = val`, named. R2 has proven
+            the scene's claims agree on all five global fields, so that is
+            every one of them — and every one is an author who has to act.
+            The same reason R1/R2/R3/R4/R6 name both sides."""
+            return ", ".join(f"{c.name} ({who})" for c, who in blend
+                             if getattr(c, fld) == val)
+
         # The always-modes: legal, expressible hardware states a rail may
         # want deliberately (prevent = "always" IS the boot off state, and
         # composing it is how a scene disarms an inherited blender — §4), so
@@ -524,7 +533,8 @@ def compose_screen_blend(screen: list[tuple], blend: list[tuple],
         # name a real state the PPU can hold.
         if g.prevent == "always":
             warnings.append(
-                f"blend {g.name} ({gwho}) declares prevent = \"always\": "
+                f"blend {declarers('prevent', 'always')} declares "
+                f"prevent = \"always\": "
                 f"CGWSEL bits 5-4 = 3 makes the color-math unit return "
                 f"before any math for every pixel (Mesen2 SnesPpu.cpp:1350), "
                 f"so this blend is programmed and can never fire. That is "
@@ -534,7 +544,8 @@ def compose_screen_blend(screen: list[tuple], blend: list[tuple],
                 f"meant to be visible, this is why it is not")
         if g.clip == "always":
             warnings.append(
-                f"blend {g.name} ({gwho}) declares clip = \"always\": "
+                f"blend {declarers('clip', 'always')} declares "
+                f"clip = \"always\": "
                 f"CGWSEL bits 7-6 = 3 zeroes the main-screen pixel for every "
                 f"pixel BEFORE the color-math enable is even tested "
                 f"(SnesPpu.cpp:1325 vs :1330), which is an unconditional "
@@ -554,7 +565,8 @@ def compose_screen_blend(screen: list[tuple], blend: list[tuple],
             mode = getattr(g, fld)
             if mode in _WINDOWLESS and not win:
                 warnings.append(
-                    f"blend {g.name} ({gwho}) declares {fld} = \"{mode}\", "
+                    f"blend {declarers(fld, mode)} declares "
+                    f"{fld} = \"{mode}\", "
                     f"which reads the COLOR WINDOW — and no claim in this "
                     f"scene names any of {', '.join(_COLOR_WINDOW_REGS)}, "
                     f"the registers that program it (WOBJSEL bits 5/7 enable "
