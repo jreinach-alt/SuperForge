@@ -295,10 +295,16 @@ class WidthState:
 class Finding:
     file: str
     line: int
-    rule: str  # 'multipath-label' | 'annotation-contradicts-arrival'
-    #          | 'annotation-wrong-axis' | 'sep-annotation-mismatch'
-    #          | 'unknown-arrival' | 'tax-tay-cross-width'
-    #          | 'macro-no-contract' | 'stz-long' | 'bare-override'
+    # Every value this module emits. The single-file checks:
+    #   'multipath-label' | 'annotation-wrong-axis'
+    #   | 'annotation-contradicts-arrival' | 'sep-annotation-mismatch'
+    #   | 'unknown-arrival' | 'tax-tay-cross-width'
+    #   | 'macro-no-contract' | 'stz-long' | 'bare-override'
+    # and the contract pass:
+    #   'contract-malformed' | 'contract-missing'
+    #   | 'contract-directive-mismatch' | 'contract-unknown-not-established'
+    #   | 'cross-file-width'
+    rule: str
     message: str
     label: Optional[str] = None
     # 'error' gates like every finding; 'warn' (the unknown-arrival rule)
@@ -1576,7 +1582,7 @@ class ContractStats:
 
 
 def collect_contracts(paths: list[str]) -> tuple[dict, list[Finding],
-                                                 ContractStats]:
+                                                 ContractStats, dict]:
     """Phase one: every CONTRACT block in the whole file set, by name.
 
     The cross-file pass needs the declarations of files it is not currently
@@ -1584,6 +1590,10 @@ def collect_contracts(paths: list[str]) -> tuple[dict, list[Finding],
     and reports the second — silently preferring one of two contracts for the
     same symbol is how a caller ends up checked against a declaration that is
     not the one it links against.
+
+    Returns `(table, findings, stats, label_files)` — the last being every
+    label name mapped to the set of files defining it, which is what lets the
+    cross-file pass tell a resolvable callee from a shared name.
     """
     table: dict[str, Contract] = {}
     findings: list[Finding] = []
