@@ -35,8 +35,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from schemas import (REGISTER_FOOTPRINT, BytesClaim, DmaInitClaim,  # noqa: E402
-                     FeatureDecl, GameManifest, HdmaClaim,
+from schemas import (BLEND_REGS, MATH_LAYERS, REGISTER_FOOTPRINT,  # noqa: E402
+                     SCREEN_LAYERS, SCREEN_REGS, WINDOW_MODES,
+                     BytesClaim, DmaInitClaim,
+                     FeatureDecl, GameManifest, HdmaClaim, RegClaim,
                      SchemaError, StateDecl, StateVar, Substrate, VramClaim,
                      load_feature, load_manifest, load_state, load_substrate)
 
@@ -92,6 +94,11 @@ class SceneMap:
     init_zero: list[str] = field(default_factory=list)   # claim names to zero
     dma_inits: list[tuple] = field(default_factory=list)  # (claim, scope, who)
     regs: list[tuple] = field(default_factory=list)       # (RegClaim, who) — C4
+    # C5: the scene's composed screen/blend vocabulary (compose_screen_blend's
+    # dict), or None where the scene carries no vocabulary claim. The
+    # synthesized ownership claim it implies ALSO sits in `regs`, which is
+    # how it reaches check_reg_ownership, the report, and the symbol map.
+    screen_blend: dict | None = None
 
 
 @dataclass
@@ -224,6 +231,28 @@ def check_reg_ownership(reg: list[tuple], hdma: list[tuple],
         for b, wb in reg[i + 1:]:
             shared = _register_conflicts(a.registers, b.registers)
             if shared:
+                if _is_vocab_who(wa) != _is_vocab_who(wb):
+                    # R6 — vocabulary mixing. One side is the scene's
+                    # synthesized screen/blend composition; the other is a
+                    # raw [[claims.reg]] on a port the composition owns. The
+                    # refusal is this same intersection — the vocabulary is
+                    # just another claimant — but the FIX is different, so
+                    # the message is too.
+                    (rc, rw) = (a, wa) if _is_vocab_who(wb) else (b, wb)
+                    (vc, vw) = (b, wb) if _is_vocab_who(wb) else (a, wa)
+                    raise AllocationError(
+                        f"REGISTER ownership contention in scene '{scope}': "
+                        f"{rc.name} ({rw}) claims {shared} as a raw "
+                        f"[[claims.reg]], but this scene also composes the "
+                        f"screen/blend vocabulary over the same port "
+                        f"({vc.name}, {vw}) — two vocabularies, one "
+                        f"write-only port. Every writer of a write-only "
+                        f"register supplies the WHOLE byte, so the raw "
+                        f"value and the composed value cannot both hold. "
+                        f"Move the raw claim into the vocabulary: a TM/TS "
+                        f"designation becomes [[claims.screen]] (layer, on) "
+                        f"on the feature that owns the layer; CGWSEL/"
+                        f"CGADSUB programming becomes [[claims.blend]]")
                 raise AllocationError(
                     f"REGISTER ownership contention in scene '{scope}': "
                     f"{a.name} ({wa}) and {b.name} ({wb}) both write {shared} "
@@ -242,11 +271,22 @@ def check_reg_ownership(reg: list[tuple], hdma: list[tuple],
             if a.seed and kind == "hdma":
                 overriders.append(f"{c.name} ({wc})")
                 continue
-            hint = ("A dma_init is a one-shot enter-time ESTABLISHER, not an "
-                    "ongoing overrider, so `seed` does not exempt it"
-                    if kind == "dma_init" else
-                    "If the transfer is meant to overwrite this base value, "
-                    "mark the reg claim `seed = true`")
+            if _is_vocab_who(wa):
+                # The reg side is the synthesized screen/blend composition.
+                # It has no `seed` for an author to mark, on purpose: the
+                # vocabulary has no per-scanline story (a stated limit).
+                hint = ("The screen/blend vocabulary has no per-scanline "
+                        "story — a per-scanline rewrite of these ports "
+                        "keeps the RAW claim shape (a [[claims.reg]] with "
+                        "`seed = true` beside the hdma claim), in a scene "
+                        "that does not compose the vocabulary on them")
+            else:
+                hint = ("A dma_init is a one-shot enter-time ESTABLISHER, "
+                        "not an ongoing overrider, so `seed` does not "
+                        "exempt it"
+                        if kind == "dma_init" else
+                        "If the transfer is meant to overwrite this base "
+                        "value, mark the reg claim `seed = true`")
             raise AllocationError(
                 f"REGISTER ownership contention in scene '{scope}': {a.name} "
                 f"({wa}) CPU-writes {shared} but {c.name} ({wc}) also drives "
@@ -260,6 +300,209 @@ def check_reg_ownership(reg: list[tuple], hdma: list[tuple],
                 f"overwrites this base value', and nothing here does. Either "
                 f"drop `seed` (making this the owner) or the overriding "
                 f"feature is missing from the scene (docs/09 §2.1)")
+
+
+# --------------------------------------------------------------------------
+# the screen/blend vocabulary — per-scene composition (C5)
+# --------------------------------------------------------------------------
+
+# The synthesized composed claim's consumer tag. check_reg_ownership keys its
+# vocabulary-mixing diagnostic (R6) off this prefix, so the refusal arises
+# from the SAME reg-x-reg intersection every raw pair goes through — the
+# vocabulary is just another claimant of its ports, not a special-cased lint.
+VOCAB_WHO = "screen/blend"
+
+# A BG layer's designation usually belongs to the feature that owns the
+# layer's base registers. Not provably — split designator/owner shapes are
+# conceivable — so the cross-check below WARNS rather than refuses.
+_LAYER_REGS = {"bg1": ("BG1SC", "BG12NBA"), "bg2": ("BG2SC", "BG12NBA"),
+               "bg3": ("BG3SC", "BG34NBA"), "bg4": ("BG4SC", "BG34NBA")}
+
+
+def _is_vocab_who(who: str) -> bool:
+    return who.startswith(VOCAB_WHO)
+
+
+def compose_screen_blend(screen: list[tuple], blend: list[tuple],
+                         reg: list[tuple], scope: str) -> dict | None:
+    """Compose a scene's screen/blend claims, or REFUSE (R1-R5).
+
+    `screen`/`blend`/`reg` are [(claim, who)] over the globals+scene UNION —
+    the check_reg_ownership convention, for the same reason (F2: a global
+    designation and a scene-scoped second designation must still refuse).
+    Returns None when the scene carries no vocabulary claim; else the
+    composed dict: the four register values, the registers the synthesized
+    ownership claim holds, warnings for the allocation report, and the
+    refusal-check census. Refusal messages name the claiming features and
+    the hardware mechanism — the messages are the deliverable.
+    """
+    if not screen and not blend:
+        return None
+    checks = 0
+
+    # R1 — the same layer designated twice. Ownership, not the value, is the
+    # resource, so identical `on` still refuses (the RegClaim rule).
+    if len(screen) >= 2:
+        checks += 1
+    owners: dict[str, tuple] = {}
+    for c, who in screen:
+        if c.layer in owners:
+            p, pwho = owners[c.layer]
+            agree = " — even though they agree" if p.on == c.on else ""
+            raise AllocationError(
+                f"SCREEN designation contention in scene '{scope}': "
+                f"{p.name} ({pwho}) designates {c.layer} -> {p.on} and "
+                f"{c.name} ({who}) designates {c.layer} -> {c.on}{agree}. "
+                f"A layer's screen designation is a binding with one owner: "
+                f"TM/TS hold one enable bit per layer, and the OWNERSHIP of "
+                f"that bit, not its value, is the resource — the same rule "
+                f"[[claims.reg]] applies to whole ports. One feature "
+                f"designates a layer; a second feature that needs it on "
+                f"screen depends on the first")
+        owners[c.layer] = (c, who)
+
+    # R2 — one blender. The global fields are per-frame hardware singletons:
+    # CGADSUB bit 7 is one add/subtract select for the whole screen, bit 6
+    # one halve, CGWSEL bit 1 one addend source, bits 7-6 one clip mode and
+    # bits 5-4 one prevent mode.
+    if len(blend) >= 2:
+        checks += 2                      # R2 + R3 live
+        (g, gwho) = blend[0]
+        for c, who in blend[1:]:
+            for fld in ("op", "half", "source", "clip", "prevent"):
+                va, vb = getattr(g, fld), getattr(c, fld)
+                if va != vb:
+                    raise AllocationError(
+                        f"BLEND contention in scene '{scope}': {g.name} "
+                        f"({gwho}) declares {fld} = {va!r} and {c.name} "
+                        f"({who}) declares {fld} = {vb!r}. The PPU has ONE "
+                        f"color-math unit — CGADSUB bit 7 is one add/"
+                        f"subtract select for the whole screen, bit 6 one "
+                        f"halve, CGWSEL bit 1 one addend source, bits 7-4 "
+                        f"one clip and one prevent mode — so every global "
+                        f"field must agree across a scene's blend claims. "
+                        f"What composes is `math`: each claim gates its own "
+                        f"layers in")
+        # R3 — one enable bit per math layer, one owner (the R1 rule on the
+        # CGADSUB axis).
+        m_owners: dict[str, tuple] = {}
+        for c, who in blend:
+            for m in c.math:
+                if m in m_owners:
+                    p, pwho = m_owners[m]
+                    raise AllocationError(
+                        f"BLEND math contention in scene '{scope}': {p.name} "
+                        f"({pwho}) and {c.name} ({who}) both gate '{m}' "
+                        f"into the color math. CGADSUB holds one enable bit "
+                        f"per layer, and the bit's ownership is the "
+                        f"resource — one owner per scene, the same rule as "
+                        f"a layer's screen designation")
+                m_owners[m] = (c, who)
+
+    mains = {c.layer for c, _ in screen if c.on in ("main", "both")}
+    subs = {c.layer for c, _ in screen if c.on in ("sub", "both")}
+    warnings: list[str] = []
+
+    if blend:
+        checks += 2                      # R4 + R5 live
+        g, gwho = blend[0]
+        # R4 — a sub-screen blend needs a sub screen. Where the sub screen
+        # holds no pixel the hardware substitutes the FIXED COLOR and
+        # disables halving (Mesen2 SnesPpu.cpp ApplyColorMathToPixel,
+        # :1352-1362), so a sub-source blend in a scene with no
+        # sub-designated layer never sees its declared source.
+        if g.source == "sub" and not subs:
+            raise AllocationError(
+                f"BLEND source contention in scene '{scope}': {g.name} "
+                f"({gwho}) declares source = \"sub\" but no layer in this "
+                f"scene is designated to the sub screen. Where the sub "
+                f"screen has no pixel the hardware substitutes the FIXED "
+                f"COLOR and disables halving (Mesen2 SnesPpu.cpp "
+                f"ApplyColorMathToPixel), so this blend would never see its "
+                f"declared source — a declaration that lies. Designate a "
+                f"layer on = \"sub\" with a [[claims.screen]] claim, or "
+                f"declare source = \"fixed\"")
+        # R5 — math gates MAIN-screen pixels by their winning layer, so an
+        # enable bit for a layer that is not on the main screen is inert.
+        # backdrop is exempt: it is always the main screen's floor.
+        for c, who in blend:
+            for m in c.math:
+                if m != "backdrop" and m not in mains:
+                    raise AllocationError(
+                        f"BLEND math contention in scene '{scope}': {c.name} "
+                        f"({who}) gates '{m}' into the color math, but no "
+                        f"[[claims.screen]] claim in this scene designates "
+                        f"{m} to the MAIN screen. Color math gates a MAIN-"
+                        f"screen pixel by its winning layer, so the enable "
+                        f"bit for a layer that is not main-designated is "
+                        f"inert — set, and no pixel ever qualifies through "
+                        f"it. Designate {m} on = \"main\" (or \"both\"); a "
+                        f"raw TM claim cannot satisfy this — the "
+                        f"composition can only prove what the vocabulary "
+                        f"declares")
+
+    # -- warnings: real hardware behaviour the author must know, not
+    # refusals -------------------------------------------------------------
+    math_union = {m for c, _ in blend for m in c.math}
+    if "obj" in math_union:
+        warnings.append(
+            "OBJ in math: only sprite palettes 4-7 participate — CGADSUB "
+            "bit 4 admits an OBJ pixel only when its palette index is > 3 "
+            "(Mesen2 SnesPpu.cpp:962); palettes 0-3 opt out per sprite")
+    if "obj" in subs:
+        warnings.append(
+            "OBJ designated to the sub screen: sprites become blend SOURCE "
+            "material — wherever math fires, a sub-screen sprite pixel is "
+            "the blender's second operand")
+    for layer, (c, who) in sorted(owners.items()):
+        for reg_name in _LAYER_REGS.get(layer, ()):
+            for rc, rwho in reg:
+                if _is_vocab_who(rwho) or rwho == who:
+                    continue
+                if reg_name in rc.registers:
+                    warnings.append(
+                        f"{layer} is designated by {c.name} ({who}) but its "
+                        f"{reg_name} is claimed by {rc.name} ({rwho}) — the "
+                        f"designator should usually own the layer it puts "
+                        f"on screen (a split designator/owner shape is "
+                        f"conceivable, so this is a warning, not a refusal)")
+
+    # -- the composed values ------------------------------------------------
+    tm = ts = 0
+    for c, _ in screen:
+        bit = 1 << SCREEN_LAYERS[c.layer]
+        if c.on in ("main", "both"):
+            tm |= bit
+        if c.on in ("sub", "both"):
+            ts |= bit
+    if blend:
+        g, _ = blend[0]
+        cgadsub = ((0x80 if g.op == "sub" else 0)
+                   | (0x40 if g.half else 0))
+        for m in sorted(math_union):
+            cgadsub |= 1 << MATH_LAYERS[m]
+        cgwsel = ((WINDOW_MODES[g.clip] << 6)
+                  | (WINDOW_MODES[g.prevent] << 4)
+                  | (0x02 if g.source == "sub" else 0))
+        # CGWSEL bit 0 (direct color) composes 0 — a stated limit: direct
+        # color stays out of the vocabulary, expressible as a raw CGWSEL
+        # claim in a scene with no blend claims.
+    else:
+        # Screen claims with no blend: the explicit OFF state
+        # vendor/rom/ppu_reset.inc establishes at boot — prevent = always
+        # ($30) structurally disables the math, CGADSUB gates nothing.
+        cgwsel, cgadsub = 0x30, 0x00
+
+    regs = ((SCREEN_REGS if screen else ())
+            + (BLEND_REGS if blend else ()))
+    feats = sorted({who for _, who in [*screen, *blend]})
+    return {"tm": tm, "ts": ts, "cgwsel": cgwsel, "cgadsub": cgadsub,
+            "registers": regs, "features": feats,
+            "screen": [(c, who) for c, who in screen],
+            "blend": [(c, who) for c, who in blend],
+            "warnings": warnings,
+            "designations": len(screen), "blends": len(blend),
+            "checks": checks}
 
 
 def check_spc_exclusivity(global_feats, scene_feats) -> tuple[str, str, list[str]] | None:
@@ -970,6 +1213,8 @@ def allocate(sub: Substrate, features: dict[str, FeatureDecl],
     gdma_init: list[tuple[DmaInitClaim, str, str]] = []
     greg: list[tuple] = []
     g_init_zero: list[str] = []
+    gscreen: list[tuple] = []
+    gblend: list[tuple] = []
     g_vram, g_dp, g_wram, g_cgram, g_oam, g_rom = [], [], [], [], [], []
     for f in global_feats:
         who = f"engine:{f.name}"
@@ -982,6 +1227,8 @@ def allocate(sub: Substrate, features: dict[str, FeatureDecl],
         ghdma += [(c, who) for c in f.hdma]
         gdma_init += [(c, GLOBAL, who) for c in f.dma_init]
         greg += [(c, who) for c in f.reg]
+        gscreen += [(c, who) for c in f.screen]
+        gblend += [(c, who) for c in f.blend]
         gvblank += f.vblank_bytes_per_frame
         gxfers += f.vblank_transfers_per_frame
         g_init_zero += list(f.init_zero)
@@ -1015,6 +1262,8 @@ def allocate(sub: Substrate, features: dict[str, FeatureDecl],
         feats = scene_feats[sc.id]
         s_vram, s_dp, s_wram, s_cgram, s_oam, s_rom, hdma_claims = \
             [], [], [], [], [], [], []
+        s_screen: list[tuple] = []
+        s_blend: list[tuple] = []
         sm.vblank_bytes = gvblank
         sm.vblank_transfers = gxfers
         for f in feats:
@@ -1028,9 +1277,29 @@ def allocate(sub: Substrate, features: dict[str, FeatureDecl],
             hdma_claims += [(c, who) for c in f.hdma]
             sm.dma_inits += [(c, sc.id, who) for c in f.dma_init]
             sm.regs += [(c, who) for c in f.reg]
+            s_screen += [(c, who) for c in f.screen]
+            s_blend += [(c, who) for c in f.blend]
             sm.vblank_bytes += f.vblank_bytes_per_frame
             sm.vblank_transfers += f.vblank_transfers_per_frame
             sm.init_zero += list(f.init_zero)
+
+        # C5: compose the screen/blend vocabulary over the global+scene
+        # union (R1-R5 refuse here), then SYNTHESIZE its per-scene ownership
+        # claim into the scene's reg union — with scene-enter write consent
+        # for exactly the ports it composes, so a scene file writing the
+        # emitted values passes the reg-ownership gate. R6 (vocabulary
+        # mixing) then arises from the ordinary reg-x-reg intersection in
+        # check_reg_ownership below, not from a special-cased lint.
+        sm.screen_blend = compose_screen_blend(
+            [*gscreen, *s_screen], [*gblend, *s_blend],
+            [*greg, *sm.regs], sc.id)
+        if sm.screen_blend is not None:
+            sm.screen_blend["checks"] += 1          # R6 live via the union
+            sm.regs.append((
+                RegClaim(name="screen_blend",
+                         registers=sm.screen_blend["registers"],
+                         scene_writes=sm.screen_blend["registers"]),
+                f"{VOCAB_WHO} <- {', '.join(sm.screen_blend['features'])}"))
 
         def g_of(cls: str) -> list[tuple[str, int]]:
             """The globals already occupying this class — blame-list context."""
