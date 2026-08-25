@@ -52,7 +52,8 @@ named otherwise.
 | OBJ pixels blend ONLY from palettes 4-7 (`_spritePalette[x] > 3`); palettes 0-3 opt out per sprite | :962 |
 | the math gates the MAIN-screen pixel by its winning layer; sub-screen membership grants no enable | :993 (flags set at main-screen render) |
 | ONE blender: one add/sub select, one halve, one addend source, one clip mode, one prevent mode — all global per frame | :1302-1380 (`ApplyColorMathToPixel`) |
-| clip-to-black zeroes the main pixel AND disables halving for that pixel | :1307-1326 |
+| clip-to-black by WINDOW (`outside` / `inside`) zeroes the main pixel **and** disables halving for that pixel | :1311-1322 (`halfShift = 0` at :1314 and :1321) |
+| clip-to-black `always` zeroes the main pixel **only** — halving survives, so `always` and a windowless `outside` are not the same pixel | :1325, against the `>> halfShift` at :1374-1376 |
 | addend = sub screen with an EMPTY sub pixel: hardware substitutes the FIXED COLOR and disables halving | :1354-1361 |
 | mode 5/6 hi-res: math applies to BOTH buffers, each against the shifted neighbour | :1279-1293 |
 
@@ -295,20 +296,37 @@ message carries this rule, so the build teaches it at the moment it matters.
   **WOBJSEL** $2125 alone (`ProcessWindowMaskSettings(value, 4)` sets
   indices 4 and 5 — `SnesPpu.cpp:2136-2138`, `:1487-1498`; W12SEL and W34SEL
   carry offsets 0 and 2 and never reach index 5), its two-window combine
-  logic from **WOBJLOG** $212B bits 2-3 (`:2168-2171` — WBGLOG is
-  `MaskLogic[0..3]`, the BG layers), and the window edges from **WH0-WH3**
-  $2126-$2129 (`:2145-2159`, read by `PixelNeedsMasking`,
+  logic from **WOBJLOG** $212B bits 2-3 (`:2169-2172`, the `MaskLogic[5]`
+  assignment itself at `:2172` — WBGLOG is `MaskLogic[0..3]`, the BG
+  layers), and the window edges from **WH0-WH3**
+  $2126-$2129 (`:2141-2159`, read by `PixelNeedsMasking`,
   `SnesPpuTypes.h:109-124`). With none of them programmed
   `activeWindowCount` is 0 (`:1278`) and `ProcessMaskWindow` returns false
   (`:1484`), so every pixel reads as *outside* the window and each mode
-  collapses: `clip = "outside"` behaves as `"always"` (a full-screen
-  blackout), `prevent = "outside"` as `"always"` (the blend never fires),
-  and both `"inside"` modes as `"never"`. The composition **warns** where a
-  scene declares one of these modes and no claim in it names any color-window
-  register; it does not refuse, because the window can legitimately be owned
-  by a claimant elsewhere in the scene and proving window ownership reaches
-  into a claim surface this vocabulary has not opened. Declare the window as
-  a `[[claims.reg]]` on the feature that owns it.
+  collapses: `prevent = "outside"` to `"always"` (the blend never fires),
+  both `"inside"` modes to `"never"`, and `clip = "outside"` to `"always"`.
+
+  **Three of those four collapses are exact; `clip = "outside"` is not.**
+  Both arms zero the main pixel, but the window arms *also* force the halve
+  off (`halfShift = 0`, `:1314`) where `always` zeroes only the pixel
+  (`:1325`) — and `halfShift` is the shift applied to the sum at
+  `:1374-1376`. So a blend with `half = true` and `op = "add"` renders a
+  full-intensity addend under a windowless `clip = "outside"` where
+  `clip = "always"` would render a halved one. Under `op = "sub"` the clamp
+  makes it moot (`max(0 - x, 0)` is 0, and `0 >> n` is 0, `:1368-1370`).
+  The warning carries the caveat only where those conditions hold, rather
+  than claiming exactness or hedging everywhere.
+
+  The composition **warns** where a scene declares one of these modes and no
+  claim in it names **WOBJSEL**. The check keys on that register alone
+  because it is the one whose absence settles the question: `ActiveLayers[5]`
+  is written from WOBJSEL and nothing else, so with those bits clear the
+  count is 0 and the window is off whatever WH0-WH3 and WOBJLOG hold — an
+  edge-register claim shapes a window nothing switches on. It does not
+  refuse, because the window can legitimately be owned by a claimant
+  elsewhere in the scene and proving window ownership reaches into a claim
+  surface this vocabulary has not opened. Declare the window as a
+  `[[claims.reg]]` on the feature that owns it.
 - **Per-scanline designation stays raw.** An HDMA rewrite of TM per
   scanline keeps the existing shape — a `[[claims.reg]]` with
   `seed = true` beside the `claims.hdma` claim, in a scene that does not

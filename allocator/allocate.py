@@ -353,9 +353,9 @@ _LAYER_REGS = {"bg1": ("BG1SC", "BG12NBA"), "bg2": ("BG2SC", "BG12NBA"),
 #     ProcessWindowMaskSettings(value, 4) sets 0+4 (OBJ) and 1+4 (color)
 #     (SnesPpu.cpp:2136-2138, :1487-1498). W12SEL/W34SEL carry offsets 0
 #     and 2, i.e. BG1-BG4, and never reach index 5;
-#   MaskLogic[5] comes from WOBJLOG $212B bits 2-3 (:2168-2171) — WBGLOG is
-#     MaskLogic[0..3], the BG layers;
-#   the two windows' edges come from WH0-WH3 $2126-$2129 (:2145-2159), read
+#   MaskLogic[5] comes from WOBJLOG $212B bits 2-3 (:2169-2172, the
+#     assignment itself at :2172) — WBGLOG is MaskLogic[0..3], the BG layers;
+#   the two windows' edges come from WH0-WH3 $2126-$2129 (:2141-2159), read
 #     by PixelNeedsMasking (SnesPpuTypes.h:109-124).
 #
 # With none of them programmed, activeWindowCount is 0 (:1278) and
@@ -364,9 +364,57 @@ _LAYER_REGS = {"bg1": ("BG1SC", "BG12NBA"), "bg2": ("BG2SC", "BG12NBA"),
 # fixed one — see _WINDOWLESS below.
 _COLOR_WINDOW_REGS = ("WOBJSEL", "WOBJLOG", "WH0", "WH1", "WH2", "WH3")
 
-# What a window mode actually does when isInsideWindow is false everywhere.
-# (clip degenerate, prevent degenerate) per declared mode.
-_WINDOWLESS = {"outside": ("always", "always"), "inside": ("never", "never")}
+# The register that ENABLES the color window, which is the only one whose
+# absence makes the precondition unsatisfiable. `activeWindowCount` is
+# ActiveLayers[5] summed over the two windows (:1278) and ActiveLayers[5] is
+# written from WOBJSEL alone (:1487-1498); with those bits clear the count is
+# 0 and ProcessMaskWindow returns false (:1484) whatever WH0-WH3 and WOBJLOG
+# hold. So the check keys on THIS, not on the full set: a claimant naming
+# only an edge register (WH0) shapes a window nothing switches on, and
+# silencing the warning for it would be silencing it for a claim that cannot
+# satisfy the precondition.
+_COLOR_WINDOW_ENABLE = ("WOBJSEL",)
+
+# What a window mode degenerates to when isInsideWindow is false everywhere,
+# per (field, mode). Three of the four are EXACT; the clip/outside collapse
+# is not, and _windowless_note says so rather than claiming it is.
+_WINDOWLESS = {("clip", "outside"): "always", ("clip", "inside"): "never",
+               ("prevent", "outside"): "always",
+               ("prevent", "inside"): "never"}
+
+
+def _windowless_note(fld: str, mode: str, g) -> tuple[str, str]:
+    """(degenerate mode, caveat) for `fld = mode` with no color window.
+
+    The collapse is exact in three of the four cases and NOT in the fourth,
+    and the difference is a rendered pixel, so the message has to carry it:
+
+      clip = "inside"     -> never:  the arm tests `if(isInsideWindow)` and
+        never fires, so neither the pixel nor the halve is touched — the
+        same as Never's `break` (SnesPpu.cpp:1318-1323 vs :1309). EXACT.
+      prevent = "outside" -> always: both arms `return` and neither touches
+        anything first (:1338-1342 vs :1350). EXACT.
+      prevent = "inside"  -> never:  never fires, as clip/inside. EXACT.
+      clip = "outside"    -> always: BOTH zero the main pixel, but the
+        OutsideWindow arm ALSO forces the halve off (`halfShift = 0`,
+        :1314) where Always zeroes only the pixel (:1325). halfShift is the
+        `>> halfShift` applied to the sum at :1374-1376, so with `half`
+        set the two produce different pixels: outside leaves a full-
+        intensity addend, always halves it. In SUBTRACT mode the clamp
+        makes it moot — `max(0 - x, 0)` is 0 and 0 >> n is 0 either way
+        (:1368-1370) — so the divergence is `half` AND op = "add", which is
+        exactly what this checks rather than asserting either way.
+    """
+    degen = _WINDOWLESS[(fld, mode)]
+    if fld == "clip" and mode == "outside" and g.half and g.op == "add":
+        return degen, (
+            " — but NOT exactly: the outside arm also forces the halve off "
+            "(halfShift = 0, SnesPpu.cpp:1314) where \"always\" zeroes only "
+            "the pixel (:1325), and this blend declares half = true with "
+            "op = \"add\", so it renders a FULL-intensity addend where "
+            "\"always\" would render a halved one (the >> halfShift at "
+            ":1374-1376)")
+    return degen, ""
 
 
 def _is_vocab_who(who: str) -> bool:
@@ -548,8 +596,9 @@ def compose_screen_blend(screen: list[tuple], blend: list[tuple],
                 f"clip = \"always\": "
                 f"CGWSEL bits 7-6 = 3 zeroes the main-screen pixel for every "
                 f"pixel BEFORE the color-math enable is even tested "
-                f"(SnesPpu.cpp:1325 vs :1330), which is an unconditional "
-                f"full-screen blackout, not a blend")
+                f"(SnesPpu.cpp:1325, ahead of the AllowColorMath test at "
+                f":1328), which is an unconditional full-screen blackout, "
+                f"not a blend")
         # The window precondition. clip/prevent of "outside"/"inside" read
         # the COLOR WINDOW, which this vocabulary does not compose (docs/99
         # §8). Unprogrammed, isInsideWindow is false everywhere and the mode
@@ -557,29 +606,38 @@ def compose_screen_blend(screen: list[tuple], blend: list[tuple],
         # the window may be programmed by a claimant this check cannot
         # attribute, and proving window ownership reaches into a claim
         # surface the vocabulary has not opened.
+        # Keyed on the ENABLE register, not on the whole window set: an edge
+        # or logic register shapes a window that WOBJSEL still has to switch
+        # on, so a claim naming only WH0 leaves the precondition exactly as
+        # unsatisfiable as no claim at all.
         win = sorted({c.name for c, who in reg
                       if not _is_vocab_who(who)
                       and _register_conflicts(c.registers,
-                                              _COLOR_WINDOW_REGS)})
-        for fld, idx in (("clip", 0), ("prevent", 1)):
+                                              _COLOR_WINDOW_ENABLE)})
+        for fld in ("clip", "prevent"):
             mode = getattr(g, fld)
-            if mode in _WINDOWLESS and not win:
+            if (fld, mode) in _WINDOWLESS and not win:
+                degen, caveat = _windowless_note(fld, mode, g)
                 warnings.append(
                     f"blend {declarers(fld, mode)} declares "
                     f"{fld} = \"{mode}\", "
                     f"which reads the COLOR WINDOW — and no claim in this "
-                    f"scene names any of {', '.join(_COLOR_WINDOW_REGS)}, "
-                    f"the registers that program it (WOBJSEL bits 5/7 enable "
-                    f"it, WOBJLOG bits 2-3 combine the two windows, WH0-WH3 "
-                    f"set their edges; Mesen2 SnesPpu.cpp:1487-1498, "
-                    f":2168-2171, SnesPpuTypes.h:109-124). With the window "
-                    f"unprogrammed every pixel reads as OUTSIDE it "
-                    f"(activeWindowCount 0 -> ProcessMaskWindow returns "
-                    f"false, :1278, :1484), so {fld} = \"{mode}\" behaves "
-                    f"exactly as {fld} = \"{_WINDOWLESS[mode][idx]}\". The "
-                    f"vocabulary composes no window registers by design "
-                    f"(docs/99 §8): declare them as a [[claims.reg]] on the "
-                    f"feature that owns the window")
+                    f"scene names WOBJSEL, the register that ENABLES it "
+                    f"(ActiveLayers[5], from WOBJSEL alone; Mesen2 "
+                    f"SnesPpu.cpp:1487-1498). Programming a usable window "
+                    f"needs {', '.join(_COLOR_WINDOW_REGS)} — WOBJSEL bits "
+                    f"5/7 to enable, WOBJLOG bits 2-3 to combine the two "
+                    f"windows (:2169-2172), WH0-WH3 for their edges "
+                    f"(SnesPpuTypes.h:109-124) — but WOBJSEL is the one "
+                    f"whose absence settles it: with those bits clear "
+                    f"activeWindowCount is 0 (:1278) and ProcessMaskWindow "
+                    f"returns false (:1484) whatever the others hold, so "
+                    f"every pixel reads as OUTSIDE the window and "
+                    f"{fld} = \"{mode}\" behaves as "
+                    f"{fld} = \"{degen}\"{caveat}. The vocabulary composes "
+                    f"no window registers by design (docs/99 §8): declare "
+                    f"them as a [[claims.reg]] on the feature that owns the "
+                    f"window")
 
     for layer, (c, who) in sorted(owners.items()):
         for reg_name in _LAYER_REGS.get(layer, ()):

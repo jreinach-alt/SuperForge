@@ -698,11 +698,11 @@ def test_verify_mirrors_the_composition_and_the_edge_check(tmp_path):
     assert "blend-edge check does not reproduce" in str(e.value)
 
 
-def _blend_scene(tmp_path, extra="", more=None):
+def _blend_scene(tmp_path, extra="", more=None, op="add"):
     feats = features(
         tmp_path,
         world='[[claims.screen]]\nlayer = "bg1"\non = "main"\n',
-        wash=('[[claims.blend]]\nop = "add"\nsource = "fixed"\n'
+        wash=(f'[[claims.blend]]\nop = "{op}"\nsource = "fixed"\n'
               'math = ["bg1"]\n' + extra),
         **(more or {}))
     names = ["world", "wash", *sorted(more or {})]
@@ -777,6 +777,80 @@ def test_a_window_mode_with_no_window_names_what_it_degenerates_to(tmp_path):
     # and "always" needs no window, so it draws no window warning
     w = _blend_scene(tmp_path / "d", 'prevent = "always"\n')
     assert not any("COLOR WINDOW" in x for x in w), w
+
+
+def test_only_wobjsel_silences_the_window_check(tmp_path):
+    """The precondition is ENABLE, not shape. `activeWindowCount` sums
+    ActiveLayers[5], which is written from WOBJSEL alone, so with those bits
+    clear ProcessMaskWindow returns false whatever WH0-WH3 hold. A claimant
+    naming only an edge register leaves the mode exactly as collapsed as no
+    claimant at all, and must not silence the warning."""
+    raw = ('[[claims.reg]]\nregisters = [%s]\nscene_writes = [%s]\n')
+
+    def with_owner(sub, regs):
+        lst = ", ".join(f'"{r}"' for r in regs)
+        return _blend_scene(tmp_path / sub, 'clip = "outside"\n',
+                            more={"win": raw % (lst, lst)})
+
+    # edge registers only: the window is shaped but nothing enables it
+    assert any("COLOR WINDOW" in x for x in with_owner("edges", ["WH0"])), \
+        "a WH0-only claim must not silence the check"
+    assert any("COLOR WINDOW" in x
+               for x in with_owner("edges2", ["WH0", "WH1", "WH2", "WH3"]))
+    # the combine logic alone does not enable it either
+    assert any("COLOR WINDOW" in x for x in with_owner("logic", ["WOBJLOG"]))
+    # the enable register does
+    assert not any("COLOR WINDOW" in x for x in with_owner("en", ["WOBJSEL"]))
+    # and the message says which register it looked for
+    msg = next(x for x in with_owner("edges3", ["WH0"]) if "COLOR WINDOW" in x)
+    assert "no claim in this scene names WOBJSEL" in msg
+    assert "the register that ENABLES it" in msg
+
+
+def test_the_clip_outside_collapse_is_reported_as_inexact_when_it_is(tmp_path):
+    """Three of the four windowless collapses are exact; clip = "outside" is
+    not. Both arms of the switch zero the main pixel, but OutsideWindow ALSO
+    forces the halve off (halfShift = 0, SnesPpu.cpp:1314) where Always
+    zeroes only the pixel (:1325) — and halfShift is the shift applied to the
+    sum at :1374-1376. So with half = true and op = "add" the two render
+    different pixels, and the warning must not call them the same.
+
+    In SUBTRACT mode the clamp makes it moot: pixelA is 0, max(0 - x, 0) is
+    0, and 0 >> n is 0 either way (:1368-1370). So the caveat is conditioned
+    on half AND add rather than asserted in either direction.
+    """
+    def w(sub, extra, op="add"):
+        return _blend_scene(tmp_path / sub, extra, op=op)
+
+    # half + add: the collapse is NOT exact, and the message says so
+    hit = next(x for x in w("ha", 'clip = "outside"\nhalf = true\n')
+               if "COLOR WINDOW" in x)
+    assert "but NOT exactly" in hit
+    assert "halfShift = 0" in hit and "SnesPpu.cpp:1314" in hit
+    assert "FULL-intensity addend" in hit
+    assert "exactly as clip" not in hit          # the claim that was wrong
+
+    # half off: nothing to differ, so the collapse IS exact and is not hedged
+    hit = next(x for x in w("nh", 'clip = "outside"\n') if "COLOR WINDOW" in x)
+    assert "but NOT exactly" not in hit
+    assert 'behaves as clip = "always"' in hit
+
+    # subtract clamps to 0 regardless of the shift, so half does not matter
+    hit = next(x for x in w("sub", 'clip = "outside"\nhalf = true\n',
+                            op="sub") if "COLOR WINDOW" in x)
+    assert "but NOT exactly" not in hit
+
+    # prevent's arms only `return` — no halve interaction, exact either way
+    hit = next(x for x in w("pv", 'prevent = "outside"\nhalf = true\n')
+               if "COLOR WINDOW" in x)
+    assert "but NOT exactly" not in hit
+    assert 'behaves as prevent = "always"' in hit
+
+    # clip = "inside" never fires, so it is Never exactly, halve untouched
+    hit = next(x for x in w("ci", 'clip = "inside"\nhalf = true\n')
+               if "COLOR WINDOW" in x)
+    assert "but NOT exactly" not in hit
+    assert 'behaves as clip = "never"' in hit
 
 
 def test_no_warnings_for_a_clean_composition(tmp_path):
