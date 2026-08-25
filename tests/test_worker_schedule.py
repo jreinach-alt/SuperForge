@@ -371,6 +371,49 @@ def test_the_default_scheduler_really_does_break_it(tmp_path):
         "control has gone quiet — re-derive it before trusting the pin.")
 
 
+def test_the_makefile_passes_loadfile_and_checks_it_afterwards():
+    """The pin lives on the command line, and is VERIFIED, not trusted.
+
+    Two separate claims, because a flag alone would be a claim about the run
+    rather than a fact about it: `PYTEST_DIST` carries `--dist loadfile`, and
+    the `test` recipe runs the post-suite check that reads what the scheduler
+    actually did.
+    """
+    mk = (SUPERFORGE / "Makefile").read_text()
+    assert "--dist loadfile" in mk, "PYTEST_DIST lost its loadfile pin"
+    assert "schedule_summary.py $(BUILD)/worker_schedule.jsonl --check" in mk, \
+        "the `test` recipe no longer checks the schedule after the suite"
+
+
+@pytest.mark.parametrize("rows,expect_rc,expect_in_output", [
+    # a clean parallel run
+    ([{"worker": "gw0", "seq": 0, "module": "a.py", "failed": 0},
+      {"worker": "gw1", "seq": 0, "module": "b.py", "failed": 0}], 0, "ok"),
+    # a split — must FAIL and must NAME the module
+    ([{"worker": "gw0", "seq": 0, "module": "a.py", "failed": 0},
+      {"worker": "gw1", "seq": 0, "module": "a.py", "failed": 1}], 1, "a.py"),
+    # nothing recorded — must PASS but say so, never a silent ok
+    ([], 0, "NOTHING TO CHECK"),
+])
+def test_the_post_suite_check_fails_only_on_a_real_split(
+        rows, expect_rc, expect_in_output, tmp_path, capsys):
+    """The durable invariant, at its three outcomes.
+
+    The middle case is the regression fixture for the whole defect: if the
+    suite ever goes back to test-level distribution, THIS is what turns it
+    into a named red instead of an intermittent one. The third case is why
+    the check prints its scope — a disarmed check must read as disarmed.
+    """
+    sys.path.insert(0, str(SUPERFORGE / "tools"))
+    from schedule_summary import check_schedule                # noqa: E402
+    src = tmp_path / "s.jsonl"
+    src.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    rc = check_schedule(src)
+    out = capsys.readouterr().out
+    assert rc == expect_rc, out
+    assert expect_in_output in out, out
+
+
 def test_the_summariser_names_a_split(tmp_path):
     """If the pin ever comes off, the artifact must say so by name."""
     sys.path.insert(0, str(SUPERFORGE / "tools"))

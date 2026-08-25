@@ -135,8 +135,52 @@ def summarise_schedule(path) -> dict:
     return out
 
 
+def check_schedule(path) -> int:
+    """POST-SUITE INVARIANT: no module's tests ran on two workers.
+
+    The durable half of the module-splitting fix. The Makefile passes
+    `--dist loadfile`, but a flag is a claim; this reads what actually
+    happened and fails by NAME if a module was split. A future regression to
+    test-level distribution — a dropped flag, an xdist default change, a
+    hand-typed `-n` — then goes red saying which module, instead of
+    resurfacing months later as an intermittent red on a module whose inputs
+    did not change.
+
+    Prints what it examined, always. A check that cannot say how much it
+    looked at is indistinguishable from a check that was disarmed, and this
+    one is disarmable three ways: no schedule file, a serial run (nothing to
+    split), and `SF_NO_SCHEDULE_LOG`.
+    """
+    s = summarise_schedule(path)
+    workers = s.get("workers", {})
+    n_mod, n_w = s.get("module_count", 0), len(workers)
+    if not n_mod:
+        print(f"schedule-check: NOTHING TO CHECK — no rows in {path}. "
+              f"{s.get('note', '')}")
+        return 0
+    split = s.get("split_modules", {})
+    if not split:
+        print(f"schedule-check: ok — {n_mod} module run(s) across {n_w} "
+              f"worker(s), no module split across workers"
+              + (" (serial run: splitting is impossible)" if n_w < 2 else ""))
+        return 0
+    print(f"schedule-check: FAILED — {len(split)} module(s) ran on more than "
+          f"one worker, out of {n_mod} module run(s) across {n_w} workers:")
+    for mod, ws in sorted(split.items()):
+        print(f"  {mod}  ->  {', '.join(ws)}")
+    print("  A module's tests must run sequentially in ONE process: "
+          "module-scope state is per-process, module-scoped fixtures would "
+          "run twice, and the parked-core guard assumes module adjacency per "
+          "worker. Check that the suite ran with `--dist loadfile` "
+          "(Makefile PYTEST_DIST).")
+    return 1
+
+
 def main(argv) -> int:
-    src = argv[1] if len(argv) > 1 else "build/worker_schedule.jsonl"
+    args = [a for a in argv[1:] if a != "--check"]
+    src = args[0] if args else "build/worker_schedule.jsonl"
+    if "--check" in argv[1:]:
+        return check_schedule(src)
     json.dump(summarise_schedule(src), sys.stdout, indent=2)
     sys.stdout.write("\n")
     return 0

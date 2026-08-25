@@ -1010,6 +1010,15 @@ def pytest_configure(config):
     # both workers still carrying work (15/12) — the parallelism is in the
     # file count, and this suite has ~120 files.
     #
+    # THE FRONT DOOR IS THE MAKEFILE. `PYTEST_DIST` passes `--dist loadfile`
+    # on the command line, where the rest of the run's shape is stated and
+    # reviewed, and `make test` then CHECKS the property afterwards from the
+    # schedule record rather than trusting the flag. This fixup is the
+    # BACKSTOP for the command the Makefile does not own — a hand-typed
+    # `pytest tests/ -n 4`, which is what people run while iterating and
+    # which would otherwise split modules silently. When the Makefile has
+    # already passed `loadfile`, this sees it and does nothing.
+    #
     # WHY THIS FIXUP REACHES THE SCHEDULER when the `--dist loadgroup` one
     # documented above does not: `loadgroup` needs each WORKER to append a
     # group suffix to its nodeids, and a worker re-parses the original

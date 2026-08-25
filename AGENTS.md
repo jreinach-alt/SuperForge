@@ -132,8 +132,31 @@ make register                # docs/09's supply census still agrees with the tre
                              #  it reports are hand-fixes, never rewritten)
 make test                    # full suite with a TRUE exit code + full log in build/pytest.log
 make test XDIST=3            # ...the same target, parallel.
+                             # A MODULE'S TESTS RUN SEQUENTIALLY, ON ONE
+                             # WORKER: PYTEST_DIST passes `--dist loadfile`,
+                             # and after the suite `make test` CHECKS that no
+                             # module landed on two workers (the per-module
+                             # record conftest writes to
+                             # build/worker_schedule.jsonl, read by
+                             # tools/schedule_summary.py --check). xdist's
+                             # default under a bare `-n N` is `--dist load`,
+                             # which distributes individual TESTS — and
+                             # module-scope state is PER PROCESS, module-scoped
+                             # fixtures would run twice (two ROM boots, two
+                             # concurrent `make`s in one build/), and the
+                             # parked-core guard assumes module adjacency per
+                             # worker. A split shows up as a module failing on
+                             # state its own passing module-mates wrote: a red
+                             # that names itself, whose inputs did not change,
+                             # and that passes in isolation. Measured under
+                             # `load`: three modules split and
+                             # test_measure_multi_queue_arm_cost went red with
+                             # FileNotFoundError on the JSON its module-mate
+                             # writes. If you type pytest yourself, pass
+                             # `--dist loadfile` too — conftest pins it as a
+                             # backstop, but the flag is the front door.
 python3 -m pytest tests/ -q  # same suite, direct        (measured 7:40)
-python3 -m pytest tests/ -q -n 3   # parallel, pytest-xdist  (measured 3:08 on 4 cores)
+python3 -m pytest tests/ -q -n 3 --dist loadfile   # parallel, pytest-xdist  (measured 3:08 on 4 cores)
                              # PICK -n FROM `nproc`, NOT FROM THIS LINE. The
                              # suite is emulator-bound — one Mesen core per
                              # worker — so oversubscription does not just slow

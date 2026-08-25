@@ -2847,8 +2847,48 @@ bare-check:
 # prerequisite list below is for, and it is why the hosted workflow built toy,
 # microzero, room and probes in earlier steps while it existed; locally,
 # `make toy microzero room` first.
+#
+# A MODULE'S TESTS RUN SEQUENTIALLY, ON ONE WORKER — that is what
+# `--dist loadfile` buys, and it is not optional here. xdist's default under
+# a bare `-n N` is `--dist load`, which distributes INDIVIDUAL TESTS, and
+# nothing in this suite is written for that:
+#
+#   * MODULE-SCOPE STATE IS PER-PROCESS. `tests/test_measure_cpu.py` fills a
+#     module-level dict across three tests and writes it out in a fourth;
+#     `tests/test_measure_vblank.py`'s second test reads the JSON its first
+#     test wrote. Split across workers, the reader sees an empty dict or no
+#     file at all — while the test that FILLS it passes, on the other worker.
+#   * THE MODULE-BOUNDARY GUARD ASSUMES MODULE ADJACENCY PER WORKER
+#     (tests/conftest.py, the parked-core guard). Test-level distribution
+#     violates the harness's own model of where a module begins and ends.
+#   * MODULE-SCOPED FIXTURES RUN TWICE. Nearly every module boots a ROM in
+#     one; a split runs it on both workers, doubling the boot and putting two
+#     concurrent `make` invocations in one `build/`, which nothing serialises.
+#
+# None of that is visible in a failure message: the victim names ITSELF, its
+# inputs are byte-identical to the last green run's, and it passes in
+# isolation because a serial run cannot split anything. Measured on this tree:
+# a `-n 2` suite run under `load` split three modules and went red in
+# `test_measure_multi_queue_arm_cost` with `FileNotFoundError:
+# build/measurements_vblank.json`.
+#
+# THIS LIVES ON THE COMMAND LINE, not in a conftest, because a conftest fixup
+# of the dist mode has a recorded dead end beside it: tests/conftest.py's
+# repo-tree-lock block explains that `--dist loadgroup` could not be set from
+# a conftest, since workers re-parse the ORIGINAL command line before any
+# conftest configures. `loadfile` is chosen entirely in the controller and a
+# conftest fixup does reach it (measured) — but the flag belongs where the
+# rest of the run's shape is stated and reviewed. `-n` and `--dist` are
+# independent flags and combine: verified against the installed pytest-xdist,
+# whose own `--help` documents loadfile as "Load balance by sending test
+# grouped by file to any available environment."
+#
+# Parallelism is unaffected in any way that matters: it now comes from the
+# ~140 FILES rather than from ~2,100 tests, and the suite has far more files
+# than workers. `make test` checks the property afterwards rather than
+# trusting the flag — see the recipe below.
 XDIST ?=
-PYTEST_DIST := $(if $(strip $(XDIST)),-n $(strip $(XDIST)),)
+PYTEST_DIST := $(if $(strip $(XDIST)),-n $(strip $(XDIST)) --dist loadfile,)
 
 # `-rs` prints the REASON for every skip in the short summary. AGENTS.md says
 # "read the skip count as a defect signal" — but the surface everyone actually
@@ -2893,6 +2933,16 @@ PYTEST_DIST := $(if $(strip $(XDIST)),-n $(strip $(XDIST)),)
 # inside pytest's collection and nothing outside `make` runs first. Fixing
 # THAT means changing how the guard reports under xdist, which is a different
 # work item.
+#
+# AFTER the suite, the recipe CHECKS what the scheduler actually did rather
+# than trusting the flag it was given. `tests/conftest.py` records one row per
+# module — which worker ran it, and where in that worker's order — and
+# `tools/schedule_summary.py --check` fails if any module's tests landed on
+# two workers. A flag is a claim; this is the measurement. It prints what it
+# examined even when it passes, so a run where the record was absent or the
+# suite was serial reads as "nothing to check" rather than as a silent ok.
+# pytest's own exit code wins whenever it is non-zero — a split is a finding
+# about the RUN, and must never hide the suite's own failure.
 test: toy microzero room probes breaker shmup platformer split_v_fight \
 	m7_dungeon split_h_2p_demo sh2-variants mode7_explore platformer_stream \
 	hud_game scroller camera_follow maze jumper patrol sprite_game stomper \
@@ -2904,7 +2954,11 @@ test: toy microzero room probes breaker shmup platformer split_v_fight \
 	split_h_irq_grad_demo shg-nograd shg-origin | $(BUILD)
 	@$(PY) -m pytest tests/ -q -rs $(PYTEST_DIST) > $(BUILD)/pytest.log 2>&1; rc=$$?; \
 	  tail -n 20 $(BUILD)/pytest.log; \
-	  echo "--- full log: $(BUILD)/pytest.log (exit $$rc) ---"; exit $$rc
+	  echo "--- full log: $(BUILD)/pytest.log (exit $$rc) ---"; \
+	  $(PY) tools/schedule_summary.py $(BUILD)/worker_schedule.jsonl --check; \
+	  src=$$?; \
+	  if [ $$rc -eq 0 ] && [ $$src -ne 0 ]; then rc=$$src; fi; \
+	  exit $$rc
 
 # ---- measurement + write-back -------------
 # pin-or-check: pin_budgets.py writes the pins while the substrate still
