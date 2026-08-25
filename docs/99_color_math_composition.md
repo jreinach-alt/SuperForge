@@ -176,6 +176,20 @@ refusal names the claiming features and the hardware mechanism it protects.
   pixel into the math, so with none set the claim declares intent no pixel
   can ever express.
 
+**Why R7 refuses and `prevent = "always"` does not** — the two are the same
+*shape* (a declared blend that can never fire) and land on opposite sides of
+the line on purpose. `math = []` is a **malformed declaration**: there is no
+hardware state it describes, no reason to write it, and nothing an author
+could mean by it. `prevent = "always"` is a **legal, expressible state the
+PPU can hold** — it is the boot off state (`CGWSEL = $30`), and composing it
+is how a scene disarms a blender it would otherwise inherit across an edge
+(§4). Refusing it would refuse the remedy §4 recommends. So it composes, and
+warns. `clip = "always"` is the same call: a real state (an unconditional
+full-screen blackout) that is almost certainly not what an author meant, so
+it warns rather than refuses. Over-refusal is a defect class of its own; the
+rule this draws is **refuse what the silicon cannot express, warn about what
+it can**.
+
 One worked refusal, verbatim from the build (a raw-TM feature composed
 beside a screen claim):
 
@@ -196,10 +210,14 @@ hardware behaviour worth knowing, or a shape that is legal and sometimes
 intended, so refusing it would be its own defect. Per scene: OBJ in `math`
 (only sprite palettes 4-7 participate — per-sprite opt-out is a hardware
 feature the author must plan palettes around); OBJ designated `sub`
-(sprites become blend source material); and a screen claim on a BG layer
+(sprites become blend source material); a screen claim on a BG layer
 whose `BGnSC`/`BGnNBA` registers another feature claims in the same scene
 (the designator should usually own the layer — a split shape is
-conceivable). Per **edge**: a transition out of a blending scene into one
+conceivable); `prevent = "always"` or `clip = "always"`, each naming what
+the declared blend actually does (nothing, and a full-screen blackout — see
+the R7 note above); and a `clip`/`prevent` window mode with no color-window
+claimant in the scene, naming the fixed mode it collapses to (§8). Per
+**edge**: a transition out of a blending scene into one
 that composes no blend half and has no raw `CGWSEL`/`CGADSUB` owner, where
 the blend therefore persists (§4). Each warning is counted in the
 allocator's summary line beside the refusal checks, so a run that examined
@@ -269,6 +287,28 @@ message carries this rule, so the build teaches it at the moment it matters.
   blend claims (the asymmetry in §7 is what keeps that expressible).
 - **TMW/TSW are out of the vocabulary.** Window masking of the designations
   ($212E/$212F) stays raw.
+- **The COLOR WINDOW is out of the vocabulary, and `clip`/`prevent` depend
+  on it.** `clip` and `prevent` of `"outside"` or `"inside"` are tested
+  against the color window, whose programming the vocabulary composes
+  nothing for. Read off the Mesen2 source: the color window is layer index 5
+  (`SnesPpu.h:23`); its per-window enable and invert bits come from
+  **WOBJSEL** $2125 alone (`ProcessWindowMaskSettings(value, 4)` sets
+  indices 4 and 5 — `SnesPpu.cpp:2136-2138`, `:1487-1498`; W12SEL and W34SEL
+  carry offsets 0 and 2 and never reach index 5), its two-window combine
+  logic from **WOBJLOG** $212B bits 2-3 (`:2168-2171` — WBGLOG is
+  `MaskLogic[0..3]`, the BG layers), and the window edges from **WH0-WH3**
+  $2126-$2129 (`:2145-2159`, read by `PixelNeedsMasking`,
+  `SnesPpuTypes.h:109-124`). With none of them programmed
+  `activeWindowCount` is 0 (`:1278`) and `ProcessMaskWindow` returns false
+  (`:1484`), so every pixel reads as *outside* the window and each mode
+  collapses: `clip = "outside"` behaves as `"always"` (a full-screen
+  blackout), `prevent = "outside"` as `"always"` (the blend never fires),
+  and both `"inside"` modes as `"never"`. The composition **warns** where a
+  scene declares one of these modes and no claim in it names any color-window
+  register; it does not refuse, because the window can legitimately be owned
+  by a claimant elsewhere in the scene and proving window ownership reaches
+  into a claim surface this vocabulary has not opened. Declare the window as
+  a `[[claims.reg]]` on the feature that owns it.
 - **Per-scanline designation stays raw.** An HDMA rewrite of TM per
   scanline keeps the existing shape — a `[[claims.reg]]` with
   `seed = true` beside the `claims.hdma` claim, in a scene that does not

@@ -698,6 +698,77 @@ def test_verify_mirrors_the_composition_and_the_edge_check(tmp_path):
     assert "blend-edge check does not reproduce" in str(e.value)
 
 
+def _blend_scene(tmp_path, extra="", more=None):
+    feats = features(
+        tmp_path,
+        world='[[claims.screen]]\nlayer = "bg1"\non = "main"\n',
+        wash=('[[claims.blend]]\nop = "add"\nsource = "fixed"\n'
+              'math = ["bg1"]\n' + extra),
+        **(more or {}))
+    names = ["world", "wash", *sorted(more or {})]
+    return alloc(tmp_path, feats, *names).scenes["s"].screen_blend["warnings"]
+
+
+def test_the_always_modes_compose_but_say_they_can_never_fire(tmp_path):
+    """R7 refuses `math = []` — a malformed declaration with no hardware
+    state behind it. `prevent = "always"` is the same *shape* (a blend that
+    can never fire) but a real, expressible state a rail may want: it IS the
+    boot off state, and composing it is how a scene disarms a blender it
+    would otherwise inherit. So it composes, and warns. The asymmetry is a
+    decision, and this test is where it is written down."""
+    w = _blend_scene(tmp_path / "p", 'prevent = "always"\n')
+    assert any("prevent = \"always\"" in x and "can never fire" in x
+               for x in w), w
+    assert any("SnesPpu.cpp:1350" in x for x in w)      # the mechanism
+    # composed, not refused — and the values are the off state
+    a = alloc(tmp_path / "p", features(
+        tmp_path / "p",
+        world='[[claims.screen]]\nlayer = "bg1"\non = "main"\n',
+        wash=('[[claims.blend]]\nop = "add"\nsource = "fixed"\n'
+              'math = ["bg1"]\nprevent = "always"\n')), "world", "wash")
+    assert a.scenes["s"].screen_blend["cgwsel"] == 0x30
+
+    w = _blend_scene(tmp_path / "c", 'clip = "always"\n')
+    assert any("clip = \"always\"" in x and "full-screen blackout" in x
+               for x in w), w
+
+    # the control: a blend with neither always-mode says neither thing
+    w = _blend_scene(tmp_path / "ok")
+    assert not any("can never fire" in x or "blackout" in x for x in w), w
+
+
+def test_a_window_mode_with_no_window_names_what_it_degenerates_to(tmp_path):
+    """clip/prevent of "outside"/"inside" read the COLOR WINDOW, which the
+    vocabulary composes nothing for. Unprogrammed, every pixel reads as
+    OUTSIDE the window, so each mode collapses to a fixed one — a warning
+    naming that collapse, and the registers that would prevent it.
+
+    A warning, not a refusal: the window may be owned by a claimant, and
+    where one is in the scene the check is quiet.
+    """
+    w = _blend_scene(tmp_path / "a", 'clip = "outside"\n')
+    assert any('clip = "outside"' in x and 'as clip = "always"' in x
+               for x in w), w                          # the collapse, named
+    assert any("WOBJSEL" in x and "WOBJLOG" in x and "WH0" in x for x in w)
+
+    # prevent = "inside" collapses the other way — to never
+    w = _blend_scene(tmp_path / "b", 'prevent = "inside"\n')
+    assert any('prevent = "inside"' in x and 'as prevent = "never"' in x
+               for x in w), w
+
+    # quiet where a claimant owns the color window
+    w = _blend_scene(
+        tmp_path / "c", 'clip = "outside"\n',
+        more={"iris": ('[[claims.reg]]\n'
+                       'registers = ["WOBJSEL", "WOBJLOG", "WH0", "WH1"]\n'
+                       'scene_writes = ["WOBJSEL", "WOBJLOG", "WH0", "WH1"]\n')})
+    assert not any("COLOR WINDOW" in x for x in w), w
+
+    # and "always" needs no window, so it draws no window warning
+    w = _blend_scene(tmp_path / "d", 'prevent = "always"\n')
+    assert not any("COLOR WINDOW" in x for x in w), w
+
+
 def test_no_warnings_for_a_clean_composition(tmp_path):
     """The warnings' control arm: the worked two-feature scene produces no
     warning lines, so a warning pass that fired unconditionally would fail

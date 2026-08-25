@@ -343,6 +343,31 @@ VOCAB_WHO = "screen/blend"
 _LAYER_REGS = {"bg1": ("BG1SC", "BG12NBA"), "bg2": ("BG2SC", "BG12NBA"),
                "bg3": ("BG3SC", "BG34NBA"), "bg4": ("BG4SC", "BG34NBA")}
 
+# The COLOR WINDOW's own programming — the precondition `clip`/`prevent` of
+# "outside"/"inside" depend on, and which the vocabulary deliberately does
+# not compose (a stated limit, docs/99 §8). Read off the Mesen2 source
+# rather than off a summary, and NOT the register set the BG windows use:
+#
+#   the color window is index 5 (SnesPpu.h:23 ColorWindowIndex);
+#   ActiveLayers[5] / InvertedLayers[5] come from WOBJSEL $2125 alone —
+#     ProcessWindowMaskSettings(value, 4) sets 0+4 (OBJ) and 1+4 (color)
+#     (SnesPpu.cpp:2136-2138, :1487-1498). W12SEL/W34SEL carry offsets 0
+#     and 2, i.e. BG1-BG4, and never reach index 5;
+#   MaskLogic[5] comes from WOBJLOG $212B bits 2-3 (:2168-2171) — WBGLOG is
+#     MaskLogic[0..3], the BG layers;
+#   the two windows' edges come from WH0-WH3 $2126-$2129 (:2145-2159), read
+#     by PixelNeedsMasking (SnesPpuTypes.h:109-124).
+#
+# With none of them programmed, activeWindowCount is 0 (:1278) and
+# ProcessMaskWindow falls through to `return false` (:1484), so
+# isInsideWindow is false for EVERY pixel and each mode degenerates to a
+# fixed one — see _WINDOWLESS below.
+_COLOR_WINDOW_REGS = ("WOBJSEL", "WOBJLOG", "WH0", "WH1", "WH2", "WH3")
+
+# What a window mode actually does when isInsideWindow is false everywhere.
+# (clip degenerate, prevent degenerate) per declared mode.
+_WINDOWLESS = {"outside": ("always", "always"), "inside": ("never", "never")}
+
 
 def _is_vocab_who(who: str) -> bool:
     return who.startswith(VOCAB_WHO)
@@ -487,6 +512,63 @@ def compose_screen_blend(screen: list[tuple], blend: list[tuple],
             "OBJ designated to the sub screen: sprites become blend SOURCE "
             "material — wherever math fires, a sub-screen sprite pixel is "
             "the blender's second operand")
+    if blend:
+        g, gwho = blend[0]
+        # The always-modes: legal, expressible hardware states a rail may
+        # want deliberately (prevent = "always" IS the boot off state, and
+        # composing it is how a scene disarms an inherited blender — §4), so
+        # they compose. But they are also the shape R7 refuses on the `math`
+        # axis — a declared blend that can never fire — so the author hears
+        # about it. R7 stays a refusal because an empty `math` list is a
+        # MALFORMED declaration with no hardware state behind it; these two
+        # name a real state the PPU can hold.
+        if g.prevent == "always":
+            warnings.append(
+                f"blend {g.name} ({gwho}) declares prevent = \"always\": "
+                f"CGWSEL bits 5-4 = 3 makes the color-math unit return "
+                f"before any math for every pixel (Mesen2 SnesPpu.cpp:1350), "
+                f"so this blend is programmed and can never fire. That is "
+                f"the boot OFF state and composing it deliberately is "
+                f"legitimate — disarming a blender inherited across a "
+                f"transition is the case (docs/99 §4) — but if the blend is "
+                f"meant to be visible, this is why it is not")
+        if g.clip == "always":
+            warnings.append(
+                f"blend {g.name} ({gwho}) declares clip = \"always\": "
+                f"CGWSEL bits 7-6 = 3 zeroes the main-screen pixel for every "
+                f"pixel BEFORE the color-math enable is even tested "
+                f"(SnesPpu.cpp:1325 vs :1330), which is an unconditional "
+                f"full-screen blackout, not a blend")
+        # The window precondition. clip/prevent of "outside"/"inside" read
+        # the COLOR WINDOW, which this vocabulary does not compose (docs/99
+        # §8). Unprogrammed, isInsideWindow is false everywhere and the mode
+        # collapses to a fixed one — so this is a warning, not a refusal:
+        # the window may be programmed by a claimant this check cannot
+        # attribute, and proving window ownership reaches into a claim
+        # surface the vocabulary has not opened.
+        win = sorted({c.name for c, who in reg
+                      if not _is_vocab_who(who)
+                      and _register_conflicts(c.registers,
+                                              _COLOR_WINDOW_REGS)})
+        for fld, idx in (("clip", 0), ("prevent", 1)):
+            mode = getattr(g, fld)
+            if mode in _WINDOWLESS and not win:
+                warnings.append(
+                    f"blend {g.name} ({gwho}) declares {fld} = \"{mode}\", "
+                    f"which reads the COLOR WINDOW — and no claim in this "
+                    f"scene names any of {', '.join(_COLOR_WINDOW_REGS)}, "
+                    f"the registers that program it (WOBJSEL bits 5/7 enable "
+                    f"it, WOBJLOG bits 2-3 combine the two windows, WH0-WH3 "
+                    f"set their edges; Mesen2 SnesPpu.cpp:1487-1498, "
+                    f":2168-2171, SnesPpuTypes.h:109-124). With the window "
+                    f"unprogrammed every pixel reads as OUTSIDE it "
+                    f"(activeWindowCount 0 -> ProcessMaskWindow returns "
+                    f"false, :1278, :1484), so {fld} = \"{mode}\" behaves "
+                    f"exactly as {fld} = \"{_WINDOWLESS[mode][idx]}\". The "
+                    f"vocabulary composes no window registers by design "
+                    f"(docs/99 §8): declare them as a [[claims.reg]] on the "
+                    f"feature that owns the window")
+
     for layer, (c, who) in sorted(owners.items()):
         for reg_name in _LAYER_REGS.get(layer, ()):
             for rc, rwho in reg:
