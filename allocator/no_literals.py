@@ -393,14 +393,25 @@ def scan_line(path: Path, line_no: int, raw: str, io, placements) -> list[Findin
 # CHANNEL MASKS paragraph — the shadow is a mask surface, not a plain byte).
 HDMAEN_SHADOW_SYM = "ES_SM_NMI"
 HDMAEN_SHADOW_OFF = 2
-# Any store, of any flavour. WHAT it stores to is decided by a predicate
+# --- ONE write set, one spelling ------------------------------------------
+# Consumed by STORE_RE/ENC_STORE_RE (the channel rules) AND by REG_WRITE_MN
+# (the reg-ownership pass), so the two passes cannot disagree about what
+# counts as a write. They DID: the channel rules matched the four stores
+# only while the ownership pass knew the RMW family — and the ownership pass
+# hands the whole channel territory ($420B/$420C, $4300-$437F) to the
+# channel rules ("the channel rules own these"), so a `tsb a:$420B` was
+# counted by one pass, deferred to the other, and seen by neither.
+WRITE_STORES = ("sta", "stx", "sty", "stz")
+WRITE_RMW = ("inc", "dec", "asl", "lsr", "rol", "ror", "trb", "tsb")
+_WRITE_ALT = "|".join(WRITE_STORES + WRITE_RMW)
+# Any write, of any flavour. WHAT it stores to is decided by a predicate
 # (_enable_target), not by this pattern — see that function for why.
 # The width/bank prefix is an ATOMIC group `(?:[azf]:)?` (OPERAND_NUM_RE's
 # shape), never `[azf]?:?`: with the letter and colon independently optional
 # the class eats the bare leading a/z/f of a SYMBOL operand — `sta FADE_PORT`
 # resolved as dest `ADE_PORT` = nothing while `sta a:FADE_PORT` fired.
 STORE_RE = re.compile(
-    r"^\s*(?P<op>sta|stx|sty|stz)\s+(?:[azf]:)?(?P<dest>.*?)\s*$", re.I)
+    rf"^\s*(?P<op>{_WRITE_ALT})\s+(?:[azf]:)?(?P<dest>.*?)\s*$", re.I)
 # The enable ports themselves, as literals. `$00420B` is the bank-0 long form.
 ENABLE_LIT_RE = re.compile(r"^\$(?:00)?(420B|420C)$", re.I)
 INT_TERM_RE = re.compile(r"(?<![\w$])(\d+)(?![\w])")
@@ -416,7 +427,7 @@ SHADOW_BASE_RE = re.compile(r"^ES_SM_HDMA(_LONG)?$", re.I)
 # Same atomic prefix group as STORE_RE — `[azf]?:?` would eat the bare leading
 # a/z/f of a base symbol, the same mechanism, on this pass's own copy of it.
 ENC_STORE_RE = re.compile(
-    r"^\s*(?P<op>sta|stx|sty|stz)\s+(?:[azf]:)?(?P<base>\w+)"
+    rf"^\s*(?P<op>{_WRITE_ALT})\s+(?:[azf]:)?(?P<base>\w+)"
     r"(?:\s*\+\s*(?P<off>[01]))?\s*(?:,\s*[xy])?\s*$", re.I)
 # An A/X/Y-setting instruction, for the provenance walk.
 LOAD_RE = re.compile(r"^\s*(?P<mn>lda|ldx|ldy|ora|and|eor|adc|sbc|txa|tya|tax|tay|"
@@ -686,7 +697,23 @@ def scan_enables(path: Path, lines: list[str]) -> list[Finding]:
             continue
         if ok:
             continue
-        imms, verdict = _provenance(lines, i - 1, _REG_OF[op])
+        if op in _RMW_SETTERS:
+            # inc/dec/asl/... on the surface: the stored mask derives from
+            # the surface's own current value, which no allocated-channel
+            # symbol can feed. Fail closed — `stz` disarms and stays legal,
+            # but `dec a:$420C` names whatever channels the bits happen to be.
+            findings.append(Finding(
+                path, i, "channel",
+                f"read-modify-write `{op}` on {reg} — the mask must be built "
+                f"from the allocated number (`lda #(1 << ES_H_<CLAIM>_CH)` "
+                f"+ `sta`/`tsb`/`trb`). Suppress with `; CHANNEL-LINT: ok — "
+                f"<reason>` if it is safe by construction"))
+            continue
+        # tsb/trb SET/CLEAR bits from A, so A is the mask whichever way —
+        # a `trb` with a literal mask hardcodes the channel it disarms just
+        # as surely as a `tsb` hardcodes the one it arms.
+        imms, verdict = _provenance(
+            lines, i - 1, "a" if op in ("tsb", "trb") else _REG_OF[op])
         if verdict == "memory":
             continue                      # a shadow/computed mask, not a literal
         bad = [(ln, v) for ln, v in imms if not CH_SYM_RE.search(v)]
@@ -746,7 +773,18 @@ def scan_channel_encoding(path: Path, lines: list[str]) -> list[Finding]:
                 f"the byte is emitted from the declaration; store "
                 f"`ES_[HD]_<CLAIM>_{what}` instead"))
             continue
-        imms, verdict = _provenance(lines, i - 1, _REG_OF[op])
+        if op in _RMW_SETTERS:
+            # the stored byte derives from the register file's own current
+            # value — not from the declaration. Same fail-closed rule as the
+            # mask surface; the write set is shared with the reg pass.
+            findings.append(Finding(
+                path, i, "encoding",
+                f"read-modify-write `{op}` on {what} at {base}+{off} — the "
+                f"byte is emitted from the declaration; store "
+                f"`ES_[HD]_<CLAIM>_{what}` instead"))
+            continue
+        imms, verdict = _provenance(
+            lines, i - 1, "a" if op in ("tsb", "trb") else _REG_OF[op])
         want = rf"ES_[HD]_\w+_{what}"
         if verdict == "immediate" and imms and re.search(want, imms[0][1]):
             continue                      # the emitted symbol, possibly OR-ed
@@ -924,10 +962,12 @@ REG_CHANNEL_FILE = (0x4300, 0x437F)
 
 # --- the WRITE-SHAPE set -----------------------------------------------------
 #
-# Write-shaped mnemonics. The four stores were the whole set until the RMW
-# family was added; `inc a:$2105` and `trb a:$2105` are real 65816 instructions
-# that WRITE a PPU port and the gate could not see them at all (probe
-# `fp1_rmw`: 0 findings before, 2 after).
+# Write-shaped mnemonics — DERIVED from the shared WRITE_STORES/WRITE_RMW
+# tuples beside STORE_RE, which the channel rules also consume, so this pass
+# and those cannot drift apart again. The four stores were the whole set
+# until the RMW family was added; `inc a:$2105` and `trb a:$2105` are real
+# 65816 instructions that WRITE a PPU port and the gate could not see them at
+# all (probe `fp1_rmw`: 0 findings before, 2 after).
 #
 # stx/sty are in because the tree writes io ports with them — 12 + 3 live
 # sites, including vwf.asm's `stx a:$2116` 16-bit VMADD — and because STORE_RE
@@ -938,8 +978,7 @@ REG_CHANNEL_FILE = (0x4300, 0x437F)
 # only ever appear as hand-assembled `.byte $54, ...` data, which is unscanned
 # anyway.) Recording the reason because "add every write-shaped mnemonic"
 # would otherwise look like an oversight.
-REG_WRITE_MN = {"sta", "stx", "sty", "stz",
-                "inc", "dec", "asl", "lsr", "rol", "ror", "trb", "tsb"}
+REG_WRITE_MN = set(WRITE_STORES) | set(WRITE_RMW)
 
 
 def _reg_category(port: int) -> tuple[str, object]:

@@ -366,6 +366,59 @@ def test_memory_sourced_and_memory_rmw_masks_stay_legal(tmp_path):
     assert r.returncode == 0, r.stdout
 
 
+# -- ONE write set, both passes (tsb/trb and the RMW family at the surface) --
+#
+# The channel rules matched sta/stx/sty/stz only while the reg-ownership pass
+# knew the RMW family — and the ownership pass hands the whole channel
+# territory to the channel rules, so a `tsb a:$420B` was counted by one pass,
+# deferred to the other, and seen by NEITHER. STORE_RE/ENC_STORE_RE and
+# REG_WRITE_MN are now built from the same WRITE_STORES/WRITE_RMW tuples;
+# these are the behavioural proofs on each side of the handoff.
+
+@pytest.mark.parametrize("body,why", [
+    ("        lda #$01\n        tsb a:$420B\n", "tsb arms a literal channel"),
+    ("        lda #$02\n        trb a:$420C\n",
+     "trb disarms a literal channel — a disarm mask names channels too"),
+    ("        lda #$01\n        tsb z:ES_SM_NMI+2\n",
+     "tsb into the HDMAEN shadow"),
+])
+def test_a_literal_mask_through_tsb_trb_fails(tmp_path, body, why):
+    r = run(tmp_path, CLEAN + body)
+    assert r.returncode == 1, f"{why} passed clean:\n{r.stdout}"
+    assert "literal channel mask" in (r.stdout + r.stderr), r.stdout
+
+
+@pytest.mark.parametrize("body,why", [
+    ("        inc a:$420C\n", "inc on HDMAEN"),
+    ("        asl z:ES_SM_NMI+2\n", "asl on the shadow"),
+])
+def test_memory_rmw_on_the_mask_surface_fails_closed(tmp_path, body, why):
+    """The stored mask derives from the surface's own value — no allocated
+    channel symbol can feed it, so the site takes an override or a rewrite."""
+    r = run(tmp_path, CLEAN + body)
+    assert r.returncode == 1, f"{why} passed clean:\n{r.stdout}"
+    assert "read-modify-write" in (r.stdout + r.stderr), r.stdout
+
+
+def test_a_symbol_mask_through_tsb_stays_legal(tmp_path):
+    r = run(tmp_path, CLEAN + "        lda #(1 << ES_H_BGM_CH)\n"
+                              "        tsb a:$420B\n")
+    assert r.returncode == 0, r.stdout
+
+
+def test_tsb_against_a_hardware_register_is_seen_by_both_passes(tmp_path):
+    """The pair the shared write set exists for: the SAME mnemonic against
+    the enable port fires the CHANNEL pass, and against an in-class PPU port
+    fires the REG-OWNERSHIP pass — neither side of the territory handoff can
+    lose it any more."""
+    r = run(tmp_path, CLEAN + "        lda #$01\n        tsb a:$420B\n"
+                              "        lda #$07\n        tsb a:$2105\n")
+    out = r.stdout + r.stderr
+    assert r.returncode == 1, out
+    assert "[channel]" in out and "$420B" in out, out
+    assert "[reg]" in out and "BGMODE" in out, out
+
+
 # -- DMAP/BBAD must come from the declaration, not from a literal (F8) -------
 
 ENC_PRELUDE = "FNT_REGS = $4300 + ES_D_FONT_UP_CH * 16\n"

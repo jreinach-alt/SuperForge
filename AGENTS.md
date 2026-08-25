@@ -728,13 +728,18 @@ The full rule is CLAUDE.md #2. What it means in practice here:
   rather than the bits being kept, which is how a hi-table bit-pair or an
   enable mask is actually reasoned about, and it saves ~2 cycles and 2-3 bytes.
   **The caution is the flags: `tsb`/`trb` set Z from A AND memory, not from the
-  result** — convert only after reading what follows the site. **And the second
-  caution is a gate**: `no_literals`' channel-mask rule (`scan_enables`) matches
-  `sta`/`stx`/`sty`/`stz` only, so an RMW write to the HDMAEN shadow
-  (`ES_SM_NMI+2`) is INVISIBLE to it — the register-ownership pass does include
-  `tsb`/`trb`, the channel-mask rule does not. Converting an arm/disarm site
-  there would move a checked site out of a gate's view, so those keep
-  `lda`/`ora`/`sta` until the rule's store set grows.
+  result** — convert only after reading what follows the site. **The second
+  caution is retired (2026-08-25)**: the channel rules and the reg-ownership
+  pass now consume ONE shared write set (`WRITE_STORES`/`WRITE_RMW` in
+  `no_literals.py`), so a `tsb`/`trb` at an enable-mask site — port or the
+  HDMAEN shadow — is provenance-checked exactly as `sta` is, and a memory-RMW
+  (`inc`/`asl`/…) there fails closed. Before that the two passes disagreed:
+  the ownership pass defers the whole channel territory to the channel rules,
+  whose recognizer knew only the four stores, so `lda #$01 / tsb a:$420B`
+  slipped BOTH (measured on the pre-change tool; the fixtures in
+  `tests/test_no_literals.py` hold each side of the handoff). An arm/disarm
+  conversion to `tsb`/`trb` is now gate-visible — the flags caution above is
+  what remains.
 - **Pad a hardware-latency wait to an EXACT cycle count, and annotate it per
   instruction.** The multiplier needs 8 CPU cycles between the `$4203` write
   and a valid `$4216`; where there is no real work to put in the window the
