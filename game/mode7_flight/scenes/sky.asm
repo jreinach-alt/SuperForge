@@ -108,8 +108,8 @@ enter:
     stz z:US_TS_TICK                    ;   ...and this frame's whole ticks
     jsr m7f_region_rates                ; the four throttle numbers
     jsr obj_region_rates                ; ...the cloud drift...
-    jsr floor_region_rates              ; ...and the day/night phase step, which
-                                        ;   tod_commit reads from the FIRST
+    jsr m7f_floor_region_rates              ; ...and the day/night phase step, which
+                                        ;   m7f_tod_commit reads from the FIRST
                                         ;   armed VBlank onward
 
     ; ---- the pose tables FIRST, then the plane, the sky split and the cast -
@@ -122,7 +122,7 @@ enter:
     jsr m7f_arm                         ; composes BOTH buffers; derives the band
     ; rgb_gradient FIRST, then floor_arm — and the order is a CONTRACT, not a
     ; preference. `rg_arm` writes A1T/A1B for the three COLDATA channels with
-    ; its own fixed-seam header tables; `floor_arm`'s `fog_arm` then re-points
+    ; its own fixed-seam header tables; `floor_arm`'s `m7f_fog_arm` then re-points
     ; them at this rail's horizon-anchored cursor. Reversed, rg_arm wins, the
     ; sky still gradients, and the fog silently stops following the horizon.
     jsr rg_arm                          ; the COLDATA planes + the colour math

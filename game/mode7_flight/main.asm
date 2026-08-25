@@ -115,9 +115,9 @@ m7f_ship_pal_bin:
 ; --- sm_nmi_hook: per-frame VBlank work -----------------------------------
 ; In: A8/I16, DB=0 (from sm_nmi_core). May clobber A/X/Y.
 ;
-; THREE commits now, and only one pair is ordered: `tod_commit` publishes the
-; day/night snapshot offset that `sky_reanchor`'s fall-through into
-; `fog_reanchor` reads, so it goes first. Run the other way round, a frame
+; THREE commits now, and only one pair is ordered: `m7f_tod_commit` publishes the
+; day/night snapshot offset that `m7f_sky_reanchor`'s fall-through into
+; `m7f_fog_reanchor` reads, so it goes first. Run the other way round, a frame
 ; shows the previous step's ramp under this step's zenith — one frame of a
 ; colour that belongs to neither.
 ;
@@ -131,8 +131,8 @@ sm_nmi_hook:
     .i16
     jsr oam_nmi_dma
     jsr sky::m7f_nmi_commit
-    jsr sky::tod_commit         ; the day/night clock: CGRAM word 0 + the ramp
-    jsr sky::sky_reanchor       ; the TM split follows the moving horizon
+    jsr sky::m7f_tod_commit         ; the day/night clock: CGRAM word 0 + the ramp
+    jsr sky::m7f_sky_reanchor       ; the TM split follows the moving horizon
     rts
 
 ; --- scene dispatch tables (manifest order: sky=0) -------------------------

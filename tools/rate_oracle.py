@@ -1057,7 +1057,7 @@ RAILS = {
                      "moves is how fast the clock walks toward it."),
             dict(name="daynight", kind="transitions", unit="palette steps",
                  mem="wram", fields=[("ES_M7F_CLOCK", 2, 2, 65536)],
-                 why="M7F_TODROW — the day/night palette ROW tod_commit last "
+                 why="M7F_TODROW — the day/night palette ROW m7f_tod_commit last "
                      "wrote (m7f_floor.asm:62). It changes only on the frame "
                      "the routine actually re-uploads sixteen CGRAM words, so "
                      "counting its changes counts SUNSETS ARRIVING, not a "

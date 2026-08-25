@@ -107,7 +107,7 @@ bytes = 5
 #  [$00] terminator — and the fade's LAST byte is intensity 0, so
 #  the untinted floor below it costs no entry and no byte.
 #
-# NO `[init] zero`: `fog_arm` writes the offset and `fog_reanchor` writes all
+# NO `[init] zero`: `m7f_fog_arm` writes the offset and `m7f_fog_reanchor` writes all
 # thirty header bytes before the first VBlank arms a channel at them.
 [[claims.wram]]
 name = "m7f_fog"
@@ -126,7 +126,7 @@ bytes = 32
 # a skipped frame is the compose gate's whole user-visible claim. Measured, not
 # reasoned: at a 16-frame step three identity cases failed on the propeller.
 #
-# NO `[init] zero`: `tod_arm` writes it at scene enter.
+# NO `[init] zero`: `m7f_tod_arm` writes it at scene enter.
 [[claims.wram]]
 name = "m7f_clock"
 bytes = 4                # +0 the phase, +2 the palette row last written
@@ -162,13 +162,13 @@ bytes = 4096             # 64 steps x 32 words (16 floor + OBJ palette 2)
 # --- the clouds' four OBJ colours -------------------------------------------
 # THE PALETTE IS THE ATMOSPHERE'S, THE SPRITES ARE m7f_obj'S, and the split is
 # not arbitrary: what colour a cloud is at 3 a.m. Is a fact about the time of
-# day, which is this feature's subject and this feature's clock. `tod_commit`
+# day, which is this feature's subject and this feature's clock. `m7f_tod_commit`
 # writes these four words in the same VBlank run it writes the floor's sixteen.
 # A white cloud over a night landscape is the same defect the floor had, one
 # layer up.
 #
 # The WHOLE OBJ palette, of which the cloud art uses four words and twelve are
-# black. The padding is load-bearing rather than lazy: `tod_commit` finds its
+# black. The padding is load-bearing rather than lazy: `m7f_tod_commit` finds its
 # row with a shift and a mask, which is a division only when the row stride is
 # a power of two — a 20-word row silently served a neighbouring row's colours.
 [[claims.cgram]]

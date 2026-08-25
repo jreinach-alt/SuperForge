@@ -98,13 +98,13 @@ M7F_TOD_LONG    = (ES_R_M7F_TOD_BANK << 16) | ES_R_M7F_TOD_ADDR
 M7F_TODPAL_LONG = (ES_R_M7F_TODPAL_BANK << 16) | ES_R_M7F_TODPAL_ADDR
 .assert M7F_TOD_STEPS * M7F_TOD_ROW = ES_R_M7F_TOD_SIZE, error, "the day/night table disagrees with the m7f_tod claim"
 .assert M7F_TOD_STEPS * M7F_TODPAL_ROW = ES_R_M7F_TODPAL_SIZE, error, "the day/night palette table disagrees with the m7f_todpal claim"
-; THE ROW STRIDE MUST BE A POWER OF TWO. `tod_commit` reaches its row with a
+; THE ROW STRIDE MUST BE A POWER OF TWO. `m7f_tod_commit` reaches its row with a
 ; shift and a mask, and that is a division by the stride only on a bit
 ; boundary. The first build with a 20-word row (40 bytes) silently served a
 ; NEIGHBOURING row's colours — a plausible sunset belonging to no snapshot.
-.assert (M7F_TODPAL_ROW & (M7F_TODPAL_ROW - 1)) = 0, error, "the day/night palette row is not a power of two, so tod_commit's masked index is not a division"
+.assert (M7F_TODPAL_ROW & (M7F_TODPAL_ROW - 1)) = 0, error, "the day/night palette row is not a power of two, so m7f_tod_commit's masked index is not a division"
 .assert M7F_TOD_STEPS * M7F_TOD_STEP = $10000, error, "the day/night phase does not cover exactly one cycle"
-.assert M7F_TOD_SHIFT = 10, error, "tod_commit reaches its rows by shifting the phase, which assumes step = phase >> 10"
+.assert M7F_TOD_SHIFT = 10, error, "m7f_tod_commit reaches its rows by shifting the phase, which assumes step = phase >> 10"
 
 ; TM bit assignments. Written as SHIFTS rather than as $10/$11: `no_literals`
 ; cannot tell a bare $11 from a hand-narrated address, and the shift says which
@@ -217,11 +217,11 @@ floor_arm:
     .a16
 
     jsr m7f_sky_arm
-    jsr fog_arm
-    jsr tod_arm
+    jsr m7f_fog_arm
+    jsr m7f_tod_arm
     rts
 
-; --- tod_arm: start the day/night clock at the boot snapshot ----------------
+; --- m7f_tod_arm: start the day/night clock at the boot snapshot ----------------
 ; In/out: A16/I16, DB=0, forced blank + NMI masked. Clobbers A.
 ;
 ; The phase that PUTS the clock on the boot snapshot rather than zero, so the
@@ -230,14 +230,14 @@ floor_arm:
 ; would start the cycle at dawn against a day-coloured backdrop for the eight
 ; frames before the first step lands — a rule-5-shaped inconsistency, visible
 ; as a one-off flash.
-tod_arm:
+m7f_tod_arm:
     .a16
     .i16
     lda #(M7F_GRAD_DAY * M7F_TOD_SEG_STEPS * M7F_TOD_STEP)
     sta f:M7F_CLOCK
     ; The gate's "last row written" starts one PAST the last real row, so the
     ; first VBlank always writes the palette. Rule 5, and the
-    ; uninitialised-read detector is what named it: `tod_commit` COMPARES this
+    ; uninitialised-read detector is what named it: `m7f_tod_commit` COMPARES this
     ; word before anything writes it, and power-on WRAM is random — one boot in
     ; 2,048 would match the live row and skip the first palette upload. A
     ; derived sentinel rather than $FFFF so it cannot collide with a row if the
@@ -246,7 +246,7 @@ tod_arm:
     sta f:M7F_TODROW
     rts
 
-; --- fog_arm: hand the three COLDATA channels THIS rail's cursor ------------
+; --- m7f_fog_arm: hand the three COLDATA channels THIS rail's cursor ------------
 ; In/out: A16/I16, DB=0, forced blank + NMI masked. Clobbers A, X.
 ;
 ; ORDERING CONTRACT, and it is the one way this can silently fail: `rg_arm`
@@ -277,7 +277,7 @@ tod_arm:
     .a16
 .endmacro
 
-fog_arm:
+m7f_fog_arm:
     .a16
     .i16
     lda #(M7F_GRAD_DAY * M7F_GRAD_STRIDE)
@@ -287,7 +287,7 @@ fog_arm:
     M7F_FOG_BIND ES_H_COLB_CH, 2 * M7F_FOG_ENT
     sep #$20
     .a8
-    jsr fog_reanchor                ; every header byte written before arming
+    jsr m7f_fog_reanchor                ; every header byte written before arming
     rep #$20
     .a16
     rts
@@ -343,8 +343,8 @@ m7f_sky_arm:
     sta f:ES_SM_HDMA_LONG+2, x      ; A1T
     rts
 
-; --- floor_region_rates: the day/night phase step, per console -------------
-; CONTRACT floor_region_rates
+; --- m7f_floor_region_rates: the day/night phase step, per console -------------
+; CONTRACT m7f_floor_region_rates
 ;   entry:    A16 I16 DB=0
 ;   exit:     A16 I16
 ;   in:       ES_RGN_PAL — the region flag, latched once at boot
@@ -353,19 +353,19 @@ m7f_sky_arm:
 ;             which is the write-before-read establishment for them
 ;   clobbers: A, X, N, Z
 ;   assumes:  ONCE, from the scene's `enter`, which runs with the NMI
-;             masked — so the words are written before tod_commit's first
+;             masked — so the words are written before m7f_tod_commit's first
 ;             armed VBlank reads them (rule 5)
 ;   tail:     rts
 ;
 ; WIDTH-RISK: A16/I16 in and out; no sep/rep. The anonymous label below is
 ; reached A16 by branch and A16 by fall-through.
-floor_region_rates:
+m7f_floor_region_rates:
     .a16
     .i16
-    SF_ASSERT_WIDTH 16, 16, "floor_region_rates"
+    SF_ASSERT_WIDTH 16, 16, "m7f_floor_region_rates"
     stz z:US_TOD_ACC            ; the remainder accumulator starts empty
     lda z:ES_RGN_PAL
-    bne @is_pal                 ; NOT `@pal`: `tod_commit` below already has a
+    bne @is_pal                 ; NOT `@pal`: `m7f_tod_commit` below already has a
                                 ;   cheap local of that name, and while ca65
                                 ;   scopes the two apart at the next global
                                 ;   label, width_lint reads the file without
@@ -384,8 +384,8 @@ floor_region_rates:
     sta z:US_R_TODF
     rts
 
-; --- tod_commit: advance the day/night clock, IN VBLANK --------------------
-; CONTRACT tod_commit
+; --- m7f_tod_commit: advance the day/night clock, IN VBLANK --------------------
+; CONTRACT m7f_tod_commit
 ;   entry:    A8 I16 DB=0
 ;   exit:     A8 I16
 ;   out:      the day/night clock advanced by this console's rate and the
@@ -402,8 +402,8 @@ floor_region_rates:
 ; forced blank (rule 4). It is also why the interpolation is a TABLE — the
 ; multiplier belongs to m7f_cam.
 ;
-; RUNS BEFORE `sky_reanchor`, because the snapshot offset it publishes is what
-; `fog_reanchor` reads two calls later; main.asm's hook orders them and says
+; RUNS BEFORE `m7f_sky_reanchor`, because the snapshot offset it publishes is what
+; `m7f_fog_reanchor` reads two calls later; main.asm's hook orders them and says
 ; so. A frame in the other order shows the previous step's ramp against this
 ; step's zenith, which is one frame of a colour that belongs to neither.
 ;
@@ -411,10 +411,10 @@ floor_region_rates:
 ; two are the same number, the first spells the row stride into the mask
 ; instead of paying a multiply for it, and >> 8 is one `xba`.
 ; (the `.assert` for that assumption sits with the other table asserts above)
-tod_commit:
+m7f_tod_commit:
     .a8
     .i16
-    SF_ASSERT_WIDTH 8, 16, "tod_commit"
+    SF_ASSERT_WIDTH 8, 16, "m7f_tod_commit"
     rep #$20
     .a16
     ; The remainder FIRST, so its carry lands in the phase add below. `sta`
@@ -476,7 +476,7 @@ tod_commit:
     iny
     cpy #M7F_TODPAL_ROW
     bcc @cpal
-    ; ---- the snapshot's ramp: what fog_reanchor will point the cursor at ----
+    ; ---- the snapshot's ramp: what m7f_fog_reanchor will point the cursor at ----
     rep #$20
     .a16
     lda f:M7F_TODROW
@@ -495,20 +495,20 @@ tod_commit:
     .a8
     rts
 
-; --- sky_reanchor: re-point the split at the live horizon, IN VBLANK --------
-; CONTRACT sky_reanchor
+; --- m7f_sky_reanchor: re-point the split at the live horizon, IN VBLANK --------
+; CONTRACT m7f_sky_reanchor
 ;   entry:    A8 I16 DB=0
 ;   exit:     A8 I16
 ;   in:       M7F_HORIZON — the live horizon scanline
 ;   out:      the sky split's header table re-pointed at that horizon
-;   clobbers: A, N, Z, and everything fog_reanchor clobbers (it falls into
+;   clobbers: A, N, Z, and everything m7f_fog_reanchor clobbers (it falls into
 ;             it)
 ;   assumes:  VBlank, from the rail's sm_nmi_hook. HDMA latches each
 ;             channel's A1T at the top of the frame and walks the header
 ;             table as the picture draws, so a table rewritten during
 ;             active display moves the split under a channel part-way down
 ;             it
-;   tail:     FALLS THROUGH to fog_reanchor, deliberately. The split and
+;   tail:     FALLS THROUGH to m7f_fog_reanchor, deliberately. The split and
 ;             the fog are two readings of ONE number, and a build where
 ;             they can disagree is the tear this exists to prevent — so
 ;             both are re-anchored by the same call, from the same
@@ -524,10 +524,10 @@ tod_commit:
 ;
 ; Unconditional: comparing against the last value would cost more than the
 ; single store it guards.
-sky_reanchor:
+m7f_sky_reanchor:
     .a8
     .i16
-    SF_ASSERT_WIDTH 8, 16, "sky_reanchor"
+    SF_ASSERT_WIDTH 8, 16, "m7f_sky_reanchor"
     lda z:M7F_HORIZON
     sta f:M7F_SKY_TBL_LONG + 0
     ; FALLS THROUGH, deliberately. The split and the fog are two readings of
@@ -535,7 +535,7 @@ sky_reanchor:
     ; exists to prevent — so they are re-anchored by the same call, from the
     ; same M7F_HORIZON, in the same VBlank.
 
-; --- fog_reanchor: the three COLDATA header tables, at the live horizon -----
+; --- m7f_fog_reanchor: the three COLDATA header tables, at the live horizon -----
 ; In/out: A8/I16, DB=0 — the sm_nmi_hook contract. Clobbers A, X, Y.
 ;
 ; IN VBLANK, for the sky table's reason and one more. HDMA latches each
@@ -549,7 +549,7 @@ sky_reanchor:
 ; would save about 90 cycles of VBlank on a level frame and would add a second
 ; place where the fog's anchor and the band's can disagree; the countdown
 ; exists because the BAND TABLE is double buffered, and this table is not.
-fog_reanchor:
+m7f_fog_reanchor:
     .a8
     .i16
     ldx #0                          ; the header byte offset: 0, 10, 20

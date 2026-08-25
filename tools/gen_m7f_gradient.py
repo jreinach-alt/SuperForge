@@ -12,7 +12,7 @@ so — a fixed camera height over fixed geometry). This rail's horizon MOVES
 between scanline 64 and 104 with altitude, so a table indexed
 directly by scanline would nail the fog to one altitude's horizon and let it
 tear away from the split at every other. The DATA here is therefore indexed by
-DISTANCE FROM THE HORIZON, and m7f_floor's `fog_reanchor` re-points three
+DISTANCE FROM THE HORIZON, and m7f_floor's `m7f_fog_reanchor` re-points three
 short HDMA header tables at it whenever the horizon moves.
 
 THE ENCODING, and what buys the density. rgb_gradient's `grad_tabs` claim is
@@ -270,7 +270,7 @@ def tod_ambient(step: int) -> tuple[int, int, int]:
 # port setup for nothing.
 # SIXTEEN words, of which four carry cloud art and twelve are black padding —
 # and the padding is LOAD-BEARING. The ROM finds its row with a shift and a
-# mask (`tod_commit`), which is only a division by the row stride when that
+# mask (`m7f_tod_commit`), which is only a division by the row stride when that
 # stride is a POWER OF TWO. A 20-word row is 40 bytes, and the first build with
 # one silently served a NEIGHBOURING row's colours: the picture was a plausible
 # sunset that belonged to no snapshot. Padding to 32 words puts the row back on
@@ -281,7 +281,7 @@ CLOUD_PAL = ([(0, 0, 0), (31, 31, 31), (26, 27, 31), (20, 21, 27)]
 CLOUD_WORDS = len(CLOUD_PAL)
 PAL_WORDS = 16 + CLOUD_WORDS
 assert PAL_WORDS & (PAL_WORDS - 1) == 0, (
-    f"the day/night palette row is {PAL_WORDS} words — tod_commit finds its "
+    f"the day/night palette row is {PAL_WORDS} words — m7f_tod_commit finds its "
     f"row with a mask, which is only a division when the stride is a power "
     f"of two")
 

@@ -1379,7 +1379,7 @@ def test_the_sky_is_the_generators_ramp_at_every_scanline(name, pad, frames,
     Not "there is a gradient" and not a monotonic trend: sky scanline L must
     render exactly `backdrop + ramp[L - (horizon - RAMP_LEN)]`, clamped, for
     every L above the horizon. Two independent things have to be right for that
-    — the blob the build baked and the three header tables `fog_reanchor`
+    — the blob the build baked and the three header tables `m7f_fog_reanchor`
     writes in VBlank — so a wrong snapshot offset, a dropped plane, an
     off-by-one in the hold count or a stale anchor all move it.
 
@@ -1507,7 +1507,7 @@ def test_the_backdrop_word_boots_on_the_day_snapshots_zenith():
     is the reported flat square again.
 
     AT FRAME 1 specifically, because the clock then walks the zenith away from
-    it: `tod_arm` seeds the phase ON the day segment so the palette the ROM
+    it: `m7f_tod_arm` seeds the phase ON the day segment so the palette the ROM
     uploaded and the table the clock indexes name the same colour on the frame
     where both are in force. Seeded at zero they would disagree for the eight
     frames before the first step landed.
