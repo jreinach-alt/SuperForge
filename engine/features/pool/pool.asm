@@ -72,17 +72,19 @@
 ; and is WRONG. The table lives here because this is the file anyone opens
 ; when they want the contract.
 ;
-;  (a) WIDTH — the silent-corruption one, and the only one the linter cannot
-;  help with. A macro that OPENS with `rep #$30` is safe from any arrival
+;  (a) WIDTH — the silent-corruption one, and the only one of the four a
+;  gate can see. A macro that OPENS with `rep #$30` is safe from any arrival
 ;  width, so its call sites never have to think about it. These
 ;  routines contain NO `sep`/`rep` at all and REQUIRE A16/I16 on entry --
 ;  deliberately, so a call can sit inside an A16/I16 kernel without
 ;  disturbing either axis, but it moves the obligation to the caller. A
 ;  call site that arrives in A8 assembles operands the CPU then reads at
 ;  the wrong width: the stray byte executes as `BRK` and the failure is
-;  silent. `width_lint` is SINGLE-FILE (CLAUDE.md rule 6), so a caller in
-;  another file is invisible to it in both directions -- these WIDTH-RISK
-;  markers and the emulator are the whole check. If a caller cannot
+;  silent. All four routines DECLARE that entry width in a CONTRACT block,
+;  so `width_lint` reads a cross-file `jsr` against the declaration and
+;  names both ends (CLAUDE.md rule 6). Before those blocks existed a caller
+;  in another file was invisible in both directions, and these WIDTH-RISK
+;  markers and the emulator were the whole check. If a caller cannot
 ;  guarantee A16/I16 at a site, it must `rep #$30` before the `jsr`
 ;  itself; that is one instruction and it buys back the inline form's
 ;  arrive-in-any-width property.
