@@ -160,8 +160,8 @@ make test XDIST=3            # ...the same target, parallel.
                              # paid for. If you type pytest yourself, pass
                              # `--dist loadfile` too — conftest pins it as a
                              # backstop, but the flag is the front door.
-python3 -m pytest tests/ -q  # same suite, direct        (measured 7:40)
-python3 -m pytest tests/ -q -n 3 --dist loadfile   # parallel, pytest-xdist  (measured 3:08 on 4 cores)
+python3 -m pytest tests/ -q  # same suite, direct        (measured 52:27, 2026-08-25)
+python3 -m pytest tests/ -q -n 3 --dist loadfile   # parallel, pytest-xdist  (measured 23:30 on 4 cores, 2026-08-25)
                              # PICK -n FROM `nproc`, NOT FROM THIS LINE. The
                              # suite is emulator-bound — one Mesen core per
                              # worker — so oversubscription does not just slow
@@ -227,7 +227,9 @@ python3 -m pytest tests/ -q -n 3 --dist loadfile   # parallel, pytest-xdist  (me
                              # and the two modules that plant into the working
                              # tree (test_register, test_make_gates) hold a lock
                              # so their save/restore windows cannot overlap.
-                             # -n 4 was faster (2:22) on a 4-core dev box.
+                             # -n 4 was once faster than -n 3 on a 4-core box;
+                             # that number is unmeasured after suite growth and
+                             # has been dropped rather than carried forward.
 make gates                   # the whole gate block in its listed order,
                              # one summary table + both ROM md5s at the end
 make bare-check              # THE LANDING GATE. `make gates`, but in a FRESH CLONE
