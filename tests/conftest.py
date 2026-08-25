@@ -1021,6 +1021,14 @@ def pytest_configure(config):
     # `SF_XDIST_DIST` overrides, and exists so the sensitivity control in
     # tests/test_worker_schedule.py can put the default back and show the
     # failure returning. A run that sets it is not a normal run.
+    #
+    # STATED LIMIT: only `load` is rewritten. `--dist worksteal` splits a
+    # module exactly the same way, and is left alone because it can only be
+    # reached by typing it — overriding a flag someone chose explicitly is
+    # worse than letting them have it. Nothing in this repo passes it (the
+    # Makefile passes `-n` and nothing else). If it is ever used, the split
+    # shows up by name in the schedule summary's `split_modules`, which is
+    # the same way this defect would be found again.
     want = os.environ.get("SF_XDIST_DIST", "").strip()
     if want:
         config.option.dist = want
