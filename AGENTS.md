@@ -279,8 +279,9 @@ full git history. That residue is recorded in the artifact under
 **A module whose full run costs real time says so on its first docstring
 line**, as `runtime: ~N — <what dominates>`, measured rather than guessed, and
 naming a warm build tree where that is what the number depends on. The heavy
-ones today are `tests/test_rail_registered.py` (~20+ min — 20 cases, each
-synthesising a violating tree and running the gate over every rail),
+ones today are `tests/test_rail_registered.py` (~1:16 — ~35 gate
+invocations; it was 16:12 until 2026-08-25, when the gate's per-rail
+re-parse of every test module was memoized and one gate run fell 27 s → 2 s),
 `tests/test_bare_check.py` (~30-42 s — six repo clones), and the two that
 shell out to `make` and are therefore cheap warm and minutes cold,
 `tests/test_map_freshness_guard.py` (~6 s) and `tests/test_make_gates.py`

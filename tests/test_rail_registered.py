@@ -1,12 +1,12 @@
 """`make rail-registered`, tried against a real violation at every site.
 
-runtime: ~20+ minutes — 20 cases, each synthesising a violating tree and
-running the gate over every rail. The floor is measured rather than guessed:
-13 of the 20 completed in a 15-minute cap on a warm build tree.
-
-SLOW BY DESIGN, and it is the heaviest module in the suite. For one decisive
-check select a node:
-`pytest tests/test_rail_registered.py::test_the_live_tree_is_registered -q` (~30 s).
+runtime: ~1:16 — ~35 gate invocations (each plant runs the gate at least
+twice: planted, then undone), measured 2026-08-25. It was 16:12 on the same
+box the same day: one gate run cost 27 s, ~97% of it re-parsing every test
+module once per RAIL in `guard_visible_readers` / `determinism_demanding_
+modules`; memoizing those pure-per-module derivations in the tool cut a run
+to 2 s and this module followed. For one decisive check select a node:
+`pytest tests/test_rail_registered.py::test_the_live_tree_is_registered -q` (~2 s).
 
 AGENTS.md: "when you add a gate, prove it fails on a real violation before
 believing it." The violation is the one waves 1-5 kept committing — a rail

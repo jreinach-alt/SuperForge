@@ -696,6 +696,22 @@ def _test_module_texts() -> dict[str, str]:
     return _MODULE_TEXT_CACHE
 
 
+# Per-module memo for the two ast-walking derivations below. Both are pure
+# functions of a module's text, and the text cache above already fixes that
+# text for the process — but the PARSED results were being recomputed per
+# RAIL, so one gate run parsed each of ~100 modules ~35 times over (measured
+# 27 s/run, ~97% in re-walking the same trees). Same population, same
+# per-rail answers, ~one parse per module per process.
+_STRING_CONST_CACHE: dict[str, set] = {}
+
+
+def _module_string_constants_of(name: str) -> set:
+    if name not in _STRING_CONST_CACHE:
+        _STRING_CONST_CACHE[name] = _module_string_constants(
+            _test_module_texts()[name])
+    return _STRING_CONST_CACHE[name]
+
+
 def determinism_demanding_modules(rail: str, subdir: str) -> list[str]:
     """Modules whose `make determinism MODULE=` run needs `<rail>.sfc` built.
 
@@ -707,7 +723,7 @@ def determinism_demanding_modules(rail: str, subdir: str) -> list[str]:
     return [name for name, text in sorted(_test_module_texts().items())
             if _MACHINE_RE.search(text)
             and (_names_rom(text, rail)
-                 or _names_map(_module_string_constants(text), subdir))]
+                 or _names_map(_module_string_constants_of(name), subdir))]
 
 
 def falsify_plant_rails(all_rails: list[str]) -> list[str]:
@@ -724,12 +740,24 @@ def falsify_plant_rails(all_rails: list[str]) -> list[str]:
     return [r for r in all_rails if _names_rom(text, r)]
 
 
+_GUARD_SCAN_CACHE: dict[str, set] | None = None
+
+
 def guard_visible_readers(rel_map: str) -> list[str]:
     """Modules whose collection-time read of rel_map the freshness guard's
-    OWN scanner sees — site 8's demand condition (see the docstring)."""
+    OWN scanner sees — site 8's demand condition (see the docstring).
+
+    The scanner IS still `conftest.maps_named_in`, run over every module —
+    only its per-module result is memoized (it is a pure function of the
+    text), because re-running it per rail was most of the gate's runtime.
+    """
     import conftest                                    # noqa: PLC0415
-    return [m.name for m in sorted((REPO / "tests").glob("test_*.py"))
-            if rel_map in conftest.maps_named_in(m.read_text())]
+    global _GUARD_SCAN_CACHE
+    if _GUARD_SCAN_CACHE is None:
+        _GUARD_SCAN_CACHE = {name: conftest.maps_named_in(text)
+                             for name, text in _test_module_texts().items()}
+    return [name for name, named in sorted(_GUARD_SCAN_CACHE.items())
+            if rel_map in named]
 
 
 # --------------------------------------------------------------------------
