@@ -84,7 +84,7 @@ a declaration away once the claim class exists.
 | **SPLIT** | `split_band` | `hdma`×2 (active — BGMODE direct, TM indirect) | — | `split_h_demo`, `split_h_2p_demo`, `split_h_persp_demo`, `split_h_matrix/persp3`, `split_h_irq_grad_demo`, `split_v_fight` (window), `mode7_chamber`, `mode7_flight`, `railshooter` | 2 | **built, later GENERALISED** — sole **active-phase** owner of BGMODE, frame-wide (`band = "scene"`). No longer single-shape: finding B1 (§6) said the answer to a second split shape is *the same claim with different table values*, and the `split_h_demo` port is the second binding that proves it. Five includer-bound symbols, no defaults, each missing one a named `.error` (col_map's shape): `SB_LINES` / `SB_MODE_TOP` / `SB_MODE_BOT` / `SB_TM_TOP` / `SB_TM_BOT`. microzero binds 44 / $09 / $07 / $16 / $11 (BG2 sky + BG3 HUD + OBJ over BG1 + OBJ) and `split_h_demo` binds 40 / $09 / $07 / **$04 / $01** (BG3 alone over BG1 alone). Claim set untouched; microzero's image byte-identical across the change (md5 `e45ddeab…` unmoved). See the phase caveat below. |
 | **STREAM** | `mode7_stream` (deps: `world_rom`, `mode7_floor`) | `dp`×2 (22 B hot + 2 B NMI), `wram`×3 (1 KB rows + 1 KB cols + 32 B meta), `hdma` (vblank), `dma` (2048 B/frame, 16 transfers) | — | `mode7_explore` (M7, 2-axis), `platformer_stream` (**normal BG**, 2-axis) | 2 | **built** — `mode7_stream` is the M7 2-axis mechanism; the normal-BG 2-axis demand is met by its sibling `pfs_stream` (proven in `platformer_stream`), a distinct mechanism by design — its header states why it is not a parameterisation of this one. |
 | **GRAD** | `rgb_gradient` | `hdma`×3 (active, mode 0, indirect — COLDATA_R/G/B planes), `rom` (672 B) | — | `racer` (CH3/4/7), `split_h_irq_grad_demo`, `platformer_stream` (CH3–CH5), `platformer` | 2 | **built** — **not `sky_band`**, which declares zero `claims.hdma` and whose own toml says "Costs NO HDMA channel". Corrected from the `08` seed. |
-| **CM** | `rgb_gradient` (incidental) | none covering it | **CPU-written PPU register** (§2.1) | `racer`, `boss_saucer` (dim), `meteor_event` (glow), `mode7_chamber` (vignette) | 3 | **CLOSED for the gradient case; still open for colour math WITHOUT one.** This row's "unclaimed" reading is stale: §2.1's `claims.reg` class landed, and `rgb_gradient/feature.toml`'s `grad_math` claim now names CGWSEL + CGADSUB, covering the writes at `rgb_gradient.asm:111-129`. So a scene that composes `rgb_gradient` gets CM declared by composition — which is how `breaker` discharged its CM demand without writing anything. A rail wanting colour math and NO gradient still needs its own `[[claims.reg]]`; that is the remaining work, and it is a declaration, not a mechanism. |
+| **CM** | `rgb_gradient` (incidental) | none covering it | **CPU-written PPU register** (§2.1) | `racer`, `boss_saucer` (dim), `meteor_event` (glow), `mode7_chamber` (vignette) | 3 | **CLOSED for the gradient case; still open for colour math WITHOUT one.** This row's "unclaimed" reading is stale: §2.1's `claims.reg` class landed, and `rgb_gradient/feature.toml`'s `grad_math` claim now names CGWSEL + CGADSUB, covering the writes at `rgb_gradient.asm:111-129`. So a scene that composes `rgb_gradient` gets CM declared by composition — which is how `breaker` discharged its CM demand without writing anything. **CLOSED for the without-a-gradient case too** (2026-08-25): `claims.blend` is the declaration a rail wanting colour math and no gradient now writes, and `claims.screen` is its companion for the TM/TS designations the blend has to gate against — the composed vocabulary, docs/99. `rgb_gradient`'s `grad_math` claim stays a raw `[[claims.reg]]`, which is why a scene composing it must not also carry a blend claim (R6, docs/99 §7); migrating it is per-rail work, not engine work. |
 | **POOL** | `pool` (the mechanism) + the consumer's own `wram` claim; `shmup_obj` holds the folded form | `wram` (160 B — three pools, one region, 16-byte stride per field) + `oam`×4 (pinned slot ranges) | — | `m7_dungeon`, `m7_oshoot` (2×), `boss_saucer`, `railshooter` | 3 | **built** (2026-08-02) — and **the prediction in this row held in both halves, with `allocator/schemas.py` untouched.** A pool is an `alive[]` array plus parallel arrays and a scan; there is no channel, register or VBlank cost for a class to describe. Two notes for a later generaliser: the pools live ON `shmup_obj` because the stable-OAM-slot contract IS the coupling (pool slot k is always OAM slot k), and the routines index ONE claim by compile-time offset, so a shared `actor_pool` would need a 24-bit base in DP. **Later GENERALISED, and both notes came true.** `engine/features/pool/` is that shared feature: one 4-byte DP claim holding a 24-bit base the caller stamps per call, `[dp],y` inside, the consumer keeping the arrays. It was lifted out precisely because the first note's coupling FAILS on `railshooter` — that rail re-derives its obstacle OAM order from depth every frame, so pool slot and OAM slot are deliberately unrelated. `shmup_obj`'s fold is left exactly as it shipped (it is right for that rail, and re-pointing it at `pool` would move a ROM nothing asked to move). |
 | **SAVE** | `save` | `sram` (64 B — 2 slots × 32 B), `dp` (17 B args/CRC scratch), `rom` (512 B CRC-16 LUT) | — (the **`sram` class SHIPPED** with it, C2 2026-07-30 —; program-wide packer, both cart header bytes derived from demand) | `rpg`, `platformer`, `mode_showcase` | 3 | **built** (2026-07-30) — magic "SF" + version + length + CRC-16/CCITT gate, verify-before-copy, `$FFFF`/`$FFFE` rejection codes, dest untouched on both, all under allocator symbols. The `room` game ships it: visits survive power-off; title renders the remembered count. |
 | **AUD** | `audio` (deps: `tad_rom` blob) | `spc` (whole-space exclusive) + `reg` (`APUIO`) + `wram` (16 B, pinned `$1F00` — the driver's linker-placed `.bss`) + `dp` (2 B, pinned `$F0` — the SFX queue) ; `tad_rom`: `rom` (32 KB whole-window, bank-start by arithmetic) | — | `racer`, `mode7_explore`, `split_h_2p_demo`, `m7_dungeon`, `boss_saucer`, `split_v_fight`, `rpg`, `platformer` | 3 | **built** (2026-07-30) — vendored TAD at `822164b` (`vendor/tad/`), content pipeline documented in `assets/audio/README.md` (procedural samples, checked-in ca65-export). The `room` game ships it: one song persisting across three scenes, per-room reverb (EVOL/EFB against a program-constant EDL — erratum), a footstep under music. Surfaces: `tests/test_slice_b_audio.py` (SPC-RAM boot compare, DSP A→B→A cycle, tick-counter persistence, WAV audibility + aligned rest-tail difference). Settlement unchanged: TAD's compiler packs the interior; SuperForge owns the boundary. |
@@ -1093,6 +1093,9 @@ other scenes.
 | a memory region | `vram` / `dp` / `wram` / `cgram` / `oam` / `rom` | packed and proven disjoint |
 | **a register the CPU writes directly**, configuring a layer or mode another feature could want | `claims.reg` | **exclusive for the whole SCENE, phase-blind** — see §2.1. Also refuses against an `hdma`/`dma_init` claim on the same port, since the transfer destroys the value the write establishes |
 | ...where a DECLARED transfer claim is meant to overwrite that base value | `claims.reg` + `seed = true` | composes with `hdma` claims on the port (never `dma_init`), and a seed with nothing overriding it is refused as a lie |
+| **putting a layer on the main or sub screen** (TM/TS) | `claims.screen` — `layer` + `on`, NOT a `claims.reg` on TM/TS | **exclusive per LAYER, per scene** — the allocator ORs the enable bits and refuses two designators of one layer even when they agree. docs/99 |
+| **programming the colour-math unit** (CGWSEL/CGADSUB) | `claims.blend` — `op`/`half`/`source`/`math`/`clip`/`prevent`, NOT a `claims.reg` on CGWSEL/CGADSUB | **one blender per scene**: the five global fields must agree across the scene's blend claims; `math` composes, one owner per enable bit. docs/99 |
+| ...**per-scanline** TM/TS, or direct colour (CGWSEL b0), or TMW/TSW | `claims.reg` (+ `seed = true` beside the `hdma` claim, for the per-scanline case) | the vocabulary above deliberately does **not** cover these, and a raw claim stays legal in a scene that composes no vocabulary half on that port. docs/99 §8 |
 | **occupying the audio CPU** — driver + samples + songs + echo, and the loader/mailbox that feeds it | `claims.spc` (+ `claims.reg` on `APUIO`) | **exclusive for the whole PROGRAM** — one occupant per game across all scenes; see §2.4. Presence-only: the occupant's own toolchain packs the 64 KiB interior |
 
 Two details that are easy to get wrong:
@@ -1166,14 +1169,38 @@ it — this repo has twice shipped an assertion narrower than its own name
  a write that merely addresses a **resource you already claim** is covered and
  needs nothing (`VMADD`/`VMAIN` for a `vram` claim, `CGADD` for `cgram`,
  `OAMADD` for `oam`, and the address latch of any data port you name on an
- `hdma`/`dma_init` claim). A write that configures a **layer or a mode**
- another feature could also want (BG*n*SC, BG*nn*NBA, BGMODE,
- BG*n*HOFS/VOFS, M7SEL, M7X/M7Y, CGWSEL, CGADSUB, COLDATA, OBSEL, INIDISP,
- TM/TS/TMW/TSW, NMITIMEN, ALU) goes in `[[claims.reg]]`:
+ `hdma`/`dma_init` claim). Then check whether the port has a **vocabulary**:
+ `TM`/`TS`/`CGWSEL`/`CGADSUB` are the four the screen/blend classes compose
+ (docs/99), and inside a scene that composes them a `[[claims.reg]]` on the
+ same port is **refused** — two vocabularies cannot both supply one
+ write-only byte. Put a layer designation in `[[claims.screen]]` and
+ colour-math programming in `[[claims.blend]]`, and let the SCENE write the
+ composed `ES_SCR_*` values:
+
+ ```toml
+ [[claims.screen]] # bg2 onto the sub screen — not a claims.reg on TS
+ layer = "bg2"
+ on = "sub"
+
+ [[claims.blend]] # the blender — not a claims.reg on CGWSEL/CGADSUB
+ op = "add"
+ source = "sub"
+ math = ["bg1", "backdrop"]
+ ```
+
+ A raw claim on those four stays right in the cases the vocabulary does not
+ cover, and only there: a scene that composes no vocabulary half on that
+ port — per-scanline TM rewritten by HDMA (`seed = true` beside the `hdma`
+ claim), direct colour (CGWSEL b0), TMW/TSW. docs/99 §7-8 names each.
+
+ Every other write that configures a **layer or a mode** another feature
+ could also want (BG*n*SC, BG*nn*NBA, BGMODE, BG*n*HOFS/VOFS, M7SEL,
+ M7X/M7Y, COLDATA, OBSEL, INIDISP, TMW/TSW, NMITIMEN, ALU) goes in
+ `[[claims.reg]]`:
 
  ```toml
  [[claims.reg]]
- registers = ["CGWSEL", "CGADSUB"]
+ registers = ["BG1SC", "BG12NBA"]
  # seed = true # ONLY if a declared hdma claim in the same scene is
  # meant to overwrite this base value per line/frame
  ```

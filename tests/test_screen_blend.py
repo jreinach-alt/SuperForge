@@ -666,6 +666,30 @@ def test_cli_census_line_both_states(tmp_path):
     assert "screen/blend: nothing composed" in r.stdout
 
 
+# -- the routing surfaces: docs/09 must not send an author to the refused
+#    shape ------------------------------------------------------------------
+
+def test_docs_09_routes_colour_math_to_the_vocabulary(tmp_path):
+    """docs/09 is the architecture map — "where a new feature goes and what
+    it must declare" — and its two routing surfaces are prose that no
+    generator regenerates. `make register` checks the census block, not
+    this, which is exactly how the file went stale about `claims.reg` once
+    before (its own recorded correction). So the join is asserted here: an
+    author following §4.2's table or §4.6's checklist must land on
+    `claims.screen`/`claims.blend`, never on a raw claim over the four
+    ports a composing scene refuses.
+    """
+    doc = (SUPERFORGE / "docs" / "09_feature_register.md").read_text()
+    routing = doc.split("### 4.2")[1].split("### 4.3")[0]
+    assert "`claims.screen`" in routing and "`claims.blend`" in routing
+    assert "TM/TS" in routing and "CGWSEL/CGADSUB" in routing
+    checklist = doc.split("### 4.6")[1]
+    assert "[[claims.screen]]" in checklist
+    assert "[[claims.blend]]" in checklist
+    # the worked toml must not be the shape a composing scene refuses (R6)
+    assert 'registers = ["CGWSEL", "CGADSUB"]' not in checklist
+
+
 # -- the no_literals integration: scene writes of the four ports ------------
 
 SCENE_ASM = """\
