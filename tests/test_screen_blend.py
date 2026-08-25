@@ -273,3 +273,145 @@ def test_scene_without_vocabulary_composes_nothing(tmp_path):
 
 def _is_vocab(who):
     return who.startswith("screen/blend")
+
+
+# -- R6 + coexistence: two vocabularies, one port ---------------------------
+
+RAW_TM = ('[[claims.reg]]\nregisters = ["BGMODE", "TM"]\n'
+          'scene_writes = ["BGMODE", "TM"]\n')
+
+
+def test_r6_raw_tm_flips_a_composing_scene_and_the_control_arm_holds(tmp_path):
+    """Coexistence + R6 aliveness, both arms over one raw-TM feature (the
+    toy-bad polarity): the raw-TM scene with NO vocabulary claims allocates
+    exactly as before — the synthesized claim does not exist — and adding
+    ONE screen claim to the same scene flips it to the vocabulary-mixing
+    refusal naming both sides and the fix."""
+    # control arm: raw claim alone -> composes, no synthesized claim
+    feats = features(tmp_path / "ok", floor=RAW_TM)
+    a = alloc(tmp_path / "ok", feats, "floor")
+    assert a.scenes["s"].screen_blend is None
+    assert [c.name for c, _ in a.scenes["s"].regs] == ["floor_reg"]
+
+    # refusal arm: one screen claim beside it
+    feats = features(tmp_path / "bad", floor=RAW_TM,
+                     sky='[[claims.screen]]\nlayer = "bg2"\non = "sub"\n')
+    with pytest.raises(AllocationError) as e:
+        alloc(tmp_path / "bad", feats, "floor", "sky")
+    msg = str(e.value)
+    assert "floor_reg" in msg and "engine:floor" in msg   # the raw claimant
+    assert "screen_blend" in msg and "engine:sky" in msg  # the vocabulary side
+    assert "TM" in msg
+    assert "two vocabularies, one write-only port" in msg
+    assert "[[claims.screen]]" in msg                     # the fix, named
+
+
+def test_r6_raw_cgwsel_against_blend_claims(tmp_path):
+    feats = features(
+        tmp_path,
+        iris=('[[claims.reg]]\nregisters = ["CGWSEL"]\n'
+              'scene_writes = ["CGWSEL"]\n'),
+        world='[[claims.screen]]\nlayer = "bg1"\non = "main"\n',
+        wash=('[[claims.blend]]\nop = "add"\nsource = "fixed"\n'
+              'math = ["bg1"]\n'))
+    with pytest.raises(AllocationError) as e:
+        alloc(tmp_path, feats, "iris", "world", "wash")
+    msg = str(e.value)
+    assert "iris_reg" in msg and "screen_blend" in msg
+    assert "CGWSEL" in msg and "[[claims.blend]]" in msg
+
+
+def test_r6_is_asymmetric_raw_cgwsel_composes_beside_screen_only(tmp_path):
+    """The deliberate coexistence seam: the synthesized claim owns TM/TS
+    only where screen claims exist and CGWSEL/CGADSUB only where blend
+    claims do — so a raw CGWSEL claim (e.g. a direct-color scene) composes
+    beside designations, and a raw TM claim composes beside a
+    backdrop-only blend."""
+    feats = features(
+        tmp_path / "a",
+        dc=('[[claims.reg]]\nregisters = ["CGWSEL"]\n'
+            'scene_writes = ["CGWSEL"]\n'),
+        world='[[claims.screen]]\nlayer = "bg1"\non = "main"\n')
+    a = alloc(tmp_path / "a", feats, "dc", "world")
+    assert a.scenes["s"].screen_blend["registers"] == ("TM", "TS")
+
+    feats = features(
+        tmp_path / "b", floor=RAW_TM,
+        wash=('[[claims.blend]]\nop = "sub"\nsource = "fixed"\n'
+              'math = ["backdrop"]\n'))
+    b = alloc(tmp_path / "b", feats, "floor", "wash")
+    assert b.scenes["s"].screen_blend["registers"] == ("CGWSEL", "CGADSUB")
+
+
+def test_vocab_against_active_hdma_on_tm_refuses_with_its_own_hint(tmp_path):
+    """The stated limit made loud: the vocabulary has no per-scanline story,
+    so composing screen claims against an active-phase HDMA TM rewrite
+    refuses, and the hint names the raw seed shape rather than advising a
+    `seed` the synthesized claim cannot carry."""
+    feats = features(
+        tmp_path,
+        sky='[[claims.screen]]\nlayer = "bg1"\non = "main"\n',
+        bands=('[[claims.hdma]]\nregisters = ["TM"]\nphase = "active"\n'))
+    with pytest.raises(AllocationError) as e:
+        alloc(tmp_path, feats, "sky", "bands")
+    msg = str(e.value)
+    assert "screen_blend" in msg and "bands" in msg
+    assert "no per-scanline story" in msg
+
+
+# -- the no_literals integration: scene writes of the four ports ------------
+
+SCENE_ASM = """\
+.a8
+lda #ES_SCR_S_TM
+sta a:$212C
+lda #ES_SCR_S_TS
+sta a:$212D
+lda #ES_SCR_S_CGWSEL
+sta a:$2130
+lda #ES_SCR_S_CGADSUB
+sta a:$2131
+"""
+
+
+def _game_tree(tmp_path, feats_bodies, scene_features):
+    """A fixture game at tmp/game/g (the tier shape reg_context keys on),
+    allocated and emitted; returns (map path, scene asm path)."""
+    g = tmp_path / "game" / "g"
+    (g / "scenes").mkdir(parents=True)
+    feats = {n: feature(tmp_path, n, b) for n, b in feats_bodies.items()}
+    (g / "game.toml").write_text(
+        '[[scene]]\nid = "s"\nfeatures = ['
+        + ", ".join(f'"{n}"' for n in scene_features) + ']\n')
+    man = load_manifest(g / "game.toml")
+    a = allocate(SUB, feats, NO_STATE, man)
+    out = tmp_path / "build"
+    emit(a, out)
+    asm = g / "scenes" / "s.asm"
+    asm.write_text(SCENE_ASM)
+    return out / "symbol_map.json", asm
+
+
+def test_reg_gate_accepts_the_four_writes_under_a_vocabulary_composition(
+        tmp_path, capsys):
+    """Both arms of the writer-side integration in one test: the SAME four
+    port writes pass where the scene composes the vocabulary (the
+    synthesized claim opened the ports via scene_writes) and refuse where it
+    does not — so an acceptance that ignored the claim set entirely would
+    fail the second arm."""
+    import no_literals as NL
+
+    map_ok, asm_ok = _game_tree(
+        tmp_path / "ok", {"shore": SHORE, "water": WATER},
+        ["shore", "water"])
+    rc = NL.main(["--map", str(map_ok), "--partial-files", str(asm_ok)])
+    out = capsys.readouterr()
+    assert rc == 0, out.err
+    assert "scene-union" in out.out                  # the tier that checked it
+
+    map_bad, asm_bad = _game_tree(
+        tmp_path / "bad", {"plain": '[[claims.dp]]\nbytes = 2\n'}, ["plain"])
+    rc = NL.main(["--map", str(map_bad), "--partial-files", str(asm_bad)])
+    out = capsys.readouterr()
+    assert rc == 1
+    assert "$212C" in out.err and "scene 's'" in out.err
