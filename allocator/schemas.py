@@ -720,6 +720,88 @@ class RegClaim:
     scene_writes_shared: tuple[str, ...] = ()
 
 
+# --------------------------------------------------------------------------
+# the screen/blend vocabulary — layer designation + color-math programming
+# --------------------------------------------------------------------------
+#
+# Two claim classes over four write-only ports (TM $212C, TS $212D, CGWSEL
+# $2130, CGADSUB $2131). The ports stay WHOLE in REGISTER_FOOTPRINT — they
+# fail the single-blind-write test (see the header block above), so they can
+# never be sub-registered. What CAN be partitioned is the DECLARATION: each
+# feature declares its per-layer intent, and the allocator composes the four
+# byte values per scene, refusing any composition the one-blender hardware
+# cannot express. Encodings re-derived from Mesen2 Core/SNES/SnesPpu.cpp
+# (this checkout):
+#
+#   TM/TS      value & $1F, bit = layer          :2175-2183
+#   layer bits BG1=0 BG2=1 BG3=2 BG4=3 OBJ=4     SnesPpu.h:22 (SpriteLayerIndex)
+#   CGWSEL     b7-6 clip, b5-4 prevent (window modes), b1 addend = sub screen,
+#              b0 direct color                   :2199-2205
+#   CGADSUB    b7 subtract, b6 halve, b5-0 math enables (b5 backdrop
+#              RenderBgColor :924, b4 OBJ :962 — palettes 4-7 only,
+#              b3-0 BG4..BG1 RenderTilemap :993) :2207-2212
+#   window modes Never=0 Outside=1 Inside=2 Always=3
+#                                                SnesPpuTypes.h ColorWindowMode
+
+SCREEN_LAYERS = {"bg1": 0, "bg2": 1, "bg3": 2, "bg4": 3, "obj": 4}
+MATH_LAYERS = {**SCREEN_LAYERS, "backdrop": 5}
+SCREEN_ON = ("main", "sub", "both")
+BLEND_OPS = ("add", "sub")              # CGADSUB b7: sub = 1
+BLEND_SOURCES = ("sub", "fixed")        # CGWSEL b1: sub = 1
+WINDOW_MODES = {"never": 0, "outside": 1, "inside": 2, "always": 3}
+
+# The registers each half of the vocabulary composes — what the synthesized
+# per-scene ownership claim holds (allocate.compose_screen_blend). Screen
+# claims own the designation ports; blend claims own the math ports. The
+# split is deliberate: a raw CGWSEL claim stays expressible in a scene that
+# designates layers but declares no blend (e.g. a direct-color scene), and a
+# raw TM claim stays expressible in a scene that blends over raw-designated
+# layers — the mixing refusal fires exactly where the vocabularies meet on
+# one port.
+SCREEN_REGS = ("TM", "TS")
+BLEND_REGS = ("CGWSEL", "CGADSUB")
+
+
+@dataclass(frozen=True)
+class ScreenClaim:
+    """A LAYER-to-SCREEN designation — one layer, one screen, one owner.
+
+    The thirteenth claim class. TM/TS are write-only bytes with one owner per
+    scene each under the raw vocabulary, so no two features could ever share
+    the screen designation ports. This class moves the declaration to the
+    layer: each feature designates its own layer(s), the allocator ORs the
+    bits per scene, and layer ownership — not the byte value — becomes the
+    contended resource. Two features designating the same layer refuse even
+    when they agree on `on`, exactly as two RegClaims on one port do:
+    ownership is the resource.
+    """
+    name: str
+    layer: str                # bg1|bg2|bg3|bg4|obj  (SCREEN_LAYERS)
+    on: str                   # main|sub|both        (SCREEN_ON)
+
+
+@dataclass(frozen=True)
+class BlendClaim:
+    """The color-math unit's programming — the fourteenth claim class.
+
+    The PPU has ONE blender: one add/subtract select (CGADSUB b7), one halve
+    (b6), one addend source (CGWSEL b1), one clip mode and one prevent mode
+    (CGWSEL b7-4) — all global per frame (Mesen2 SnesPpu.cpp
+    ApplyColorMathToPixel, :1302-1380). Those are the GLOBAL fields: two
+    blend claims in one scene must agree on all five or the composition
+    refuses. What composes is `math` — the per-layer enable bits (CGADSUB
+    b5-0), each with one owner per scene (the ScreenClaim rule on the
+    CGADSUB axis).
+    """
+    name: str
+    op: str                   # add|sub   (BLEND_OPS)
+    source: str               # sub|fixed (BLEND_SOURCES)
+    math: tuple[str, ...]     # MATH_LAYERS names — main-screen layers gated in
+    half: bool = False        # CGADSUB b6
+    clip: str = "never"       # WINDOW_MODES -> CGWSEL b7-6
+    prevent: str = "never"    # WINDOW_MODES -> CGWSEL b5-4
+
+
 @dataclass(frozen=True)
 class SpcClaim:
     """Exclusive occupancy of the audio CPU's entire 64 KiB — the eleventh
@@ -875,12 +957,18 @@ class FeatureDecl:
     vblank_bytes_per_frame: int
     vblank_transfers_per_frame: int  # queued GP-DMAs paying arm cost (F9)
     init_zero: tuple[str, ...]      # claim names zeroed at scene entry
+    # the screen/blend vocabulary (composed per scene by the allocator).
+    # Defaulted so the two classes bolt on without touching any construction
+    # site that predates them.
+    screen: tuple[ScreenClaim, ...] = ()
+    blend: tuple[BlendClaim, ...] = ()
 
     def claim_names(self) -> set[str]:
         return {c.name for group in (self.vram, self.dp, self.wram, self.sram,
                                      self.cgram, self.oam, self.hdma,
                                      self.dma_init, self.rom, self.reg,
-                                     self.spc) for c in group}
+                                     self.spc, self.screen, self.blend)
+                for c in group}
 
 
 def _as_list_of_tables(v, where: str) -> list[dict]:
@@ -977,7 +1065,8 @@ def load_feature(path: str | Path, substrate: Substrate) -> FeatureDecl:
            {"vram": (list, dict), "dp": (list, dict), "wram": (list, dict),
             "cgram": (list, dict), "oam": (list, dict), "hdma": (list, dict),
             "rom": (list, dict), "dma": dict, "dma_init": (list, dict),
-            "reg": (list, dict), "spc": (list, dict), "sram": (list, dict)})
+            "reg": (list, dict), "spc": (list, dict), "sram": (list, dict),
+            "screen": (list, dict), "blend": (list, dict)})
 
     vram = []
     for i, t in enumerate(_as_list_of_tables(claims.get("vram", []), where)):
@@ -1141,6 +1230,78 @@ def load_feature(path: str | Path, substrate: Substrate) -> FeatureDecl:
                             registers=regs, seed=bool(t.get("seed", False)),
                             scene_writes=sw, scene_writes_shared=sws))
 
+    screen = []
+    for i, t in enumerate(_as_list_of_tables(claims.get("screen", []), where)):
+        w = f"{where} [[claims.screen]] #{i}"
+        _table(t, w, {"layer": str, "on": str}, {"name": str})
+        if t["layer"] not in SCREEN_LAYERS:
+            raise SchemaError(
+                f"{w}: layer '{t['layer']}' is not one of "
+                f"{sorted(SCREEN_LAYERS)}. TM/TS carry one enable bit per "
+                f"layer (bits 0-4: bg1..bg4, obj); a name outside that set "
+                f"has no bit, so the designation could compose with nothing "
+                f"— a typo is not a resource.")
+        if t["on"] not in SCREEN_ON:
+            raise SchemaError(
+                f"{w}: on = '{t['on']}' is not one of {list(SCREEN_ON)}. "
+                f"A layer is designated to the main screen (TM), the sub "
+                f"screen (TS), or both — there is no other place for a "
+                f"pixel to go.")
+        screen.append(ScreenClaim(
+            name=t.get("name", f"{name}_screen{i if i else ''}"),
+            layer=t["layer"], on=t["on"]))
+
+    blend = []
+    for i, t in enumerate(_as_list_of_tables(claims.get("blend", []), where)):
+        w = f"{where} [[claims.blend]] #{i}"
+        _table(t, w, {"op": str, "source": str, "math": list},
+               {"name": str, "half": bool, "clip": str, "prevent": str})
+        if t["op"] not in BLEND_OPS:
+            raise SchemaError(
+                f"{w}: op = '{t['op']}' is not one of {list(BLEND_OPS)} "
+                f"(CGADSUB bit 7: one add/subtract select for the whole "
+                f"screen).")
+        if t["source"] not in BLEND_SOURCES:
+            raise SchemaError(
+                f"{w}: source = '{t['source']}' is not one of "
+                f"{list(BLEND_SOURCES)} (CGWSEL bit 1: the blender's second "
+                f"operand is the sub screen or the fixed color — nothing "
+                f"else reaches it).")
+        math = tuple(t["math"])
+        if not math:
+            # R7 — a blender blending nothing. A declaration-alone property,
+            # refused at parse like the scene_writes subset relations: no
+            # allocation is needed to know it.
+            raise SchemaError(
+                f"{w}: `math` is empty — a blend claim of feature '{name}' "
+                f"programs the color-math unit, and CGADSUB bits 0-5 are the "
+                f"only gates that admit a main-screen pixel into the math "
+                f"(one enable bit per layer, bit 5 = backdrop). With no "
+                f"layer gated in, the blender is programmed to blend "
+                f"nothing: no pixel can ever express this claim. Name at "
+                f"least one main-screen layer (or \"backdrop\"), or drop "
+                f"the claim.")
+        if not all(isinstance(m, str) for m in math):
+            raise SchemaError(f"{w}: math must be a list of layer names")
+        unknown = [m for m in math if m not in MATH_LAYERS]
+        if unknown:
+            raise SchemaError(
+                f"{w}: math names {unknown}, not in {sorted(MATH_LAYERS)}. "
+                f"CGADSUB carries one enable bit per main-screen layer plus "
+                f"the backdrop (bits 0-5); a name outside that set has no "
+                f"bit — a typo is not a resource.")
+        for key in ("clip", "prevent"):
+            if key in t and t[key] not in WINDOW_MODES:
+                raise SchemaError(
+                    f"{w}: {key} = '{t[key]}' is not one of "
+                    f"{sorted(WINDOW_MODES)} (CGWSEL window modes: never=0, "
+                    f"outside=1, inside=2, always=3).")
+        blend.append(BlendClaim(
+            name=t.get("name", f"{name}_blend{i if i else ''}"),
+            op=t["op"], source=t["source"], math=math,
+            half=bool(t.get("half", False)),
+            clip=t.get("clip", "never"), prevent=t.get("prevent", "never")))
+
     spc = []
     for i, t in enumerate(_as_list_of_tables(claims.get("spc", []), where)):
         w = f"{where} [[claims.spc]] #{i}"
@@ -1225,12 +1386,14 @@ def load_feature(path: str | Path, substrate: Substrate) -> FeatureDecl:
                        rom=tuple(rom), reg=tuple(reg), spc=tuple(spc),
                        vblank_bytes_per_frame=vblank_bpf,
                        vblank_transfers_per_frame=vblank_tpf,
-                       init_zero=init_zero)
+                       init_zero=init_zero,
+                       screen=tuple(screen), blend=tuple(blend))
 
     names = [c.name for group in (decl.vram, decl.dp, decl.wram, decl.sram,
                                   decl.cgram, decl.oam, decl.hdma,
                                   decl.dma_init, decl.rom, decl.reg,
-                                  decl.spc) for c in group]
+                                  decl.spc, decl.screen, decl.blend)
+             for c in group]
     dupes = {n for n in names if names.count(n) > 1}
     if dupes:
         raise SchemaError(f"{where}: duplicate claim names {sorted(dupes)}")
