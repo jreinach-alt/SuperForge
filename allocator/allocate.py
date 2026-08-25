@@ -1620,6 +1620,54 @@ def _channel_lines(chans, dma_inits=()) -> list[str]:
     return lines
 
 
+def _screen_blend_lines(sid: str, sb: dict | None) -> list[str]:
+    """The composed color-math state, as symbols the scene writes from.
+
+    The four values are emitted rather than hand-written at the write site
+    for _channel_lines' reason verbatim: an encoding narrated at the write
+    site is a second, uncheckable copy of the claim. Scene-enter code writes
+    all four ports from these symbols (the synthesized claim's scene_writes
+    is exactly this consent), so the state a scene establishes IS the state
+    its declarations composed — including the OFF state, which matters
+    across transitions: the previous scene's blend does not linger because
+    this scene's enter writes the composed values, whatever they are.
+    """
+    if sb is None:
+        return []
+    up = sid.upper()
+
+    def contrib(on_filter):
+        names = [f"{c.layer}<-{who}" for c, who in sb["screen"]
+                 if c.on in on_filter]
+        return ", ".join(names) if names else "no designation"
+
+    lines = ["; ---- screen/blend: the composed color-math state ----",
+             ";   TM/TS from [[claims.screen]]; CGWSEL/CGADSUB from",
+             ";   [[claims.blend]]. Scene-enter code writes the four ports",
+             ";   from these — never a narrated value.",
+             f"ES_SCR_{up}_TM = ${sb['tm']:02X}    ; {contrib(('main', 'both'))}",
+             f"ES_SCR_{up}_TS = ${sb['ts']:02X}    ; {contrib(('sub', 'both'))}"]
+    if sb["blend"]:
+        g, _ = sb["blend"][0]
+        math = ", ".join(f"{m}<-{who}" for c, who in sb["blend"]
+                         for m in c.math)
+        lines += [
+            f"ES_SCR_{up}_CGWSEL = ${sb['cgwsel']:02X}"
+            f"    ; source={g.source} clip={g.clip} prevent={g.prevent}"
+            f" (direct color composed 0)",
+            f"ES_SCR_{up}_CGADSUB = ${sb['cgadsub']:02X}"
+            f"    ; op={g.op}{' half' if g.half else ''} math: {math}"]
+    else:
+        lines += [
+            f"ES_SCR_{up}_CGWSEL = ${sb['cgwsel']:02X}"
+            f"    ; no blend claims: the boot-reset OFF state"
+            f" (prevent=always)",
+            f"ES_SCR_{up}_CGADSUB = ${sb['cgadsub']:02X}"
+            f"    ; no blend claims: math gates nothing"]
+    lines.append("")
+    return lines
+
+
 def _edge_lines(edge_styles) -> list[str]:
     """The declared transition style, as symbols the ASM resolves against.
 
@@ -1758,6 +1806,7 @@ def emit(alloc: Allocation, out_dir: str | Path) -> list[Path]:
             lines.append("")
         if sm.channels or sm.dma_inits:
             lines += _channel_lines(sm.channels, sm.dma_inits)
+        lines += _screen_blend_lines(sid, sm.screen_blend)
         lines += _init_contract_lines(sm.init_zero, sm.placements,
                                       "on scene entry")
         p_inc = out_dir / f"engine_state_{sid}.inc"
@@ -1821,6 +1870,22 @@ def emit(alloc: Allocation, out_dir: str | Path) -> list[Path]:
                 rep.append(f"    {c.name:24} {who:18} "
                            f"{'seed ' if c.seed else 'owns '}"
                            f"{','.join(c.registers)}")
+        # C5: the composed screen/blend state — the values, the per-layer
+        # designations with their owners, and the warnings (real hardware
+        # behaviour worth knowing, not refusals).
+        sb = sm.screen_blend
+        if sb is not None:
+            rep.append(f"  SCREEN/BLEND TM=${sb['tm']:02X} TS=${sb['ts']:02X} "
+                       f"CGWSEL=${sb['cgwsel']:02X} "
+                       f"CGADSUB=${sb['cgadsub']:02X}")
+            for c, who in sb["screen"]:
+                rep.append(f"    {c.layer} -> {c.on:5} {'':16} {who}")
+            for c, who in sb["blend"]:
+                rep.append(f"    blend {c.op}{' half' if c.half else ''} "
+                           f"source={c.source} math={','.join(c.math)} "
+                           f"clip={c.clip} prevent={c.prevent}  {who}")
+            for w in sb["warnings"]:
+                rep.append(f"    WARNING: {w}")
         arm_total = sub.vblank_arm_cost * max(sm.vblank_transfers - 1, 0)
         rep.append(f"  VBLANK-DMA {sm.vblank_bytes}"
                    f"{f' + {arm_total} arm' if arm_total else ''}"
@@ -1915,7 +1980,23 @@ def emit(alloc: Allocation, out_dir: str | Path) -> list[Path]:
                                       list(c.scene_writes_shared)}
                                  for c, who in [*alloc.global_regs, *sm.regs]],
                          "vblank_bytes": sm.vblank_bytes,
-                         "vblank_transfers": sm.vblank_transfers}
+                         "vblank_transfers": sm.vblank_transfers,
+                         # C5: the composed screen/blend state, present only
+                         # where the scene composes it (an absent key keeps
+                         # every pre-vocabulary map byte-identical). The .inc
+                         # block is what the ASM resolves against; this is
+                         # the machine-readable copy, so a test can assert
+                         # the ROM's rendered state against the DECLARED
+                         # composition rather than re-typing the values —
+                         # the `edges` precedent. The synthesized ownership
+                         # claim itself rides the `reg` list above.
+                         **({"screen_blend": {
+                                 "tm": sm.screen_blend["tm"],
+                                 "ts": sm.screen_blend["ts"],
+                                 "cgwsel": sm.screen_blend["cgwsel"],
+                                 "cgadsub": sm.screen_blend["cgadsub"],
+                                 "features": sm.screen_blend["features"]}}
+                            if sm.screen_blend is not None else {})}
                    for sid, sm in alloc.scenes.items()},
     }
     p_json = out_dir / "symbol_map.json"

@@ -359,6 +359,100 @@ def test_vocab_against_active_hdma_on_tm_refuses_with_its_own_hint(tmp_path):
     assert "no per-scanline story" in msg
 
 
+# -- emission: per-scene symbols, values derived once ------------------------
+
+def test_emission_writes_the_four_symbols_with_contributors(tmp_path):
+    feats = features(tmp_path, shore=SHORE, water=WATER)
+    a = alloc(tmp_path, feats, "shore", "water")
+    emit(a, tmp_path / "out")
+    inc = (tmp_path / "out" / "engine_state_s.inc").read_text()
+    assert "ES_SCR_S_TM = $11" in inc
+    assert "ES_SCR_S_TS = $02" in inc
+    assert "ES_SCR_S_CGWSEL = $02" in inc
+    assert "ES_SCR_S_CGADSUB = $61" in inc
+    # each line's comment names the contributing features and fields
+    tm_line = next(l for l in inc.splitlines() if l.startswith("ES_SCR_S_TM"))
+    assert "bg1<-engine:shore" in tm_line and "obj<-engine:shore" in tm_line
+    ad_line = next(l for l in inc.splitlines()
+                   if l.startswith("ES_SCR_S_CGADSUB"))
+    assert "op=add" in ad_line and "half" in ad_line
+    assert "bg1<-engine:water" in ad_line and "backdrop<-engine:water" in ad_line
+    # the globals file carries none of it (per-scene symbols, per-scene file)
+    ginc = (tmp_path / "out" / "engine_state_globals.inc").read_text()
+    assert "ES_SCR_" not in ginc
+    # machine-readable copy in the symbol map, the edges precedent
+    jmap = json.loads((tmp_path / "out" / "symbol_map.json").read_text())
+    sb = jmap["scenes"]["s"]["screen_blend"]
+    assert (sb["tm"], sb["ts"], sb["cgwsel"], sb["cgadsub"]) \
+        == (0x11, 0x02, 0x02, 0x61)
+    assert sb["features"] == ["engine:shore", "engine:water"]
+    # and the synthesized claim entered the scene's reg union with consent
+    vocab = [r for r in jmap["scenes"]["s"]["reg"]
+             if r["name"] == "screen_blend"]
+    assert len(vocab) == 1
+    assert vocab[0]["registers"] == ["TM", "TS", "CGWSEL", "CGADSUB"]
+    assert vocab[0]["scene_writes"] == ["TM", "TS", "CGWSEL", "CGADSUB"]
+
+
+def test_emission_off_state_and_absence(tmp_path):
+    """The no-blend scene emits the explicit OFF state; a scene with no
+    vocabulary claims emits nothing and its map carries no screen_blend key
+    — pre-vocabulary maps stay byte-identical."""
+    feats = features(
+        tmp_path,
+        world='[[claims.screen]]\nlayer = "bg1"\non = "main"\n',
+        plain='[[claims.dp]]\nbytes = 2\n')
+    man = manifest(tmp_path,
+                   '[[scene]]\nid = "on"\nfeatures = ["world"]\n'
+                   '[[scene]]\nid = "off"\nfeatures = ["plain"]\n'
+                   '[[edge]]\nfrom = "on"\nto = "off"\nstyle = "cut"\n')
+    a = allocate(SUB, feats, NO_STATE, man)
+    emit(a, tmp_path / "out")
+    inc_on = (tmp_path / "out" / "engine_state_on.inc").read_text()
+    assert "ES_SCR_ON_CGWSEL = $30" in inc_on     # prevent=always: math off
+    assert "ES_SCR_ON_CGADSUB = $00" in inc_on
+    inc_off = (tmp_path / "out" / "engine_state_off.inc").read_text()
+    assert "ES_SCR_" not in inc_off
+    jmap = json.loads((tmp_path / "out" / "symbol_map.json").read_text())
+    assert "screen_blend" in jmap["scenes"]["on"]
+    assert "screen_blend" not in jmap["scenes"]["off"]
+
+
+# -- warnings: the allocation report carries them ---------------------------
+
+def test_report_carries_the_obj_palette_note_and_layer_owner_cross_check(
+        tmp_path):
+    feats = features(
+        tmp_path,
+        world=('[[claims.screen]]\nlayer = "bg1"\non = "main"\n'
+               '[[claims.screen]]\nlayer = "obj"\non = "both"\n'
+               '[[claims.screen]]\nlayer = "bg2"\non = "sub"\n'),
+        wash=('[[claims.blend]]\nop = "add"\nsource = "sub"\n'
+              'math = ["bg1", "obj"]\n'),
+        floor=('[[claims.reg]]\nregisters = ["BG1SC"]\n'
+               'scene_writes = ["BG1SC"]\n'))
+    a = alloc(tmp_path, feats, "world", "wash", "floor")
+    emit(a, tmp_path / "out")
+    rep = (tmp_path / "out" / "allocation_report.txt").read_text()
+    assert "SCREEN/BLEND" in rep
+    # the OBJ-palette note (palettes 4-7 participate; 0-3 opt out)
+    assert "WARNING: OBJ in math: only sprite palettes 4-7 participate" in rep
+    # the OBJ-as-source note
+    assert "WARNING: OBJ designated to the sub screen" in rep
+    # the layer-owner cross-check names designator and owner
+    assert ("WARNING: bg1 is designated by world_screen (engine:world) "
+            "but its BG1SC is claimed by floor_reg (engine:floor)") in rep
+
+
+def test_no_warnings_for_a_clean_composition(tmp_path):
+    """The warnings' control arm: the worked two-feature scene produces no
+    warning lines, so a warning pass that fired unconditionally would fail
+    here."""
+    feats = features(tmp_path, shore=SHORE, water=WATER)
+    a = alloc(tmp_path, feats, "shore", "water")
+    assert a.scenes["s"].screen_blend["warnings"] == []
+
+
 # -- the no_literals integration: scene writes of the four ports ------------
 
 SCENE_ASM = """\
