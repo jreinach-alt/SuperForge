@@ -818,13 +818,13 @@ RAILS = {
         guard=[("US_GOVER", 2, 0), ("US_LIVES", 2, 3)],
         observables=[
             dict(name="field_scroll", kind="distance", unit="BG px",
-                 mem="wram", fields=[("ES_SHM_SCROLL", 0, 2, 256)],
+                 mem="wram", fields=[("ES_SBG_SCROLL", 0, 2, 256)],
                  why="shmup_bg's shadow of BG1VOFS, committed to the PPU "
-                     "every VBlank (shmup_bg.asm's shm_vblank_scroll). The "
+                     "every VBlank (shmup_bg.asm's sbg_vblank_scroll). The "
                      "planet field IS the sense of flying, so BG px per "
                      "second is the speed the world comes at the player. "
                      "The modulus is the map's own 256 px height, which is "
-                     "what shm_drift masks to."),
+                     "what sbg_drift masks to."),
             dict(name="ship_oam_x", kind="distance", unit="OAM px",
                  mem="oam", fields=[("ES_O_SHIP", 0, 1, 256)],
                  why="byte 0 of the ship's OAM entry — where the PPU draws "

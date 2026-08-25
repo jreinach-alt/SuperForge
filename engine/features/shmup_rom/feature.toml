@@ -15,7 +15,7 @@
 #
 # NO BG TILEMAP BLOB, the same shape breaker set. The planet field is not art
 # on a map -- it is TEN STAMPS of four 4x4-tile blocks at declared origins,
-# built cell by cell under the enter-time forced blank (shm_build_field). A
+# built cell by cell under the enter-time forced blank (sbg_build_field). A
 # 2 KB ROM tilemap would be a second source of truth for a 2 KB expression.
 #
 # ONE OBJ CHR BLOB, NOT FOUR. The PPU reads a 16x16 sprite's four 8x8 tiles at

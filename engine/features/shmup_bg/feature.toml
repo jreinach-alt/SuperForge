@@ -19,7 +19,7 @@
 # no `seed` exemption: the allocator REFUSES that composition.
 #
 # ...AND HERE THE TWO LAYERS SHARE A CHR PAGE, which is why there is one
-# `shm_chr` claim and not two. BG12NBA's two nibbles may name the SAME base,
+# `sbg_chr` claim and not two. BG12NBA's two nibbles may name the SAME base,
 # and the HUD band needs exactly one solid tile. Giving BG2 its own chr claim
 # would burn a second 4K-WORD-ALIGNED page (BGxxNBA's granularity) to hold 16
 # words. `breaker_bg` paid that because its BG2 bed carried its own palette
@@ -33,19 +33,19 @@ depends = ["shmup_rom"]
 # forced_blank -- scene_mgr's enter clears HDMAEN and zeroes NMITIMEN, so this
 # cannot race an active or vblank claim even on a shared channel number.
 [[claims.dma_init]]
-name = "shm_up"
+name = "sbg_up"
 channel = 0
 registers = ["VMDATAL", "VMDATAH"]
 mode = 1
 
 [[claims.vram]]
-name = "shm_chr"
+name = "sbg_chr"
 kind = "chr"
 tiles = 66               # blank + 4 planets x 16 + the HUD bar; BG1 AND BG2
 tile_bytes = 32          # 4bpp
 
 [[claims.vram]]
-name = "shm_map"
+name = "sbg_map"
 kind = "tilemap"
 words = 0x400            # 32x32 -- and 32 rows x 8 px = the 256 px BG1VOFS
                          # wraps at, which is what makes the field seamless
@@ -56,7 +56,7 @@ kind = "tilemap"
 words = 0x400            # BG2: the HUD band, three rows of it, then nothing
 
 [[claims.cgram]]
-name = "shm_pal"
+name = "sbg_pal"
 words = 16
 at = 32                  # hardware contract: BG 4bpp palette 2 = words 32..47.
                          # BG3's 2bpp palettes live in words 0..31 and bg_text
@@ -72,7 +72,7 @@ at = 32                  # hardware contract: BG 4bpp palette 2 = words 32..47.
 # scene. Measured, not assumed --
 #
 #  ALLOCATION FAILED: REGISTER ownership contention in scene 'play':
-#  backdrop_mode (engine:backdrop) and shm_layers (engine:shmup_bg) both
+#  backdrop_mode (engine:backdrop) and sbg_layers (engine:shmup_bg) both
 #  write ['BGMODE', 'TM']
 #
 # -- on the first run of `allocate.py` with both in the play scene. So the rule
@@ -111,7 +111,7 @@ at = 0                   # hardware contract: CGRAM word 0 IS the backdrop
 # claim it, and one scene test in the hook is cheaper than reasoning about
 # that.
 [[claims.dp]]
-name = "shm_scroll"
+name = "sbg_scroll"
 bytes = 2
 
 # C4 (docs/09 §2.1): the BG1+BG2 layer configuration AND the scene's base
@@ -126,7 +126,7 @@ bytes = 2
 # the write SERVES, which is this one: shmup_bg is what makes `play` a
 # two-BG-layer Mode 1 scene.
 [[claims.reg]]
-name = "shm_layers"
+name = "sbg_layers"
 registers = ["BG1SC", "BG2SC", "BG12NBA", "BG1HOFS", "BG1VOFS",
              "BG2HOFS", "BG2VOFS", "BGMODE", "TM"]
 scene_writes = ["BGMODE", "TM"]

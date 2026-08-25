@@ -34,7 +34,7 @@ TS_SHIP_BASE   = SHIP_SPEED * TS_ONE
 TS_BULLET_BASE = BULLET_SPEED * TS_ONE
 TS_FOE_BASE    = FOE_SPEED * TS_ONE
 ; The planet field falls one BG pixel per frame. shmup_bg owns that step and
-; is NOT edited: the scene calls its one-pixel `shm_drift` the published
+; is NOT edited: the scene calls its one-pixel `sbg_drift` the published
 ; number of times instead, so the feature keeps its `dec a` + mask exactly as
 ; written and the scale lives entirely on the caller's side. On NTSC that is
 ; one call, to the cycle.
@@ -263,7 +263,7 @@ enter:
     stz z:US_MSGPOS
     jsr shm_pool_init               ; every slot free, before any tick runs
     ; ---- BG1 + BG2: CHR, palette, the field, the band, layer registers ----
-    jsr shmup_arm
+    jsr sbg_arm
     ; ---- the sixteen sprites: CHR, three palettes, OBSEL, parked entries ---
     jsr obj_arm
     ; ---- BG3: the HUD's palette and layer registers -----------------------
@@ -427,7 +427,7 @@ shm_update:
 ; --- shm_field_drift: the field's region-correct fall ----------------------
 ; In/out: A16/I16, DB=0. Clobbers A, X.
 ;
-; shmup_bg's `shm_drift` moves the field EXACTLY ONE BG pixel — a `dec a` and
+; shmup_bg's `sbg_drift` moves the field EXACTLY ONE BG pixel — a `dec a` and
 ; the map-height mask — and it is left exactly as written. What this does is
 ; call it US_TSD times, which is 1 on NTSC (so this is one jsr and one `dec`,
 ; the behaviour the rail already had) and 1 or 2 on PAL in the pattern that
@@ -446,7 +446,7 @@ shm_field_drift:
     .a16
     .i16
     phx
-    jsr shm_drift
+    jsr sbg_drift
     plx
     dex
     bne @one

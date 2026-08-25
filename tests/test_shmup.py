@@ -49,7 +49,7 @@ def _sym(name, scene=None):
 # Addresses are ASKED FOR, never hardcoded: this file reads the same map the
 # ROM was assembled against, so a re-pack moves the test with the code.
 SM_CTL = _sym("ES_SM_CTL")["start"]
-SHM_MAP = _sym("ES_V_SHM_MAP", "play")["start"]          # VRAM WORD address
+SHM_MAP = _sym("ES_V_SBG_MAP", "play")["start"]          # VRAM WORD address
 BAR_MAP = _sym("ES_V_BAR_MAP", "play")["start"]
 TXT_MAP = _sym("ES_V_TEXT_MAP", "play")["start"]
 TITLE_TXT_MAP = _sym("ES_V_TEXT_MAP", "title")["start"]
@@ -61,7 +61,7 @@ O_BURSTS = _sym("ES_O_BURSTS", "play")["start"]
 C_SHIP_PAL = _sym("ES_C_SHIP_PAL", "play")["start"]
 C_FOE_PAL = _sym("ES_C_FOE_PAL", "play")["start"]
 C_BURST_PAL = _sym("ES_C_BURST_PAL", "play")["start"]
-C_SHM_PAL = _sym("ES_C_SHM_PAL", "play")["start"]
+C_SHM_PAL = _sym("ES_C_SBG_PAL", "play")["start"]
 DP = {k: _sym("US_" + k.upper(), "play")["start"]
       for k in ("px", "py", "score", "lives", "gover", "hurt", "blink",
                 "spawn_t", "aframe")}
@@ -442,7 +442,7 @@ def test_the_field_drifts_down_on_screen(r, tmp_path):
     """THE DIRECTION, ON PIXELS. BG1VOFS names where the VIEWPORT sits, so
     "the register decreased" is the mechanism and "the planets come toward the
     player" is the invariant — and they point opposite ways, which is how the
-    first pass of shm_drift shipped an `inc` and flew the field upward.
+    first pass of sbg_drift shipped an `inc` and flew the field upward.
 
     So this reads the rendered frame: pick the column with the most non-sky
     pixels, and measure how far ITS WHOLE PATTERN slid down over sixteen

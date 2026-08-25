@@ -19,58 +19,58 @@
 ; LAYER OWNERSHIP is asserted in shmup_bg/feature.toml, in prose, because layer
 ; identity is not a resource the allocator models.
 
-; The enter-time GP-DMA register file, addressed through the channel the shm_up
+; The enter-time GP-DMA register file, addressed through the channel the sbg_up
 ; dma_init claim names — a declared resource, not a hard-coded 0.
-SHM_REGS = $4300 + ES_D_SHM_UP_CH * 16
+SBG_REGS = $4300 + ES_D_SBG_UP_CH * 16
 
 ; Tilemap attr bits. The palette NUMBER is derived from the emitted CGRAM word
 ; index (4bpp sub-palette p occupies words 16p..16p+15), so a re-packed palette
 ; claim moves the attr with it instead of silently rendering in someone else's
 ; colours. The BG-priority bit lifts the HUD band above BG1's planets.
-SHM_ATTR     = (ES_C_SHM_PAL / 16) << 10
-SHM_ATTR_PRI = SHM_ATTR | (1 << 13)
+SBG_ATTR     = (ES_C_SBG_PAL / 16) << 10
+SBG_ATTR_PRI = SBG_ATTR | (1 << 13)
 
-; shm_build_field's four scratch words, on enter_scr — the global companion
+; sbg_build_field's four scratch words, on enter_scr — the global companion
 ; whose whole purpose is enter-time scratch for routines that run under forced
 ; blank, write-before-read per call (enter_scr/feature.toml). The field builder
 ; is exactly that: it runs once per scene enter, before anything else can look.
-; All four words INCLUDING +0, which shm_up used for its source-bank byte a
+; All four words INCLUDING +0, which sbg_up used for its source-bank byte a
 ; moment earlier — the two never overlap in time, because the CHR upload has
 ; completed before the field is built, and enter_scr's contract is exactly
 ; "write before you read, per call" rather than "this byte is mine".
-SHM_S_TILE   = ES_ESCR + 0
-SHM_S_PLANET = ES_ESCR + 2
-SHM_S_COL    = ES_ESCR + 4
-SHM_S_ROW    = ES_ESCR + 6
+SBG_S_TILE   = ES_ESCR + 0
+SBG_S_PLANET = ES_ESCR + 2
+SBG_S_COL    = ES_ESCR + 4
+SBG_S_ROW    = ES_ESCR + 6
 
-; --- shm_up: one VRAM upload. VMADD must already be set by the caller -------
+; --- sbg_up: one VRAM upload. VMADD must already be set by the caller -------
 ; In: A16/I16, DB=0, forced blank. X = source addr, Y = byte count,
 ;  ES_ESCR+0 = source bank (byte). Clobbers A, X, Y.
 ; DAS is single-shot — it is consumed by the transfer, so it is re-armed HERE,
 ; inside the routine, per call. One arming site, and it cannot be forgotten.
-shm_up:
+sbg_up:
     .a16
     .i16
-    stx a:SHM_REGS + 2              ; A1T
-    sty a:SHM_REGS + 5              ; DAS (re-armed for THIS transfer)
+    stx a:SBG_REGS + 2              ; A1T
+    sty a:SBG_REGS + 5              ; DAS (re-armed for THIS transfer)
     sep #$20
     .a8
     lda z:ES_ESCR + 0
-    sta a:SHM_REGS + 4              ; A1B
-    lda #ES_D_SHM_UP_DMAP
-    sta a:SHM_REGS + 0              ; DMAP: A->B, 2 regs write-once
-    lda #ES_D_SHM_UP_BBAD
-    sta a:SHM_REGS + 1              ; BBAD: VMDATAL
-    lda #(1 << ES_D_SHM_UP_CH)
+    sta a:SBG_REGS + 4              ; A1B
+    lda #ES_D_SBG_UP_DMAP
+    sta a:SBG_REGS + 0              ; DMAP: A->B, 2 regs write-once
+    lda #ES_D_SBG_UP_BBAD
+    sta a:SBG_REGS + 1              ; BBAD: VMDATAL
+    lda #(1 << ES_D_SBG_UP_CH)
     sta a:$420B                     ; fire (enter-time: channel regs free)
     rep #$20
     .a16
     rts
 
-; --- shm_vmain: VMAIN = word access, +1 word after the high byte ------------
+; --- sbg_vmain: VMAIN = word access, +1 word after the high byte ------------
 ; In/out: A16/I16. Clobbers A. Four callers wanted this; one site is one place
 ; for it to be wrong.
-shm_vmain:
+sbg_vmain:
     .a16
     .i16
     sep #$20
@@ -81,14 +81,14 @@ shm_vmain:
     .a16
     rts
 
-; --- shm_fill_map: fill a whole tilemap with one word ------------------------
+; --- sbg_fill_map: fill a whole tilemap with one word ------------------------
 ; In: A16/I16, DB=0, forced blank. A = tilemap word, X = VRAM word base,
 ;  Y = word count. Clobbers A, X, Y.
-shm_fill_map:
+sbg_fill_map:
     .a16
     .i16
     pha
-    jsr shm_vmain
+    jsr sbg_vmain
     stx a:$2116                     ; VMADD
     pla
 :   sta a:$2118                     ; VMDATA, word mode
@@ -96,7 +96,7 @@ shm_fill_map:
     bne :-
     rts
 
-; --- shm_build_field: the BG1 planet field ----------------------------------
+; --- sbg_build_field: the BG1 planet field ----------------------------------
 ; In/out: A16/I16, DB=0, forced blank (scene enter). Clobbers A, X, Y.
 ;
 ; Blank the map, then stamp ten 4x4 planet blocks at the declared origins. Each
@@ -109,14 +109,14 @@ shm_fill_map:
 ; off the edge and reappears at the top, which is correct rather than merely
 ; tolerated: the map wraps under BG1VOFS anyway, so the two halves of a wrapped
 ; planet are adjacent on screen.
-shm_build_field:
+sbg_build_field:
     .a16
     .i16
-    lda #(SHM_TILE_BLANK | SHM_ATTR)
-    ldx #ES_V_SHM_MAP
-    ldy #ES_V_SHM_MAP_WORDS
-    jsr shm_fill_map                ; the night sky reads through tile 0
-    jsr shm_vmain
+    lda #(SHM_TILE_BLANK | SBG_ATTR)
+    ldx #ES_V_SBG_MAP
+    ldy #ES_V_SBG_MAP_WORDS
+    jsr sbg_fill_map                ; the night sky reads through tile 0
+    jsr sbg_vmain
     ldy #0                          ; Y = stamp cursor, in BYTES
 @stamp:
     .a16
@@ -127,12 +127,12 @@ shm_build_field:
     ; bank the code cannot assume. So the stamp cursor moves to X for three
     ; loads, and X then goes back to being the cell cursor.
     tyx
-    lda f:shm_stamp_pl, x
-    sta z:SHM_S_PLANET              ; the planet's tile base, already x16
-    lda f:shm_stamp_x, x
-    sta z:SHM_S_COL
-    lda f:shm_stamp_y, x
-    sta z:SHM_S_ROW
+    lda f:sbg_stamp_pl, x
+    sta z:SBG_S_PLANET              ; the planet's tile base, already x16
+    lda f:sbg_stamp_x, x
+    sta z:SBG_S_COL
+    lda f:sbg_stamp_y, x
+    sta z:SBG_S_ROW
     ldx #0                          ; X = cell cursor within the block, 0..15
 @cell:
     .a16
@@ -140,17 +140,17 @@ shm_build_field:
     ; ---- the tile: base + planet*16 + cell --------------------------------
     txa
     clc
-    adc z:SHM_S_PLANET
+    adc z:SBG_S_PLANET
     clc
-    adc #(SHM_PLANET_BASE | SHM_ATTR)
-    sta z:SHM_S_TILE                ; ...parked while the address is computed
+    adc #(SHM_PLANET_BASE | SBG_ATTR)
+    sta z:SBG_S_TILE                ; ...parked while the address is computed
     ; ---- the destination cell: (origin + offset) wrapped onto the map ------
     txa
     .repeat 2
         lsr                         ; row within the block = cell >> 2
     .endrepeat
     clc
-    adc z:SHM_S_ROW
+    adc z:SBG_S_ROW
     and #(SHM_MAP_H - 1)
     .repeat 5
         asl                         ; row * 32
@@ -159,13 +159,13 @@ shm_build_field:
     txa
     and #(SHM_PLANET_SIDE - 1)      ; column within the block
     clc
-    adc z:SHM_S_COL
+    adc z:SBG_S_COL
     and #(SHM_MAP_W - 1)
     ora z:US_TMP                    ; col < 32, so OR is the sum
     clc
-    adc #ES_V_SHM_MAP
+    adc #ES_V_SBG_MAP
     sta a:$2116                     ; VMADD = this cell
-    lda z:SHM_S_TILE
+    lda z:SBG_S_TILE
     sta a:$2118                     ; VMDATA, word mode
     inx
     cpx #SHM_PLANET_TILES
@@ -176,39 +176,39 @@ shm_build_field:
     bcc @stamp
     rts
 
-; --- shm_build_band: the BG2 HUD band ---------------------------------------
+; --- sbg_build_band: the BG2 HUD band ---------------------------------------
 ; In/out: A16/I16, DB=0, forced blank. Clobbers A, X, Y. Three solid rows at
 ; the top, transparent everywhere else — so the SCORE and LIVES text on BG3
 ; stays legible when a bright planet drifts under it, and the rest of the sky
 ; is untouched. BG2 never scrolls, so the band stays put.
-shm_build_band:
+sbg_build_band:
     .a16
     .i16
-    lda #(SHM_TILE_BLANK | SHM_ATTR)
+    lda #(SHM_TILE_BLANK | SBG_ATTR)
     ldx #ES_V_BAR_MAP
     ldy #ES_V_BAR_MAP_WORDS
-    jsr shm_fill_map
-    jsr shm_vmain
+    jsr sbg_fill_map
+    jsr sbg_vmain
     ldx #ES_V_BAR_MAP
     stx a:$2116                     ; VMADD = row 0, col 0
-    lda #(SHM_BAR_TILE | SHM_ATTR_PRI)
+    lda #(SHM_BAR_TILE | SBG_ATTR_PRI)
     ldy #(SHM_BAR_ROWS * SHM_MAP_W)
 :   sta a:$2118                     ; the band, in tilemap order
     dey
     bne :-
     rts
 
-; --- shm_palette: the BG sub-palette + the night sky -------------------------
+; --- sbg_palette: the BG sub-palette + the night sky -------------------------
 ; In/out: A16/I16, DB=0, forced blank. Clobbers A, X. 32 bytes of CPU stores is
 ; not worth arming a channel, and the blob labels are link-time constants, so
 ; `lda f:blob, x` reaches them without a pointer (the shape room_bg
 ; established).
-shm_palette:
+sbg_palette:
     .a16
     .i16
     sep #$20
     .a8
-    lda #ES_C_SHM_PAL
+    lda #ES_C_SBG_PAL
     sta a:$2121                     ; CGADD = claim base
     rep #$20
     .a16
@@ -240,8 +240,8 @@ shm_palette:
     .a16
     rts
 
-; --- shmup_arm: uploads + the two maps + BG1/BG2 registers (scene enter) ------
-; CONTRACT shmup_arm
+; --- sbg_arm: uploads + the two maps + BG1/BG2 registers (scene enter) ------
+; CONTRACT sbg_arm
 ;   entry:    A16 I16 DB=0
 ;   exit:     A16 I16
 ;   out:      the uploads, both tilemaps and the BG1/BG2 registers
@@ -249,11 +249,11 @@ shm_palette:
 ;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
 ;             contract. Everything here is written once, at enter
 ;   tail:     rts
-shmup_arm:
+sbg_arm:
     .a16
     .i16
-    SF_ASSERT_WIDTH 16, 16, "shmup_arm"
-    jsr shm_vmain
+    SF_ASSERT_WIDTH 16, 16, "sbg_arm"
+    jsr sbg_vmain
     ; ---- the BG page: blank + four planets + the band tile ----------------
     sep #$20
     .a8
@@ -261,22 +261,22 @@ shmup_arm:
     sta z:ES_ESCR + 0
     rep #$20
     .a16
-    lda #ES_V_SHM_CHR
+    lda #ES_V_SBG_CHR
     sta a:$2116
     ldx #.loword(shm_bg_chr_bin)
     ldy #ES_R_SHM_BG_CHR_ROM_SIZE
-    jsr shm_up
-    jsr shm_palette
-    jsr shm_build_field
-    jsr shm_build_band
+    jsr sbg_up
+    jsr sbg_palette
+    jsr sbg_build_field
+    jsr sbg_build_band
     ; ---- BG registers -----------------------------------------------------
     sep #$20
     .a8
-    lda #ES_V_SHM_MAP_SC_BASE
+    lda #ES_V_SBG_MAP_SC_BASE
     sta a:$2107                     ; BG1SC: 32x32 map at the claimed base
     lda #ES_V_BAR_MAP_SC_BASE
     sta a:$2108                     ; BG2SC
-    lda #(ES_V_SHM_CHR_NBA | (ES_V_SHM_CHR_NBA << 4))
+    lda #(ES_V_SBG_CHR_NBA | (ES_V_SBG_CHR_NBA << 4))
     sta a:$210B                     ; BG12NBA: ONE page, both nibbles (the two
                                     ;  layers share it — see feature.toml)
     ; The horizontal latches are pinned at 0 and BG2 does not move at all. A
@@ -289,18 +289,18 @@ shmup_arm:
     stz a:$2110
     rep #$20
     .a16
-    stz z:ES_SHM_SCROLL             ; the field starts at the top of the map
-    jsr shm_commit_scroll           ; ...and frame 0 shows it there
+    stz z:ES_SBG_SCROLL             ; the field starts at the top of the map
+    jsr sbg_commit_scroll           ; ...and frame 0 shows it there
     rts
 
-; --- shm_drift: the field falls one pixel (main thread, every frame) --------
-; CONTRACT shm_drift
+; --- sbg_drift: the field falls one pixel (main thread, every frame) --------
+; CONTRACT sbg_drift
 ;   entry:    A16 I16 DB=0
 ;   exit:     A16 I16
 ;   out:      the star field's scroll shadow advanced one pixel
 ;   clobbers: A, N, Z
 ;   assumes:  the MAIN thread, once per frame. The commit half is
-;             shm_vblank_scroll's, in the hook
+;             sbg_vblank_scroll's, in the hook
 ;   tail:     rts
 ;
 ; THE SIGN IS THE USER-VISIBLE INVARIANT, AND IT IS BACKWARDS FROM THE
@@ -315,24 +315,24 @@ shmup_arm:
 ; The shadow is masked to the map's own height in pixels, so 0 - 1 wraps to 255
 ; rather than to $FFFF: the wrap is the game's, not a side effect of what a
 ; 10-bit register happens to truncate.
-shm_drift:
+sbg_drift:
     .a16
     .i16
-    SF_ASSERT_WIDTH 16, 16, "shm_drift"
-    lda z:ES_SHM_SCROLL
+    SF_ASSERT_WIDTH 16, 16, "sbg_drift"
+    lda z:ES_SBG_SCROLL
     dec a
     and #(SHM_MAP_H * 8 - 1)
-    sta z:ES_SHM_SCROLL
+    sta z:ES_SBG_SCROLL
     rts
 
-; --- shm_commit_scroll: the shadow -> BG1VOFS -------------------------------
-; In/out: A16/I16, DB=0. Clobbers A. Called from shmup_arm (forced blank) and
-; from shm_vblank_scroll (VBlank). BG1VOFS is WRITE-TWICE: low byte then high
+; --- sbg_commit_scroll: the shadow -> BG1VOFS -------------------------------
+; In/out: A16/I16, DB=0. Clobbers A. Called from sbg_arm (forced blank) and
+; from sbg_vblank_scroll (VBlank). BG1VOFS is WRITE-TWICE: low byte then high
 ; byte, into one 8-bit port.
-shm_commit_scroll:
+sbg_commit_scroll:
     .a16
     .i16
-    lda z:ES_SHM_SCROLL
+    lda z:ES_SBG_SCROLL
     sep #$20
     .a8
     sta a:$210E                     ; BG1VOFS low
@@ -342,12 +342,12 @@ shm_commit_scroll:
     .a16
     rts
 
-; --- shm_vblank_scroll: the NMI hook's half ---------------------------------
-; CONTRACT shm_vblank_scroll
+; --- sbg_vblank_scroll: the NMI hook's half ---------------------------------
+; CONTRACT sbg_vblank_scroll
 ;   entry:    A8 I16 DB=0
 ;   exit:     A8 I16
 ;   out:      the field's scroll registers committed from the shadow
-;             shm_drift advanced
+;             sbg_drift advanced
 ;   clobbers: A, N, Z
 ;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
 ;             convention
@@ -357,13 +357,13 @@ shm_commit_scroll:
 ; the title (which owns no BG1 register and runs BG3 alone) never has one
 ; written under it, and this feature's DP shadow has no reader before its own
 ; enter wrote it.
-shm_vblank_scroll:
+sbg_vblank_scroll:
     .a8
     .i16
-    SF_ASSERT_WIDTH 8, 16, "shm_vblank_scroll"
+    SF_ASSERT_WIDTH 8, 16, "sbg_vblank_scroll"
     rep #$20
     .a16
-    jsr shm_commit_scroll
+    jsr sbg_commit_scroll
     sep #$20
     .a8
     rts
@@ -377,12 +377,12 @@ shm_vblank_scroll:
 ; size (p * 16), because that is the only form the build loop wants and a
 ; multiply it does not have to do is a multiply it cannot get wrong.
 .segment "RODATA"
-shm_stamp_x:
+sbg_stamp_x:
     .word  2, 20, 11, 26,  4, 17, 24,  9, 19,  6
-shm_stamp_y:
+sbg_stamp_y:
     .word  1,  3,  6,  9, 12, 15, 19, 22, 26, 29
-shm_stamp_pl:
+sbg_stamp_pl:
     .word  0, 16, 32, 48, 16,  0, 32, 48, 16, 32
-.assert (shm_stamp_y - shm_stamp_x) = SHM_STAMPS * 2, error, "shm_stamp_x is not SHM_STAMPS long"
-.assert (shm_stamp_pl - shm_stamp_y) = SHM_STAMPS * 2, error, "shm_stamp_y is not SHM_STAMPS long"
+.assert (sbg_stamp_y - sbg_stamp_x) = SHM_STAMPS * 2, error, "sbg_stamp_x is not SHM_STAMPS long"
+.assert (sbg_stamp_pl - sbg_stamp_y) = SHM_STAMPS * 2, error, "sbg_stamp_y is not SHM_STAMPS long"
 .segment "CODE"

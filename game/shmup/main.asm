@@ -123,7 +123,7 @@ sm_nmi_hook:
     lda z:ES_SM_CTL             ; cur scene id
     cmp #SCENE_PLAY
     bne @done
-    jsr play::shm_vblank_scroll ; the field's drift, into BG1VOFS
+    jsr play::sbg_vblank_scroll ; the field's drift, into BG1VOFS
 @done:
     .a8
     .i16
