@@ -2046,6 +2046,26 @@ def main(argv=None) -> int:
     print(f"allocation OK: {len(alloc.scenes)} scene(s), "
           f"{sum(len(s.placements) for s in alloc.scenes.values()) + len(alloc.globals_map)} "
           f"placements -> {', '.join(str(w) for w in written)}")
+    # C5 census — printed unconditionally, on the house discipline: a zero
+    # reads as "nothing composed", never as silence, so a composition that
+    # was supposed to carry the vocabulary and does not is visible from the
+    # summary. Counts are per-scene compositions (a global claim composed
+    # into two scenes counts in both, which is what "across S scene(s)"
+    # reads as); the check count is the allocation-time refusal checks that
+    # were LIVE (R1 needs two designations, R2/R3 two blend claims, R4/R5 a
+    # blend claim, R6 the synthesized ownership claim in the scene's union
+    # — R7 is refused at parse, so every blend claim counted here already
+    # passed it).
+    sbs = [sm.screen_blend for sm in alloc.scenes.values()
+           if sm.screen_blend is not None]
+    if sbs:
+        print(f"screen/blend: {sum(sb['designations'] for sb in sbs)} "
+              f"designation(s), {sum(sb['blends'] for sb in sbs)} blend "
+              f"claim(s) composed across {len(sbs)} scene(s), "
+              f"{sum(sb['checks'] for sb in sbs)} refusal check(s) evaluated")
+    else:
+        print("screen/blend: nothing composed (no vocabulary claims in "
+              "this composition)")
     return 0
 
 

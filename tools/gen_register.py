@@ -106,6 +106,7 @@ CLAIM_CLASSES = [
     ("dp", "dp"), ("wram", "wram"), ("sram", "sram"), ("rom", "rom"),
     ("hdma", "hdma"), ("dma_init", "dma_init"),
     ("reg", "reg"), ("spc", "spc"),
+    ("screen", "screen"), ("blend", "blend"),
 ]
 
 BEGIN = "<!-- BEGIN GENERATED: %s -->"

@@ -166,7 +166,7 @@ because the display features are welded to their art blobs by name —
 *room*'s art, not yours (`camera_follow` and `maze` both carry this ruling).
 
 **New** means a fresh `feature.toml` with claims. The checklist is docs/09
-§4.6; the twelve claim classes are in `allocator/schemas.py`. Probe the
+§4.6; the fourteen claim classes are in `allocator/schemas.py`. Probe the
 composition *before* writing ASM — `scroll_run`'s manifest was its first
 commit, so an infeasible list would have stopped the build before any code.
 

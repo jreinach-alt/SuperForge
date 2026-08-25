@@ -453,6 +453,38 @@ def test_no_warnings_for_a_clean_composition(tmp_path):
     assert a.scenes["s"].screen_blend["warnings"] == []
 
 
+# -- the CLI census line: zero reads as "nothing composed", not silence -----
+
+def test_cli_census_line_both_states(tmp_path):
+    """Both arms of the summary census: a composing game prints the counts,
+    a vocabulary-free game prints 'nothing composed' — never silence."""
+    import subprocess
+    for n, b in {"shore": SHORE, "water": WATER,
+                 "plain": '[[claims.dp]]\nbytes = 2\n'}.items():
+        feature(tmp_path, n, b)
+
+    def run_game(gdir, features_list):
+        g = tmp_path / gdir
+        g.mkdir()
+        (g / "game.toml").write_text(
+            '[[scene]]\nid = "s"\nfeatures = ['
+            + ", ".join(f'"{x}"' for x in features_list) + ']\n')
+        return subprocess.run(
+            [sys.executable, str(SUPERFORGE / "allocator" / "allocate.py"),
+             "--game", str(g), "--features-dir", str(tmp_path),
+             "--out", str(g / "out")], capture_output=True, text=True)
+
+    r = run_game("g_on", ["shore", "water"])
+    assert r.returncode == 0, r.stderr
+    assert ("screen/blend: 3 designation(s), 1 blend claim(s) composed "
+            "across 1 scene(s)") in r.stdout
+    assert "refusal check(s) evaluated" in r.stdout
+
+    r = run_game("g_off", ["plain"])
+    assert r.returncode == 0, r.stderr
+    assert "screen/blend: nothing composed" in r.stdout
+
+
 # -- the no_literals integration: scene writes of the four ports ------------
 
 SCENE_ASM = """\
