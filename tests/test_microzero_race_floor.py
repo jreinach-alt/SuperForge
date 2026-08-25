@@ -94,7 +94,12 @@ def booted():
     runner.boot_to_frame(str(SUPERFORGE / "build" / "microzero.sfc"), 140)
     # title is up; press START, then ride the fade edge into race
     D.enter_race(runner, syms)            # fade-out + blank switch + fade-in
-    return runner, syms
+    yield runner, syms
+    # `enter_race` leaves the core PARKED, and the core is a process-global
+    # singleton: a `return` here hands the next module a runner it cannot
+    # resume, which is the stall `MesenRunner.__del__`'s docstring names.
+    # `stop()` resumes a frame-stepping runner before it parks the thread.
+    runner.stop()
 
 
 def test_vram_seed_matches_world(booted, oracle):
