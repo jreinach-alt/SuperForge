@@ -115,14 +115,58 @@ Ruleset (documented precision/recall trade, per finding class):
   are equally unwatched, because the scan reads each listed file's own text
   and never expands includes).
 
-  STATED LIMIT, unchanged and shared with every other lint here: a write
-  through a RELOCATED direct page is invisible. `lda #$2100 / tcd / sta $05`
-  IS a BGMODE write and no reg pass sees it. It is backstopped today — the
-  ADDRESS rule refuses `$05` as a raw operand, so the build stops — but that
-  backstop is incidental, and a DP-relative write through an EMITTED symbol
-  would pass. No in-tree code relocates DP (`grep '^\\s*tcd'` = one site,
-  vendor/rom/init.inc:34, DP = $0000), so this is latent and exotic; recorded
-  rather than built for (convergence §4.4 item 2).
+  DP RELOCATION (covered since 2026-08-25 — this used to be the stated
+  blind spot). `lda #$2100 / tcd / sta $05` IS a BGMODE write, and the reg
+  pass now sees it: DP state is tracked per routine (see _track_dp), and
+  while D provably points into the io window a direct-page operand is folded
+  to the port it actually hits and runs the SAME ownership checks as an
+  absolute write — including the decimal spelling (`sta 5`) the ADDRESS
+  rule's F6 exemption deliberately waves through, and an EMITTED dp symbol,
+  neither of which any other rule could refuse. The bare-literal refusal is
+  NOT weakened: `sta $05` still fires the address rule too; the reg finding
+  is the attribution on top of it.
+
+  The model, conservative in the gate's direction: KNOWN after a foldable
+  `lda #imm` + `tcd` or `pea` + `pld`; `phd`/`pld` save-restores; an
+  unconditional flow exit (rts/rtl/rti/stp/jmp/bra/brl) resets to the home
+  page — the tree's contract, established once in vendor/rom/init.inc —
+  while `jsr`/`jsl`, labels and conditional branches leave the state alone.
+  Fail-closed refusals: a `tcd`/`pld` from a value this file cannot fold is
+  reported ONCE, at the establishing instruction (everything after it is
+  equally unattributable); an unfoldable dp OFFSET while the page overlaps
+  the window is refused per site; a dp write into the CHANNEL territory
+  ($420B/$420C/$43xx) is refused outright, because the channel rules cannot
+  see a dp-relative form and a silent handoff to them would be the tsb hole
+  again by another door. A relocation whose page misses the window entirely
+  (a save-area repoint) passes, and the summary's `dp:` census counts every
+  relocation tracked and every write attributed, so a disarmed pass reads
+  as disarmed.
+
+  HOW LEGITIMATE RELOCATED ACCESS WILL BE DECLARED when the engine-side
+  adoption lands (the cycle-savings half, deliberately NOT built here): the
+  PORTS need nothing new — an attributed write answers to the same
+  [[claims.reg]] / coverage / scene_writes machinery as an absolute write,
+  which is the point of attributing it. What adoption adds is ADDRESSING
+  MATERIAL, emitted so no literal appears: a [[claims.reg]] entry opts in
+  (e.g. `dp_page = true`), and the allocator then emits the page base the
+  code loads before `tcd` (ES_RG_<CLAIM>_PAGE — silicon, like io_allowed)
+  and a per-register in-page offset (ES_RG_<NAME>_DP), AND records both in
+  the map so this pass folds them the way it already folds dp placements.
+  Names indicative; the adoption change picks the final spelling and brings
+  its own pin moves.
+
+  STATED LIMITS, the single-file textual class shared with every lint here:
+  the walk is STRAIGHT-LINE — branch ARRIVALS are not merged, so a `bra`
+  between the `tcd` and the write launders the state back to the reset rule
+  (the width lint's pre-arrival-check shape, and the next hole to close if
+  relocation is ever adopted broadly); the width of the `lda #imm` feeding a
+  `tcd` is not tracked, so an A8 load with a dirty B byte folds at face
+  value; a CALLER-relocated DP is invisible in the callee (entering on the
+  home page is the contract this pass enforces); a `phd`/`pld` bracket with
+  byte-imbalanced pushes between its ends mis-tracks (the stack model counts
+  entries, not bytes — width_lint's stack-balance territory); READS under a
+  relocated page are not policed (the pass polices writes, both modes); and
+  `pei`/`per` push opaque entries.
 
   Override: `; REG-LINT: ok [$port] — <reason>` within 3 lines, reason
   required, bare form itself a finding — and PORT-SCOPED: an explicit
@@ -1852,9 +1896,199 @@ def _reg_override_for(lines: list[str], idx: int, port: int, site,
     return False, ambiguous
 
 
+# --- DP relocation tracking (the tcd blind spot, closed) --------------------
+#
+# `lda #$2100 / tcd / sta $05` IS a BGMODE write. The ownership pass resolves
+# operands as bank-0 addresses, so a direct-page operand under a RELOCATED
+# direct page was invisible to it — backstopped only incidentally, by the
+# ADDRESS rule refusing the raw `$05` (and not at all for `sta 5`, whose
+# decimal form the address rule deliberately exempts, or for an emitted dp
+# SYMBOL). See scan_reg_ownership for how the tracked state is consumed and
+# the module docstring's DP paragraph for the declared/adoption design.
+#
+# The model is straight-line and per-routine, conservative in the gate's
+# direction: KNOWN(value) after a foldable `lda #imm` + `tcd` or `pea` +
+# `pld`; a `phd`/`pld` bracket restores; an unconditional flow exit (rts/
+# rtl/rti/stp/jmp/bra/brl) resets to the home page (the tree's contract,
+# established once in vendor/rom/init.inc); `jsr`/`jsl`, labels and
+# conditional branches leave the state alone. A `tcd` whose A cannot be
+# folded, or a `pld` that restores something this file never pushed a DP
+# under, makes the state UNKNOWN — reported ONCE, at the establishing
+# instruction, since every later dp access is equally unattributable.
+
+DP_HOME = 0x0000
+_DP_UNKNOWN = None
+
+_PUSH_MN = {"pha", "phx", "phy", "php", "phb", "phd", "phk", "pea", "pei",
+            "per"}
+_PULL_MN = {"pla", "plx", "ply", "plp", "plb", "pld"}
+_A_UNKNOWN_MN = {"xba", "mvn", "mvp", "tdc", "tsc"}   # set A outside LOAD_RE
+_DP_FLOW_EXIT_RE = re.compile(r"^\s*(?:rts|rtl|rti|stp|jmp|bra|brl)\b", re.I)
+
+
+def _fold_const(expr: str, aliases: dict[str, int]) -> int | None:
+    """A literal in any base, or a file-local alias `_port_aliases` resolved
+    (an io-page equate is exactly what a relocation target names)."""
+    e = expr.strip()
+    if re.fullmatch(NUM, e):
+        return _lit_value(e)[0]
+    return aliases.get(e)
+
+
+def _dp_a_value(lines: list[str], tcd_idx: int, aliases) -> int | None:
+    """What A holds at a `tcd`, or None. Straight-line: a label, control
+    flow, a width toggle, or an unfoldable A-setter ends the walk unknown."""
+    for j in range(tcd_idx - 1, max(-1, tcd_idx - 40), -1):
+        line = _strip(lines[j])
+        if not line.strip() or DIRECTIVE_RE.match(line):
+            continue
+        if FLOW_RE.match(line) or LABEL_ONLY_RE.match(line) \
+                or LABEL_RE.match(line):
+            return None
+        m = MNEMONIC_RE.match(line)
+        mn = m.group("mn").lower() if m else ""
+        if mn in _A_UNKNOWN_MN or mn in ("sep", "rep"):
+            return None                 # sets A opaquely / changes its width
+        lm = LOAD_RE.match(line)
+        if not lm or _SETS.get(mn) != "a":
+            continue                    # does not write A
+        im = IMM_RE.match(lm.group("rest").strip())
+        if not im:
+            return None                 # A from memory/transfer: unfoldable
+        return _fold_const(im.group("val"), aliases)
+    return None
+
+
+def _dp_equates(lines: list[str], aliases) -> dict[str, int]:
+    """File-local `NAME = <foldable>` below $100 — the dp-offset spellings."""
+    out: dict[str, int] = {}
+    for raw in lines:
+        line = _strip(raw)
+        if DIRECTIVE_RE.match(line):
+            continue
+        m = ASSIGN_LHS_RE.match(line)
+        if m:
+            v = _fold_const(m.group("rest"), aliases)
+            if v is not None and 0 <= v < 0x100:
+                out[m.group("sym")] = v
+    return out
+
+
+def _map_dp_syms(raw_map: dict | None) -> dict[str, int]:
+    """Emitted dp-class placement symbols -> their page offsets. A name that
+    resolves differently in two scenes is dropped (ambiguous, fails closed
+    to `unfoldable` at any site that names it)."""
+    if not raw_map:
+        return {}
+    out: dict[str, int] = {}
+    seen_conflict: set = set()
+    pools = [raw_map.get("globals", [])] + \
+        [sc.get("placements", []) for sc in raw_map.get("scenes", {}).values()]
+    for p in (pl for pool in pools for pl in pool):
+        if p.get("class") != "dp":
+            continue
+        sym, start = p["sym"], p["start"]
+        if out.get(sym, start) != start:
+            seen_conflict.add(sym)
+        out[sym] = start
+    for sym in seen_conflict:
+        del out[sym]
+    return out
+
+
+def _dp_operand_offset(rest: str, dp_syms, equates) -> object:
+    """A write operand's DIRECT-PAGE offset: an int, "unfoldable", or None
+    when the operand is not dp-shaped at all (absolute/long/indirect)."""
+    d = rest.strip()
+    if d.startswith("(") or d.startswith("["):
+        return None                     # writes through a pointer, not the dp
+    forced = d.lower().startswith("z:")
+    if re.match(r"^[af]:", d, re.I):
+        return None                     # absolute/long: immune to D
+    d = INDEX_SUFFIX_RE.sub("", re.sub(r"^z:", "", d, flags=re.I)).strip()
+    m = BASE_TERM_RE.match(d)
+    if not m:
+        return "unfoldable" if forced else None
+    tok, tail = m.group("base"), m.group("tail")
+    if re.fullmatch(NUM, tok):
+        v = _lit_value(tok)[0]
+    elif tok in dp_syms:
+        v = dp_syms[tok]
+    elif tok in equates:
+        v = equates[tok]
+    else:
+        return "unfoldable" if forced else None
+    off = _fold_offset(tail)
+    if off is None:
+        return "unfoldable" if forced or v < 0x100 else None
+    v += off
+    if v < 0x100:
+        return v
+    return "unfoldable" if forced else None
+
+
+def _track_dp(lines: list[str], aliases) -> tuple[list, list, dict]:
+    """(state-before-line list, unknown-relocation sites, dp stats).
+
+    States: DP_HOME / a KNOWN int / _DP_UNKNOWN. Unknown sites are
+    (0-based line, what) pairs — reported once at the establishing
+    instruction rather than at every access downstream of it.
+    """
+    states, unknown_sites = [], []
+    dp: object = DP_HOME
+    stack: list = []                    # ("dp", state) | ("val", v) | ("o",)
+    n_reloc = 0
+    for i, raw in enumerate(lines):
+        states.append(dp)
+        line = _strip(raw)
+        m = MNEMONIC_RE.match(LABEL_RE.sub("", line))
+        if not m or DIRECTIVE_RE.match(line) or (
+                ASSIGN_RE.match(line) and not LABEL_RE.match(line)):
+            continue
+        mn = m.group("mn").lower()
+        if _DP_FLOW_EXIT_RE.match(line):
+            dp, stack = DP_HOME, []     # the next routine enters on the
+            continue                    # home page (the tree's contract)
+        if mn == "tcd":
+            n_reloc += 1
+            dp = _dp_a_value(lines, i, aliases)
+            if dp is _DP_UNKNOWN:
+                unknown_sites.append((i, "`tcd` from a value this file "
+                                         "cannot fold"))
+            continue
+        if mn == "pea":
+            stack.append(("val", _fold_const(m.group("rest") or "", aliases)))
+            continue
+        if mn == "phd":
+            stack.append(("dp", dp))
+            continue
+        if mn in _PUSH_MN:
+            stack.append(("o",))
+            continue
+        if mn == "pld":
+            top = stack.pop() if stack else None
+            if top is None:
+                dp = DP_HOME            # restoring the caller's push: the
+                continue                # home page, per the same contract
+            if top[0] in ("dp", "val") and top[1] is not None:
+                if top[0] == "val":
+                    n_reloc += 1
+                dp = top[1]
+                continue
+            n_reloc += 1
+            dp = _DP_UNKNOWN
+            unknown_sites.append((i, "`pld` restoring a value this file "
+                                     "cannot fold"))
+            continue
+        if mn in _PULL_MN and stack:
+            stack.pop()
+    return states, unknown_sites, {"reloc": n_reloc}
+
+
 def scan_reg_ownership(path: Path, lines: list[str],
                        ctx: "RegContext | Finding | None",
-                       stats: dict | None = None) -> list[Finding]:
+                       stats: dict | None = None,
+                       dp_syms: dict | None = None) -> list[Finding]:
     """An in-scope port store must be declared or covered — see the block
     comment above for the path map, the covered rule, and the residue.
 
@@ -1874,6 +2108,11 @@ def scan_reg_ownership(path: Path, lines: list[str],
     port_names = _port_names(schemas.REGISTER_FOOTPRINT)
     findings: list[Finding] = []
     aliases = _port_aliases(lines)
+    dp_states, dp_unknown, dp_stats = _track_dp(lines, aliases)
+    dp_equates = _dp_equates(lines, aliases)
+    if stats is not None:
+        d = stats.setdefault("dp", {"reloc": 0, "attributed": 0})
+        d["reloc"] += dp_stats["reloc"]
 
     # PASS 1 — resolve every write-shaped site. Override scoping needs the
     # whole map before it can decide any override's scope: rule 2 asks "does the
@@ -1899,6 +2138,47 @@ def scan_reg_ownership(path: Path, lines: list[str],
             continue
         port = _store_port(mi.group("rest") or "", aliases)
         if port is None:
+            # Not a bank-0 io operand as written — but under a RELOCATED
+            # direct page a dp-shaped operand can still land in the window:
+            # `lda #$2100 / tcd / sta $05` IS a BGMODE write. Attribute it
+            # and run the SAME checks an absolute write gets.
+            dp = dp_states[i - 1]
+            if dp is _DP_UNKNOWN or dp == DP_HOME:
+                continue                # unknown fired at its own tcd/pld;
+                                        # home = the allocator-owned page
+            off = _dp_operand_offset(mi.group("rest") or "",
+                                     dp_syms or {}, dp_equates)
+            if off is None:
+                continue                # absolute/long/indirect: immune to D
+            via = f"DP=${dp:04X}"
+            if off == "unfoldable":
+                if not any(dp <= hi and dp + 0xFF >= lo for lo, hi in
+                           ((0x2100, 0x21FF), (0x4200, 0x43FF))):
+                    continue            # the page misses the io window whole
+                line_sites[i - 1] = _site_id(i - 1, UNRESOLVED_PORT)
+                if stats is not None:
+                    stats["cats"]["unresolved"] = \
+                        stats["cats"].get("unresolved", 0) + 1
+                candidates.append((i, UNRESOLVED_PORT, "unresolved", None,
+                                   mi.group("rest") or "", via))
+                continue
+            eff = (dp + off) & 0xFFFF
+            if not _in_io(eff):
+                continue                # a benign relocation (a save area)
+            if stats is not None:
+                stats["dp"]["attributed"] += 1
+                stats["cats"][_reg_category(eff)[0]] = \
+                    stats["cats"].get(_reg_category(eff)[0], 0) + 1
+            kind, info = _reg_category(eff)
+            line_sites[i - 1] = _site_id(i - 1, eff)
+            if kind != "channel":       # dp CHANNEL writes are refused below:
+                                        # the channel rules cannot see them
+                if eff in ctx.declared or eff in ctx.covered:
+                    continue
+                if kind in ("latch", "data") and ctx.satisfies_resource(*info):
+                    continue
+            candidates.append((i, eff, kind, info,
+                               mi.group("rest") or "", via))
             continue
         line_sites[i - 1] = _site_id(i - 1, port)
         if port == UNRESOLVED_PORT:
@@ -1916,12 +2196,20 @@ def scan_reg_ownership(path: Path, lines: list[str],
                 continue                # declared, or covered as a port
             if kind in ("latch", "data") and ctx.satisfies_resource(*info):
                 continue                # the resource claim covers it
-        candidates.append((i, port, kind, info, mi.group("rest") or ""))
+        candidates.append((i, port, kind, info, mi.group("rest") or "", ""))
+
+    # An unknown DP relocation is reported ONCE, at the instruction that
+    # establishes it — every dp operand after it is equally unattributable,
+    # and a finding per access would bury the cause under its consequences.
+    for idx0, what in dp_unknown:
+        line_sites.setdefault(idx0, _site_id(idx0, UNRESOLVED_PORT))
+        candidates.append((idx0 + 1, UNRESOLVED_PORT, "dp-unknown", what,
+                           _strip(lines[idx0]).strip(), ""))
 
     # PASS 2 — apply overrides, port-scoped.
     would_fire = {i - 1: _site_id(i - 1, port)
-                  for i, port, _k, _inf, _r in candidates}
-    for i, port, kind, info, rest in candidates:
+                  for i, port, _k, _inf, _r, _v in candidates}
+    for i, port, kind, info, rest, via in candidates:
         idx = i - 1
         site = _site_id(idx, port)
         radius = {s for k, s in would_fire.items() if abs(k - idx) <= 3}
@@ -1939,8 +2227,35 @@ def scan_reg_ownership(path: Path, lines: list[str],
             findings.append(Finding(path, i, "reg", _ambiguous_verdict(
                 port, rest.strip(), radius, note[1])))
             continue
-        msg = (_unresolved_verdict(rest.strip(), ctx) if kind == "unresolved"
-               else _reg_verdict(path, port, kind, info, ctx, port_names))
+        if kind == "dp-unknown":
+            msg = (f"the direct page is relocated by {info} — every "
+                   f"direct-page operand after this line is unattributable "
+                   f"to a port, so the ownership checks cannot run past it. "
+                   f"Load the target from a value this file can fold (a "
+                   f"literal, or an equate defined here), restore with a "
+                   f"`phd`/`pld` bracket, or suppress with `; REG-LINT: ok — "
+                   f"<reason>` if the relocated page provably holds no "
+                   f"hardware register")
+        elif kind == "channel" and via:
+            msg = (f"write to ${port:04X} THROUGH the relocated direct page "
+                   f"({via}) — the port is DMA-channel territory, and the "
+                   f"channel rules cannot see a dp-relative form, so the "
+                   f"shape is refused outright. Use absolute addressing for "
+                   f"enable/register-file writes, or suppress with "
+                   f"`; REG-LINT: ok ${port:04X} — <reason>`")
+        elif kind == "unresolved" and via:
+            msg = (f"direct-page operand `{rest.strip()}` cannot be folded "
+                   f"while the direct page points into the io window ({via}) "
+                   f"— the write may reach any port of that page. Address it "
+                   f"through a symbol this file can fold, or suppress with "
+                   f"`; REG-LINT: ok — <reason>`")
+        else:
+            msg = (_unresolved_verdict(rest.strip(), ctx)
+                   if kind == "unresolved"
+                   else _reg_verdict(path, port, kind, info, ctx, port_names))
+            if msg and via:
+                msg += (f" [the operand is DIRECT-PAGE and reaches the port "
+                        f"through the relocated page: {via}]")
         if msg:
             # Appended to the finding rather than filed as its own, so
             # the note travels with the refusal it explains and the finding
@@ -2855,7 +3170,7 @@ def scan_file(path: Path, io, placements, raw_map: dict | None = None,
     findings += scan_blanket_rom_template(path, lines)
     if raw_map is not None:
         findings += scan_reg_ownership(path, lines, reg_context(path, raw_map),
-                                       stats)
+                                       stats, dp_syms=_map_dp_syms(raw_map))
         # item 5: independent of the write-site pass, and deliberately so —
         # it asks about the DECLARATION, not about any one write, so it must
         # not be gated on a context resolving or on a site firing.
@@ -2892,6 +3207,12 @@ def summarise(n_files: int, stats: dict) -> str:
                         "unresolved"))
     out += (f"; reg ownership: {total} io write-site(s) examined"
             + (f" ({detail})" if total else ""))
+    # The DP tracker's own reach, printed unconditionally on the same
+    # discipline: "0 relocations" says the tracker ran over a tree that
+    # never repoints D — a different statement from the pass being absent.
+    dp = stats.get("dp", {"reloc": 0, "attributed": 0})
+    out += (f"; dp: {dp['reloc']} relocation(s) tracked, "
+            f"{dp['attributed']} dp write-site(s) attributed to a port")
     # item 5: the lies-check's own arming disclosure. It is silent for an
     # owner with no `.asm`, which is CORRECT (nothing to lie about) but
     # indistinguishable from "the feature files were not in this invocation's

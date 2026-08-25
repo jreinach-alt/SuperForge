@@ -419,6 +419,110 @@ def test_tsb_against_a_hardware_register_is_seen_by_both_passes(tmp_path):
     assert "[reg]" in out and "BGMODE" in out, out
 
 
+# -- DP relocation: the reg pass attributes dp writes through a moved D ------
+#
+# The tool's header used to state this as ITS blind spot: `lda #$2100 / tcd /
+# sta $05` IS a BGMODE write and no reg pass saw it, backstopped only
+# incidentally by the address rule's refusal of the raw `$05`. The pass now
+# tracks DP per routine and attributes dp operands; these hold each polarity,
+# and each proves it exercised the NEW code — the decimal spelling is
+# invisible to every other rule, the passing arms are checked against the
+# summary's own `dp:` census (so a pass that never ran cannot read as clean),
+# and the declared arm is paired with its undeclared refusal.
+
+def run_map(tmp_path, mapdict, source: str):
+    mp = tmp_path / "symbol_map.json"
+    mp.write_text(json.dumps(mapdict))
+    src = tmp_path / "t.asm"
+    src.write_text(source)
+    return subprocess.run(
+        [sys.executable, str(TOOL), "--map", str(mp), str(src)],
+        capture_output=True, text=True)
+
+
+def test_the_header_example_is_caught_and_attributed_to_bgmode(tmp_path):
+    """`lda #$2100 / tcd / sta $05`: the address rule still refuses the raw
+    literal (the backstop, unweakened) AND the reg pass now names BGMODE."""
+    r = run(tmp_path, CLEAN + "        lda #$2100\n        tcd\n"
+                              "        sta $05\n")
+    out = r.stdout + r.stderr
+    assert r.returncode == 1, out
+    assert "raw address operand" in out, out          # the backstop held
+    assert "$2105" in out and "BGMODE" in out, out    # the attribution is new
+    assert "relocated" in out, out
+
+
+def test_the_decimal_dp_spelling_no_other_rule_can_see_is_caught(tmp_path):
+    """`sta 5` rides the address rule's F6 decimal exemption, so before the
+    DP pass this whole file exited 0 — the sharpest liveness proof there is."""
+    r = run(tmp_path, CLEAN + "        lda #$2100\n        tcd\n"
+                              "        sta 5\n")
+    out = r.stdout + r.stderr
+    assert r.returncode == 1, out
+    assert "BGMODE" in out and "relocated" in out, out
+
+
+def test_a_declared_relocated_write_passes_and_undeclared_fails(tmp_path):
+    """The declared/legitimate shape: the write is attributed to its port
+    and answers to the SAME claim machinery as an absolute write — a map
+    that declares (and opens) the register accepts it, the same map without
+    the declaration refuses it, and the summary census proves the passing
+    arm was ATTRIBUTED rather than skipped."""
+    import copy
+    body = (CLEAN + "        lda #$2100\n        tcd\n"
+                    "        sta z:ES_FEAT_A_POS\n")   # dp offset 0 -> $2100
+    declared = copy.deepcopy(MAP)
+    declared["scenes"]["toy"]["reg"].append(
+        {"name": "toy_disp", "registers": ["INIDISP"], "seed": False,
+         "consumer": "engine:feat_a", "scene_writes": ["INIDISP"],
+         "scene_writes_shared": []})
+    ok = run_map(tmp_path, declared, body)
+    assert ok.returncode == 0, ok.stdout + ok.stderr
+    assert "dp: 1 relocation(s) tracked, 1 dp write-site(s) attributed" in \
+        ok.stdout, ok.stdout
+    bad = run_map(tmp_path, MAP, body)
+    assert bad.returncode == 1, bad.stdout + bad.stderr
+    assert "INIDISP" in (bad.stdout + bad.stderr), bad.stdout + bad.stderr
+
+
+def test_a_benign_relocation_passes_and_the_tracker_says_it_ran(tmp_path):
+    """A save-area repoint (page misses the io window) is legal — and the
+    census must still count the relocation, or a silent tracker would be
+    indistinguishable from a clean one."""
+    r = run(tmp_path, CLEAN + "        lda #$0300\n        tcd\n"
+                              "        sta z:ES_FEAT_A_POS\n")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "dp: 1 relocation(s) tracked, 0 dp write-site(s) attributed" in \
+        r.stdout, r.stdout
+
+
+def test_a_dynamic_dp_is_refused_at_the_establishing_instruction(tmp_path):
+    """A `tcd` this file cannot fold poisons every later dp operand — one
+    conservative refusal at the cause, not silence."""
+    r = run(tmp_path, CLEAN + "        lda a:US_SCRATCH\n        tcd\n"
+                              "        sta z:ES_FEAT_A_POS\n")
+    out = r.stdout + r.stderr
+    assert r.returncode == 1, out
+    assert "cannot fold" in out and "unattributable" in out, out
+
+
+def test_a_phd_pld_bracket_restores_and_the_channel_territory_refuses(
+        tmp_path):
+    """Two more shapes: after `pld` the home page is back (the write is the
+    allocator's own dp byte again — legal), and a dp write into the channel
+    territory is refused outright, since the channel rules cannot see the
+    dp-relative form."""
+    ok = run(tmp_path, CLEAN
+             + "        phd\n        lda #$2100\n        tcd\n"
+             + "        pld\n        sta z:ES_FEAT_A_POS\n")
+    assert ok.returncode == 0, ok.stdout + ok.stderr
+    bad = run(tmp_path, CLEAN + "        lda #$4200\n        tcd\n"
+                                "        lda #$01\n        sta $0B\n")
+    out = bad.stdout + bad.stderr
+    assert bad.returncode == 1, out
+    assert "channel territory" in out and "$420B" in out, out
+
+
 # -- DMAP/BBAD must come from the declaration, not from a literal (F8) -------
 
 ENC_PRELUDE = "FNT_REGS = $4300 + ES_D_FONT_UP_CH * 16\n"

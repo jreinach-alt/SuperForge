@@ -493,13 +493,18 @@ the tool's other limits. Fixtures + tests at
 implementation's scoping record is + (ported 2026-08-01 with supersession
 headers), and the two gates' cross-fire is.
 
-A **stated limit worth naming** (convergence §4.4 item 2): a write through a
-RELOCATED direct page is invisible to the reg pass. `lda #$2100 / tcd /
-sta $05` IS a BGMODE write. It is backstopped today — the *address* rule
-refuses `$05` as a raw operand — but incidentally, and a DP-relative write
-through an *emitted* symbol would pass. No in-tree code relocates DP
-(`grep '^\s*tcd'` = one site, `vendor/rom/init.inc:34`, `DP = $0000`), so
-this is latent and exotic: recorded, deliberately not built for.
+A limit that used to be stated here (convergence §4.4 item 2) is **closed
+as of 2026-08-25**: a write through a RELOCATED direct page — `lda #$2100 /
+tcd / sta $05` IS a BGMODE write — is now tracked by the reg pass, which
+folds DP state per routine and attributes direct-page operands to the port
+they actually hit, running the same ownership checks as an absolute write
+(the decimal spelling `sta 5` and an *emitted* dp symbol included, neither
+of which the address rule could refuse). An unfoldable `tcd`/`pld` or
+offset fails closed at the establishing site; a dp write into the channel
+territory is refused outright. The tool's header carries the model, the
+adoption-side declaration design, and what remains single-file/straight-line
+about it; the summary's `dp:` census makes the tracker's reach readable.
+The bare-literal backstop is unchanged.
 
 **2. Scene-enter and boot register writes have no structural owner.** They are
 attributed to the feature they serve, which works and is checked for
