@@ -927,6 +927,25 @@ def test_docs_99_quoted_refusal_is_actually_verbatim(tmp_path):
     assert norm(quoted) == norm(actual)
 
 
+def test_every_routing_surface_names_the_vocabulary(tmp_path):
+    """The routing class, closed at each surface that carries it rather than
+    one at a time. `docs/09` §4.2/§4.6 is the architecture map, AGENTS.md's
+    `no_literals` idioms bullet is the operating manual's version of the same
+    sentence, and RegClaim's own docstring is what an author reads when
+    deciding which class a port belongs to. All three used to route a
+    colour-math write to `[[claims.reg]]`, which is the shape a composing
+    scene refuses. None is regenerated, so nothing but this gates them.
+    """
+    for path, must in (
+            ("AGENTS.md", ("[[claims.screen]]", "[[claims.blend]]",
+                           "TM`/`TS`/`CGWSEL`/`CGADSUB")),
+            ("allocator/schemas.py", ("[[claims.screen]]", "[[claims.blend]]",
+                                      "NOT THE RIGHT CLASS FOR FOUR PORTS"))):
+        text = (SUPERFORGE / path).read_text()
+        for needle in must:
+            assert needle in text, f"{path} lost: {needle}"
+
+
 def test_docs_09_routes_colour_math_to_the_vocabulary(tmp_path):
     """docs/09 is the architecture map — "where a new feature goes and what
     it must declare" — and its two routing surfaces are prose that no

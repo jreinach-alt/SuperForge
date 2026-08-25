@@ -674,6 +674,16 @@ class RegClaim:
     So: two reg claims whose footprints intersect in one scene CONFLICT, full
     stop. `seed` is the one exemption, and it is about persistence rather than
     time — see the field comment.
+
+    NOT THE RIGHT CLASS FOR FOUR PORTS. `TM`, `TS`, `CGWSEL` and `CGADSUB`
+    are composed by the screen/blend vocabulary (ScreenClaim / BlendClaim
+    below, docs/99): a layer designation is a `[[claims.screen]]` and
+    colour-math programming a `[[claims.blend]]`, and inside a scene that
+    composes either half a raw claim on those ports is REFUSED — the
+    composition synthesizes its own ownership claim over them, so this class
+    meets it as an ordinary intersection. A raw claim on them stays right
+    only where the vocabulary does not reach: per-scanline TM under an hdma
+    claim, direct colour (CGWSEL b0), TMW/TSW.
     """
     name: str
     registers: tuple[str, ...]

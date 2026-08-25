@@ -676,8 +676,17 @@ The full rule is CLAUDE.md #2. What it means in practice here:
   clobber A/X/Y with `phx`/`plx` when you hold a live index.
 - **`no_literals` idioms**: decimal and character literals (`#127`, `#' '`) for
   values; hex only for I/O ports — and a port that configures a layer or a
-  mode needs a `[[claims.reg]]` (docs/09 §2.1's boundary rule; the
-  reg-ownership pass refuses an undeclared one, naming who does own it).
+  mode needs a declaration (docs/09 §2.1's boundary rule; the reg-ownership
+  pass refuses an undeclared one, naming who does own it). **Which
+  declaration depends on the port.** `TM`/`TS`/`CGWSEL`/`CGADSUB` are the
+  four the screen/blend vocabulary composes: a layer designation is a
+  `[[claims.screen]]` and colour-math programming a `[[claims.blend]]`, the
+  SCENE writes the composed `ES_SCR_*` values, and inside a scene that
+  composes either half a `[[claims.reg]]` on those ports is **refused** —
+  two vocabularies cannot both supply one write-only byte (docs/99). A raw
+  claim on them stays right only where the vocabulary does not reach:
+  per-scanline TM under HDMA, direct colour, TMW/TSW. Every other
+  layer-or-mode port is a `[[claims.reg]]` as before.
 - **Seam line 44** renders backdrop (mode writes land during its HBlank). It is
   asserted, not a bug.
 - **Shared 65816 macros live in `vendor/rom/sf_asm.inc`.** That directory is
