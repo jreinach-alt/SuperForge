@@ -373,7 +373,7 @@ def test_memory_sourced_and_memory_rmw_masks_stay_legal(tmp_path):
 # territory to the channel rules, so a `tsb a:$420B` was counted by one pass,
 # deferred to the other, and seen by NEITHER. STORE_RE/ENC_STORE_RE and
 # REG_WRITE_MN are now built from the same WRITE_STORES/WRITE_RMW tuples;
-# these are the behavioural proofs on each side of the handoff.
+# these are the behavioural proofs on each side of the territory split.
 
 @pytest.mark.parametrize("body,why", [
     ("        lda #$01\n        tsb a:$420B\n", "tsb arms a literal channel"),
@@ -409,7 +409,7 @@ def test_a_symbol_mask_through_tsb_stays_legal(tmp_path):
 def test_tsb_against_a_hardware_register_is_seen_by_both_passes(tmp_path):
     """The pair the shared write set exists for: the SAME mnemonic against
     the enable port fires the CHANNEL pass, and against an in-class PPU port
-    fires the REG-OWNERSHIP pass — neither side of the territory handoff can
+    fires the REG-OWNERSHIP pass — neither side of the territory split can
     lose it any more."""
     r = run(tmp_path, CLEAN + "        lda #$01\n        tsb a:$420B\n"
                               "        lda #$07\n        tsb a:$2105\n")

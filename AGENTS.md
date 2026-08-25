@@ -737,7 +737,7 @@ The full rule is CLAUDE.md #2. What it means in practice here:
   the ownership pass defers the whole channel territory to the channel rules,
   whose recognizer knew only the four stores, so `lda #$01 / tsb a:$420B`
   slipped BOTH (measured on the pre-change tool; the fixtures in
-  `tests/test_no_literals.py` hold each side of the handoff). An arm/disarm
+  `tests/test_no_literals.py` hold each side of the territory split). An arm/disarm
   conversion to `tsb`/`trb` is now gate-visible — the flags caution above is
   what remains.
 - **Pad a hardware-latency wait to an EXACT cycle count, and annotate it per

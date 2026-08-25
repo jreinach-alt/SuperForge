@@ -136,7 +136,7 @@ Ruleset (documented precision/recall trade, per finding class):
   equally unattributable); an unfoldable dp OFFSET while the page overlaps
   the window is refused per site; a dp write into the CHANNEL territory
   ($420B/$420C/$43xx) is refused outright, because the channel rules cannot
-  see a dp-relative form and a silent handoff to them would be the tsb hole
+  see a dp-relative form and silently deferring to them would be the tsb hole
   again by another door. A relocation whose page misses the window entirely
   (a save-area repoint) passes, and the summary's `dp:` census counts every
   relocation tracked and every write attributed, so a disarmed pass reads
