@@ -252,7 +252,8 @@ def check_reg_ownership(reg: list[tuple], hdma: list[tuple],
                         f"Move the raw claim into the vocabulary: a TM/TS "
                         f"designation becomes [[claims.screen]] (layer, on) "
                         f"on the feature that owns the layer; CGWSEL/"
-                        f"CGADSUB programming becomes [[claims.blend]]")
+                        f"CGADSUB programming becomes [[claims.blend]] "
+                        f"(docs/99)")
                 raise AllocationError(
                     f"REGISTER ownership contention in scene '{scope}': "
                     f"{a.name} ({wa}) and {b.name} ({wb}) both write {shared} "
