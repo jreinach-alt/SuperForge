@@ -291,6 +291,104 @@ def test_predecessors_are_recoverable_for_a_red_module(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# a module runs in ONE process
+# --------------------------------------------------------------------------
+#
+# The defect this pair pins: xdist's default `--dist load` hands out
+# INDIVIDUAL TESTS, so a module whose later test reads what an earlier test
+# wrote fails whenever the scheduler puts them on different workers — while
+# the test that WROTE the state passes, on the other worker. That is the
+# shape of `test_measure_cpu.py`'s `RESULTS` dict and of
+# `test_measure_vblank.py`'s "single sweep ran first". Both pass in
+# isolation, because a serial run cannot split anything.
+
+# The failing shape, reduced: state written by earlier tests, read by a later
+# one. Padding modules give the scheduler something to interleave.
+MOD_STATE = """\
+RESULTS = {}
+def test_fills_a(): RESULTS["a"] = 1
+def test_fills_b(): RESULTS["b"] = 2
+def test_reads_what_the_others_wrote():
+    assert "a" in RESULTS and "b" in RESULTS, f"RESULTS={RESULTS}"
+"""
+
+
+def _state_module_session(tmp_path, env_extra=None):
+    mods = {"test_state.py": MOD_STATE}
+    mods.update({f"test_pad{i}.py": f"def test_p{i}_1(): pass\n"
+                                    f"def test_p{i}_2(): pass\n"
+                 for i in range(12)})
+    return _session(tmp_path, mods, extra_args=("-n", "2"),
+                    env_extra=env_extra)
+
+
+def test_a_module_is_not_split_across_workers(tmp_path):
+    """The fix, asserted on the OUTPUT that matters: it does not go red.
+
+    `tests/conftest.py` pins `--dist loadfile` so every test of a file lands
+    in one process. Both halves are asserted — the module is whole AND the
+    session is green — because "whole" is the mechanism and "green" is the
+    thing anyone cares about.
+    """
+    proc, rows, _ = _state_module_session(tmp_path)
+    assert proc.returncode == 0, proc.stdout
+    state = [r for r in rows if r["module"] == "test_state.py"]
+    assert len(state) == 1, f"module ran on {len(state)} workers: {state}"
+    assert state[0]["tests"] == 3 and state[0]["failed"] == 0, state
+    # ...and the run is still genuinely parallel: loadfile distributes FILES,
+    # and a suite with one file per worker is not a suite worth parallelising.
+    assert len({r["worker"] for r in rows}) == 2, rows
+
+
+def test_the_default_scheduler_really_does_break_it(tmp_path):
+    """The sensitivity control: put `--dist load` back, watch it fail.
+
+    Without this, the case above proves only that a session passed — it
+    cannot tell "the pin works" from "this shape never split anyway". The
+    escape hatch exists for exactly this: it is the plant, and the plant must
+    reproduce the defect the pin removes.
+
+    Asserted as a DISJUNCTION over runs rather than once, because the split is
+    the scheduler's timing choice — measured at 37 of 40 on this shape, so a
+    single run is a coin the wrong way up about 1 time in 13, and five runs
+    make that ~1 in 380,000. If this ever stops reproducing, the pin above
+    stops being evidence and this file should say so loudly.
+    """
+    for _ in range(5):
+        proc, rows, _ = _state_module_session(
+            tmp_path, env_extra={"SF_XDIST_DIST": "load"})
+        state = [r for r in rows if r["module"] == "test_state.py"]
+        if len(state) > 1:
+            assert proc.returncode != 0, (
+                "the module SPLIT across workers and the session still "
+                "passed — the reduced shape no longer reproduces the defect, "
+                "so test_a_module_is_not_split_across_workers proves nothing")
+            assert sum(r["failed"] for r in state) == 1, state
+            return
+    pytest.fail(
+        "`--dist load` did not split a 3-test state-carrying module in 5 "
+        "runs beside 24 fast tests; measured at 37/40 when this landed. The "
+        "control has gone quiet — re-derive it before trusting the pin.")
+
+
+def test_the_summariser_names_a_split(tmp_path):
+    """If the pin ever comes off, the artifact must say so by name."""
+    sys.path.insert(0, str(SUPERFORGE / "tools"))
+    from schedule_summary import summarise_schedule    # noqa: E402
+    rows = [
+        {"worker": "gw0", "seq": 0, "module": "m.py", "failed": 0},
+        {"worker": "gw1", "seq": 0, "module": "m.py", "failed": 1},
+        {"worker": "gw1", "seq": 1, "module": "whole.py", "failed": 0},
+    ]
+    src = tmp_path / "s.jsonl"
+    src.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    out = summarise_schedule(src)
+    assert out["split_modules"] == {"m.py": ["gw0", "gw1"]}
+    assert "whole.py" not in out["split_modules"]
+    assert "loadfile" in out["split_note"]
+
+
+# --------------------------------------------------------------------------
 # the gate surface
 # --------------------------------------------------------------------------
 

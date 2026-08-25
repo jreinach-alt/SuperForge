@@ -102,6 +102,20 @@ def summarise_schedule(path) -> dict:
     # when the guard's own error scrolled out of a truncated log.
     parked = [r["module"] for r in rows if r.get("parked") is True]
 
+    # A MODULE ON TWO WORKERS is a structural violation, not a statistic.
+    # xdist's default `--dist load` distributes individual tests, which
+    # splits a module across processes: intra-module state (a module-level
+    # dict, a file an earlier test wrote) is then invisible to the later
+    # test, and module-scoped fixtures run twice — two ROM boots, and two
+    # concurrent `make` runs in one `build/`. `tests/conftest.py` pins
+    # `loadfile` to prevent it; this names it if the pin ever comes off,
+    # so the next occurrence arrives already diagnosed instead of as a red
+    # on a module whose inputs did not change.
+    homes: dict = {}
+    for row in rows:
+        homes.setdefault(row["module"], set()).add(str(row.get("worker", "?")))
+    split = {m: sorted(ws) for m, ws in homes.items() if len(ws) > 1}
+
     out = {
         "workers": {w: [r["module"] for r in wrows][:MAX_MODULES_PER_WORKER]
                     for w, wrows in sorted(workers.items())},
@@ -111,6 +125,13 @@ def summarise_schedule(path) -> dict:
     }
     if parked:
         out["parked_at_boundary"] = parked
+    if split:
+        out["split_modules"] = split
+        out["split_note"] = (
+            "these modules ran on more than one worker — xdist distributed "
+            "their tests individually. Intra-module state and module-scoped "
+            "fixtures do not survive that. tests/conftest.py pins "
+            "--dist loadfile; check that pin.")
     return out
 
 

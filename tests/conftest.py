@@ -975,6 +975,58 @@ def pytest_configure(config):
             except OSError:
                 pass
 
+    # ------------------------------------------------------------------
+    # a module runs in ONE process
+    # ------------------------------------------------------------------
+    #
+    # xdist's default scheduler under `-n N` is `--dist load`, and it
+    # distributes INDIVIDUAL TESTS, not files. Nothing in this suite is
+    # written for that. Two shapes break, and both of them are load-bearing
+    # here:
+    #
+    #   * INTRA-MODULE STATE. `test_measure_cpu.py` fills a module-level
+    #     `RESULTS` dict across three tests and writes it out in a fourth;
+    #     `test_measure_vblank.py`'s second test reads the JSON its first
+    #     test wrote ("single sweep ran first"). Split those across
+    #     processes and the reader sees an empty dict or a missing file —
+    #     while the test that FILLS it passes, on the other worker.
+    #   * MODULE-SCOPED FIXTURES. Nearly every module here boots a ROM once
+    #     in a module-scoped fixture. A split runs that fixture on BOTH
+    #     workers, which doubles the boot and — because several of those
+    #     fixtures shell out to `make` — puts two concurrent `make`
+    #     invocations in one `build/`, which nothing serialises (see the
+    #     repo-tree lock block above: the `make` fixtures are deliberately
+    #     outside it).
+    #
+    # Neither shape is visible in a failure message. The victim names
+    # ITSELF, its inputs are byte-identical to the last green run's, and it
+    # passes in isolation because a serial run cannot split anything — which
+    # is exactly the shape that reads as "flaky" and is not.
+    #
+    # MEASURED, not reasoned: a three-test module whose last test reads what
+    # the first two wrote, run beside 24 fast tests at `-n 2`, split across
+    # workers in 37 of 40 runs and FAILED in every run it split. Under
+    # `loadfile` the same experiment split 0 of 30 and failed 0 of 30, with
+    # both workers still carrying work (15/12) — the parallelism is in the
+    # file count, and this suite has ~120 files.
+    #
+    # WHY THIS FIXUP REACHES THE SCHEDULER when the `--dist loadgroup` one
+    # documented above does not: `loadgroup` needs each WORKER to append a
+    # group suffix to its nodeids, and a worker re-parses the original
+    # command line before any conftest configures. `loadfile` is decided
+    # entirely in the CONTROLLER — `DSession.pytest_xdist_make_scheduler`
+    # reads `config.getvalue("dist")` after configure — so setting it here
+    # is enough. Verified by the experiment above, not assumed.
+    #
+    # `SF_XDIST_DIST` overrides, and exists so the sensitivity control in
+    # tests/test_worker_schedule.py can put the default back and show the
+    # failure returning. A run that sets it is not a normal run.
+    want = os.environ.get("SF_XDIST_DIST", "").strip()
+    if want:
+        config.option.dist = want
+    elif getattr(config.option, "dist", "no") == "load":
+        config.option.dist = "loadfile"
+
     worker = os.environ.get("PYTEST_XDIST_WORKER")
     if worker and not os.environ.get("SF_MESEN_HOME", "").strip():
         home = Path(tempfile.gettempdir()) / f"mesen_home_{worker}"
