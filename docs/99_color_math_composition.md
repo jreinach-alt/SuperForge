@@ -191,14 +191,19 @@ raw claim into the vocabulary: a TM/TS designation becomes [[claims.screen]]
 becomes [[claims.blend]]
 ```
 
-Beside the refusals, three **warnings** land in the allocation report (real
-hardware behaviour worth knowing, not provably wrong): OBJ in `math` (only
-sprite palettes 4-7 participate — per-sprite opt-out is a hardware feature
-the author must plan palettes around); OBJ designated `sub` (sprites become
-blend source material); and a screen claim on a BG layer whose
-`BGnSC`/`BGnNBA` registers another feature claims in the same scene (the
-designator should usually own the layer — a split shape is conceivable, so
-this warns rather than refuses).
+Beside the refusals, **warnings** land in the allocation report — real
+hardware behaviour worth knowing, or a shape that is legal and sometimes
+intended, so refusing it would be its own defect. Per scene: OBJ in `math`
+(only sprite palettes 4-7 participate — per-sprite opt-out is a hardware
+feature the author must plan palettes around); OBJ designated `sub`
+(sprites become blend source material); and a screen claim on a BG layer
+whose `BGnSC`/`BGnNBA` registers another feature claims in the same scene
+(the designator should usually own the layer — a split shape is
+conceivable). Per **edge**: a transition out of a blending scene into one
+that composes no blend half and has no raw `CGWSEL`/`CGADSUB` owner, where
+the blend therefore persists (§4). Each warning is counted in the
+allocator's summary line beside the refusal checks, so a run that examined
+nothing reads as having examined nothing rather than as clean.
 
 ## 6. Emission
 

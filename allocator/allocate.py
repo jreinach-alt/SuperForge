@@ -120,6 +120,13 @@ class Allocation:
     # `ES_E_*` block the SM_SWITCH macro resolves its call against, which is
     # what makes `style` load-bearing instead of a report string.
     edge_styles: list[tuple[str, str, str, int]] = field(default_factory=list)
+    # C5: the per-edge blend-persistence notes (check_blend_edges) and the
+    # number of edges that check actually examined. Program-wide rather than
+    # per-scene because an edge belongs to neither of its two scenes; the
+    # count rides along so a run that examined no candidate edge says so
+    # instead of reading as clean.
+    blend_edge_warnings: list[str] = field(default_factory=list)
+    blend_edges_checked: int = 0
 
 
 # --------------------------------------------------------------------------
@@ -504,6 +511,61 @@ def compose_screen_blend(screen: list[tuple], blend: list[tuple],
             "warnings": warnings,
             "designations": len(screen), "blends": len(blend),
             "checks": checks}
+
+
+def check_blend_edges(edges, scenes, greg) -> tuple[list[str], int]:
+    """Per EDGE: does anyone establish the blender in the destination scene?
+
+    The composed state is PER SCENE and nothing carries it across an edge.
+    A scene that composes a blend programs CGWSEL/CGADSUB on enter; a
+    successor that composes no blend half and has no raw CGWSEL/CGADSUB
+    owner writes neither port, so the previous scene's blend persists into
+    it. `vendor/rom/ppu_reset.inc` runs once, from the CPU bootstrap
+    (vendor/rom/init.inc), so the boot off state is not re-established at a
+    transition, and the vocabulary has no exit half — the raw claimants'
+    self-disarm-at-exit shape (rgb_gradient's `rg_disarm`) has no analogue
+    here.
+
+    A WARNING, NOT A REFUSAL, and that is the design decision. Persistence
+    across an edge can be exactly what a rail wants — a blend held through a
+    fade, an effect that outlives the scene that armed it — and refusing a
+    hardware-legal, sometimes-intended composition is its own defect class.
+    So this names the edge and the remedy and leaves the choice with the
+    author, like the OBJ-palette and layer-owner notes beside it.
+
+    Reads the edges the allocator already has (the same list `ES_E_*` is
+    emitted from), never a second enumeration. Returns (warnings, edges
+    examined) — the count is the population, so a check that examined
+    nothing reads as having examined nothing rather than as clean.
+    """
+    warnings: list[str] = []
+    checked = 0
+    for src, dst in edges:
+        s_sb = scenes[src].screen_blend
+        if s_sb is None or not s_sb["blend"]:
+            continue                 # the source arms no blender: nothing to
+        checked += 1                 # persist, so this edge is not a candidate
+        d_sb = scenes[dst].screen_blend
+        if d_sb is not None and d_sb["blend"]:
+            continue                 # the destination composes its own state
+        raw = sorted({c.name for c, who in [*greg, *scenes[dst].regs]
+                      if not _is_vocab_who(who)
+                      and _register_conflicts(c.registers, BLEND_REGS)})
+        if raw:
+            continue                 # a raw owner is answerable for the ports
+        warnings.append(
+            f"transition {src}->{dst}: scene '{src}' composes a blend "
+            f"(CGWSEL=${s_sb['cgwsel']:02X} CGADSUB=${s_sb['cgadsub']:02X}) "
+            f"but scene '{dst}' composes no [[claims.blend]] and no "
+            f"[[claims.reg]] in it owns CGWSEL/CGADSUB — so nothing writes "
+            f"those ports on entering '{dst}' and the blend PERSISTS into "
+            f"it. The composed state is per scene and the boot reset runs "
+            f"only at power-on. If that is deliberate (a blend held through "
+            f"a transition), nothing to do; if not, give '{dst}' a "
+            f"[[claims.blend]] composing the state it wants, or leave "
+            f"CGWSEL/CGADSUB to a [[claims.reg]] owner that disarms at "
+            f"scene exit (docs/99 §4)")
+    return warnings, checked
 
 
 def check_spc_exclusivity(global_feats, scene_feats) -> tuple[str, str, list[str]] | None:
@@ -1371,12 +1433,20 @@ def allocate(sub: Substrate, features: dict[str, FeatureDecl],
         edge_reloads.append((e.src, e.dst, reload_bytes, e.budget_bytes))
         edge_styles.append((e.src, e.dst, e.style, scene_index[e.dst]))
 
+    # C5 transition hygiene: the composed color-math state is per scene and
+    # nothing carries it across an edge. Warns, never refuses — persistence
+    # can be deliberate. Reads the edges already enumerated above.
+    blend_warns, blend_edges = check_blend_edges(
+        [(e.src, e.dst) for e in manifest.edges], scenes, greg)
+
     alloc = Allocation(sub, globals_map, global_channels, scenes, edge_reloads,
                        globals_init_zero=g_init_zero,
                        global_dma_inits=gdma_init,
                        global_regs=greg,
                        spc_owner=spc_owner,
-                       edge_styles=edge_styles)
+                       edge_styles=edge_styles,
+                       blend_edge_warnings=blend_warns,
+                       blend_edges_checked=blend_edges)
     verify(alloc)
     return alloc
 
@@ -1918,6 +1988,17 @@ def emit(alloc: Allocation, out_dir: str | Path) -> list[Path]:
     for src, dst, bytes_, budget in alloc.edge_reloads:
         b = f" (budget {budget})" if budget else ""
         rep.append(f"\ntransition {src}->{dst}: reload {bytes_} B{b}")
+    # C5 transition hygiene, program-wide (an edge belongs to neither of its
+    # scenes). The denominator prints unconditionally where any edge could
+    # have been a candidate, so "no warnings" and "nothing examined" read
+    # differently.
+    if alloc.blend_edges_checked or alloc.blend_edge_warnings:
+        rep.append(f"\nSCREEN/BLEND transition hygiene: "
+                   f"{alloc.blend_edges_checked} edge(s) out of a blending "
+                   f"scene examined, {len(alloc.blend_edge_warnings)} "
+                   f"warning(s)")
+        for w in alloc.blend_edge_warnings:
+            rep.append(f"  WARNING: {w}")
     p_rep = out_dir / "allocation_report.txt"
     p_rep.write_text("\n".join(rep) + "\n")
     written.append(p_rep)
@@ -2090,10 +2171,14 @@ def main(argv=None) -> int:
     sbs = [sm.screen_blend for sm in alloc.scenes.values()
            if sm.screen_blend is not None]
     if sbs:
+        warns = (sum(len(sb["warnings"]) for sb in sbs)
+                 + len(alloc.blend_edge_warnings))
         print(f"screen/blend: {sum(sb['designations'] for sb in sbs)} "
               f"designation(s), {sum(sb['blends'] for sb in sbs)} blend "
               f"claim(s) composed across {len(sbs)} scene(s), "
-              f"{sum(sb['checks'] for sb in sbs)} refusal check(s) evaluated")
+              f"{sum(sb['checks'] for sb in sbs)} refusal check(s) evaluated, "
+              f"{alloc.blend_edges_checked} transition edge(s) examined, "
+              f"{warns} warning(s) in the report")
     else:
         print("screen/blend: nothing composed (no vocabulary claims in "
               "this composition)")

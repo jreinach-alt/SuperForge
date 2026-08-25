@@ -538,6 +538,89 @@ def test_report_carries_the_obj_palette_note_and_layer_owner_cross_check(
             "but its BG1SC is claimed by floor_reg (engine:floor)") in rep
 
 
+BLENDER = ('[[claims.screen]]\nlayer = "bg1"\non = "main"\n'
+           '[[claims.blend]]\nop = "add"\nsource = "fixed"\n'
+           'math = ["bg1"]\n')
+# The same shape composing the OFF state deliberately: prevent = "always" is
+# what ppu_reset writes at boot ($30), so this destination disarms the
+# blender on enter.
+DISARMER = ('[[claims.screen]]\nlayer = "bg1"\non = "main"\n'
+            '[[claims.blend]]\nop = "add"\nsource = "fixed"\n'
+            'math = ["backdrop"]\nprevent = "always"\n')
+
+
+def _two_scene_game(tmp_path, feats, a_feats, b_feats):
+    man = manifest(tmp_path,
+                   '[[scene]]\nid = "a"\nfeatures = ['
+                   + ", ".join(f'"{n}"' for n in a_feats) + ']\n'
+                   '[[scene]]\nid = "b"\nfeatures = ['
+                   + ", ".join(f'"{n}"' for n in b_feats) + ']\n'
+                   '[[edge]]\nfrom = "a"\nto = "b"\nstyle = "cut"\n')
+    return allocate(SUB, feats, NO_STATE, man)
+
+
+def test_blend_persists_into_a_successor_that_establishes_nothing(tmp_path):
+    """The composed state is per scene and nothing carries it across an
+    edge: a successor composing no blend half, with no raw CGWSEL/CGADSUB
+    owner, writes neither port and INHERITS the blender scene 'a' armed.
+    A warning naming both scenes, the edge and the remedy — not a refusal,
+    because holding a blend across a transition can be deliberate."""
+    feats = features(tmp_path, glow=BLENDER,
+                     plain='[[claims.dp]]\nbytes = 2\n')
+    a = _two_scene_game(tmp_path, feats, ["glow"], ["plain"])
+    assert a.blend_edges_checked == 1              # the edge WAS examined
+    assert len(a.blend_edge_warnings) == 1
+    w = a.blend_edge_warnings[0]
+    assert "transition a->b" in w
+    assert "scene 'a' composes a blend" in w
+    assert "scene 'b' composes no [[claims.blend]]" in w
+    assert "PERSISTS" in w
+    assert "disarms at scene exit" in w            # the remedy, named
+    emit(a, tmp_path / "out")
+    rep = (tmp_path / "out" / "allocation_report.txt").read_text()
+    assert "SCREEN/BLEND transition hygiene: 1 edge(s)" in rep
+    assert "WARNING: transition a->b" in rep
+
+
+def test_edge_is_quiet_when_the_destination_composes_the_off_state(tmp_path):
+    """The control arm, and the remedy the warning names: a destination
+    that composes its own blend half establishes CGWSEL/CGADSUB on enter,
+    so nothing persists and the edge is quiet — while still being COUNTED
+    as examined, so a silenced check does not read like an absent one."""
+    feats = features(tmp_path, glow=BLENDER, calm=DISARMER)
+    a = _two_scene_game(tmp_path, feats, ["glow"], ["calm"])
+    assert a.blend_edges_checked == 1              # examined, not skipped
+    assert a.blend_edge_warnings == []
+    # and the destination really does compose the boot OFF state ($30/$00)
+    assert (a.scenes["b"].screen_blend["cgwsel"],
+            a.scenes["b"].screen_blend["cgadsub"]) == (0x30, 0x20)
+
+
+def test_edge_is_quiet_when_a_raw_claimant_owns_the_blend_ports(tmp_path):
+    """The other remedy: the destination leaves CGWSEL/CGADSUB to a raw
+    [[claims.reg]] owner (the disarm-at-exit shape), so a claimant is
+    answerable for the ports there and the edge is quiet."""
+    feats = features(
+        tmp_path, glow=BLENDER,
+        iris=('[[claims.reg]]\nregisters = ["CGWSEL", "CGADSUB"]\n'
+              'scene_writes = ["CGWSEL", "CGADSUB"]\n'))
+    a = _two_scene_game(tmp_path, feats, ["glow"], ["iris"])
+    assert a.blend_edges_checked == 1
+    assert a.blend_edge_warnings == []
+
+
+def test_edge_out_of_a_screen_only_scene_is_not_a_candidate(tmp_path):
+    """A source that arms no blender has nothing to persist, so its edges
+    are not in the population at all — the denominator says so."""
+    feats = features(
+        tmp_path,
+        world='[[claims.screen]]\nlayer = "bg1"\non = "main"\n',
+        plain='[[claims.dp]]\nbytes = 2\n')
+    a = _two_scene_game(tmp_path, feats, ["world"], ["plain"])
+    assert a.blend_edges_checked == 0
+    assert a.blend_edge_warnings == []
+
+
 def test_no_warnings_for_a_clean_composition(tmp_path):
     """The warnings' control arm: the worked two-feature scene produces no
     warning lines, so a warning pass that fired unconditionally would fail
@@ -573,6 +656,10 @@ def test_cli_census_line_both_states(tmp_path):
     assert ("screen/blend: 3 designation(s), 1 blend claim(s) composed "
             "across 1 scene(s)") in r.stdout
     assert "refusal check(s) evaluated" in r.stdout
+    # the two counts that keep a silenced check from reading as an absent
+    # one: this one-scene game declares no edges and warns about nothing
+    assert "0 transition edge(s) examined, 0 warning(s) in the report" \
+        in r.stdout
 
     r = run_game("g_off", ["plain"])
     assert r.returncode == 0, r.stderr
