@@ -827,6 +827,32 @@ def test_cli_census_line_both_states(tmp_path):
 # -- the routing surfaces: docs/09 must not send an author to the refused
 #    shape ------------------------------------------------------------------
 
+def test_docs_99_quoted_refusal_is_actually_verbatim(tmp_path):
+    """docs/99 quotes one refusal and calls it "verbatim from the build".
+    Nothing gated that, and it had already drifted by its trailing doc
+    reference. Reproduce the exact fixture the quote describes and compare
+    the whole message — a quote that says verbatim has to be verbatim, and
+    a refusal message is this vocabulary's deliverable."""
+    import re
+    feats = features(
+        tmp_path,
+        floor=('[[claims.reg]]\nregisters = ["TM"]\n'
+               'scene_writes = ["TM"]\n'),
+        sky='[[claims.screen]]\nlayer = "bg2"\non = "sub"\n')
+    man = manifest(tmp_path,
+                   '[[scene]]\nid = "beach"\nfeatures = ["floor", "sky"]\n')
+    with pytest.raises(AllocationError) as e:
+        allocate(SUB, feats, NO_STATE, man)
+    actual = f"ALLOCATION FAILED: {e.value}"
+    doc = (SUPERFORGE / "docs" / "99_color_math_composition.md").read_text()
+    quoted = next(b for b in doc.split("```") if "ALLOCATION FAILED" in b)
+
+    def norm(s):
+        return re.sub(r"\s+", " ", s).strip()
+
+    assert norm(quoted) == norm(actual)
+
+
 def test_docs_09_routes_colour_math_to_the_vocabulary(tmp_path):
     """docs/09 is the architecture map — "where a new feature goes and what
     it must declare" — and its two routing surfaces are prose that no

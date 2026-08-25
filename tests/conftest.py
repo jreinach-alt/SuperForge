@@ -155,7 +155,7 @@ if not os.environ.get("SF_MESEN_CORE", "").strip() and os.path.exists(_LOCKSTEP_
 #
 # WHAT IS DELIBERATELY *NOT* LOCKED, because the sweep that found the three
 # measured it rather than assuming: `test_reg_ownership.py` (`_all_shipping()`
-# globs the live tree) reads
+# globs the live tree) also reads
 # it at test time, as does every fixture that shells out to `make microzero` /
 # `make room` / `make toy`. Those reads ARE structurally exposed — planting
 # `[[claims.dp]]` -> `[[claims.wram]]` in `fade/feature.toml` and re-running

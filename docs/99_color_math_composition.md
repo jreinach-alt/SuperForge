@@ -202,7 +202,7 @@ write-only port. Every writer of a write-only register supplies the WHOLE
 byte, so the raw value and the composed value cannot both hold. Move the
 raw claim into the vocabulary: a TM/TS designation becomes [[claims.screen]]
 (layer, on) on the feature that owns the layer; CGWSEL/CGADSUB programming
-becomes [[claims.blend]]
+becomes [[claims.blend]] (docs/99)
 ```
 
 Beside the refusals, **warnings** land in the allocation report — real
