@@ -106,9 +106,25 @@ CGWSEL  = clip << 6  |  prevent << 4  |  (source == "sub") << 1
 A scene with screen claims and **no** blend claims composes
 `CGWSEL = $30` / `CGADSUB = $00`: prevent-mode "always", the state
 `vendor/rom/ppu_reset.inc` establishes at boot, in which the math unit is
-structurally off. Emitting it per scene makes the off state explicit —
-after a transition out of a blending scene, the next scene's enter writes
-turn the blend off rather than inheriting it.
+structurally off. That off state appears in the allocation report and in
+`symbol_map.json`, but **no symbol is emitted for it**: ownership is
+per-half (§7), a scene with no blend claims does not own `CGWSEL`/`CGADSUB`,
+and publishing `ES_SCR_<ID>_CGWSEL` for a port another feature owns would
+hand scene code a value that is not this composition's to write. §6 states
+the emission rule; the composed state is what the scene owns, and only that.
+
+**The composed state is per scene, and nothing carries it across an edge.**
+A scene that composes a blend programs the blender on enter; a successor
+that composes no blend half and has no raw `CGWSEL`/`CGADSUB` owner writes
+neither port and **inherits the previous scene's blend**. `ppu_reset.inc`
+runs once, from the CPU bootstrap (`vendor/rom/init.inc`), so the boot off
+state is not re-established at a transition. Carrying the off state is the
+rail's obligation, discharged either way round: give the successor a blend
+claim composing the off state it wants, or leave the port to a raw owner
+that disarms itself at scene exit (`rgb_gradient.asm`'s `rg_disarm` is the
+shape). The allocator does not refuse this — persistence across an edge can
+be deliberate, a blend held through a fade — but it **warns**, per edge, in
+the allocation report (§5).
 
 Worked example — one feature designates `bg1 -> main` and `obj -> main`,
 another designates `bg2 -> sub` and declares
@@ -187,27 +203,40 @@ this warns rather than refuses).
 ## 6. Emission
 
 For every scene carrying at least one vocabulary claim, the scene's
-generated include gains four symbols:
+generated include gains a symbol **per port the composition owns**:
 
 ```
-ES_SCR_<SCENEID>_TM / _TS / _CGWSEL / _CGADSUB
+ES_SCR_<SCENEID>_TM / _TS          where the scene carries screen claims
+ES_SCR_<SCENEID>_CGWSEL / _CGADSUB where it carries blend claims
 ```
 
-each with a comment naming the contributing features and fields. Scene-enter
-code writes the four ports from these symbols — never a narrated value: an
-encoding narrated at a write site is a second, uncheckable copy of the
-claim, which is the same reason `_SC_BASE`/`_NBA` and the channel
-`_BBAD`/`_DMAP` symbols exist.
+each with a comment naming the contributing features and fields. A half the
+scene composes nothing for emits a commented placeholder line instead of a
+symbol, saying so. Scene-enter code writes the composed ports from these
+symbols — never a narrated value: an encoding narrated at a write site is a
+second, uncheckable copy of the claim, which is the same reason
+`_SC_BASE`/`_NBA` and the channel `_BBAD`/`_DMAP` symbols exist.
+
+**Emission follows ownership, and that is the whole rule.** The alternative
+— emit all four wherever anything composes — puts the allocator in exactly
+the position the rule forbids: a screen-only scene would publish
+`ES_SCR_<ID>_CGWSEL = $30` for a port a raw claimant owns and programs, and
+where that claimant opened the port with `scene_writes` (its ordinary
+shape), the writer-side gate would accept a scene write of the allocator's
+value over the owner's. A green build, a blanked blend. The symbol is the
+permission slip; it is issued only for what the composition owns.
 
 The composition also lands machine-readably: the scene's entry in
-`symbol_map.json` gains a `screen_blend` object (the four values plus the
-contributing features), so a test can assert a ROM's rendered state against
-the *declared* composition instead of re-typing the values — the transition
-`edges` precedent. And the synthesized ownership claim (`screen_blend`)
-enters the scene's `reg` union with `scene_writes` consent for exactly the
-ports it composes, which is what makes a scene file's
-`lda #ES_SCR_<ID>_TM` / `sta a:$212C` pass the writer-side register gate.
-The same writes in a scene that composes nothing still refuse.
+`symbol_map.json` gains a `screen_blend` object — all four values, the
+`registers` the composition owns, and the contributing features — so a test
+can assert a ROM's rendered state against the *declared* composition
+instead of re-typing the values (the transition `edges` precedent), and can
+tell a composed value from an off value the scene neither owns nor
+publishes. And the synthesized ownership claim (`screen_blend`) enters the
+scene's `reg` union with `scene_writes` consent for exactly the ports it
+composes, which is what makes a scene file's `lda #ES_SCR_<ID>_TM` /
+`sta a:$212C` pass the writer-side register gate. The same writes in a scene
+that composes nothing still refuse.
 
 ## 7. Coexistence and migration
 

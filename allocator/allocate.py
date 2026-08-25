@@ -1624,14 +1624,25 @@ def _channel_lines(chans, dma_inits=()) -> list[str]:
 def _screen_blend_lines(sid: str, sb: dict | None) -> list[str]:
     """The composed color-math state, as symbols the scene writes from.
 
-    The four values are emitted rather than hand-written at the write site
-    for _channel_lines' reason verbatim: an encoding narrated at the write
-    site is a second, uncheckable copy of the claim. Scene-enter code writes
-    all four ports from these symbols (the synthesized claim's scene_writes
+    The values are emitted rather than hand-written at the write site for
+    _channel_lines' reason verbatim: an encoding narrated at the write site
+    is a second, uncheckable copy of the claim. Scene-enter code writes the
+    composed ports from these symbols (the synthesized claim's scene_writes
     is exactly this consent), so the state a scene establishes IS the state
-    its declarations composed — including the OFF state, which matters
-    across transitions: the previous scene's blend does not linger because
-    this scene's enter writes the composed values, whatever they are.
+    its declarations composed.
+
+    A SYMBOL IS PUBLISHED ONLY FOR A PORT THE COMPOSITION OWNS, which is
+    per-half (compose_screen_blend's `registers`): screen claims own TM/TS,
+    blend claims own CGWSEL/CGADSUB, and a scene can carry one half without
+    the other. Emitting all four regardless would state a value for a port
+    the scene's composition does not own — a screen-only scene publishing
+    `ES_SCR_<ID>_CGWSEL = $30` beside a feature that owns and programs
+    CGWSEL — and the writer-side gate would ACCEPT a scene write of it
+    wherever that raw owner opened the port with `scene_writes`. That is the
+    second uncheckable copy this emission exists to prevent, with the
+    allocator as its author. The composed OFF values still exist (the
+    allocation report and symbol map carry all four); what is withheld is a
+    symbol to write an unowned port FROM.
     """
     if sb is None:
         return []
@@ -1644,10 +1655,19 @@ def _screen_blend_lines(sid: str, sb: dict | None) -> list[str]:
 
     lines = ["; ---- screen/blend: the composed color-math state ----",
              ";   TM/TS from [[claims.screen]]; CGWSEL/CGADSUB from",
-             ";   [[claims.blend]]. Scene-enter code writes the four ports",
-             ";   from these — never a narrated value.",
-             f"ES_SCR_{up}_TM = ${sb['tm']:02X}    ; {contrib(('main', 'both'))}",
-             f"ES_SCR_{up}_TS = ${sb['ts']:02X}    ; {contrib(('sub', 'both'))}"]
+             ";   [[claims.blend]]. Scene-enter code writes these ports from",
+             ";   these symbols — never a narrated value. A half this scene",
+             ";   composes no claim for owns no port here and emits no",
+             ";   symbol: writing it is another claimant's business."]
+    if sb["screen"]:
+        lines += [
+            f"ES_SCR_{up}_TM = ${sb['tm']:02X}"
+            f"    ; {contrib(('main', 'both'))}",
+            f"ES_SCR_{up}_TS = ${sb['ts']:02X}"
+            f"    ; {contrib(('sub', 'both'))}"]
+    else:
+        lines.append(f"; ES_SCR_{up}_TM / _TS absent — no [[claims.screen]] in "
+                     f"this scene: TM/TS are not this composition's to write")
     if sb["blend"]:
         g, _ = sb["blend"][0]
         math = ", ".join(f"{m}<-{who}" for c, who in sb["blend"]
@@ -1659,12 +1679,11 @@ def _screen_blend_lines(sid: str, sb: dict | None) -> list[str]:
             f"ES_SCR_{up}_CGADSUB = ${sb['cgadsub']:02X}"
             f"    ; op={g.op}{' half' if g.half else ''} math: {math}"]
     else:
-        lines += [
-            f"ES_SCR_{up}_CGWSEL = ${sb['cgwsel']:02X}"
-            f"    ; no blend claims: the boot-reset OFF state"
-            f" (prevent=always)",
-            f"ES_SCR_{up}_CGADSUB = ${sb['cgadsub']:02X}"
-            f"    ; no blend claims: math gates nothing"]
+        lines.append(f"; ES_SCR_{up}_CGWSEL / _CGADSUB absent — no "
+                     f"[[claims.blend]] in this scene: the composed OFF state "
+                     f"is ${sb['cgwsel']:02X}/${sb['cgadsub']:02X}, but "
+                     f"establishing it belongs to whoever owns these ports "
+                     f"(docs/99 §4)")
     lines.append("")
     return lines
 
@@ -1876,9 +1895,13 @@ def emit(alloc: Allocation, out_dir: str | Path) -> list[Path]:
         # behaviour worth knowing, not refusals).
         sb = sm.screen_blend
         if sb is not None:
+            # All four VALUES, and which of them this composition OWNS. The
+            # report shows the composed off state either way; the `owns`
+            # tail is what says whether a symbol was published for it.
             rep.append(f"  SCREEN/BLEND TM=${sb['tm']:02X} TS=${sb['ts']:02X} "
                        f"CGWSEL=${sb['cgwsel']:02X} "
-                       f"CGADSUB=${sb['cgadsub']:02X}")
+                       f"CGADSUB=${sb['cgadsub']:02X} "
+                       f"(owns {','.join(sb['registers'])})")
             for c, who in sb["screen"]:
                 rep.append(f"    {c.layer} -> {c.on:5} {'':16} {who}")
             for c, who in sb["blend"]:
@@ -1996,6 +2019,13 @@ def emit(alloc: Allocation, out_dir: str | Path) -> list[Path]:
                                  "ts": sm.screen_blend["ts"],
                                  "cgwsel": sm.screen_blend["cgwsel"],
                                  "cgadsub": sm.screen_blend["cgadsub"],
+                                 # WHICH of the four the composition OWNS —
+                                 # per-half, so a reader can tell a composed
+                                 # value from an off value the scene does not
+                                 # own and does not publish a symbol for
+                                 # (_screen_blend_lines).
+                                 "registers": list(
+                                     sm.screen_blend["registers"]),
                                  "features": sm.screen_blend["features"]}}
                             if sm.screen_blend is not None else {})}
                    for sid, sm in alloc.scenes.items()},

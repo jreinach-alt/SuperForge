@@ -394,10 +394,22 @@ def test_emission_writes_the_four_symbols_with_contributors(tmp_path):
     assert vocab[0]["scene_writes"] == ["TM", "TS", "CGWSEL", "CGADSUB"]
 
 
-def test_emission_off_state_and_absence(tmp_path):
-    """The no-blend scene emits the explicit OFF state; a scene with no
-    vocabulary claims emits nothing and its map carries no screen_blend key
-    — pre-vocabulary maps stay byte-identical."""
+def defined_syms(inc: str) -> set[str]:
+    """Symbol NAMES the include actually defines — non-comment `NAME = ...`
+    lines only, so a commented placeholder that mentions a name does not
+    read as a definition."""
+    out = set()
+    for line in inc.splitlines():
+        line = line.strip()
+        if line.startswith(";") or "=" not in line:
+            continue
+        out.add(line.split("=", 1)[0].strip())
+    return out
+
+
+def test_emission_absence_and_no_vocabulary_scene(tmp_path):
+    """A scene with no vocabulary claims emits nothing and its map carries
+    no screen_blend key — pre-vocabulary maps stay byte-identical."""
     feats = features(
         tmp_path,
         world='[[claims.screen]]\nlayer = "bg1"\non = "main"\n',
@@ -408,14 +420,96 @@ def test_emission_off_state_and_absence(tmp_path):
                    '[[edge]]\nfrom = "on"\nto = "off"\nstyle = "cut"\n')
     a = allocate(SUB, feats, NO_STATE, man)
     emit(a, tmp_path / "out")
-    inc_on = (tmp_path / "out" / "engine_state_on.inc").read_text()
-    assert "ES_SCR_ON_CGWSEL = $30" in inc_on     # prevent=always: math off
-    assert "ES_SCR_ON_CGADSUB = $00" in inc_on
     inc_off = (tmp_path / "out" / "engine_state_off.inc").read_text()
     assert "ES_SCR_" not in inc_off
     jmap = json.loads((tmp_path / "out" / "symbol_map.json").read_text())
     assert "screen_blend" in jmap["scenes"]["on"]
     assert "screen_blend" not in jmap["scenes"]["off"]
+
+
+def test_emission_publishes_only_the_owned_half_both_directions(tmp_path):
+    """A symbol is published only for a port the composition OWNS.
+
+    Ownership is per-half, so both directions have to hold: a screen-only
+    scene defines TM/TS and NOT CGWSEL/CGADSUB, and a blend-only scene the
+    reverse. Emitting all four regardless would state a value for a port a
+    raw claimant owns and programs — and where that claimant opened the port
+    with `scene_writes`, the writer-side gate would take a scene write of
+    the allocator's value over the owner's.
+
+    The off VALUES survive in the report and the map (asserted here): what
+    is withheld is a symbol to write an unowned port from.
+    """
+    # screen-only, beside a feature that owns and programs CGWSEL
+    feats = features(
+        tmp_path / "scr",
+        world='[[claims.screen]]\nlayer = "bg1"\non = "main"\n',
+        dc=('[[claims.reg]]\nregisters = ["CGWSEL"]\n'
+            'scene_writes = ["CGWSEL"]\n'))
+    a = alloc(tmp_path / "scr", feats, "world", "dc")
+    emit(a, tmp_path / "scr" / "out")
+    inc = (tmp_path / "scr" / "out" / "engine_state_s.inc").read_text()
+    syms = defined_syms(inc)
+    assert {"ES_SCR_S_TM", "ES_SCR_S_TS"} <= syms
+    assert "ES_SCR_S_CGWSEL" not in syms and "ES_SCR_S_CGADSUB" not in syms
+    assert "no [[claims.blend]] in this scene" in inc      # and it says why
+    jmap = json.loads(
+        (tmp_path / "scr" / "out" / "symbol_map.json").read_text())
+    sb = jmap["scenes"]["s"]["screen_blend"]
+    assert sb["registers"] == ["TM", "TS"]                 # what it owns
+    assert (sb["cgwsel"], sb["cgadsub"]) == (0x30, 0x00)   # the value survives
+    rep = (tmp_path / "scr" / "out" / "allocation_report.txt").read_text()
+    assert "CGWSEL=$30 CGADSUB=$00 (owns TM,TS)" in rep
+
+    # blend-only, beside a feature that owns and programs TM
+    feats = features(
+        tmp_path / "bl", floor=RAW_TM,
+        wash=('[[claims.blend]]\nop = "sub"\nsource = "fixed"\n'
+              'math = ["backdrop"]\n'))
+    b = alloc(tmp_path / "bl", feats, "floor", "wash")
+    emit(b, tmp_path / "bl" / "out")
+    inc = (tmp_path / "bl" / "out" / "engine_state_s.inc").read_text()
+    syms = defined_syms(inc)
+    assert {"ES_SCR_S_CGWSEL", "ES_SCR_S_CGADSUB"} <= syms
+    assert "ES_SCR_S_TM" not in syms and "ES_SCR_S_TS" not in syms
+    assert "no [[claims.screen]] in this scene" in inc
+    jmap = json.loads(
+        (tmp_path / "bl" / "out" / "symbol_map.json").read_text())
+    sb = jmap["scenes"]["s"]["screen_blend"]
+    assert sb["registers"] == ["CGWSEL", "CGADSUB"]
+    assert (sb["tm"], sb["ts"]) == (0x00, 0x00)
+
+
+def test_unowned_port_write_no_longer_has_a_symbol_to_write_from(tmp_path):
+    """The same property end-to-end, through the writer-side gate.
+
+    The raw CGWSEL owner opens its port with `scene_writes` — its ordinary
+    shape — so `no_literals` ACCEPTS a scene write of $2130 in this scene
+    (asserted, so the test cannot pass by the gate refusing for an unrelated
+    reason). What stops the scene writing the allocator's un-owned value is
+    that there is no `ES_SCR_S_CGWSEL` to write it from: the emitted include
+    defines the symbol for the port the composition owns and not for this
+    one.
+    """
+    import no_literals as NL
+    g = tmp_path / "game" / "g"
+    (g / "scenes").mkdir(parents=True)
+    feats = {n: feature(tmp_path, n, b) for n, b in {
+        "world": '[[claims.screen]]\nlayer = "bg1"\non = "main"\n',
+        "dc": ('[[claims.reg]]\nregisters = ["CGWSEL"]\n'
+               'scene_writes = ["CGWSEL"]\n')}.items()}
+    (g / "game.toml").write_text(
+        '[[scene]]\nid = "s"\nfeatures = ["world", "dc"]\n')
+    a = allocate(SUB, feats, NO_STATE, load_manifest(g / "game.toml"))
+    out = tmp_path / "build"
+    emit(a, out)
+    asm = g / "scenes" / "s.asm"
+    asm.write_text(".a8\nlda #ES_SCR_S_TM\nsta a:$212C\nsta a:$2130\n")
+    rc = NL.main(["--map", str(out / "symbol_map.json"),
+                  "--partial-files", str(asm)])
+    assert rc == 0                                   # the gate consents
+    inc = (out / "engine_state_s.inc").read_text()
+    assert "ES_SCR_S_CGWSEL" not in defined_syms(inc)  # no value to write
 
 
 # -- warnings: the allocation report carries them ---------------------------
