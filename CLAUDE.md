@@ -129,7 +129,13 @@ from a clone of HEAD — the landing gate).
    invisible in both directions, checked only by the emulator — so
    `; WIDTH-RISK:` markers stay load-bearing on every routine that has not
    yet migrated, and the lint's summary counts how many declarations and
-   call sites the pass actually reached.
+   call sites the pass actually reached. Since 2026-08-25 the declaration
+   is MANDATORY on the feature layer: a uniquely-named routine under
+   `engine/features/**` that another file calls and that carries no
+   contract is a finding (`contract-missing`, ratchet — zero on the tree
+   that adopted it, fires on the first new undeclared export; denominator
+   printed). The undeclared remainder is the stated exemptions — rail-side
+   routines, names several files define, files outside the feature layer.
 7. **The emulator is not the bug.** Before claiming a quirk you MUST: reproduce
    on a 2nd emulator (bsnes), read the Mesen2 source
    (`/tmp/Mesen2/Core/SNES/`), cite a known-good open-source SNES codebase or a

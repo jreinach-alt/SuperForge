@@ -145,7 +145,14 @@ run `make test` alongside it** — bare-check runs a suite of its own.
 **`make bare-check` green on the exact tip, with the result cited.**
 
 Cite it from `build/bare_check.json` — the SHA, the UTC timestamp, the per-gate
-verdicts, the suite summary line and the ROM census (§7). The point of the rule
+verdicts, the suite summary line, the ROM census (§7) and, since 2026-08-25,
+`suite_schedule`: the suite's per-module worker schedule (which worker ran each
+module in what order, any red module with its same-worker predecessors
+nearest-first, and whether any module split across workers — the raw record is
+kept as a part, the summary is embedded because the clone is deleted on green).
+It is there because the suite runs under xdist and a red on a module whose own
+inputs did not change is diagnosed by its neighbours; `make test` separately
+ENFORCES the no-split property after every run. The point of the rule
 is an independent observation, on the exact commit, that is quotable rather
 than remembered — and what that observation cannot see is written into the
 artifact it produces.
