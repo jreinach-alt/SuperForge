@@ -64,8 +64,11 @@ def _session(tmp_path, mods, extra_args=(), env_extra=None):
     env = dict(os.environ)
     # A fresh session must not inherit THIS session's xdist identity, or every
     # row it writes would claim the parent's worker and run id.
+    # ...nor its ownership of the schedule file: a session that inherited it
+    # would correctly refuse to record (that refusal is its own case below),
+    # and every assertion here would then be about an empty file.
     for k in ("PYTEST_XDIST_WORKER", "PYTEST_XDIST_TESTRUNUID",
-              "SF_SCHEDULE_RUN_ID", "PYTEST_CURRENT_TEST"):
+              "SF_SCHEDULE_RUN_ID", "SF_SCHEDULE_OWNER", "PYTEST_CURRENT_TEST"):
         env.pop(k, None)
     env["SF_SCHEDULE_LOG"] = str(log)
     env.update(env_extra or {})
@@ -176,6 +179,34 @@ def test_each_run_truncates_the_file_so_rows_are_one_run(tmp_path):
     assert log2 == log
     assert [r["module"] for r in rows2] == ["test_a.py"], rows2
     assert rows2[0]["run"] != rows1[0]["run"], (rows1[0], rows2[0])
+
+
+def test_a_nested_session_cannot_clobber_the_owner_record(tmp_path):
+    """The evidence-destroying case, asserted directly.
+
+    Several modules here start a pytest of their own and load this conftest
+    into it on purpose (`test_park_guard.py`, `test_map_freshness_guard.py`).
+    Those sessions inherit the outer run's environment. If they recorded,
+    they would truncate the record of the run investigating them — mid-suite,
+    in the one file nobody would suspect. So: a session that finds an owner
+    already claimed must write NOTHING, and must still run its tests.
+    """
+    _, rows, log = _session(tmp_path, {"test_a.py": MOD_A, "test_c.py": MOD_C})
+    assert [r["module"] for r in rows] == ["test_a.py", "test_c.py"]
+    before = log.read_text()
+
+    # Now re-run as if from inside that owner: an inherited owner pid that is
+    # neither us nor our parent is exactly what a nested session sees.
+    work = tmp_path / "work"
+    env = dict(os.environ)
+    env.update(SF_SCHEDULE_LOG=str(log), SF_SCHEDULE_OWNER="1")
+    for k in ("PYTEST_XDIST_WORKER", "PYTEST_XDIST_TESTRUNUID"):
+        env.pop(k, None)
+    proc = subprocess.run(
+        [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-q",
+         "test_a.py"], cwd=work, capture_output=True, text=True, env=env)
+    assert proc.returncode == 0, proc.stdout      # it still RAN the tests
+    assert log.read_text() == before, "a nested session rewrote the record"
 
 
 def test_the_record_can_be_turned_off(tmp_path):

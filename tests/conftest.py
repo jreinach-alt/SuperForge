@@ -528,8 +528,34 @@ def _park_guard_applies(item, nextitem) -> bool:
 # NEVER FATAL. Every write is wrapped: instrumentation that can fail a test
 # run is worse than no instrumentation, because the first thing it would do
 # is add a second intermittent failure to an investigation into the first.
+#
+# WHO IS ALLOWED TO WRITE. Several modules in this suite start a pytest of
+# their own in a subprocess — `test_park_guard.py` and
+# `test_map_freshness_guard.py` load THIS conftest into those sessions on
+# purpose, so the hooks under test are the shipped ones. Those nested
+# sessions inherit the outer run's environment, so without a rule they would
+# register these hooks, decide they were a fresh run, and TRUNCATE the record
+# of the very run that is investigating them — destroying the evidence
+# mid-suite, in the one file nobody would think to suspect.
+#
+# The rule is process ownership, not paths: the first pytest to find no owner
+# in the environment claims the file, and the only other processes allowed to
+# append are ITS xdist workers — its direct children, which announce
+# themselves with `PYTEST_XDIST_WORKER`. A nested run started from a serial
+# owner is a direct child too, but carries no worker name; a nested run
+# started from inside a worker carries one but is not the owner's child.
+# Both are excluded, at any depth.
+#
+# Paths were tried first and thrown away: the obvious rule ("record only a
+# session rooted at this tree") depends on `config.rootpath`, which pytest
+# derives from where it was INVOKED — `pytest tests/test_x.py` from the repo
+# root roots at the repo, the same command from inside `tests/` roots at
+# `tests/`. That silently disarms the record for anyone iterating from the
+# test directory, and an instrument that quietly stops recording is worse
+# than one that is plainly off.
 _SCHEDULE_DISABLE = "SF_NO_SCHEDULE_LOG"
 _SCHEDULE_ENV = "SF_SCHEDULE_LOG"
+_SCHEDULE_OWNER = "SF_SCHEDULE_OWNER"
 _SCHEDULE_DEFAULT = SUPERFORGE / "build" / "worker_schedule.jsonl"
 
 # Failing test names carried per module row. Enough to name the shape of a
@@ -547,9 +573,28 @@ _sched_state: dict = {
 }
 
 
+def schedule_participant() -> bool:
+    """Is this process part of the run that OWNS the schedule file?
+
+    True for the pytest that claimed the file and for that pytest's own xdist
+    workers. False for every nested session a test started, which is the
+    whole point — see the block above.
+    """
+    owner = os.environ.get(_SCHEDULE_OWNER, "").strip()
+    if not owner.isdigit():
+        return False
+    owner_pid = int(owner)
+    if os.getpid() == owner_pid:
+        return True
+    return (bool(os.environ.get("PYTEST_XDIST_WORKER", "").strip())
+            and os.getppid() == owner_pid)
+
+
 def schedule_path() -> Optional[Path]:
     """Where the schedule is being written, or None when it is off."""
     if os.environ.get(_SCHEDULE_DISABLE, "").strip():
+        return None
+    if not schedule_participant():
         return None
     override = os.environ.get(_SCHEDULE_ENV, "").strip()
     return Path(override) if override else _SCHEDULE_DEFAULT
@@ -918,7 +963,8 @@ def pytest_configure(config):
     # file was the first shape and was thrown away: every reader of it began
     # by working out where the current run started, which is exactly the
     # archaeology this record exists to abolish.
-    if not os.environ.get("PYTEST_XDIST_WORKER"):
+    if not os.environ.get(_SCHEDULE_OWNER, "").strip():
+        os.environ[_SCHEDULE_OWNER] = str(os.getpid())
         os.environ.setdefault("SF_SCHEDULE_RUN_ID",
                               f"{int(time.time())}-{os.getpid()}")
         path = schedule_path()
