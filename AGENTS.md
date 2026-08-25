@@ -152,7 +152,12 @@ make test XDIST=3            # ...the same target, parallel.
                              # `load`: three modules split and
                              # test_measure_multi_queue_arm_cost went red with
                              # FileNotFoundError on the JSON its module-mate
-                             # writes. If you type pytest yourself, pass
+                             # writes. It is also FASTER: measured at XDIST=2
+                             # on 4 cores, same tree, idle box — `load` 31:04
+                             # and red, `loadfile` 26:41 and green. A split
+                             # module runs its module-scoped fixture on both
+                             # workers, so the duplicated ROM boots were being
+                             # paid for. If you type pytest yourself, pass
                              # `--dist loadfile` too — conftest pins it as a
                              # backstop, but the flag is the front door.
 python3 -m pytest tests/ -q  # same suite, direct        (measured 7:40)

@@ -2883,10 +2883,15 @@ bare-check:
 # whose own `--help` documents loadfile as "Load balance by sending test
 # grouped by file to any available environment."
 #
-# Parallelism is unaffected in any way that matters: it now comes from the
-# ~140 FILES rather than from ~2,100 tests, and the suite has far more files
-# than workers. `make test` checks the property afterwards rather than
-# trusting the flag — see the recipe below.
+# Parallelism does not suffer — it IMPROVES. It now comes from the ~140 FILES
+# rather than from ~2,100 tests, and the suite has far more files than
+# workers. MEASURED at XDIST=2 on a 4-core box, same tree, both runs on an
+# otherwise idle machine: `load` 31:04 (1864.96 s, and RED), `loadfile` 26:41
+# (1601.40 s, green) — 14% FASTER. That is the duplicated work coming back:
+# under `load` a split module runs its module-scoped fixture on BOTH workers,
+# so the ROM boots twice and two `make` invocations can land in one `build/`.
+# `make test` checks the property afterwards rather than trusting the flag —
+# see the recipe below.
 XDIST ?=
 PYTEST_DIST := $(if $(strip $(XDIST)),-n $(strip $(XDIST)) --dist loadfile,)
 
