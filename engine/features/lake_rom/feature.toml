@@ -17,7 +17,7 @@ depends = []
 
 [[claims.rom]]
 name = "lk_chr"
-bytes = 256              # 8 x 4bpp tiles: the bands and their two seams
+bytes = 288              # 9 x 4bpp tiles: the bands and their two seams
 
 [[claims.rom]]
 name = "lk_map"

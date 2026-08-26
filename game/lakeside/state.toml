@@ -13,6 +13,14 @@ frames = "u16@dp"        # frames since enter — the free-running heartbeat
 [scene.lake]
 frames = "u16@dp"        # frames since enter — the free-running heartbeat
 
+# The still gate: 0 = drifting, 1 = held. A LATCHED TOGGLE rather than a
+# level-triggered hold, and the reason is that stillness is a real STATE of
+# this rail rather than a per-frame condition — a picture that does not move
+# is the control every "the surface moved by exactly N pixels" claim is
+# measured against, and a control that depends on a button being down at the
+# instant of measurement is not one.
+stilled = "u16@dp"
+
 # --- the TIMEBASE's per-consumer state (engine/features/tick_scale) ---------
 #
 # ONE RATE, ONE PAIR. The drift is a velocity in px/frame, so it takes exactly

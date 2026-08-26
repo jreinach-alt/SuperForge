@@ -1197,6 +1197,66 @@ $(BUILD)/camera_follow.sfc: $(CF_ASM) $(CF)/cf.inc \
 	$(PY) tools/fix_checksum.py $@
 
 camera_follow: $(BUILD)/camera_follow.sfc
+
+# ---- lakeside: a sub-screen water layer, half-added ----
+# BG1 carries a banded lakeshore world, BG2 carries a drifting water surface
+# designated to the SUB screen, BG3 carries text. The blender adds the surface
+# to the main screen at half intensity, so the lake bed shows THROUGH the
+# water where the two overlap and at full intensity where the surface has no
+# pixel.
+#
+# THE FIRST CONSUMER OF THE SCREEN/BLEND VOCABULARY (docs/99). Three features
+# compose TM/TS/CGWSEL/CGADSUB without any of them claiming a port:
+# `lake_bg` designates bg1 and bg3 to the main screen, `water` designates bg2
+# to the sub screen and declares the blend, and `bg_text` composes untouched.
+#
+# TWO SCENES, and both compose the vocabulary — `title` carries `blend_off`,
+# whose whole content is the blender's off state, so the return edge disarms
+# what the lake armed and the allocator's per-edge hygiene check reports zero
+# warnings.
+#
+# No TAD objects — `tad_rom` is not in this game's globals, so the link is
+# one object (scroller's shape).
+LKS      := game/lakeside
+LKS_MAP  := $(BUILD)/lks
+LKS_ASM  := $(LKS)/main.asm $(wildcard $(LKS)/scenes/*.asm) \
+            $(wildcard engine/features/*/*.asm)
+
+LKS_ASSETS := $(BUILD)/assets/lk_chr.bin $(BUILD)/assets/lk_map.bin \
+              $(BUILD)/assets/lk_pal.bin $(BUILD)/assets/wat_chr.bin \
+              $(BUILD)/assets/wat_map.bin $(BUILD)/assets/wat_pal.bin
+
+$(LKS_ASSETS): tools/gen_lakeside_assets.py | $(BUILD)
+	$(PY) tools/gen_lakeside_assets.py $(BUILD)/assets
+
+$(LKS_MAP)/engine_state_globals.inc $(LKS_MAP)/symbol_map.json: \
+		allocator/substrate.toml allocator/allocate.py allocator/schemas.py \
+		$(wildcard engine/features/*/feature.toml) $(LKS)/game.toml \
+		$(LKS)/state.toml | $(BUILD)
+	$(PY) allocator/allocate.py --game $(LKS) --features-dir engine/features \
+		--out $(LKS_MAP)
+
+# -I every feature dir whose asm this composition includes, PLUS $(LKS_MAP)
+# for the emitted maps, $(VROM) for the header/init/reset and $(LKS) for the
+# scenes and lakeside.inc.
+LKS_INC := -I $(LKS_MAP) -I $(VROM) -I $(LKS) \
+           -I engine/features/scene_mgr -I engine/features/input \
+           -I engine/features/fade -I engine/features/bg_text \
+           -I engine/features/region -I engine/features/tick_scale \
+           -I engine/features/lake_bg -I engine/features/water
+
+$(BUILD)/lakeside.sfc: $(LKS_ASM) $(LKS)/lakeside.inc \
+		$(LKS_MAP)/engine_state_globals.inc $(LKS_ASSETS) \
+		$(BUILD)/assets/font_2bpp.bin \
+		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
+		$(VROM)/lorom_512k.cfg | $(BUILD)
+	$(PY) allocator/no_literals.py --map $(LKS_MAP)/symbol_map.json $(LKS_ASM)
+	$(CA65) $(LKS_INC) --bin-include-dir $(BUILD)/assets \
+		-o $(BUILD)/lakeside.o $(LKS)/main.asm
+	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/lakeside.o
+	$(PY) tools/fix_checksum.py $@
+
+lakeside: $(BUILD)/lakeside.sfc
 # ---- maze: col_map against a hand-built map -------
 # A red player walks a grey walled room (border + two interior walls) with
 # the canonical per-axis move-check: tentative position, probe, keep the axis

@@ -8,8 +8,8 @@
 # surface, designated to the SUB screen and half-added onto BG1 and the
 # backdrop, so the bed shows THROUGH the water at half intensity where the
 # two overlap and at FULL intensity where the surface has no pixel. The
-# surface drifts left at a region-correct rate; B stills it, Start returns to
-# the title.
+# surface drifts left at a region-correct rate; B toggles it still, Start
+# returns to the title.
 #
 # The translucency is the PPU's one colour-math unit, not a palette that
 # looks wet. That is the whole subject of the rail.
@@ -75,18 +75,29 @@
 # and no base-side pre-scale (game/jumper/scenes/sky.asm is where that second
 # case is spelled). NOT SCALED: nothing. The rail has no countdown, no
 # animation divider and no per-frame table cursor.
-globals = ["scene_mgr", "fade", "input", "text_dp", "font_rom",
-           "lake_rom", "water_rom", "region", "tick_scale"]
+#
+# WHY `lake_bg` AND `bg_text` ARE GLOBAL AND `water` IS NOT. Both scenes draw
+# the same world and the same text layer, so one BG1 tilemap, one BG3 tilemap
+# and one palette serve both — a scene-scoped pair would allocate the same
+# picture twice and, worse, would emit a DIFFERENT symbol set per scene for
+# code that is shared. `water` is genuinely per scene: only `lake` has a
+# surface, so its VRAM, its palette group and its scroll accumulator are the
+# lake's alone, and its ASM lives inside that scene's `.scope`. The screen and
+# blend claims follow their features: `lake_bg`'s two designations apply in
+# both scenes (the composition runs over globals + scene), `water`'s
+# designation and blend only in `lake`, and `blend_off`'s only in `title`.
+globals = ["scene_mgr", "fade", "input", "text_dp", "font_rom", "bg_text",
+           "lake_bg", "lake_rom", "water_rom", "region", "tick_scale"]
 
 # The title: the same world, no water, and the blender carrying its off state.
 [[scene]]
 id = "title"
-features = ["lake_bg", "bg_text", "blend_off"]
+features = ["blend_off"]
 
 # The lake: the same world, with the surface on the sub screen.
 [[scene]]
 id = "lake"
-features = ["lake_bg", "bg_text", "water"]
+features = ["water"]
 
 [[edge]]
 from = "title"

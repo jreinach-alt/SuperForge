@@ -67,7 +67,7 @@ mode = 1
 [[claims.vram]]
 name = "lk_chr"
 kind = "chr"
-tiles = 8                # 0 empty .. 7 lake bed far; see the generator
+tiles = 9                # 0 empty .. 8 lake bed deep; see the generator
 tile_bytes = 32          # 4bpp
 
 [[claims.vram]]
