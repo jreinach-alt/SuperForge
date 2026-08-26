@@ -241,9 +241,12 @@ lk_strings:
 ; --- sm_nmi_hook: per-frame VBlank work -----------------------------------
 ; In: A8/I16, DB=0 (from sm_nmi_core). May clobber A/X/Y.
 ;
-; ONE ENTRY, and it is the water's. The world does not scroll and the text is
-; written once per scene under forced blank, so the only thing that has to
-; reach the PPU every frame is the surface's horizontal offset.
+; TWO ENTRIES, both the water's. The world does not scroll and the text is
+; written once per scene under forced blank, so what has to reach the PPU
+; every frame is the surface's horizontal offset and the 32 CHR bytes behind
+; its highlight. Their ORDER IS FREE: `wat_nmi_glint` programs its own VMAIN
+; and VMADD, which is the contract a VBlank VRAM writer answers here, and
+; `wat_nmi_commit` touches only a scroll latch.
 ;
 ; IT IS GUARDED BY THE RUNNING SCENE, not called unconditionally. The
 ; accumulator it reads is `water`'s SCENE-SCOPED dp claim, so in the title
@@ -258,6 +261,7 @@ sm_nmi_hook:
     cmp #ES_E_TITLE_TO_LAKE_DST     ; ...the lake?
     bne @done
     jsr lake::wat_nmi_commit        ; the drift -> BG2HOFS
+    jsr lake::wat_nmi_glint         ; ...and the highlight phase it selects
 @done:
     .a8
     .i16

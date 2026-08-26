@@ -97,7 +97,9 @@ mode = 1
 [[claims.vram]]
 name = "wat_chr"
 kind = "chr"
-tiles = 3                # 0 empty (the edge), 1 crest, 2 trough
+tiles = 22               # 0 empty (the edge), the two zones' ripple and
+                         # jag tiles, the highlight's display slot and its
+                         # four phases; tools/gen_lakeside_assets.py
 tile_bytes = 32          # 4bpp
 
 [[claims.vram]]

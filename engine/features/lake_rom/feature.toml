@@ -5,10 +5,12 @@
 #
 # THE MAP IS A BLOB, not a build loop. `scroller_rom` argues the opposite case
 # and is right for the rail it serves: there the `(col ^ row) & 1` loop IS the
-# lesson. Here the lesson is the blend, and the world's job is to be a known,
-# banded main-screen operand — so the map is authored once, byte for byte, by
-# the generator, and the test can compare uploaded VRAM against the source
-# bytes rather than against a loop's intent.
+# lesson. Here the lesson is the blend, and the world's job is to be a KNOWN
+# main-screen operand — an irregular one now, with a meandering waterline and
+# a bed of silt, pebble and weed clusters, which a loop could not state and a
+# reader could not check. So the map is authored once, byte for byte, by the
+# generator, and the test compares uploaded VRAM against the source bytes
+# rather than against a loop's intent.
 #
 # All three blobs come from tools/gen_lakeside_assets.py.
 name = "lake_rom"
@@ -17,11 +19,12 @@ depends = []
 
 [[claims.rom]]
 name = "lk_chr"
-bytes = 288              # 9 x 4bpp tiles: the bands and their two seams
+bytes = 832              # 26 x 4bpp tiles: sky, ridge, beach, six coast
+                         # profiles, the bed and its clusters
 
 [[claims.rom]]
 name = "lk_map"
-bytes = 2048             # 32x32 tilemap words — the banded world
+bytes = 2048             # 32x32 tilemap words — the shore and the bed
 
 [[claims.rom]]
 name = "lk_pal"

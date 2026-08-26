@@ -23,6 +23,20 @@
 ; can land mid-upload and re-point VMADD (CLAUDE.md: forced blank does NOT mask
 ; NMI; $4200 bit 7 does).
 
+; The surface's LAYOUT, as the asset generator emitted it: which tile the map's
+; twinkle cells point at, where the highlight's phases live behind it, how many
+; there are, and how far the surface drifts between two of them. Pinned by
+; format version rather than copied, because a re-authored tile order moves
+; every one of these numbers and a narrated copy would index the wrong bytes
+; with every gate still green (AGENTS.md, "A generated include carries a FORMAT
+; VERSION and its consumer pins it"). The two shift/size pairs are asserted
+; against each other so neither half can be edited alone.
+.include "lk_art.inc"
+.assert LK_ART_FORMAT = 1, error, "lk_art.inc format moved under water.asm"
+.assert (1 << LK_GLINT_STEP_SHIFT) = LK_GLINT_STEP_PX, error, "glint step shift/px disagree"
+.assert (1 << LK_GLINT_TILE_SHIFT) = LK_GLINT_TILE_BYTES, error, "glint tile shift/bytes disagree"
+.assert (LK_GLINT_PHASES & (LK_GLINT_PHASES - 1)) = 0, error, "glint phase count is not a power of two"
+
 ; The enter-time GP-DMA register file, addressed through the channel the
 ; `wat_up` dma_init claim names — a declared resource, not a hard-coded 1.
 WAT_REGS = $4300 + ES_D_WAT_UP_CH * 16
@@ -213,4 +227,71 @@ wat_nmi_commit:
     sta a:$210F                     ; BG2HOFS, low
     lda z:ES_WAT_SCROLL + 1
     sta a:$210F                     ; BG2HOFS, high
+    rts
+
+; --- wat_nmi_glint: the highlight's phase, every armed VBlank --------------
+; CONTRACT wat_nmi_glint
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   in:       ES_WAT_SCROLL — where the surface has drifted to, in world px
+;   out:      the highlight's display slot rewritten with the phase that
+;             position selects, read straight out of the surface's own CHR
+;             blob in ROM
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention. It programs its own VMAIN and VMADD, so where it
+;             sits in the hook is free — the rule a new VBlank VRAM writer
+;             answers is "program your own, or be ordered last"
+;   tail:     rts
+;
+; THE LOOP IS INDEXED BY POSITION, NOT BY A COUNT OF FRAMES, and that is the
+; whole design. The surface's accumulated scroll is already a region-correct
+; quantity — the rail advances it through TS_STEP, so it measures distance
+; travelled rather than frames elapsed — and selecting a phase from it means
+; the twinkle inherits that correctness with no clock of its own, holds still
+; exactly when the drift is stilled, and returns to phase 0 in step with the
+; 32 px pattern period the picture is asked to repeat across.
+;
+; TICK: ok -- the phase is a function of a DISTANCE, not of a frame count.
+;   ES_WAT_SCROLL is the accumulated output of the caller's TS_STEP, so this
+;   routine reads a quantity the scaler already expressed against the declared
+;   tick; nothing here counts frames and there is no per-frame immediate.
+;
+; 32 B through a 16-bit store to VMDATAL, which the PPU splits across
+; VMDATAL/VMDATAH: 16 iterations, ~330 cycles of a VBlank that has nothing
+; else to do in this rail. No channel, no byte budget, no claim — the bytes
+; come from the blob the `wat_chr` rom claim already backs.
+wat_nmi_glint:
+    .a8
+    .i16
+    SF_ASSERT_WIDTH 8, 16, "wat_nmi_glint"
+    lda #$80
+    sta a:$2115                     ; VMAIN: +1 word after the high byte
+    rep #$20
+    .a16
+    lda #ES_V_WAT_CHR + LK_GLINT_SLOT * LK_GLINT_TILE_WORDS
+    sta a:$2116                     ; VMADD = the display slot's word base
+    lda z:ES_WAT_SCROLL
+    .repeat LK_GLINT_STEP_SHIFT
+    lsr a                           ; ...one phase per LK_GLINT_STEP_PX of drift
+    .endrepeat
+    and #(LK_GLINT_PHASES - 1)
+    .repeat LK_GLINT_TILE_SHIFT
+    asl a                           ; ...the phase's offset, in blob bytes
+    .endrepeat
+    clc
+    adc #(LK_GLINT_SRC * LK_GLINT_TILE_BYTES)
+    tax
+    ldy #(LK_GLINT_TILE_BYTES / 2)
+@word:
+    .a16
+    .i16
+    lda f:wat_chr_bin, x            ; absolute long indexed — carries across a
+    sta a:$2118                     ;   bank, so the blob's placement is free
+    inx
+    inx
+    dey
+    bne @word
+    sep #$20
+    .a8
     rts

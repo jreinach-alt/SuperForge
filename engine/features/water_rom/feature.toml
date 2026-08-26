@@ -16,11 +16,13 @@ depends = []
 
 [[claims.rom]]
 name = "wat_chr"
-bytes = 96               # 3 x 4bpp tiles: 0 empty, 1 crest, 2 trough
+bytes = 704              # 22 x 4bpp tiles: 0 empty (the edge), the two
+                         # zones' ripple, jag and zone-seam tiles, the
+                         # highlight's display slot and its four phases
 
 [[claims.rom]]
 name = "wat_map"
-bytes = 2048             # 32x32 tilemap words — the surface, band by band
+bytes = 2048             # 32x32 tilemap words — the surface, in two zones
 
 [[claims.rom]]
 name = "wat_pal"

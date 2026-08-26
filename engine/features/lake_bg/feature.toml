@@ -67,7 +67,8 @@ mode = 1
 [[claims.vram]]
 name = "lk_chr"
 kind = "chr"
-tiles = 9                # 0 empty .. 8 lake bed deep; see the generator
+tiles = 26               # sky, ridge, beach, six coast profiles, the bed
+                         # and its clusters; tools/gen_lakeside_assets.py
 tile_bytes = 32          # 4bpp
 
 [[claims.vram]]

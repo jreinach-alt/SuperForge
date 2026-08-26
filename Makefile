@@ -1225,7 +1225,8 @@ LKS_ASM  := $(LKS)/main.asm $(wildcard $(LKS)/scenes/*.asm) \
 
 LKS_ASSETS := $(BUILD)/assets/lk_chr.bin $(BUILD)/assets/lk_map.bin \
               $(BUILD)/assets/lk_pal.bin $(BUILD)/assets/wat_chr.bin \
-              $(BUILD)/assets/wat_map.bin $(BUILD)/assets/wat_pal.bin
+              $(BUILD)/assets/wat_map.bin $(BUILD)/assets/wat_pal.bin \
+              $(BUILD)/assets/lk_art.inc
 
 $(LKS_ASSETS): tools/gen_lakeside_assets.py | $(BUILD)
 	$(PY) tools/gen_lakeside_assets.py $(BUILD)/assets
@@ -1240,7 +1241,10 @@ $(LKS_MAP)/engine_state_globals.inc $(LKS_MAP)/symbol_map.json: \
 # -I every feature dir whose asm this composition includes, PLUS $(LKS_MAP)
 # for the emitted maps, $(VROM) for the header/init/reset and $(LKS) for the
 # scenes and lakeside.inc.
-LKS_INC := -I $(LKS_MAP) -I $(VROM) -I $(LKS) \
+# ...and -I $(BUILD)/assets for lk_art.inc, the generated LAYOUT the surface's
+# highlight loop indexes (the blobs themselves come in through
+# --bin-include-dir, which .incbin uses and .include does not).
+LKS_INC := -I $(LKS_MAP) -I $(VROM) -I $(LKS) -I $(BUILD)/assets \
            -I engine/features/scene_mgr -I engine/features/input \
            -I engine/features/fade -I engine/features/bg_text \
            -I engine/features/region -I engine/features/tick_scale \
