@@ -33,7 +33,6 @@ TS_DRIFT_BASE = LK_WATER_SPEED * TS_ONE
 enter:
     .a16
     .i16
-    stz z:US_FRAMES
     stz z:US_TSW_ACC                ; the timebase's carried fraction and this
     stz z:US_TSW                    ;   frame's step: written before read
     stz z:US_STILLED                ; the surface drifts on entry
@@ -113,7 +112,6 @@ enter:
 tick:
     .a16
     .i16
-    inc z:US_FRAMES
     ; This frame's drift, once. Computed even while the surface is stilled, so
     ; the carried fraction does not depend on the toggle: what the toggle
     ; gates is the APPLICATION of the step, not the timebase behind it.

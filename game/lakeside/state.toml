@@ -1,18 +1,25 @@
 # lakeside user state.
 #
-# Both scenes keep a frame heartbeat; the lake scene additionally owns the
-# timebase pair for the one rate this rail has. The accumulated SCROLL is not
-# here — it is `water`'s own dp claim (ES_WAT_SCROLL), because the routine
-# that READS it is that feature's VBlank commit. This scene WRITES it through
-# `wat_advance`, which is the same division scroller_bg / scenes/world.asm
-# draw between a feature's camera and the scene that drives it.
+# The lake scene owns the timebase pair for the one rate this rail has. The
+# accumulated SCROLL is not here — it is `water`'s own dp claim
+# (ES_WAT_SCROLL), because the routine that READS it is that feature's VBlank
+# commit. This scene WRITES it through `wat_advance`, which is the same
+# division scroller_bg / scenes/world.asm draw between a feature's camera and
+# the scene that drives it.
+#
+# NO FRAME HEARTBEAT. The sibling rails carry a `frames` word incremented once
+# per tick; this one does not, because nothing here would read it. A word in a
+# FRAME unit that no consumer consults is a coupling that buys nothing —
+# `make tick-check` flags exactly that shape, and deleting the word is the
+# answer rather than stamping it with an override. The rail's own clock is the
+# timebase below, whose unit is the declared tick.
 
 [scene.title]
-frames = "u16@dp"        # frames since enter — the free-running heartbeat
+# The title scene declares no state: it shows a fixed picture and waits for
+# Start. An empty scene table is legal — the allocator emits the scene's map
+# with its feature claims and no user words.
 
 [scene.lake]
-frames = "u16@dp"        # frames since enter — the free-running heartbeat
-
 # The still gate: 0 = drifting, 1 = held. A LATCHED TOGGLE rather than a
 # level-triggered hold, and the reason is that stillness is a real STATE of
 # this rail rather than a per-frame condition — a picture that does not move

@@ -174,6 +174,14 @@ wat_arm:
 ; holds; u16 wraparound at 65536 is a multiple of 256, so the picture stays
 ; continuous across that too. A clamp would introduce an end stop the water
 ; does not have.
+;
+; TICK: ok — this routine's unit of time is the DECLARED TICK, not the frame.
+;   It adds nothing of its own: `A` arrives as TS_STEP's published whole-unit
+;   step, which is the scaler's output and is already expressed against the
+;   tick, so the name-matched `_advance` here is a site that CONSUMES a
+;   removed frame coupling rather than one that states a new one. Nothing in
+;   the body reads a frame counter, and the caller's rate is a base in 8.8,
+;   not a per-frame immediate.
 wat_advance:
     .a16
     .i16

@@ -204,7 +204,7 @@ two of those numbers shared with claims that run in VBlank.
 | | | |
 |---|---|---|
 | ![the shore](docs/img/lks_01_title.png) | ![the same shore under water](docs/img/lks_02_lake.png) | ![back at the shore](docs/img/lks_03_returned.png) |
-| the world, blender off | the same world through a sub-screen layer | and back, with nothing carried over |
+| the world, blender off | the same world through a sub-screen layer | and back, byte-identical to the first |
 
 A lakeshore with **real water**: BG2 carries a drifting surface designated to
 the SUB screen, and the PPU's colour-math unit half-adds it onto the main

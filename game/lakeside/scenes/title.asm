@@ -19,7 +19,6 @@
 enter:
     .a16
     .i16
-    stz z:US_FRAMES
     jsr lk_arm                      ; the world: CHR, map, palette group 0
     jsr lk_text_arm                 ; BG3: the font and a cleared tilemap
     jsr lk_display                  ; BGMODE, the layer bases, the offsets
@@ -69,7 +68,6 @@ enter:
 tick:
     .a16
     .i16
-    inc z:US_FRAMES
     lda z:ES_INP_PRESS
     and #JOY_START
     beq @done
