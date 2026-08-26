@@ -7,22 +7,28 @@ Emits (byte-identical on re-run, pure integer math, no seed):
   lk_map.bin    32x32 tilemap words = 2048 B             the world
   lk_pal.bin    16 BGR555 words = 32 B                   BG palette group 0
                 (CGRAM 0..15; word 0 IS the backdrop slot)
-  wat_chr.bin   22 x 4bpp BG2 tiles = 704 B              the surface + the
-                                                         highlight's phases
+  wat_chr.bin   34 x 4bpp BG2 tiles = 1088 B            the surface, the
+                                                         highlight's phases and
+                                                         the swash band's slots
   wat_map.bin   32x32 tilemap words = 2048 B             the surface
   wat_pal.bin   16 BGR555 words = 32 B                   BG palette group 2
                 (CGRAM 32..47)
-  lk_art.inc    the LAYOUT constants water.asm pins      (format version 1)
+  surf_chr.bin  32 phases x 16 slots x 32 B = 16384 B   the surf, resident
+  lk_art.inc    the LAYOUT constants water.asm pins      (format version 2)
 
 WHAT THE PICTURE IS. A shore read from the side: sky, a ridge of hills, a sand
 and rock beach whose WATERLINE MEANDERS across three tile rows, then a clear
 shallow strip, then the lake in two zones — a textured shallow shelf with silt,
 pebble and sandbar clusters, and open deep water with rock and weed. The
-surface on BG2 covers the water from tile row 14 down, its TOP EDGE JAGGED (the
-tiles there are transparent above a meandering line), so the blend's own
-boundary is irregular and drifts with the surface rather than sitting on a row
-line. Sparse opaque highlights twinkle on the deep water through a four-phase
-loop.
+surface on BG2 covers the water from tile row 12 down, and its TOP EDGE is a
+SURF that runs up the shore and draws back: tilemap rows 12..15 are display
+slots whose 32 bytes are rewritten from a resident phase blob once per armed
+VBlank, so the waterline sweeps 26 px of beach on an asymmetric schedule — the
+swash fast, the backwash a little under half as fast, then a lull. The edge is
+transparent above a meandering line at every phase, so the blend's own boundary
+is irregular AND it moves; the sand it crosses is (sand + water) >> 1 while it
+is covered and its own colour again when the water leaves. Sparse opaque
+highlights twinkle on the deep water through a four-phase loop.
 
 WHY THE COLOURS ARE WHAT THEY ARE. The rail's subject is a half-add, and its
 tests assert the composited pixel as an EQUALITY rather than a tolerance: for
@@ -96,7 +102,12 @@ HILL = (4, 14, 6)             # dark green ridge
 HILL_LIT = (7, 19, 9)         # its sunlit face
 SAND = (26, 22, 12)           # warm dry sand
 ROCK = (14, 12, 10)           # the shoreline rocks
-ROCK_LIT = (20, 18, 16)       # their lit faces
+ROCK_LIT = (21, 18, 16)       # their lit faces. ONE STEP OFF SUBROCK_LIT
+                              #   ON PURPOSE: the two used to differ by 1 in
+                              #   r and b, and >>1 threw that away — their
+                              #   half-adds were the SAME colour. Harmless
+                              #   while the beach could never be wet; a P3
+                              #   collision the moment the surf covers rock.
 
 SHELF = (18, 23, 17)          # the shallow bed: pale green silt over sand
 SHELF_DK = (11, 16, 13)       # ...and the darker silt that drifts over it
@@ -140,6 +151,13 @@ LK_LEGEND = {".": 0, "s": 1, "h": 2, "H": 3, "n": 4, "r": 5, "R": 6,
              "f": 7, "g": 8, "b": 9, "k": 10, "K": 11, "d": 12, "D": 13}
 
 WAT_LEGEND = {".": 0, "c": 1, "t": 2, "C": 3, "T": 4, "*": 5}
+
+# The surface map's horizontal pattern: four 8 px cells, repeated eight
+# times across the 32-cell map. EVERY periodic number in this file is a
+# multiple or a divisor of it — the highlight's loop, the surf's cycle, the
+# edge profiles — because a picture asked to repeat across a 32 px
+# displacement can only do so if they all are.
+WAVE_PATTERN_PX = 4 * 8
 
 WAT_I_SH_CREST, WAT_I_SH_TROUGH = 1, 2
 WAT_I_DP_CREST, WAT_I_DP_TROUGH = 3, 4
@@ -331,14 +349,11 @@ wat_tile("sh_wave_b", pic(WAT_LEGEND,
                           "ttcccccc",
                           "tttttttt",
                           "tttttttt"))
-# The jagged top of the surface: transparent above a meandering line. Four
-# shapes, one per cell of the pattern period, so the blend's own edge is a
-# coastline rather than a row boundary — and it drifts, which is what the top
-# of a lake actually does.
-wat_tile("sh_jag_a", profile(0, WAT_I_SH_TROUGH, [0, 1, 2, 3, 3, 2, 1, 2]))
-wat_tile("sh_jag_b", profile(0, WAT_I_SH_TROUGH, [3, 4, 5, 5, 4, 3, 2, 2]))
-wat_tile("sh_jag_c", profile(0, WAT_I_SH_TROUGH, [3, 2, 2, 1, 1, 2, 3, 4]))
-wat_tile("sh_jag_d", profile(0, WAT_I_SH_TROUGH, [4, 3, 3, 2, 1, 1, 0, 0]))
+# The surface's top edge USED TO BE four static tiles on tilemap row 14. It is
+# now the swash band's business (see "the surf" below) and the shape those
+# tiles drew survives as SURF_JAG, one of the edge profiles the band composes.
+# Nothing points at a jag tile any more, so none is emitted: an unreferenced
+# tile is a claim nobody reads.
 wat_tile("dp_crest", flat(WAT_I_DP_CREST))
 wat_tile("dp_trough", flat(WAT_I_DP_TROUGH))
 # Where the two zones meet. The depth itself is a property of the BED and its
@@ -436,6 +451,240 @@ GLINT_TILE_BYTES = 1 << GLINT_TILE_SHIFT
 assert GLINT_PHASE_COUNT & (GLINT_PHASE_COUNT - 1) == 0, (
     f"the highlight's phase count is {GLINT_PHASE_COUNT} — the consumer masks "
     f"with count-1, so it must be a power of two")
+
+# =============================================================================
+# the surf — a wave that runs up the shore and draws back
+# =============================================================================
+# WHAT IT IS, AND WHY IT BELONGS IN A COLOUR-MATH RAIL. BG2 is the SUB screen
+# and the blend is a half-add, so the surface's own top edge IS the blend
+# boundary. Where the surface has a pixel the world renders as
+# (world + water) >> 1; where it has none the world arrives whole. Move that
+# edge up the beach and the sand it crosses becomes darker and cooler — WET
+# SAND — and move it back and the sand is dry again. The animation and the
+# colour math are one event: the PPU does the wet/dry shading, and nothing
+# repaints a "wet" palette.
+#
+# THE BAND is tilemap rows 12..15, 32 px of shore. Rows 12 and 13 are beach in
+# the world below — sand, its rock speckles, the meandering coast tiles — and
+# rows 14 and 15 are the shallow bed, so one edge sweeping the band crosses
+# both populations. Rows 0..11 are never covered, which is what keeps
+# `test_above_the_waterline_the_world_is_at_full_intensity` a claim about a
+# region that is dry BY CONSTRUCTION rather than by timing.
+#
+# THE MECHANISM IS RESIDENT PHASES, the pattern the highlight already proves
+# one tile at a time. Every cell of the band points at a DISPLAY SLOT; the
+# whole block of slots is rewritten from a ROM blob once per armed VBlank, so
+# what changes is which resident bytes the map's cells are showing and not how
+# much art is in flight. 16 slots x 32 B = one 512 B transfer against a
+# measured 5952 B/frame VBlank budget — declared in water/feature.toml and
+# proved by the allocator, not estimated here.
+#
+# THE PHASE IS INDEXED BY POSITION, exactly like the highlight: the surface's
+# accumulated scroll is the rail's one region-correct quantity (the drift runs
+# through TS_STEP), so a phase selected from it inherits that correctness with
+# no clock of its own, freezes the instant B stills the drift, and closes on a
+# whole number of pattern periods.
+SURF_TOP_ROW = 12                       # the band's first tilemap row
+SURF_ROWS = 4                           # ...and its height, in rows
+SURF_CELLS = 4                          # the map's 4-cell horizontal pattern
+SURF_SLOTS = SURF_ROWS * SURF_CELLS     # 16 display slots
+SURF_BAND_PX = SURF_ROWS * 8            # 32 px of shore
+SURF_BAND_TOP_PX = SURF_TOP_ROW * 8     # picture row 96
+SURF_BAND_BOT_PX = SURF_BAND_TOP_PX + SURF_BAND_PX      # ...and 128
+SURF_PHASES = 32
+SURF_STEP_SHIFT = 2                     # one phase per 4 px of drift
+SURF_STEP_PX = 1 << SURF_STEP_SHIFT
+SURF_PERIOD_PX = SURF_PHASES * SURF_STEP_PX             # 128 px — the cycle
+SURF_LIP_PX = 2                         # the crest lip at the water's edge
+
+# THE CYCLE IS 128 px AND THAT IS A MULTIPLE OF 32, which is the whole reason
+# the picture still repeats: the surface map's pattern is 4 cells = 32 px, the
+# highlight's loop is 4 phases x 8 px = 32 px, and the map wraps at 256. A surf
+# period that did not divide 256 and was not divided BY 32 would leave the
+# gallery clip with a visible seam and the wrap case with nothing true to say.
+assert SURF_PERIOD_PX % WAVE_PATTERN_PX == 0, (
+    f"the surf cycle is {SURF_PERIOD_PX} px, which is not a whole number of "
+    f"{WAVE_PATTERN_PX} px pattern periods — the picture would not repeat")
+assert (32 * 8) % SURF_PERIOD_PX == 0, (
+    f"the surf cycle is {SURF_PERIOD_PX} px, which does not divide the map's "
+    f"256 px wrap — the surface would show a seam at the wrap")
+
+# --- the schedule: SWASH FAST, BACKWASH SLOW, THEN A LULL --------------------
+# `SURF_H[p]` is how far the water has advanced INTO the band, in pixels, at
+# phase p. The base waterline sits at picture row SURF_BAND_BOT_PX - h, and the
+# per-column edge profile pushes it back down from there.
+#
+# SURF IS NOT A SINE AND THE ASYMMETRY IS THE POINT. A wave's swash runs up the
+# shore in a rush and decelerates as it climbs; the backwash draws down under
+# gravity over several times as long; and between waves the shore drains and
+# nothing much happens. A symmetric oscillation reads as a pulsing band rather
+# than as water, which is exactly what this table exists not to be:
+#
+#   phases 0..5    the swash — 6 -> 32 px in five steps (20 frames), and the
+#                  steps SHRINK: 7, 7, 6, 4, 2. The run-up decelerating.
+#   phases 5..19   the backwash — 32 -> 8 px over fourteen steps (56 frames),
+#                  a little under half the swash's rate.
+#   phases 19..31  the lull — the shore drained, the edge idling at its low
+#                  mark while the next wave gathers.
+#
+# It closes: SURF_H[31] is one step from SURF_H[0], so the cycle returns to its
+# own starting profile and the gallery clip's join stays invisible.
+SURF_H = [
+    6, 13, 20, 26, 30, 32,                                       # the swash
+    31, 29, 27, 25, 23, 21, 19, 17, 16, 14, 12, 11, 9, 8,        # the backwash
+    8, 7, 7, 6, 6, 6, 7, 7, 6, 6, 6, 6,                          # the lull
+]
+assert len(SURF_H) == SURF_PHASES, (
+    f"the schedule has {len(SURF_H)} entries and the loop has {SURF_PHASES}")
+
+# The phase whose edge reproduces the surface's ORIGINAL static top: the water
+# at h = 16 (base line on picture row 112, the top of tilemap row 14) wearing
+# the jag profile the four removed tiles used to draw. Named because the tests
+# that are about the rail's OTHER claims — the vofs geometry, the per-pixel
+# edge — hold their picture still at it, so their assertions did not have to be
+# rewritten around a moving edge.
+SURF_REF_PHASE = 14
+assert SURF_H[SURF_REF_PHASE] == 16, (
+    f"the reference phase is h = {SURF_H[SURF_REF_PHASE]}, not the 16 that puts "
+    f"the base waterline on the top of tilemap row 14")
+
+# --- the edge profiles ------------------------------------------------------
+# A per-column push-down, in pixels, over the pattern's 32 px period. Larger
+# means the water reaches LESS far up that column, so the shape is read as a
+# coastline seen from above rather than as a wave seen from the side.
+#
+# One shape per leg of the cycle, because a wave front and a draining backwash
+# do not have the same edge: the front is rounded and shallow, the drain is
+# ragged with deep notches where the water has already run off, and the lull is
+# nearly calm. SURF_JAG is the shape the surface's four static top tiles used to
+# draw, kept because the reference phase wears it.
+SURF_JAG = [0, 1, 2, 3, 3, 2, 1, 2, 3, 4, 5, 5, 4, 3, 2, 2,
+            3, 2, 2, 1, 1, 2, 3, 4, 4, 3, 3, 2, 1, 1, 0, 0]
+SURF_FRONT = [0, 0, 1, 1, 2, 2, 2, 1, 1, 0, 0, 1, 2, 3, 3, 2,
+              1, 1, 0, 0, 1, 1, 2, 2, 3, 2, 1, 1, 0, 0, 1, 2]
+SURF_DRAIN = [1, 2, 4, 5, 5, 3, 1, 0, 1, 3, 5, 5, 4, 2, 1, 2,
+              4, 5, 4, 2, 1, 1, 3, 5, 5, 3, 2, 1, 0, 1, 3, 4]
+SURF_CALM = [1, 1, 2, 2, 1, 1, 0, 0, 1, 2, 2, 1, 1, 0, 0, 1,
+             2, 2, 1, 1, 0, 1, 1, 2, 2, 1, 1, 0, 0, 1, 1, 2]
+for _n, _p in (("jag", SURF_JAG), ("front", SURF_FRONT),
+               ("drain", SURF_DRAIN), ("calm", SURF_CALM)):
+    assert len(_p) == WAVE_PATTERN_PX, f"{_n} profile is {len(_p)} px"
+    assert all(0 <= v <= 5 for v in _p), f"{_n} profile leaves 0..5"
+
+# The lowest the water is ever allowed to sit is one pixel above the band's
+# bottom line, or its edge would fall into tilemap row 16 — which the band does
+# not own and cannot draw.
+SURF_MAX_PUSH = max(max(SURF_JAG), max(SURF_FRONT),
+                    max(SURF_DRAIN), max(SURF_CALM))
+assert min(SURF_H) > SURF_MAX_PUSH, (
+    f"h reaches {min(SURF_H)} but the edge pushes down {SURF_MAX_PUSH} px — the "
+    f"waterline would leave the band's bottom")
+assert max(SURF_H) <= SURF_BAND_PX, (
+    f"h reaches {max(SURF_H)}, past the band's {SURF_BAND_PX} px")
+
+
+def surf_profile(phase):
+    """The per-column PICTURE ROW of the topmost water pixel, over 32 px.
+
+    The shape is ROTATED by the phase so no two phases of the lull can hold the
+    same bytes — the display slots are how a test recovers which phase is on
+    screen, and two identical blocks would make that ambiguous. The rotation is
+    zero at the reference phase, which is what keeps its edge byte-for-byte the
+    jag the static tiles used to draw.
+    """
+    shape = (SURF_FRONT if phase <= 5 else
+             SURF_DRAIN if phase <= 19 else SURF_CALM)
+    if phase == SURF_REF_PHASE:
+        shape = SURF_JAG
+    rot = (phase - SURF_REF_PHASE) % WAVE_PATTERN_PX
+    base = SURF_BAND_BOT_PX - SURF_H[phase]
+    return [base + shape[(x + rot) % WAVE_PATTERN_PX]
+            for x in range(WAVE_PATTERN_PX)]
+
+
+# --- what the water looks like BELOW its edge -------------------------------
+# The band's own fill, per row of the band and per cell of the pattern. Rows 12
+# and 13 are FULLY OPAQUE by construction and that is load-bearing rather than
+# decorative: the swash zone is where the wet/dry equality is asserted, so a
+# transparent pixel there would be a bare main-screen colour in the middle of a
+# region the test calls covered. A thin sheet of swash running up a beach is
+# opaque; the gaps belong further out, where the ripple already has them.
+SURF_STREAK_A = pic(WAT_LEGEND,
+                    "tttttttt",
+                    "tccctttt",
+                    "tttttttt",
+                    "ttttcccc",
+                    "tttttttt",
+                    "tttttttt",
+                    "ttcccttt",
+                    "tttttttt")
+SURF_STREAK_B = pic(WAT_LEGEND,
+                    "tttttttt",
+                    "tttttccc",
+                    "tttttttt",
+                    "ttcccttt",
+                    "tttttttt",
+                    "tttttttt",
+                    "cccttttt",
+                    "tttttttt")
+SURF_FILL = {
+    0: (SURF_STREAK_A, flat(WAT_I_SH_TROUGH),
+        SURF_STREAK_B, flat(WAT_I_SH_TROUGH)),
+    1: (flat(WAT_I_SH_TROUGH), SURF_STREAK_B,
+        flat(WAT_I_SH_TROUGH), SURF_STREAK_A),
+    2: tuple(flat(WAT_I_SH_TROUGH) for _ in range(SURF_CELLS)),
+    3: (WAT_TILES[WAT_T["sh_wave_a"]], WAT_TILES[WAT_T["sh_trough"]],
+        WAT_TILES[WAT_T["sh_wave_b"]], WAT_TILES[WAT_T["sh_trough"]]),
+}
+for _r in range(SURF_ROWS - 1):
+    for _c, _t in enumerate(SURF_FILL[_r]):
+        assert all(v != 0 for row in _t for v in row), (
+            f"the band's fill at row {_r} cell {_c} has a transparent pixel — "
+            f"the swash zone's wet/dry equality would have a hole in it")
+
+
+def surf_slot_tile(row, cell, top_px):
+    """One display slot: transparent above the edge, water below it.
+
+    The first SURF_LIP_PX rows of water in every column are the CREST colour —
+    the lit lip a wave carries at its leading edge — and everything under that
+    is the band row's own fill. The lip travels with the edge, which is what
+    makes the advancing front read as a wave rather than as a rectangle
+    growing.
+    """
+    y0 = SURF_BAND_TOP_PX + row * 8
+    fill = SURF_FILL[row][cell]
+    out = []
+    for ty in range(8):
+        y = y0 + ty
+        line = []
+        for u in range(8):
+            top = top_px[cell * 8 + u]
+            if y < top:
+                line.append(0)
+            elif y < top + SURF_LIP_PX:
+                line.append(WAT_I_SH_CREST)
+            else:
+                line.append(fill[ty][u])
+        out.append(line)
+    return out
+
+
+def surf_block(phase):
+    """One phase's 16 slot tiles, in the order the map's cells read them."""
+    top = surf_profile(phase)
+    return [surf_slot_tile(r, c, top)
+            for r in range(SURF_ROWS) for c in range(SURF_CELLS)]
+
+
+# The slots themselves, resident in the surface's own CHR page. Their bytes in
+# the blob are the REFERENCE phase, so a machine caught before its first armed
+# VBlank shows the surface's original top edge rather than whatever the VRAM
+# powered on holding.
+SURF_SLOT0 = len(WAT_TILES)
+for _i, _t in enumerate(surf_block(SURF_REF_PHASE)):
+    wat_tile(f"surf_slot{_i:02d}", _t)
+assert len(WAT_TILES) - SURF_SLOT0 == SURF_SLOTS
 
 # =============================================================================
 # the maps
@@ -539,8 +788,6 @@ def lk_cell(row, col):
 # the surface has drifted to. Everywhere else the tests measure the layers as
 # they actually are.
 WAT_ROWS = {
-    14: ("sh_jag_a", "sh_jag_b", "sh_jag_c", "sh_jag_d"),
-    15: ("sh_wave_a", "sh_trough", "sh_wave_b", "sh_trough"),
     16: ("sh_trough", "sh_wave_b", "sh_trough", "sh_wave_a"),
     17: ("sh_wave_b", "sh_trough", "sh_wave_a", "sh_crest"),
     18: ("sh_trough", "sh_wave_a", "sh_trough", "sh_wave_b"),
@@ -554,6 +801,17 @@ WAT_ROWS = {
     26: ("dp_trough", "dp_wave_a", "dp_trough", "dp_wave_b"),
     27: ("dp_wave_b", "dp_trough", "dp_wave_a", "dp_trough"),
 }
+# THE SWASH BAND, rows 12..15: every cell points at a DISPLAY SLOT and none of
+# them ever changes. What changes is the 32 bytes behind each slot, rewritten
+# from the phase blob once per armed VBlank — so the map is static, the phases
+# are resident, and the wave is a question of which resident bytes the cells are
+# showing. Rows 15's slots carry the ripple that used to be authored here
+# directly; rows 12 and 13 did not exist as surface at all before the surf, and
+# rows 0..11 still do not.
+for _r in range(SURF_ROWS):
+    WAT_ROWS[SURF_TOP_ROW + _r] = tuple(
+        f"surf_slot{_r * SURF_CELLS + _c:02d}" for _c in range(SURF_CELLS))
+
 # Rows 28..31 are off the bottom of a 224-line picture and repeat the last
 # visible pattern rather than being left unwritten (power-on VRAM is random —
 # rule 5).
@@ -630,7 +888,7 @@ def encode_pal(words, label):
 # phases live, how many there are, and how far the surface drifts between
 # them. Re-authoring the tiles moves these; the .assert stops a build that
 # would have indexed the wrong bytes.
-ART_FORMAT = 1
+ART_FORMAT = 2                  # 2: the surf's layout joined the highlight's
 
 
 def art_inc():
@@ -656,6 +914,23 @@ def art_inc():
         f"LK_GLINT_TILE_BYTES = {GLINT_TILE_BYTES}",
         f"LK_GLINT_TILE_SHIFT = {GLINT_TILE_SHIFT}",
         f"LK_GLINT_TILE_WORDS = {GLINT_TILE_BYTES // 2}",
+        ";",
+        "; The surf: where the swash band's display slots are, how big one",
+        "; phase's block of them is, how many phases there are and how far the",
+        "; surface drifts between two of them. Same contract as the highlight's",
+        "; — the consumer shifts by a build-time count and asserts the shift",
+        "; agrees with its _PX / _BYTES sibling.",
+        f"LK_SURF_SLOT        = {SURF_SLOT0}",
+        f"LK_SURF_SLOTS       = {SURF_SLOTS}",
+        f"LK_SURF_PHASES      = {SURF_PHASES}",
+        f"LK_SURF_STEP_PX     = {SURF_STEP_PX}",
+        f"LK_SURF_STEP_SHIFT  = {SURF_STEP_SHIFT}",
+        f"LK_SURF_BLOCK_BYTES = {SURF_SLOTS * GLINT_TILE_BYTES}",
+        f"LK_SURF_BLOCK_SHIFT = {(SURF_SLOTS * GLINT_TILE_BYTES).bit_length() - 1}",
+        f"LK_SURF_PERIOD_PX   = {SURF_PERIOD_PX}",
+        f"LK_SURF_TOP_ROW     = {SURF_TOP_ROW}",
+        f"LK_SURF_ROWS        = {SURF_ROWS}",
+        f"LK_SURF_REF_PHASE   = {SURF_REF_PHASE}",
     ])
 
 
@@ -680,6 +955,20 @@ SUBMERGED = {"shelf": SHELF, "shelf_dk": SHELF_DK, "sandbar": SANDBAR,
              "deep": DEEP, "deep_dk": DEEP_DK}
 DRY = {"backdrop": BACKDROP, "sky": SKY, "hill": HILL, "hill_lit": HILL_LIT,
        "sand": SAND, "rock": ROCK, "rock_lit": ROCK_LIT}
+
+# THE BEACH IS NOW A MAIN OPERAND TOO, and that is what the surf changed about
+# this file. Before it, the surface's map was empty above tilemap row 14 and
+# the only main-screen colours the blender ever saw were submerged ones; the
+# beach was dry by construction. The swash band covers tilemap rows 12 and 13,
+# whose world is sand, its rock speckles and the meandering coast tiles — so
+# sand, rock and its lit face are wettable, and every property below has to
+# hold over them as well. It did not, at first: ROCK_LIT and SUBROCK_LIT
+# differed by one step in two channels, >>1 threw the difference away, and
+# their half-adds were the same colour (a P3 collision). ROCK_LIT moved one
+# step. That is the palette paying for the feature, priced at author time
+# rather than discovered as an untestable pixel.
+WETTABLE = dict(SUBMERGED)
+WETTABLE.update({"sand": SAND, "rock": ROCK, "rock_lit": ROCK_LIT})
 SURFACE = {"sh_crest": SH_CREST, "sh_trough": SH_TROUGH,
            "dp_crest": DP_CREST, "dp_trough": DP_TROUGH, "glint": GLINT}
 
@@ -704,10 +993,10 @@ def assert_blend_colours_are_distinguishable():
     Returns the map of names to colours, half-adds included, so the caller can
     print what it proved.
     """
-    named = dict(SUBMERGED)
+    named = dict(WETTABLE)
     named.update(DRY)
     blends = {}
-    for m, mc in SUBMERGED.items():
+    for m, mc in WETTABLE.items():
         for s, sc in SURFACE.items():
             blends[f"{m}+{s}"] = half_add(mc, sc)
 
@@ -739,7 +1028,7 @@ def assert_blend_colours_are_distinguishable():
 
     # P4 — no full add lands on a legal value.
     legal = set(blends.values()) | set(named.values())
-    for m, mc in SUBMERGED.items():
+    for m, mc in WETTABLE.items():
         for s, sc in SURFACE.items():
             fa = full_add(mc, sc)
             assert fa not in legal, (
@@ -765,18 +1054,48 @@ def main(outdir):
         "wat_map.bin": encode_words(wat_map_words(), "wat map",
                                     MAP_DIM * MAP_DIM),
         "wat_pal.bin": encode_pal(WAT_PAL, "wat palette"),
+        # THE SURF'S PHASES, resident in ROM and DMA'd into the band's display
+        # slots one block per armed VBlank. Emitted in phase order so the
+        # consumer's source address is `blob + phase * BLOCK`, which is one
+        # shift and one add of a quantity the rail already keeps.
+        "surf_chr.bin": b"".join(
+            b"".join(encode_4bpp(t, f"surf phase {ph} slot {i}")
+                     for i, t in enumerate(surf_block(ph)))
+            for ph in range(SURF_PHASES)),
     }
     for name, data in files.items():
         (out / name).write_bytes(data)
         print(f"  {name}: {len(data)} B")
+    # EVERY PHASE'S BLOCK IS DISTINCT, and that is a property the tests spend
+    # rather than a tidiness check: the display slots are how a case recovers
+    # which phase is on screen without consulting an engine word, and two
+    # identical blocks would make that recovery ambiguous exactly where the
+    # lull holds the schedule still. The edge profile's per-phase rotation is
+    # what buys it.
+    blocks = {}
+    for ph in range(SURF_PHASES):
+        raw = b"".join(encode_4bpp(t, f"surf phase {ph}")
+                       for t in surf_block(ph))
+        clash = blocks.get(raw)
+        assert clash is None, (
+            f"surf phases {ph} and {clash} hold identical bytes — a test could "
+            f"not tell which one is on screen")
+        blocks[raw] = ph
+
     (out / "lk_art.inc").write_text(art_inc())
     print(f"  lk_art.inc: format {ART_FORMAT}, "
           f"glint slot {WAT_T['glint_slot']} <- {GLINT_PHASE_COUNT} phase(s) "
           f"at {WAT_T['glint_p0']}, one every {GLINT_STEP_PX} px")
     print(f"  {len(LK_TILES)} BG1 tile(s), {len(WAT_TILES)} BG2 tile(s)")
-    print(f"  distinguishable: {len(SUBMERGED)} submerged main colour(s) x "
+    heights = [surf_profile(ph) for ph in range(SURF_PHASES)]
+    lo = min(min(h) for h in heights)
+    hi = max(max(h) for h in heights)
+    print(f"  surf: {SURF_PHASES} phase(s) x {SURF_SLOTS} slot(s) at tile "
+          f"{SURF_SLOT0}, one every {SURF_STEP_PX} px, cycle "
+          f"{SURF_PERIOD_PX} px; the waterline sweeps picture rows {lo}..{hi}")
+    print(f"  distinguishable: {len(WETTABLE)} wettable main colour(s) x "
           f"{len(SURFACE)} surface colour(s) = "
-          f"{len(SUBMERGED) * len(SURFACE)} composited value(s), P1-P4 hold")
+          f"{len(WETTABLE) * len(SURFACE)} composited value(s), P1-P4 hold")
     for name in ("shelf+sh_crest", "deep+dp_trough", "subrock+dp_crest",
                  "deep+glint"):
         print(f"  half-add {name} = {blend[name]}")
