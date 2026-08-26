@@ -290,8 +290,6 @@ on = "sub"
               T + "test_the_swash_zone_is_wet_when_covered_and_dry_when_bare",
               T + "test_the_waterline_advances_up_the_shore_and_draws_back",
               T + "test_the_surfaces_top_edge_is_a_pixel_boundary_not_a_row_boundary",
-              T + "test_the_surface_starts_on_the_row_the_vofs_correction_promises",
-              T + "test_no_pixel_under_the_surface_is_explicable_as_unblended_world",
           ],
           why="THE WET/DRY CLAIM'S OTHER HALF, removed. With the band opaque at "
               "every phase the surface covers the whole swash zone all the "
@@ -301,10 +299,17 @@ on = "sub"
               "the phase. What dies is every case that needs a pixel to be BARE "
               "somewhere: the swash zone's dry half has no bare pixel to check, "
               "the boundary sweep finds the same waterline at every phase, and "
-              "the per-row count of pixels explicable as unblended world goes "
-              "to zero where the surface's own VRAM says it should not. Planted "
-              "in the GENERATOR because that is where the transparency comes "
-              "from — the ROM's DMA is indifferent to what it moves"),
+              "the surface's top edge is a row boundary again instead of a "
+              "per-pixel one. MEASURED, AND TWO CASES SURVIVE THAT WERE LISTED "
+              "FIRST: the per-row unblended COUNT stays green because it reads "
+              "the surface's transparency out of VRAM and compares it to the "
+              "picture — with the band opaque both sides go to zero together "
+              "and the equality still holds, which is a real property of that "
+              "case rather than a hole in it; and the vofs geometry stays green "
+              "because the row it probes is still empty above and still covered "
+              "below. Planted in the GENERATOR because that is where the "
+              "transparency comes from — the ROM's DMA is indifferent to what "
+              "it moves"),
 
     Plant(id="surf-schedule-symmetric",
           file=GEN,
@@ -314,8 +319,8 @@ on = "sub"
     8, 7, 7, 6, 6, 6, 7, 7, 6, 6, 6, 6,                          # the lull
 ]""",
           new="""SURF_H = [                      # PLANT: a symmetric oscillation
-    6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 29, 30, 31, 32,
-    32, 31, 30, 29, 28, 26, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6,
+    19, 17, 16, 14, 13, 11, 9, 8, 6, 8, 9, 11, 13, 14, 16, 17,
+    19, 21, 22, 24, 26, 27, 29, 30, 32, 30, 29, 27, 26, 24, 22, 21,
 ]""",
           artifact=ROM,
           build=["lakeside"],
