@@ -263,9 +263,13 @@ wat_nmi_commit:
 ;   tick; nothing here counts frames and there is no per-frame immediate.
 ;
 ; 32 B through a 16-bit store to VMDATAL, which the PPU splits across
-; VMDATAL/VMDATAH: 16 iterations, ~330 cycles of a VBlank that has nothing
-; else to do in this rail. No channel, no byte budget, no claim — the bytes
-; come from the blob the `wat_chr` rom claim already backs.
+; VMDATAL/VMDATAH: 16 iterations of one absolute-long read and one store. No
+; channel, no byte budget, no claim — the bytes come from the blob the
+; `wat_chr` rom claim already backs, and the only other VBlank work in this
+; rail is a two-byte scroll latch. The cost is NOT stated here because it is
+; not measured here: this rail has no cycle probe, and an estimate would be
+; the thing AGENTS.md names as an anti-pattern. If it ever needs to be known,
+; `tools/measure_col_map_cost.py` is the two-arm shape that would answer it.
 wat_nmi_glint:
     .a8
     .i16

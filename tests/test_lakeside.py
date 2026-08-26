@@ -700,9 +700,15 @@ def test_above_the_waterline_the_world_is_at_full_intensity(boot):
     assert not stray, (
         f"{len(stray)} colour(s) above the surface's coverage are not the "
         f"world's own palette: {sorted(stray)[:8]}")
-    assert len(got & world) >= 6, (
-        f"only {len(got & world)} of the world's colours are on screen above "
-        f"the waterline — this case would pass on an empty picture")
+    # The vacuity guard NAMES what has to be up there rather than counting:
+    # a count would be satisfied by any seven colours, and the whole claim is
+    # that the SHORE is above the surface's coverage and the shallow bed shows
+    # through it unblended. Measured on this art: exactly seven appear.
+    must = {"sky": 1, "hill": 2, "sand": 4, "rock": 5, "shelf": 7}
+    missing = {n for n, i in must.items() if _snes_rgb(bg1[i]) not in got}
+    assert not missing, (
+        f"{sorted(missing)} do not appear above the waterline at all — this "
+        f"case would pass on an empty picture")
 
 
 def test_the_gaps_inside_the_surface_show_the_bed_at_full_intensity(boot):
@@ -745,11 +751,15 @@ def test_the_surfaces_top_edge_is_a_pixel_boundary_not_a_row_boundary(boot):
     heights = []
     for x in range(PIC_W):
         col = [_row(img, ROW_SURFACE_TOP * 8 + ty)[x] for ty in range(8)]
-        assert not any(p in blended for p in col[:1]) or True   # shape only
         first = next((ty for ty, p in enumerate(col) if p in blended), 8)
         assert all(p in unblended for p in col[:first]), (
-            f"column {x} of the surface's top row is composited above its own "
-            f"first composited pixel — the edge is not monotone there")
+            f"column {x} of the surface's top row holds a pixel that is "
+            f"neither composited nor a bare bed colour above its own first "
+            f"composited pixel: {col[:first]}")
+        assert all(p in blended for p in col[first:]), (
+            f"column {x} of the surface's top row goes back to bare bed below "
+            f"its first composited pixel — the tiles author one boundary per "
+            f"column, so the edge should be monotone: {col}")
         heights.append(first)
     assert len(set(heights)) >= 4, (
         f"the surface's top edge takes only {len(set(heights))} height(s) "
