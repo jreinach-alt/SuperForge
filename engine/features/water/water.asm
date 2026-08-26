@@ -18,10 +18,15 @@
 ; beside the rest of the scene's display shape, and that placement is enforced
 ; rather than conventional.
 ;
-; Every VRAM/CGRAM byte here moves under the enter-time forced blank
+; Every enter-time VRAM/CGRAM byte here moves under the forced blank
 ; scene_mgr's switch contract guarantees, with NMI masked across it — so no NMI
 ; can land mid-upload and re-point VMADD (CLAUDE.md: forced blank does NOT mask
 ; NMI; $4200 bit 7 does).
+;
+; ONE THING HERE RUNS EVERY FRAME AND IT IS NOT AN EXCEPTION TO THAT:
+; `wat_nmi_glint` rewrites 32 CHR bytes from inside VBlank, which is the only
+; window a running scene has for the VRAM port at all, and it programs its own
+; VMAIN and VMADD so nothing about where it sits in the hook is load-bearing.
 
 ; The surface's LAYOUT, as the asset generator emitted it: which tile the map's
 ; twinkle cells point at, where the highlight's phases live behind it, how many
@@ -49,7 +54,7 @@ WAT_REGS = $4300 + ES_D_WAT_UP_CH * 16
 ; scanline 1 renders line (1023 + 1) mod 256 = 0. It is modular and needs no
 ; clamp. `lake_bg` applies the identical correction to BG1 and the scene to
 ; BG3, which is what makes world row r occupy picture rows 8r..8r+7 on all
-; three layers at once — the property every band assertion in
+; three layers at once — the property every row constant in
 ; tests/test_lakeside.py rests on.
 WAT_VOFS = $FFFF
 
@@ -117,7 +122,7 @@ wat_arm:
     sta a:$2115                     ; VMAIN: +1 word after the high byte
     rep #$20
     .a16
-    ; ---- the surface CHR: empty, crest, trough ----------------------------
+    ; ---- the surface CHR: the ripple, the jag, the highlight's phases -----
     lda #ES_V_WAT_CHR
     sta a:$2116                     ; VMADD = the claim's word base
     ldx #.loword(wat_chr_bin)

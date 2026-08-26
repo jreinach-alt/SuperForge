@@ -3,13 +3,18 @@
 # =============================================================================
 # WHAT YOU SEE
 # =============================================================================
-# A side-on lakeshore. BG1 carries the world — sky, a hill horizon, sand, a
-# rock shoreline and the lake bed in two depths. BG2 carries the water
-# surface, designated to the SUB screen and half-added onto BG1 and the
-# backdrop, so the bed shows THROUGH the water at half intensity where the
-# two overlap and at FULL intensity where the surface has no pixel. The
-# surface drifts left at a region-correct rate; B toggles it still, Start
-# returns to the title.
+# A side-on lakeshore. BG1 carries the world — sky, a ridge of hills, a beach
+# whose waterline meanders across three tile rows, and the lake bed itself: a
+# shelf of silt, pebble and sandbar clusters dropping off a jagged break into
+# open water. BG2 carries the water surface, designated to the SUB screen and
+# half-added onto BG1 and the backdrop, so the bed shows THROUGH the water at
+# half intensity where the two overlap and at FULL intensity where the surface
+# has no pixel — including above the surface's own JAGGED TOP EDGE, which
+# makes the water's edge a pixel boundary that drifts rather than a row of
+# tiles. Sparse opaque highlights twinkle on the deep water through a
+# four-phase loop indexed by how far the surface has drifted. The surface
+# drifts left at a region-correct rate; B toggles it still, Start returns to
+# the title.
 #
 # The translucency is the PPU's one colour-math unit, not a palette that
 # looks wet. That is the whole subject of the rail.

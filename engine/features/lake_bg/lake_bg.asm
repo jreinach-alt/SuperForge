@@ -90,7 +90,7 @@ lk_arm:
     ldy #ES_R_LK_CHR_SIZE
     lda #^lk_chr_bin
     jsr lk_up_dma
-    ; ---- the banded tilemap ------------------------------------------------
+    ; ---- the world's tilemap -----------------------------------------------
     lda #ES_V_LK_MAP
     sta a:$2116
     ldx #.loword(lk_map_bin)

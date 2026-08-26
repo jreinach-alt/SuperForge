@@ -36,10 +36,17 @@
 # =============================================================================
 # THE WORLD
 # =============================================================================
-# A side-on lakeshore in horizontal bands: sky, a hill horizon, sand, a rock
-# shoreline, then the lake bed in two depths. The bed is what the water is
-# half-added ONTO, so the two depths give the blend two different main-screen
-# operands and the tests two independent equalities.
+# A side-on lakeshore in tile art: sky, a ridge of hills, a sand-and-rock beach
+# whose WATERLINE MEANDERS across three tile rows, then a clear shallow strip,
+# then the bed itself — a shelf of silt, pebble and sandbar clusters dropping
+# off a jagged break into open water with rock and weed on it.
+#
+# THE BED IS WHAT THE WATER IS HALF-ADDED ONTO, so every colour in it is a
+# main-screen operand of the blend. Seven of them, which is what turned the
+# tests from "this band equals one value" into a region-wide claim over the
+# whole 7x5 cross product — and the reason the palette is spread as wide as it
+# is, because a half-add halves CONTRAST too and submerged detail that did not
+# survive that would make the blend look like a wash.
 #
 # NO SCROLL. Both BG1 offsets are written once at scene enter and never
 # again — the camera is not this rail's subject, the blender is. They are in

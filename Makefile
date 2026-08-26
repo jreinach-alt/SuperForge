@@ -1200,7 +1200,7 @@ $(BUILD)/camera_follow.sfc: $(CF_ASM) $(CF)/cf.inc \
 camera_follow: $(BUILD)/camera_follow.sfc
 
 # ---- lakeside: a sub-screen water layer, half-added ----
-# BG1 carries a banded lakeshore world, BG2 carries a drifting water surface
+# BG1 carries a lakeshore world in tile art, BG2 a drifting water surface
 # designated to the SUB screen, BG3 carries text. The blender adds the surface
 # to the main screen at half intensity, so the lake bed shows THROUGH the
 # water where the two overlap and at full intensity where the surface has no

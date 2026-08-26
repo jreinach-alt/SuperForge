@@ -205,17 +205,32 @@ two of those numbers shared with claims that run in VBlank.
 
 | | | |
 |---|---|---|
-| ![the shore](docs/img/lks_01_title.png) | ![the same shore under water](docs/img/lks_02_lake.png) | ![back at the shore](docs/img/lks_03_returned.png) |
+| ![the lake bed dry](docs/img/lks_01_title.png) | ![the same bed under water](docs/img/lks_02_lake.png) | ![back to dry](docs/img/lks_03_returned.png) |
 | the world, blender off | the same world through a sub-screen layer | and back, byte-identical to the first |
 
 A lakeshore with **real water**: BG2 carries a drifting surface designated to
 the SUB screen, and the PPU's colour-math unit half-adds it onto the main
-screen. The middle frame is the left one seen through that blend, pixel for
-pixel — `min((main + sub) >> 1, 31)` per 5-bit channel, asserted as an
-**equality** rather than a tolerance, and at the water's edge the main pixel
-arrives at full intensity because the hardware substitutes the fixed colour and
-disables halving where the sub screen is empty. The text stays legible over the
-water because BG3 is left out of the math.
+screen. The left frame is the world with the blender off — a meandering
+waterline over a bed of silt, pebbles, sandbars and weed, dropping off a jagged
+shelf into open water. The middle frame is that same bed seen through the
+surface, pixel for pixel: `min((main + sub) >> 1, 31)` per 5-bit channel,
+asserted as an **equality** rather than a tolerance. The terrain still reads
+through the blend because the palette is spread wide enough to survive being
+halved, and the surface's own top edge is transparent above a meandering line —
+so the water's edge is a *pixel* boundary that drifts, not a row of tiles.
+Where the sub screen has no pixel the main one arrives at full intensity,
+because the hardware substitutes the fixed colour and disables halving there.
+Sparse opaque highlights twinkle on the deep water through a four-phase loop
+indexed by how far the surface has drifted — so it is region-correct for free
+and holds still exactly when the drift is stilled. The text stays legible over
+the water because BG3 is left out of the math.
+
+Thirty-five composited values are on screen at once, which is what the proof
+had to grow to match: every pixel of the water is asserted to be a member of a
+legal set computed from both palettes read off CGRAM at test time, the number
+of unblended pixels in each row is counted against the surface's own
+transparency read out of VRAM, and the whole region is compared pixel for pixel
+against the composite its two decoded layers imply.
 
 What it demonstrates is a composition, not an effect. Three features share the
 four write-only colour-math ports without any of them claiming one: one
