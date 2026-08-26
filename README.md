@@ -201,6 +201,8 @@ two of those numbers shared with claims that run in VBlank.
 
 ### `lakeside`
 
+![lakeside — a drifting surface half-added onto the world it covers](docs/img/gif_lakeside.gif)
+
 | | | |
 |---|---|---|
 | ![the shore](docs/img/lks_01_title.png) | ![the same shore under water](docs/img/lks_02_lake.png) | ![back at the shore](docs/img/lks_03_returned.png) |
