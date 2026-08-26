@@ -5,8 +5,9 @@ Usage:  python3 tools/record_lakeside_clip.py [out.gif]
 
 The take is choreographed rather than a hold, because what this rail is FOR is
 a state cycle: the world with the blender composed off, the same world with a
-sub-screen layer half-added over it, the surface stilled, the surface resumed,
-and the world again with the blender off.
+sub-screen layer half-added over it, a whole surf cycle running up the shore and
+drawing back, the surface stilled, the surface resumed for another cycle, and
+the world again with the blender off.
 
 IT RETURNS TO THE TITLE ON PURPOSE, and that serves two ends at once. A gallery
 clip loops forever, so its last frame is glued back onto its first and the join
@@ -34,9 +35,21 @@ ROM = SUPERFORGE / "build" / "lakeside.sfc"
 
 TITLE_HOLD = 6      # the opening title, blender composed OFF
 SETTLE     = 27     # a scene switch + both fade ramps (~81 frames)
-DRIFT_A    = 27     # the surface drifting over the world
-STILL      = 12     # B latched: the same surface, holding
-DRIFT_B    = 21     # B again: the drift resumes
+DRIFT_A    = 45     # the surface drifting, and a WHOLE SURF CYCLE
+STILL      = 12     # B latched: the same surface, holding — surf included
+DRIFT_B    = 45     # B again: the drift resumes, and another whole cycle
+
+# WHY THE DRIFT BEATS ARE 45 AND NOT 27. The surf's cycle is 128 px of drift =
+# 128 frames at 1 px/frame, and a beat of 27 captures is 81 — so the old
+# schedule showed two thirds of a wave and cut it off mid-backwash. 45 captures
+# is 135 frames, one whole cycle and a little over, so a viewer sees the swash
+# run up, the backwash draw down and the lull before the next one. The still
+# beat is unchanged: 36 frames is a quarter of a cycle, which is exactly the
+# span over which a running surf would visibly move and a stilled one does not.
+#
+# THE LOOP STILL CLOSES ON THE TITLE, which is what makes the join invisible,
+# and lengthening a beat in the middle cannot change that — the last frame is
+# still the settled title the first frame is.
 
 
 class Drive:
