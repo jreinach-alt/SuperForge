@@ -1146,6 +1146,290 @@ def test_the_surface_is_continuous_across_both_wraps(boot):
         f"has a seam")
 
 
+
+# =============================================================================
+# the surf — the waterline is the blend boundary, so wet and dry are colour math
+# =============================================================================
+
+def test_the_waterline_advances_up_the_shore_and_draws_back(boot):
+    """THE MOTION, measured from pixels: how far the blend's edge travels.
+
+    The whole cycle is walked and the boundary is extracted per column at every
+    phase — the topmost COMPOSITED pixel in each of the 256 columns of the swash
+    band. That is decidable rather than approximate because no half-add equals
+    any raw world colour (the generator's P2), so a column's first composited
+    pixel is exactly where the water starts.
+
+    Nothing here reads a scroll accumulator, a phase index or a tile. The two
+    extremes are whichever phases the PICTURE puts highest and lowest, and the
+    travel between them is what is asserted. A surf frozen at one phase reports
+    zero travel and fails on the first assertion.
+    """
+    m = _enter_lake(boot(), surf=0)
+    _main, _sub, bg1, bg2 = _layers(m, rows=SURF_BAND)
+    blended, _unblended = _legal_sets(bg1, bg2, I_WETTABLE)
+    sweep = _sweep_the_surf(m, blended, "sweep")
+    assert sorted(p for p, _ in sweep) == list(range(SURF_PHASES)), (
+        f"the walk did not visit every phase exactly once: "
+        f"{[p for p, _ in sweep]}")
+    means = {p: _mean(prof) for p, prof in sweep}
+    high = min(means, key=means.get)            # smaller row = higher water
+    low = max(means, key=means.get)
+    travel = means[low] - means[high]
+    print(f"\n  the waterline sweeps picture row {means[low]:.2f} (phase {low}, "
+          f"drawn back) to {means[high]:.2f} (phase {high}, run up) — "
+          f"{travel:.2f} px of travel")
+    assert travel >= 20.0, (
+        f"the waterline's mean moves only {travel:.2f} px between its extremes "
+        f"(rows {means[high]:.2f}..{means[low]:.2f}) — the surf is a ripple, "
+        f"not a wave that runs up the shore")
+    # ...and the PROFILES differ, not merely their average: a wave that changed
+    # shape without moving would shift a mean by a pixel and pass a mean-only
+    # case.
+    hp = dict(sweep)[high]
+    lp = dict(sweep)[low]
+    per_column = [b - a for a, b in zip(hp, lp)]
+    assert min(per_column) >= 16, (
+        f"some column's waterline moves only {min(per_column)} px between the "
+        f"extremes (max {max(per_column)}) — the wave reaches part of the shore "
+        f"and not the rest")
+    # A vacuity guard on the method itself: an edge that never entered the band
+    # would report the band's bottom line in every column at every phase.
+    assert min(min(prof) for _p, prof in sweep) < SURF_BAND_TOP_PX + 8, (
+        "the waterline never reaches the band's top row — the sweep is reading "
+        "a boundary that is not there")
+
+
+def test_the_swash_zone_is_wet_when_covered_and_dry_when_bare(boot):
+    """THE HEADLINE. The same sand, at full intensity and as an exact half-add.
+
+    BG2 is the SUB screen, so the surface's edge IS the blend boundary: where
+    the sub screen has a pixel the PPU renders `min((main + sub) >> 1, 31)` per
+    5-bit channel, and where it has none the hardware substitutes the fixed
+    colour, disables halving, and the main pixel arrives whole. Move that edge
+    up the beach and the sand it crosses is darker and cooler; move it back and
+    the sand is its own colour again. The animation and the colour math are one
+    event and this is the case that says so — as an EQUALITY, per pixel, both
+    ways round.
+
+    THE ZONE IS DERIVED, NOT NAMED: the rows counted are the ones where the
+    surface's own VRAM says every column is covered at the advanced extreme and
+    every column is bare at the drawn-back one. Both layers are decoded from
+    VRAM at the matching frame, both palettes are read off CGRAM, and the two
+    expected values are computed here from those bytes — nothing is imported
+    from the generator.
+    """
+    # THE TWO EXTREMES ARE FOUND IN THE SURFACE'S OWN COVERAGE, read out of the
+    # VRAM the phase blocks land in — the phase that covers the most rows of the
+    # band end to end and the one that covers the fewest. That is the quantity
+    # this case is about, so it is the right thing to search on; the boundary as
+    # the PICTURE draws it is what
+    # `test_the_waterline_advances_up_the_shore_and_draws_back` measures.
+    m = _enter_lake(boot(), surf=0)
+    covered = {}
+    for _ in range(SURF_PHASES):
+        ph = _surf_phase(m)
+        _main, sub, _b1, _b2 = _layers(m, rows=SURF_BAND)
+        covered[ph] = sum(1 for y in range(SURF_BAND_TOP_PX, SURF_BAND_BOT_PX)
+                          if all(sub[y][x] != 0 for x in range(PIC_W)))
+        m.advance(SURF_STEP_FRAMES)
+    assert sorted(covered) == list(range(SURF_PHASES)), (
+        f"the walk did not visit every phase exactly once: {sorted(covered)}")
+    ph_in = max(covered, key=covered.get)
+    ph_out = min(covered, key=covered.get)
+    assert covered[ph_in] > covered[ph_out], (
+        f"every phase covers the same {covered[ph_in]} row(s) of the band — "
+        f"the surf does not advance and there is no swash zone")
+
+    # The band AND the uniform bed band in one decode: the second is what
+    # `_recover_displacement` reads to find where the surface has drifted to.
+    # THE SURFACE SCROLLS AND BG1 DOES NOT, so a sub-screen pixel has to be
+    # looked up at that displacement or the two layers are compared past each
+    # other — which is the same correction the pixel-for-pixel oracle makes.
+    rows = (SURF_TOP_ROW, ROWS_WATER[1])
+    _advance_to_surf_phase(m, ph_in)
+    main_in, sub_in, bg1, bg2 = _layers(m, rows=rows)
+    img_in = _shot(m, "swash_in")
+    shifts = _recover_displacement(img_in, main_in, sub_in, bg1, bg2)
+    assert len(shifts) == 1, (
+        f"the surface's displacement did not come back single-valued at the "
+        f"covered phase: {shifts}")
+    shift = shifts[0]
+    _advance_to_surf_phase(m, ph_out)
+    main_out, sub_out, _b1, _b2 = _layers(m, rows=rows)
+    img_out = _shot(m, "swash_out")
+    assert main_in == main_out, (
+        "the world changed between the two captures — BG1 does not scroll and "
+        "nothing writes it after enter, so this case's premise is broken")
+
+    # Both conditions are over EVERY column, so they are the same question
+    # whatever the displacement is, and the zone does not depend on recovering
+    # one for the bare capture.
+    zone = [y for y in range(SURF_BAND_TOP_PX, SURF_BAND_BOT_PX)
+            if all(sub_in[y][x] != 0 and sub_out[y][x] == 0
+                   for x in range(PIC_W))]
+    assert len(zone) >= 12, (
+        f"only {len(zone)} picture row(s) are covered end to end at phase "
+        f"{ph_in} and bare end to end at phase {ph_out} — there is no swash "
+        f"zone to make a claim about")
+    print(f"\n  the swash zone is picture rows {zone[0]}..{zone[-1]} "
+          f"({len(zone) * PIC_W} px), wet at phase {ph_in} and dry at "
+          f"phase {ph_out}")
+
+    dry_wrong, wet_wrong, beds, pairs = [], [], set(), set()
+    for y in zone:
+        got_out, got_in = _row(img_out, y), _row(img_in, y)
+        for x in range(PIC_W):
+            bed = main_in[y][x]
+            beds.add(bed)
+            want_dry = _snes_rgb(bg1[bed])
+            if got_out[x] != want_dry:
+                dry_wrong.append((x, y, got_out[x], want_dry))
+            sub = sub_in[y][(x + shift) % PIC_W]
+            pairs.add((bed, sub))
+            want_wet = _half_add(bg1[bed], bg2[sub])
+            if got_in[x] != want_wet:
+                wet_wrong.append((x, y, got_in[x], want_wet))
+    assert not dry_wrong, (
+        f"{len(dry_wrong)} pixel(s) of the bare swash zone are not the world's "
+        f"own colour at FULL intensity — (x, y, got, want): {dry_wrong[:6]}")
+    assert not wet_wrong, (
+        f"{len(wet_wrong)} pixel(s) of the covered swash zone are not exactly "
+        f"the half-add of their two layers — (x, y, got, want): "
+        f"{wet_wrong[:6]}")
+    # The claim is about the BEACH as well as the bed, and about a real blend
+    # rather than one colour repeated: without these the equality could hold
+    # over a zone that was entirely submerged bed, or entirely one pair.
+    assert set(beds) & set(I_BEACH), (
+        f"the swash zone covers only {sorted(beds)}, none of which is beach — "
+        f"the wet-sand claim has nothing to stand on")
+    assert len(pairs) >= 6, (
+        f"the zone holds only {len(pairs)} distinct (bed, surface) pair(s) — a "
+        f"single pair would make the equality a one-colour check")
+    wet = {_half_add(bg1[b], bg2[s]) for b, s in pairs}
+    dry = {_snes_rgb(bg1[b]) for b, _s in pairs}
+    assert not (wet & dry), (
+        f"the palette makes this case vacuous: {sorted(wet & dry)} is both a "
+        f"wet value and a dry one, so the two halves cannot be told apart")
+
+
+def test_the_swash_runs_up_faster_than_the_backwash_draws_down(boot):
+    """SURF IS NOT A SINE. The run-up is measured against the draw-down.
+
+    A wave's swash climbs the shore in a rush and its backwash drains under
+    gravity over several times as long; a symmetric oscillation reads as a
+    pulsing band rather than as water. Both legs are found in the MEASURED
+    series rather than taken from the schedule — the longest run of phases over
+    which the mean waterline rises, and the longest over which it falls — and
+    their rates are compared in pixels per emulated frame.
+    """
+    m = _enter_lake(boot(), surf=0)
+    _main, _sub, bg1, bg2 = _layers(m, rows=SURF_BAND)
+    blended, _u = _legal_sets(bg1, bg2, I_WETTABLE)
+    sweep = _sweep_the_surf(m, blended, "rate_sweep")
+    order = [p for p, _ in sweep]
+    series = [_mean(prof) for _p, prof in sweep]
+
+    def _longest_run(sign):
+        """(length in phases, total px) of the longest monotone run, cyclically."""
+        best = (0, 0.0)
+        n = len(series)
+        for start in range(n):
+            k, total = 0, 0.0
+            while k < n:
+                a = series[(start + k) % n]
+                b = series[(start + k + 1) % n]
+                if (b - a) * sign <= 0:
+                    break
+                total += (b - a) * sign
+                k += 1
+            if k > best[0]:
+                best = (k, total)
+        return best
+
+    up_steps, up_px = _longest_run(-1)       # the row number FALLS as water rises
+    down_steps, down_px = _longest_run(+1)
+    advance = up_px / (up_steps * SURF_STEP_FRAMES)
+    recede = down_px / (down_steps * SURF_STEP_FRAMES)
+    print(f"\n  swash: {up_px:.2f} px over {up_steps * SURF_STEP_FRAMES} frames "
+          f"= {advance:.3f} px/frame;  backwash: {down_px:.2f} px over "
+          f"{down_steps * SURF_STEP_FRAMES} frames = {recede:.3f} px/frame "
+          f"({advance / recede:.2f}x)  [phase order {order[0]}..{order[-1]}]")
+    assert up_steps and down_steps, (
+        f"the waterline has no monotone run in one direction "
+        f"(up {up_steps}, down {down_steps}) — it is not a wave")
+    assert advance > 2.0 * recede, (
+        f"the swash climbs at {advance:.3f} px/frame and the backwash draws "
+        f"down at {recede:.3f} — {advance / recede:.2f}x is not the asymmetry "
+        f"a wave has; a symmetric oscillation would read as a pulsing band")
+    assert down_steps > up_steps, (
+        f"the backwash takes {down_steps} phase(s) and the swash {up_steps} — "
+        f"the draw-down should be the longer leg of the two")
+
+
+def test_the_surf_cycle_closes_on_the_profile_it_opened_with(boot):
+    """One whole cycle later the boundary is the SAME BOUNDARY, per column.
+
+    The gallery clip loops forever and its join is invisible only if the rail
+    returns to the instant it left; the title-return identity rests on the same
+    thing. So the cycle is required to close on its own profile — all 256
+    columns, not a mean — and the frames between it are required to have moved,
+    or a frozen surf would satisfy a closure case trivially.
+    """
+    m = _enter_lake(boot(), surf=0)
+    _main, _sub, bg1, bg2 = _layers(m, rows=SURF_BAND)
+    blended, _u = _legal_sets(bg1, bg2, I_WETTABLE)
+    first = _waterline(_shot(m, "close_a"), blended)
+    m.advance(SURF_PERIOD_FRAMES // 2 - 1)
+    middle = _waterline(_shot(m, "close_mid"), blended)
+    m.advance(SURF_PERIOD_FRAMES // 2 - 1)
+    last = _waterline(_shot(m, "close_b"), blended)
+    assert middle != first, (
+        "the waterline is unchanged half a cycle in — a frozen surf would "
+        "close trivially and this case would prove nothing")
+    assert last == first, (
+        f"the waterline did not return after {SURF_PERIOD_FRAMES} frames: "
+        f"{sum(1 for a, b in zip(first, last) if a != b)} of {PIC_W} columns "
+        f"differ, by up to "
+        f"{max(abs(a - b) for a, b in zip(first, last))} px")
+
+
+def test_b_stills_the_surf_as_well_as_the_drift(boot):
+    """The control, driven a WHOLE CYCLE — the surf has no clock of its own.
+
+    Its phase is a function of the accumulated scroll, which the toggle stops
+    advancing, so stilling the drift must still the wave too. Sixteen frames
+    could not tell that from a surf whose phase happened not to change; a whole
+    cycle can. Both the boundary read off the picture and the display slots read
+    out of VRAM are required to hold, and then the toggle's other edge is driven
+    so the case cannot pass on a rail that is simply dead.
+    """
+    m = _enter_lake(boot(), surf=0)
+    _main, _sub, bg1, bg2 = _layers(m, rows=SURF_BAND)
+    blended, _u = _legal_sets(bg1, bg2, I_WETTABLE)
+    _toggle_still(m)
+    m.advance(4)
+    held_slots = _surf_slots(m)
+    a = _shot(m, "surf_still_a")
+    m.advance(SURF_PERIOD_FRAMES - 1)
+    b = _shot(m, "surf_still_b")
+    assert _waterline(b, blended) == _waterline(a, blended), (
+        f"the waterline moved across {SURF_PERIOD_FRAMES} stilled frames — the "
+        f"surf is running on something other than the drift")
+    assert a.tobytes() == b.tobytes(), (
+        "a stilled surface moved between two captures one whole surf cycle "
+        "apart")
+    assert _surf_slots(m) == held_slots, (
+        "the swash band's display slots were rewritten with a different phase "
+        "while the drift was stilled")
+    _toggle_still(m)                        # ...and back, so this is a pair
+    m.advance(SURF_PERIOD_FRAMES // 2 - 1)
+    c = _shot(m, "surf_resumed")
+    assert _waterline(c, blended) != _waterline(a, blended), (
+        "the surf did not resume on the toggle's second edge — a case that "
+        "only ever watches something stand still cannot tell it from a dead "
+        "ROM")
+
 # =============================================================================
 # transition hygiene — the blend must not outlive the scene that armed it
 # =============================================================================
