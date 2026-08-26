@@ -133,8 +133,8 @@ for _line in (ASSETS / "lk_art.inc").read_text().splitlines():
     if "=" in _line and not _line.lstrip().startswith(";"):
         _k, _v = _line.split("=", 1)
         ART[_k.strip()] = int(_v.strip())
-assert ART["LK_ART_FORMAT"] == 1, (
-    f"lk_art.inc is format {ART['LK_ART_FORMAT']} — this module reads 1")
+assert ART["LK_ART_FORMAT"] == 2, (
+    f"lk_art.inc is format {ART['LK_ART_FORMAT']} — this module reads 2")
 
 # --- what the ART is, stated where a reader can check it ---------------------
 # Palette INDICES inside each group, authored by tools/gen_lakeside_assets.py.
@@ -149,6 +149,13 @@ I_SUBMERGED = (7, 8, 9, 10, 11, 12, 13)   # shelf, silt, sandbar, rock, lit,
                                           #   deep, deep silt
 I_DRY = (0, 1, 2, 3, 4, 5, 6)             # backdrop, sky, hill, lit, sand,
                                           #   rock, lit
+# ...and the BEACH, which the surf made a main operand. The swash band covers
+# tilemap rows 12 and 13, whose world is sand, its rock speckles and the
+# meandering coast tiles, so those three are wettable too. Every case that can
+# see the band asks `_legal_sets` for this wider set; every case that cannot
+# keeps the submerged seven, so none of them was weakened to make room.
+I_BEACH = (4, 5, 6)                       # sand, rock, its lit face
+I_WETTABLE = I_SUBMERGED + I_BEACH
 I_SHELF, I_SHELF_DK, I_SANDBAR = 7, 8, 9
 I_SUBROCK, I_SUBROCK_LIT = 10, 11
 I_DEEP, I_DEEP_DK = 12, 13
@@ -160,9 +167,16 @@ I_GLINT = 5
 # 8r..8r+7 because every layer's vertical offset is -1 (game/lakeside/
 # lakeside.inc, LK_VOFS) — a fact this module re-measures rather than assumes,
 # in `test_the_surface_starts_on_the_row_the_vofs_correction_promises`.
-ROWS_DRY = (0, 13)             # sky, ridge, beach and the meandering waterline
-ROW_SURFACE_TOP = 14           # the surface's jagged top edge
-ROWS_WATER = (14, 27)          # everything the surface covers
+ROWS_DRY = (0, 11)             # sky, ridge, and the beach ABOVE the surf's
+                               #   reach. It used to run to row 13; the swash
+                               #   band starts at 12, so the region that is dry
+                               #   BY CONSTRUCTION rather than by timing ends
+                               #   one row above it. Rows 11's coast tiles keep
+                               #   all five colours the vacuity guard names.
+ROW_SURFACE_TOP = 14           # the row the surface's edge sits in at the
+                               #   REFERENCE phase — the profile the four
+                               #   static jag tiles used to draw
+ROWS_WATER = (14, 27)          # everything the surface covers at every phase
 ROW_SPOT_SHALLOW = 19          # the surface here is ONE tile across the pattern
 ROW_TEXT_OVER_WATER = 21       # ...and here, under the BG3 line
 ROWS_UNIFORM_BED = (25, 27)    # no highlight, and one bed colour at every x
@@ -171,6 +185,24 @@ PIC_W = 256
 WAVE_PERIOD = 32                        # the surface map's 4-cell pattern
 WORLD_PX = 32 * 8                       # the surface map is 256 px wide
 SPEED = 1                               # LK_WATER_SPEED, px per frame
+
+# --- the surf's layout, from the same generated include ---------------------
+SURF_TOP_ROW = ART["LK_SURF_TOP_ROW"]
+SURF_ROWS = ART["LK_SURF_ROWS"]
+SURF_BAND = (SURF_TOP_ROW, SURF_TOP_ROW + SURF_ROWS - 1)
+SURF_BAND_TOP_PX = SURF_TOP_ROW * 8
+SURF_BAND_BOT_PX = SURF_BAND_TOP_PX + SURF_ROWS * 8
+SURF_PHASES = ART["LK_SURF_PHASES"]
+SURF_STEP_PX = ART["LK_SURF_STEP_PX"]
+SURF_STEP_FRAMES = SURF_STEP_PX // SPEED
+SURF_PERIOD_PX = ART["LK_SURF_PERIOD_PX"]
+SURF_PERIOD_FRAMES = SURF_PERIOD_PX // SPEED
+SURF_REF_PHASE = ART["LK_SURF_REF_PHASE"]
+assert SURF_PERIOD_PX % WAVE_PERIOD == 0 and WORLD_PX % SURF_PERIOD_PX == 0, (
+    f"the surf cycle is {SURF_PERIOD_PX} px, which is not a whole number of "
+    f"{WAVE_PERIOD} px pattern periods or does not divide the {WORLD_PX} px "
+    f"map wrap — the picture could not repeat and this module's period "
+    f"arithmetic would be wrong")
 
 # Absolute frames. TITLE is well past the 15-frame fade-in; LAKE is a fixed
 # total so the drift at capture time is the same on every host.
@@ -196,10 +228,27 @@ def boot():
     Machine.close_current()
 
 
-def _enter_lake(m, settle=LAKE - TITLE - 1):
-    """Title -> lake, on absolute frames: START for one frame, then settle."""
+def _enter_lake(m, settle=LAKE - TITLE - 1, surf=SURF_REF_PHASE):
+    """Title -> lake, on absolute frames: START for one frame, then settle.
+
+    THEN IT HOLDS THE SURF STILL AT A NAMED PHASE, by default the REFERENCE
+    one. The surf sweeps the waterline 26 px up the shore and back, so a case
+    that is about something else — the vofs geometry, the per-pixel edge, the
+    text over the water — needs a picture whose edge is where it says it is.
+    The reference phase is the one whose edge reproduces the profile the
+    surface's four static top tiles used to draw, so every case that predates
+    the surf sees the picture it was written against.
+
+    The navigation is a MEASUREMENT, not an assumed frame count: the phase on
+    screen is recovered from the display slots in VRAM and the remaining
+    distance is advanced in emulated frames. Pass `surf=None` to take the
+    picture wherever the settle lands.
+    """
     m.advance(1, pad1={"start": True})
-    return m.advance(settle)
+    m.advance(settle)
+    if surf is not None:
+        _advance_to_surf_phase(m, surf)
+    return m
 
 
 def _toggle_still(m):
@@ -339,17 +388,23 @@ def _layers(machine, rows=ROWS_WATER):
     return main, sub, bg1, bg2
 
 
-def _legal_sets(bg1, bg2):
+def _legal_sets(bg1, bg2, mains=I_SUBMERGED):
     """(every composited value, every unblended bed value), from the palettes.
 
     Computed from CGRAM read off the machine — not imported, not retyped. The
-    submerged bed colours are the blend's main operands and the surface's five
-    are its addends, so the cross product plus the bare beds is EVERY colour the
-    water is allowed to hold: 42 values out of 32768.
+    main operands are the blend's and the surface's five are its addends, so
+    the cross product plus the bare mains is EVERY colour that region of the
+    picture is allowed to hold.
+
+    `mains` IS NARROW ON PURPOSE. Below the swash band the only main-screen
+    colours the blender can ever see are the seven submerged ones, so that is
+    what those cases ask for and widening the set would weaken every one of
+    them. A case that can see the band — where the water crosses sand and rock
+    — passes I_WETTABLE instead, and gets the ten.
     """
     subs = (I_SH_CREST, I_SH_TROUGH, I_DP_CREST, I_DP_TROUGH, I_GLINT)
-    blended = {_half_add(bg1[m], bg2[s]) for m in I_SUBMERGED for s in subs}
-    unblended = {_snes_rgb(bg1[m]) for m in I_SUBMERGED}
+    blended = {_half_add(bg1[m], bg2[s]) for m in mains for s in subs}
+    unblended = {_snes_rgb(bg1[m]) for m in mains}
     return blended, unblended
 
 
@@ -445,6 +500,107 @@ def _glint_slot(machine):
     """What the highlight's display slot holds in VRAM right now."""
     tb, slot = ART["LK_GLINT_TILE_BYTES"], ART["LK_GLINT_SLOT"]
     return machine.read_bytes(V, (V_WAT_CHR + slot * (tb // 2)) * 2, tb)
+
+
+# --- the surf ----------------------------------------------------------------
+
+def _surf_blocks():
+    """The surf's phases, as they sit in the resident blob the ROM DMAs from."""
+    blob = (ASSETS / "surf_chr.bin").read_bytes()
+    n, blk = SURF_PHASES, ART["LK_SURF_BLOCK_BYTES"]
+    assert len(blob) == n * blk, (
+        f"the surf blob is {len(blob)} B, not {n} phases x {blk}")
+    return [blob[i * blk: (i + 1) * blk] for i in range(n)]
+
+
+def _surf_slots(machine):
+    """What the swash band's display slots hold in VRAM right now."""
+    return bytes(machine.read_bytes(
+        V, (V_WAT_CHR + ART["LK_SURF_SLOT_WORDS"]) * 2,
+        ART["LK_SURF_BLOCK_BYTES"]))
+
+
+def _surf_phase(machine):
+    """Which declared phase the band is showing — from VRAM, single-valued.
+
+    The whole block is compared, so this is a read of the DESTINATION region
+    against the source blob rather than a guess from a frame count. It is
+    single-valued because the generator proves every phase's block distinct;
+    a multi-valued answer here would be a failure of THAT, and is reported as
+    one rather than silently picking the first.
+    """
+    live = _surf_slots(machine)
+    which = [i for i, b in enumerate(_surf_blocks()) if b == live]
+    assert len(which) == 1, (
+        f"the swash band's display slots match {which} of the "
+        f"{SURF_PHASES} declared phases — {live[:16].hex()}")
+    return which[0]
+
+
+def _advance_to_surf_phase(machine, want):
+    """Hold the picture at one named surf phase, in emulated frames.
+
+    The distance is computed from the phase actually on screen, so this is
+    self-correcting rather than an assumed offset from the scene switch — and
+    it asserts it arrived, so a schedule that stopped advancing fails here
+    instead of quietly handing every case the same picture.
+    """
+    got = _surf_phase(machine)
+    machine.advance(((want - got) % SURF_PHASES) * SURF_STEP_FRAMES)
+    landed = _surf_phase(machine)
+    assert landed == want, (
+        f"asked for surf phase {want} from {got} and landed on {landed} — the "
+        f"phase does not advance one step per {SURF_STEP_PX} px of drift")
+    return machine
+
+
+def _waterline(img, blended):
+    """The topmost COMPOSITED picture row in each column of the swash band.
+
+    This is the blend's own boundary read off the screen, and it is decidable
+    only because the generator proves no half-add equals any raw world colour
+    (property P2): above the water the band holds the beach and the bed at full
+    intensity, below it every pixel is a composite, so the first composited
+    pixel scanning down IS the waterline. A column the water never reached
+    reports the band's bottom line.
+
+    No engine word and no tile is consulted — a scroll accumulator or a phase
+    index that lied would leave this reporting what the PICTURE shows.
+    """
+    return [next((y for y in range(SURF_BAND_TOP_PX, SURF_BAND_BOT_PX)
+                  if _row(img, y)[x] in blended), SURF_BAND_BOT_PX)
+            for x in range(PIC_W)]
+
+
+def _sweep_the_surf(machine, blended, name):
+    """One whole cycle: (phase, waterline profile) for every phase, in order.
+
+    Each capture costs an emulated frame and the remaining SURF_STEP_FRAMES - 1
+    are advanced explicitly, so the walk lands on the phase boundaries rather
+    than drifting across them.
+    """
+    out = []
+    for i in range(SURF_PHASES):
+        ph = _surf_phase(machine)
+        img = _shot(machine, f"{name}_{i:02d}")
+        out.append((ph, _waterline(img, blended)))
+        machine.advance(SURF_STEP_FRAMES - 1)
+    return out
+
+
+def _mean(profile):
+    return sum(profile) / len(profile)
+
+
+def _below_the_band(img):
+    """Every pixel of the picture the surf cannot reach, as one comparable key.
+
+    Tilemap rows 16..27 — the shallow ripple, the zone seam, the text line, the
+    deep water and the highlight. That region is 32 px periodic in the drift,
+    which the whole picture no longer is: the surf's cycle is longer. Cases
+    whose claim is about a 32 px period compare THIS rather than the frame.
+    """
+    return tuple(_band(img, SURF_TOP_ROW + SURF_ROWS, ROWS_WATER[1]))
 
 
 # =============================================================================
@@ -932,7 +1088,7 @@ def test_the_highlight_walks_its_phases_with_the_surface(boot):
             f"the display slot holds bytes that are not any declared phase: "
             f"{live.hex()[:32]}")
         seen.append(which[0])
-        pictures.append(_shot(m, f"glint_{len(seen)}").tobytes())
+        pictures.append(_below_the_band(_shot(m, f"glint_{len(seen)}")))
         m.advance(step - 1)             # the capture already cost one
     order = [(seen[0] + k) % len(phases) for k in range(len(phases) + 1)]
     assert seen == order, (
@@ -952,25 +1108,40 @@ def test_the_highlight_walks_its_phases_with_the_surface(boot):
 
 
 def test_the_surface_is_continuous_across_both_wraps(boot):
-    """One pattern period and one whole map width, both driven.
+    """THREE PERIODS, all driven, each on the region it actually governs.
 
-    The surface repeats every 32 px and its map is 256 px wide on a 10-bit
-    scroll latch, so a capture pair separated by either distance must be
-    identical — and a seam at either wrap would show as a picture that is not.
-    32 frames is the pattern period at 1 px per frame; 256 is the map. The
-    highlight's four phases are 8 px apart for exactly this reason: its loop
-    has to close on the same period the pattern does, or neither comparison
-    could be a whole-picture one.
+    The surface's map is a 4-cell pattern, so its content repeats every 32 px;
+    the surf's schedule is 32 phases 4 px apart, so the swash band repeats every
+    128; and the map is 256 px wide on a 10-bit scroll latch, so the whole thing
+    wraps there. A seam at any of the three would show as a picture that is not
+    identical to itself one period later.
+
+    WHAT THE SURF CHANGED HERE, and it is a narrowing rather than a loss. The
+    32 px claim used to be a WHOLE-PICTURE one, because before the surf every
+    animated thing in the rail had a period that divided 32 — the highlight's
+    four phases are 8 px apart for exactly that reason. The surf's cycle is
+    128, so the whole picture is now 128 px periodic and only the region BELOW
+    the swash band is still 32 px periodic. Both are asserted: the region that
+    still has the shorter period is compared on it, and the frame is compared
+    on the longer one. The 128 is a multiple of 32 and divides 256 by
+    construction — the generator refuses to emit a schedule where it is not.
     """
     m = _enter_lake(boot())
     a = _shot(m, "wrap_a")
     m.advance(WAVE_PERIOD // SPEED - 1)
     b = _shot(m, "wrap_b")
-    assert a.tobytes() == b.tobytes(), (
-        f"the picture changed across one {WAVE_PERIOD} px pattern period")
-    m.advance(WORLD_PX // SPEED - WAVE_PERIOD // SPEED - 1)
+    assert _below_the_band(a) == _below_the_band(b), (
+        f"the water below the swash band changed across one {WAVE_PERIOD} px "
+        f"pattern period")
+    m.advance(SURF_PERIOD_FRAMES - WAVE_PERIOD // SPEED - 1)
     c = _shot(m, "wrap_c")
     assert a.tobytes() == c.tobytes(), (
+        f"the picture changed across one {SURF_PERIOD_PX} px surf cycle — the "
+        f"surf does not return to the profile it started from, or something "
+        f"else in the frame has a period that does not divide it")
+    m.advance(WORLD_PX // SPEED - SURF_PERIOD_FRAMES - 1)
+    d = _shot(m, "wrap_d")
+    assert a.tobytes() == d.tobytes(), (
         f"the picture changed across one {WORLD_PX} px map wrap — the surface "
         f"has a seam")
 
