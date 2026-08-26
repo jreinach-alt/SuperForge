@@ -78,6 +78,8 @@ against, and it is a LATCHED toggle precisely so that a capture — which
 releases both pads for its own frame — cannot disturb it.
 """
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -1592,6 +1594,106 @@ def test_every_bit_the_composition_declares_has_its_consequence_on_screen(boot):
     assert (255, 255, 255) in set(_band(img, ROW_TEXT_OVER_WATER,
                                         ROW_TEXT_OVER_WATER))
 
+
+
+# =============================================================================
+# the surf's timebase — one cart, two machines, the same wave per real second
+# =============================================================================
+# The surf has no clock of its own: its phase is a function of ES_WAT_SCROLL,
+# which the scene advances through TS_STEP. So the wave's region-correctness IS
+# the drift's, and what has to be true is that the surface covers the same
+# DISTANCE per real second on a 60.1 fps machine and a 50.0 fps one. A rail
+# that advanced its scroll by a per-frame constant would run the whole rail —
+# drift, highlight and surf — at five sixths speed on PAL, and every case above
+# would stay green, because they all measure in emulated frames.
+#
+# The probe is `tests/region_probe.py`, one subprocess per region, because
+# mesen_runner applies the region once per process. Its window is REAL SECONDS
+# off the master clock, not frames: a frame-indexed window hands PAL 50 samples
+# where NTSC got 60 and every rate then reads 5/6 because the HARNESS ran it
+# 5/6 as long.
+
+# The frame ratio the timebase scales by, from the two measurements
+# engine/features/tick_scale/tick_scale.asm derives it from:
+#   NTSC 21,477,270 / 357,368 = 60.09879 fps
+#   PAL  21,281,370 / 425,568 = 50.00714 fps
+FRAME_RATIO = 60.09879 / 50.00714           # 1.2018039
+UNCOMPENSATED = 1.0 / FRAME_RATIO           # 0.83208 — what an unscaled rail reads
+
+SURF_SPEC = dict(
+    rom="build/lakeside.sfc", map="build/lks/symbol_map.json", scene="lake",
+    warm_s=2.0, seconds=5.0, pad={"start": True},
+    words=[["ES_RGN_PAL", 2], ["ES_WAT_SCROLL", 2], ["ES_SM_CTL", 2]])
+
+
+def _region_probe(region, spec):
+    if not ROM.exists():
+        pytest.fail(f"{ROM} is not built — run `make lakeside` first")
+    r = subprocess.run(
+        [sys.executable, str(SUPERFORGE / "tests" / "region_probe.py"),
+         json.dumps(spec)],
+        capture_output=True, text=True, cwd=str(SUPERFORGE), timeout=900,
+        env=dict(**os.environ, SF_REGION=region))
+    line = next((x for x in r.stdout.splitlines() if x.startswith("SFRGN ")),
+                None)
+    if line is None:
+        pytest.fail(f"{region} probe failed:\n{r.stdout}\n{r.stderr}")
+    return json.loads(line[len("SFRGN "):])
+
+
+@pytest.fixture(scope="module")
+def regions():
+    return {r: _region_probe(r, SURF_SPEC) for r in ("ntsc", "pal")}
+
+
+def test_the_surf_sweeps_the_same_distance_per_real_second_on_both_machines(regions):
+    """ONE CART, TWO MACHINES, and the wave takes the same time to break.
+
+    What is measured is the accumulated scroll — the quantity the surf's phase
+    is a function of and the drift's own position at once — divided by the REAL
+    seconds the master clock says elapsed. The two must agree, which is what
+    `tick_scale` is for; an unscaled per-frame constant would put PAL at
+    0.832 of NTSC and this is the case that would see it.
+
+    The pictures the rest of this module asserts are the other half of the
+    claim: they are what say the surf's phase IS this word, so a rate on the
+    word is a rate on the wave.
+    """
+    ntsc, pal = regions["ntsc"], regions["pal"]
+    assert ntsc["rom_md5"] == pal["rom_md5"], (
+        "the two regions ran different images — the claim is about ONE cart")
+    assert set(ntsc["words"]["ES_RGN_PAL"]) == {0}, (
+        f"the NTSC run does not read the region flag clear: "
+        f"{sorted(set(ntsc['words']['ES_RGN_PAL']))}")
+    assert set(pal["words"]["ES_RGN_PAL"]) == {1}, (
+        f"the PAL run does not read the region flag set: "
+        f"{sorted(set(pal['words']['ES_RGN_PAL']))}")
+    rates = {}
+    for name, rec in (("ntsc", ntsc), ("pal", pal)):
+        scene = set(rec["words"]["ES_SM_CTL"])
+        assert len(scene) == 1, (
+            f"the {name} run left the lake scene mid-window ({sorted(scene)}) "
+            f"— the drift it measured is not one scene's")
+        scroll = rec["words"]["ES_WAT_SCROLL"]
+        travelled = (scroll[-1] - scroll[0]) % (1 << 16)
+        assert travelled > SURF_PERIOD_PX, (
+            f"the {name} run's surface moved {travelled} px in "
+            f"{rec['real_s']:.2f} s — less than one {SURF_PERIOD_PX} px surf "
+            f"cycle, so the window says nothing about the wave")
+        rates[name] = travelled / rec["real_s"]
+    ratio = rates["pal"] / rates["ntsc"]
+    print(f"\n  drift per real second: ntsc {rates['ntsc']:.2f} px/s "
+          f"({ntsc['fps']:.3f} fps), pal {rates['pal']:.2f} px/s "
+          f"({pal['fps']:.3f} fps) — parity {ratio:.5f}, "
+          f"unscaled would be {UNCOMPENSATED:.5f}")
+    assert 0.97 <= ratio <= 1.03, (
+        f"the surface covers {rates['pal']:.2f} px/s on PAL and "
+        f"{rates['ntsc']:.2f} on NTSC — parity {ratio:.4f}. An unscaled "
+        f"per-frame rate reads {UNCOMPENSATED:.4f}, so the surf is running on "
+        f"frames rather than on the declared tick")
+    assert abs(ratio - UNCOMPENSATED) > 0.1, (
+        f"parity {ratio:.4f} is indistinguishable from the unscaled "
+        f"{UNCOMPENSATED:.4f} — this case could not tell the two apart")
 
 # =============================================================================
 # the uploads — the destination regions, byte for byte

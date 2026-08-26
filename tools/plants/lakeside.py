@@ -40,6 +40,8 @@ from falsify import Plant                                   # noqa: E402
 
 SUPERFORGE = Path(__file__).resolve().parent.parent.parent
 WATER = SUPERFORGE / "engine" / "features" / "water" / "feature.toml"
+WATER_ASM = SUPERFORGE / "engine" / "features" / "water" / "water.asm"
+GEN = SUPERFORGE / "tools" / "gen_lakeside_assets.py"
 LAKE = SUPERFORGE / "game" / "lakeside" / "scenes" / "lake.asm"
 TITLE = SUPERFORGE / "game" / "lakeside" / "scenes" / "title.asm"
 ROM = SUPERFORGE / "build" / "lakeside.sfc"
@@ -239,4 +241,118 @@ on = "sub"
               "The third case it kills names the colours: the returned "
               "title\'s bed holds composited values it has no blender of its "
               "own to make"),
+    # ---- the surf ---------------------------------------------------------
+    # Four plants for the wave, each aimed at ONE of the four claims it makes:
+    # that the waterline moves, that what it crosses is wet while covered and
+    # dry while bare, that the run-up is faster than the draw-down, and that all
+    # of it is measured against the declared tick rather than the frame. They
+    # fail differently on purpose — the first leaves a perfectly plausible
+    # static picture, the second leaves a wave that still moves, the third
+    # leaves one that still wets the sand, and the fourth is invisible on NTSC
+    # altogether.
+
+    Plant(id="surf-phase-frozen",
+          file=WATER_ASM,
+          old="""    lda z:ES_WAT_SCROLL
+    .repeat LK_SURF_STEP_SHIFT
+    lsr a                           ; ...one phase per LK_SURF_STEP_PX of drift
+    .endrepeat
+    and #(LK_SURF_PHASES - 1)""",
+          new="""    lda #LK_SURF_REF_PHASE          ; PLANT: the wave holds at one phase
+    and #(LK_SURF_PHASES - 1)""",
+          artifact=ROM,
+          build=["lakeside"],
+          tests=[
+              T + "test_the_waterline_advances_up_the_shore_and_draws_back",
+              T + "test_the_swash_zone_is_wet_when_covered_and_dry_when_bare",
+              T + "test_the_swash_runs_up_faster_than_the_backwash_draws_down",
+          ],
+          why="the transfer still fires every armed VBlank, the blob is still "
+              "resident, the drift still runs and the highlight still walks — "
+              "so the lake is a lake and only the WAVE is gone. A test that "
+              "read the phase index, or counted the DMA, or asserted that the "
+              "slots hold a declared phase, would all pass: the slots hold a "
+              "declared phase, just the same one forever. The three cases that "
+              "die measure the boundary in the PICTURE across a whole cycle, "
+              "which is the only place a frozen wave shows. The stilled case "
+              "stays green because a motionless surf is exactly what it "
+              "asserts — the matched pair the drift plants already establish"),
+
+    Plant(id="surf-band-never-transparent",
+          file=GEN,
+          old="""            if y < top:
+                line.append(0)""",
+          new="""            if y < top:
+                line.append(fill[ty][u])    # PLANT: opaque above the waterline""",
+          artifact=ROM,
+          build=["lakeside"],
+          tests=[
+              T + "test_the_swash_zone_is_wet_when_covered_and_dry_when_bare",
+              T + "test_the_waterline_advances_up_the_shore_and_draws_back",
+              T + "test_the_surfaces_top_edge_is_a_pixel_boundary_not_a_row_boundary",
+              T + "test_the_surface_starts_on_the_row_the_vofs_correction_promises",
+              T + "test_no_pixel_under_the_surface_is_explicable_as_unblended_world",
+          ],
+          why="THE WET/DRY CLAIM'S OTHER HALF, removed. With the band opaque at "
+              "every phase the surface covers the whole swash zone all the "
+              "time, so the beach is wet even when the wave is out — and "
+              "nothing about the picture announces it, because the water still "
+              "has an edge (the band's top row) and the fill still changes with "
+              "the phase. What dies is every case that needs a pixel to be BARE "
+              "somewhere: the swash zone's dry half has no bare pixel to check, "
+              "the boundary sweep finds the same waterline at every phase, and "
+              "the per-row count of pixels explicable as unblended world goes "
+              "to zero where the surface's own VRAM says it should not. Planted "
+              "in the GENERATOR because that is where the transparency comes "
+              "from — the ROM's DMA is indifferent to what it moves"),
+
+    Plant(id="surf-schedule-symmetric",
+          file=GEN,
+          old="""SURF_H = [
+    6, 13, 20, 26, 30, 32,                                       # the swash
+    31, 29, 27, 25, 23, 21, 19, 17, 16, 14, 12, 11, 9, 8,        # the backwash
+    8, 7, 7, 6, 6, 6, 7, 7, 6, 6, 6, 6,                          # the lull
+]""",
+          new="""SURF_H = [                      # PLANT: a symmetric oscillation
+    6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 29, 30, 31, 32,
+    32, 31, 30, 29, 28, 26, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6,
+]""",
+          artifact=ROM,
+          build=["lakeside"],
+          tests=[
+              T + "test_the_swash_runs_up_faster_than_the_backwash_draws_down",
+          ],
+          why="surf is not a sine, and this is what it looks like when it is. "
+              "The waterline still sweeps its whole 26 px, the wet/dry equality "
+              "still holds pixel for pixel, the cycle still closes, the region "
+              "arm is untouched — every other case in the module stays green, "
+              "which is exactly why the asymmetry needs a case of its OWN "
+              "rather than being assumed to fall out of the others. The one "
+              "that dies measures the longest monotone run in each direction "
+              "off the picture and compares their rates; a symmetric schedule "
+              "makes them equal, and a picture that pulses instead of breaking "
+              "is the visible result"),
+
+    Plant(id="surf-drift-unscaled",
+          file=LAKE,
+          old="""    TS_STEP z:US_TSW_ACC, TS_DRIFT_BASE
+    sta z:US_TSW""",
+          new="""    lda #LK_WATER_SPEED             ; PLANT: a per-frame constant, unscaled
+    sta z:US_TSW""",
+          artifact=ROM,
+          build=["lakeside"],
+          tests=[
+              T + "test_the_surf_sweeps_the_same_distance_per_real_second_on_both_machines",
+          ],
+          why="THE PLANT NTSC CANNOT SEE. The published step is still 1 px "
+              "every frame, which on NTSC is what TS_STEP publishes anyway, so "
+              "the ROM is bit-for-bit indistinguishable in behaviour on the "
+              "machine every other case in this module runs on: the surf "
+              "sweeps its 26 px, the wet/dry equality holds, the asymmetry "
+              "holds, the cycle closes, the picture repeats on all three "
+              "periods. On PAL the whole rail — drift, highlight and wave — "
+              "runs at five sixths speed in real time. The one case that dies "
+              "is the two-machine probe, whose window is REAL SECONDS off the "
+              "master clock rather than frames; that is the difference between "
+              "measuring a rate and measuring the harness"),
 ]
