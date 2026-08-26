@@ -921,6 +921,7 @@ def art_inc():
         "; — the consumer shifts by a build-time count and asserts the shift",
         "; agrees with its _PX / _BYTES sibling.",
         f"LK_SURF_SLOT        = {SURF_SLOT0}",
+        f"LK_SURF_SLOT_WORDS  = {SURF_SLOT0 * (GLINT_TILE_BYTES // 2)}",
         f"LK_SURF_SLOTS       = {SURF_SLOTS}",
         f"LK_SURF_PHASES      = {SURF_PHASES}",
         f"LK_SURF_STEP_PX     = {SURF_STEP_PX}",

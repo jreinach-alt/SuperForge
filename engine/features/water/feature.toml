@@ -94,12 +94,43 @@ channel = 1
 registers = ["VMDATAL", "VMDATAH"]
 mode = 1
 
+# ---- the surf, every armed VBlank -----------------------------------------
+# THE ONE PER-FRAME TRANSFER IN THIS RAIL. The swash band's 16 display slots
+# are rewritten from the resident phase blob once per armed VBlank: one
+# contiguous 512 B block, chosen by where the surface has drifted to. Nothing
+# is composed at run time and nothing streams — the phases are all in ROM
+# already, and what moves is which 512 of them the slots are showing.
+#
+# `phase = "vblank"` because that is when it runs, and the phase is what the
+# allocator packs a channel NUMBER against: a vblank claim contends only with
+# other vblank claims, so this one costs the active pool nothing (vwf's
+# feature.toml is where that reasoning is spelled at length). It shares
+# VMDATAL/VMDATAH with the enter-time `wat_up` claim above and cannot race it —
+# that one is forced_blank by class, and scene_mgr holds forced blank with NMI
+# masked across the whole switch.
+[[claims.hdma]]
+name = "surfq"
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1                 # 2-reg write-once: the $2118/$2119 word port
+band = "scene"
+phase = "vblank"
+channels = 1
+
+# MEASURED BY CONSTRUCTION rather than sampled: the transfer is unconditional
+# and its size is fixed, so the worst case and the average are the same number.
+# 16 slots x 32 B, once. The allocator proves it against the substrate's
+# measured 5952 B/frame; it is not asserted here.
+[claims.dma]
+vblank_bytes_per_frame = 512
+vblank_transfers_per_frame = 1
+
 [[claims.vram]]
 name = "wat_chr"
 kind = "chr"
-tiles = 22               # 0 empty (the edge), the two zones' ripple and
-                         # jag tiles, the highlight's display slot and its
-                         # four phases; tools/gen_lakeside_assets.py
+tiles = 34               # 0 empty (the edge), the two zones' ripple and
+                         # zone-seam tiles, the highlight's display slot and
+                         # its four phases, and the SWASH BAND's 16 display
+                         # slots; tools/gen_lakeside_assets.py
 tile_bytes = 32          # 4bpp
 
 [[claims.vram]]

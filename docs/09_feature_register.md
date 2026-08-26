@@ -832,8 +832,8 @@ Generated from the tree by `tools/gen_register.py`; `make register` fails when t
 | `tick_scale` | **feature** | global | &mdash; | `region` |
 | `vwf` | **feature** | scene | `dp`, `wram`, `hdma`, `dma` | `text_dp`, `text_chr`, `vwf_rom` |
 | `vwf_rom` | **blob** | global | `rom`&times;2 | &mdash; |
-| `water` | **feature** | unused | `vram`&times;2, `cgram`, `dp`, `dma_init`, `reg`, `screen`, `blend` | `water_rom` |
-| `water_rom` | **blob** | unused | `rom`&times;3 | &mdash; |
+| `water` | **feature** | unused | `vram`&times;2, `cgram`, `dp`, `hdma`, `dma_init`, `reg`, `screen`, `blend`, `dma` | `water_rom` |
+| `water_rom` | **blob** | unused | `rom`&times;4 | &mdash; |
 | `window_iris` | **feature** | unused | `dp`, `wram`, `hdma`, `reg` | `room_rom` |
 | `world_rom` | **blob** | global | `rom` | &mdash; |
 <!-- END GENERATED: census -->

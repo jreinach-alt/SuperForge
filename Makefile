@@ -1226,7 +1226,7 @@ LKS_ASM  := $(LKS)/main.asm $(wildcard $(LKS)/scenes/*.asm) \
 LKS_ASSETS := $(BUILD)/assets/lk_chr.bin $(BUILD)/assets/lk_map.bin \
               $(BUILD)/assets/lk_pal.bin $(BUILD)/assets/wat_chr.bin \
               $(BUILD)/assets/wat_map.bin $(BUILD)/assets/wat_pal.bin \
-              $(BUILD)/assets/lk_art.inc
+              $(BUILD)/assets/surf_chr.bin $(BUILD)/assets/lk_art.inc
 
 $(LKS_ASSETS): tools/gen_lakeside_assets.py | $(BUILD)
 	$(PY) tools/gen_lakeside_assets.py $(BUILD)/assets

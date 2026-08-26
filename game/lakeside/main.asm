@@ -59,6 +59,10 @@ NMI:
 ; would reserve the window and let whatever the linker left there be read as
 ; art.
 .segment "BANK1"
+surf_chr_bin:
+    .incbin "surf_chr.bin"
+.assert ^surf_chr_bin = ES_R_SURF_CHR_BANK, error, "surf_chr bank drifted from allocator claim"
+.assert .loword(surf_chr_bin) = ES_R_SURF_CHR_ADDR, error, "surf_chr addr drifted from allocator claim"
 lk_map_bin:
     .incbin "lk_map.bin"
 .assert ^lk_map_bin = ES_R_LK_MAP_BANK, error, "lk_map bank drifted from allocator claim"
@@ -71,14 +75,14 @@ font_bin:
     .incbin "font_2bpp.bin"
 .assert ^font_bin = ES_R_FONT_BIN_BANK, error, "font_bin bank drifted from allocator claim"
 .assert .loword(font_bin) = ES_R_FONT_BIN_ADDR, error, "font_bin addr drifted from allocator claim"
-lk_chr_bin:
-    .incbin "lk_chr.bin"
-.assert ^lk_chr_bin = ES_R_LK_CHR_BANK, error, "lk_chr bank drifted from allocator claim"
-.assert .loword(lk_chr_bin) = ES_R_LK_CHR_ADDR, error, "lk_chr addr drifted from allocator claim"
 wat_chr_bin:
     .incbin "wat_chr.bin"
 .assert ^wat_chr_bin = ES_R_WAT_CHR_BANK, error, "wat_chr bank drifted from allocator claim"
 .assert .loword(wat_chr_bin) = ES_R_WAT_CHR_ADDR, error, "wat_chr addr drifted from allocator claim"
+lk_chr_bin:
+    .incbin "lk_chr.bin"
+.assert ^lk_chr_bin = ES_R_LK_CHR_BANK, error, "lk_chr bank drifted from allocator claim"
+.assert .loword(lk_chr_bin) = ES_R_LK_CHR_ADDR, error, "lk_chr addr drifted from allocator claim"
 lk_pal_bin:
     .incbin "lk_pal.bin"
 .assert ^lk_pal_bin = ES_R_LK_PAL_BANK, error, "lk_pal bank drifted from allocator claim"
@@ -241,12 +245,16 @@ lk_strings:
 ; --- sm_nmi_hook: per-frame VBlank work -----------------------------------
 ; In: A8/I16, DB=0 (from sm_nmi_core). May clobber A/X/Y.
 ;
-; TWO ENTRIES, both the water's. The world does not scroll and the text is
-; written once per scene under forced blank, so what has to reach the PPU
-; every frame is the surface's horizontal offset and the 32 CHR bytes behind
-; its highlight. Their ORDER IS FREE: `wat_nmi_glint` programs its own VMAIN
-; and VMADD, which is the contract a VBlank VRAM writer answers here, and
-; `wat_nmi_commit` touches only a scroll latch.
+; THREE ENTRIES, all three the water's. The world does not scroll and the text
+; is written once per scene under forced blank, so what has to reach the PPU
+; every frame is the surface's horizontal offset, the 32 CHR bytes behind its
+; highlight, and the 512 behind the swash band the surf sweeps. Their ORDER IS
+; FREE: `wat_nmi_glint` and `wat_nmi_surf` each program their own VMAIN and
+; VMADD, which is the contract a VBlank VRAM writer answers here, and
+; `wat_nmi_commit` touches only a scroll latch. `wat_nmi_surf` also programs
+; its own DMA channel registers and sm_nmi_core re-arms $4300 from the scene's
+; HDMA shadow after this hook returns, so time-sharing that channel is what the
+; core already expects rather than something this rail arranges.
 ;
 ; IT IS GUARDED BY THE RUNNING SCENE, not called unconditionally. The
 ; accumulator it reads is `water`'s SCENE-SCOPED dp claim, so in the title
@@ -262,6 +270,7 @@ sm_nmi_hook:
     bne @done
     jsr lake::wat_nmi_commit        ; the drift -> BG2HOFS
     jsr lake::wat_nmi_glint         ; ...and the highlight phase it selects
+    jsr lake::wat_nmi_surf          ; ...and the surf phase, the same way
 @done:
     .a8
     .i16

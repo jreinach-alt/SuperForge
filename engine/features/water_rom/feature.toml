@@ -16,9 +16,30 @@ depends = []
 
 [[claims.rom]]
 name = "wat_chr"
-bytes = 704              # 22 x 4bpp tiles: 0 empty (the edge), the two
-                         # zones' ripple, jag and zone-seam tiles, the
-                         # highlight's display slot and its four phases
+bytes = 1088             # 34 x 4bpp tiles: 0 empty (the edge), the two
+                         # zones' ripple and zone-seam tiles, the highlight's
+                         # display slot and its four phases, and the swash
+                         # band's 16 display slots
+
+[[claims.rom]]
+name = "surf_chr"
+bytes = 16384            # 32 surf phases x 16 slots x 32 B.
+                         #
+                         # THE BIGGEST BLOB IN THE RAIL, and it is what buys
+                         # the wave. The alternative to holding every phase
+                         # resident is composing the band's tiles at run time,
+                         # which is CPU inside VBlank on a machine that has
+                         # ~28-37k cycles for a whole frame; the alternative to
+                         # a 4 px phase step is a coarser wave. ROM is the one
+                         # budget here with room to spare (the allocation
+                         # report prints what is left), so the wave is paid for
+                         # in the cheap currency.
+                         #
+                         # ONE PHASE'S BLOCK IS 512 CONTIGUOUS BYTES and the
+                         # whole blob sits inside one 32 KB LoROM window, so a
+                         # transfer of one block can never straddle a bank —
+                         # the constraint substrate.toml records as
+                         # dma_source_bank_span = false.
 
 [[claims.rom]]
 name = "wat_map"

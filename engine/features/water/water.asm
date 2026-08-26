@@ -37,14 +37,26 @@
 ; VERSION and its consumer pins it"). The two shift/size pairs are asserted
 ; against each other so neither half can be edited alone.
 .include "lk_art.inc"
-.assert LK_ART_FORMAT = 1, error, "lk_art.inc format moved under water.asm"
 .assert (1 << LK_GLINT_STEP_SHIFT) = LK_GLINT_STEP_PX, error, "glint step shift/px disagree"
 .assert (1 << LK_GLINT_TILE_SHIFT) = LK_GLINT_TILE_BYTES, error, "glint tile shift/bytes disagree"
 .assert (LK_GLINT_PHASES & (LK_GLINT_PHASES - 1)) = 0, error, "glint phase count is not a power of two"
+.assert LK_ART_FORMAT = 2, error, "lk_art.inc format moved under the surf"
+.assert (1 << LK_SURF_STEP_SHIFT) = LK_SURF_STEP_PX, error, "surf step shift/px disagree"
+.assert (1 << LK_SURF_BLOCK_SHIFT) = LK_SURF_BLOCK_BYTES, error, "surf block shift/bytes disagree"
+.assert (LK_SURF_PHASES & (LK_SURF_PHASES - 1)) = 0, error, "surf phase count is not a power of two"
+.assert LK_SURF_PHASES * LK_SURF_STEP_PX = LK_SURF_PERIOD_PX, error, "surf cycle length disagrees with its own phases"
 
 ; The enter-time GP-DMA register file, addressed through the channel the
 ; `wat_up` dma_init claim names — a declared resource, not a hard-coded 1.
 WAT_REGS = $4300 + ES_D_WAT_UP_CH * 16
+
+; ...and the per-frame one, addressed through the channel the `surfq` vblank
+; claim names. A DIFFERENT CLAIM ON THE SAME TWO REGISTERS, because the two
+; transfers happen in phases that cannot overlap: `wat_up` runs at scene enter
+; under the forced blank scene_mgr's switch contract guarantees, and this one
+; runs inside VBlank on an armed frame. The allocator packs channel numbers per
+; phase, which is why declaring them separately costs nothing.
+SURF_REGS = $4300 + ES_H_SURFQ_CH * 16
 
 ; The vertical offset, written once and never again. BG2VOFS is a scroll
 ; latch, not a base: scanline N shows tilemap line VOFS + N, and the first
@@ -303,4 +315,80 @@ wat_nmi_glint:
     bne @word
     sep #$20
     .a8
+    rts
+
+; --- wat_nmi_surf: the swash band's display slots, every armed VBlank -------
+; CONTRACT wat_nmi_surf
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   in:       ES_WAT_SCROLL — where the surface has drifted to, in world px
+;   out:      the swash band's LK_SURF_SLOTS display slots rewritten with the
+;             surf phase that position selects, from the resident phase blob
+;   clobbers: A, N, Z, C
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention. It programs its own VMAIN, VMADD and channel
+;             registers, so where it sits in the hook is free; sm_nmi_core
+;             re-arms $4300 from the scene's HDMA shadow AFTER the hook
+;             returns, which is what makes time-sharing a channel here legal
+;   tail:     rts
+;
+; THE WAVE, AND WHY IT COSTS ONE TRANSFER. Tilemap rows LK_SURF_TOP_ROW..+ROWS
+; are display slots and the map that points at them never changes. Every phase
+; of the surf is already in ROM — the whole cycle, authored by
+; tools/gen_lakeside_assets.py — so advancing the wave is a question of which
+; resident block the slots are showing, not of composing tiles in a VBlank on a
+; machine that has ~28-37k cycles for a whole frame. One contiguous 512 B
+; block, one transfer, the same size every frame: the `[claims.dma]`
+; declaration in feature.toml is therefore exact rather than a worst case, and
+; the allocator proves it against the substrate's measured VBlank budget.
+;
+; THE PHASE IS INDEXED BY POSITION, NOT BY A COUNT OF FRAMES — the same design
+; as `wat_nmi_glint` above and for the same three reasons. The accumulated
+; scroll is a region-correct quantity (the rail advances it through TS_STEP),
+; so the surf inherits that correctness with no clock of its own; it holds
+; still exactly when B stills the drift; and its cycle closes on a whole number
+; of the 32 px pattern periods the picture is asked to repeat across.
+;
+; TICK: ok -- the phase is a function of a DISTANCE, not of a frame count.
+;   ES_WAT_SCROLL is the accumulated output of the caller's TS_STEP, so this
+;   routine reads a quantity the scaler already expressed against the declared
+;   tick; nothing here counts frames and there is no per-frame immediate.
+;
+; DAS is single-shot — the transfer consumes it — so it is armed inside this
+; routine, once, for the one transfer it fires. There is no slot loop here to
+; get that wrong in, because the sixteen slots are CONTIGUOUS in VRAM and
+; contiguous in the blob: one span, one arming.
+wat_nmi_surf:
+    .a8
+    .i16
+    SF_ASSERT_WIDTH 8, 16, "wat_nmi_surf"
+    lda #$80
+    sta a:$2115                     ; VMAIN: +1 word after the high byte
+    lda #ES_H_SURFQ_DMAP
+    sta a:SURF_REGS + 0             ; DMAP: A->B, 2 regs write-once (mode 1)
+    lda #ES_H_SURFQ_BBAD
+    sta a:SURF_REGS + 1             ; BBAD: VMDATAL
+    lda #^surf_chr_bin
+    sta a:SURF_REGS + 4             ; A1B: the blob's own bank
+    rep #$20
+    .a16
+    lda #ES_V_WAT_CHR + LK_SURF_SLOT_WORDS
+    sta a:$2116                     ; VMADD = the first display slot
+    lda #LK_SURF_BLOCK_BYTES
+    sta a:SURF_REGS + 5             ; DAS (re-armed for THIS transfer)
+    lda z:ES_WAT_SCROLL
+    .repeat LK_SURF_STEP_SHIFT
+    lsr a                           ; ...one phase per LK_SURF_STEP_PX of drift
+    .endrepeat
+    and #(LK_SURF_PHASES - 1)
+    .repeat LK_SURF_BLOCK_SHIFT
+    asl a                           ; ...the phase's offset, in blob bytes
+    .endrepeat
+    clc
+    adc #.loword(surf_chr_bin)      ; the blob fits one 32 KB window, so this
+    sta a:SURF_REGS + 2             ;   16-bit add cannot leave the bank
+    sep #$20
+    .a8
+    lda #(1 << ES_H_SURFQ_CH)
+    sta a:$420B                     ; MDMAEN: fire
     rts
