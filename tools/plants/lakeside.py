@@ -1,6 +1,6 @@
 """lakeside — the sub-screen half-add's failure modes, planted.
 
-Six plants. Five are silent-corruption defects that still produce a plausible
+Seven plants. Six are silent-corruption defects that still produce a plausible
 picture, and one is the allocator refusing a declaration that lies — which is
 the other half of what this rail exists to demonstrate.
 
@@ -9,17 +9,28 @@ THE PAIR THE SET IS BUILT AROUND. `cgadsub-halve-cleared` and
 where everything kills everything proves only that the ROM boots:
 
   * clearing CGADSUB's halve bit leaves a blend that still composites — the
-    water simply washes out. Every EQUALITY dies; the edge cases, which are
-    about the empty-sub fallback and never involve halving at all, stay GREEN.
+    water simply washes out. Every composited value moves, so membership, the
+    oracle, the spot checks and the full-add absence all die.
   * dropping the scene's TS write removes the sub screen entirely, so the
     blend vanishes and the whole picture is the main screen at full intensity.
-    The equalities die again, and the edge case stays green for the OPPOSITE
-    reason — it was already asserting exactly that state.
+    The oracle and the spots die again, and this time so does the count of
+    pixels that are explicable as UNBLENDED world — which the first plant
+    leaves untouched, because a full add is not a bed colour either.
 
-So the edge assertion survives both, and it should: it is the case that says
-what the hardware does when there is nothing to blend with, and neither plant
-changes that. A plant set that killed it too would mean the edge case was
-really just another blend assertion wearing a different name.
+MEASURED, NOT REASONED: `test_above_the_waterline_the_world_is_at_full_intensity`
+survives BOTH, and it should. It is the case that says what the hardware does
+where there is nothing to blend with — above the surface's coverage — and
+neither plant changes that. A plant set that killed it too would mean the
+fallback case was really just another blend assertion wearing a different name.
+
+WHAT MOVED WHEN THE ART DID. These plants were written against flat colour
+bands, where "the band equals one value" was the assertion each of them broke.
+Tile art put thirty-five composited values on screen at once and that handle
+went away; the cases they kill now are the three that replaced it — region-wide
+membership, the unblended count against the surface's own transparency, and the
+pixel-for-pixel oracle — plus the named spot checks. Every list below was
+re-measured against the new module rather than carried across: the counts in
+the run output are 7, 8, a build refusal, 2, 3, 1 and 3.
 """
 import sys
 from pathlib import Path
@@ -46,18 +57,25 @@ source = "sub"''',
           artifact=ROM,
           build=["lakeside"],
           tests=[
-              T + "test_the_crest_band_is_the_exact_half_add_of_bed_and_crest",
-              T + "test_the_trough_band_is_the_exact_half_add_of_deep_bed_and_trough",
+              T + "test_every_pixel_of_the_water_is_a_legal_composited_value",
+              T + "test_the_composited_picture_matches_the_two_layers_pixel_for_pixel",
+              T + "test_named_coordinates_composite_exactly_what_their_two_layers_hold",
               T + "test_the_half_add_is_not_a_full_add",
-              T + "test_the_gaps_inside_the_water_band_show_the_bed_at_full_intensity",
+              T + "test_the_gaps_inside_the_surface_show_the_bed_at_full_intensity",
+              T + "test_text_over_the_water_is_not_blended",
               T + "test_every_bit_the_composition_declares_has_its_consequence_on_screen",
           ],
           why="the defect this rail is most likely to ship: the water still "
               "composites, it is simply twice as bright, and nothing about "
               "the picture announces which of the two it is. This is why the "
-              "band cases assert an EQUALITY rather than a tolerance — a "
+              "blend cases assert EQUALITIES rather than a tolerance — a "
               "tolerance wide enough to be comfortable would admit the full "
-              "add. Planted in the DECLARATION rather than at a write site "
+              "add, and with thirty-five composited values on screen the "
+              "temptation to widen one is exactly what has to be refused. "
+              "The generator's P4 is what makes the absence assertion real: "
+              "no full add lands on a legal value, so a full-add pixel is "
+              "outside the legal set rather than merely near its edge. "
+              "Planted in the DECLARATION rather than at a write site "
               "because that is where the value comes from: the allocator "
               "recomposes CGADSUB and the emitted byte moves"),
 
@@ -71,9 +89,12 @@ source = "sub"''',
           artifact=ROM,
           build=["lakeside"],
           tests=[
-              T + "test_the_crest_band_is_the_exact_half_add_of_bed_and_crest",
-              T + "test_the_trough_band_is_the_exact_half_add_of_deep_bed_and_trough",
-              T + "test_the_gaps_inside_the_water_band_show_the_bed_at_full_intensity",
+              T + "test_no_pixel_under_the_surface_is_explicable_as_unblended_world",
+              T + "test_the_composited_picture_matches_the_two_layers_pixel_for_pixel",
+              T + "test_named_coordinates_composite_exactly_what_their_two_layers_hold",
+              T + "test_the_gaps_inside_the_surface_show_the_bed_at_full_intensity",
+              T + "test_the_surfaces_top_edge_is_a_pixel_boundary_not_a_row_boundary",
+              T + "test_the_surface_starts_on_the_row_the_vofs_correction_promises",
               T + "test_text_over_the_water_is_not_blended",
               T + "test_each_scene_enter_writes_every_port_its_composition_owns",
           ],
@@ -83,8 +104,13 @@ source = "sub"''',
               "presence has to be asserted separately from effect. With no "
               "sub-designated layer the hardware substitutes the fixed "
               "colour and disables halving at EVERY pixel, so the blend "
-              "vanishes rather than degrading. The edge case stays green, "
-              "because that state is exactly what it was already asserting"),
+              "vanishes rather than degrading. The case that catches it most "
+              "directly is the unblended COUNT: every pixel of the water then "
+              "wears a bed colour, while the surface's own transparency — read "
+              "out of VRAM, where the upload still landed — says only a "
+              "fraction of them should. The fallback case above the waterline "
+              "stays green, because that state is exactly what it was already "
+              "asserting"),
 
     Plant(id="water-screen-claim-removed",
           file=WATER,
@@ -137,6 +163,7 @@ on = "sub"
           tests=[
               T + "test_the_surface_drifts_one_pixel_per_emulated_frame",
               T + "test_the_drift_resumes_after_a_second_press",
+              T + "test_the_highlight_walks_its_phases_with_the_surface",
           ],
           why="the timebase still runs and still publishes the right step "
               "every frame, so any test that read the accumulator or the "
@@ -144,7 +171,11 @@ on = "sub"
               "The two cases that die recover the displacement from the "
               "PIXELS, and the stilled case stays green because a motionless "
               "surface is precisely what it asserts, which is what makes the "
-              "two a matched pair rather than one test run twice"),
+              "two a matched pair rather than one test run twice. The third "
+              "is the highlight: its phase is a function of the accumulated "
+              "position, so a drift that never accumulates freezes the "
+              "twinkle as well — one defect, two visible consequences, and "
+              "the case that walks the phases sees the second"),
 
     Plant(id="title-drops-the-blend-off-write",
           file=TITLE,
@@ -190,6 +221,7 @@ on = "sub"
           build=["lakeside"],
           tests=[
               T + "test_the_title_scene_does_not_inherit_the_lake_blend",
+              T + "test_the_title_shows_the_whole_bed_unblended",
               T + "test_each_scene_enter_writes_every_port_its_composition_owns",
           ],
           why="the inheritance made visible, and the pair that makes it so. "
@@ -203,5 +235,8 @@ on = "sub"
               "halves are independently load-bearing at an edge: neither "
               "write alone is sufficient to expose the hazard, which is a "
               "fact about this rail\'s picture rather than about the "
-              "vocabulary, and stating it is cheaper than rediscovering it"),
+              "vocabulary, and stating it is cheaper than rediscovering it. "
+              "The third case it kills names the colours: the returned "
+              "title\'s bed holds composited values it has no blender of its "
+              "own to make"),
 ]

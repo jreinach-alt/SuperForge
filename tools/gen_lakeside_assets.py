@@ -530,15 +530,23 @@ def lk_cell(row, col):
 # text line sits there, so every glyph pixel has a sub-screen pixel under it and
 # would blend if BG3 were gated into the math. Rows 25..27 carry no highlight
 # and sit over a uniform bed, so the drift there is a pure translation.
+#
+# ROWS 19 AND 21 ARE ONE TILE ACROSS THE WHOLE PATTERN, deliberately: the last
+# shallow row and the calm strip the text sits on. A row whose surface is the
+# same tile in every cell carries the SAME sub colour at every x WHATEVER the
+# scroll is, which is what lets a test name a coordinate, name both
+# contributors, and assert one composited value without first recovering where
+# the surface has drifted to. Everywhere else the tests measure the layers as
+# they actually are.
 WAT_ROWS = {
     14: ("sh_jag_a", "sh_jag_b", "sh_jag_c", "sh_jag_d"),
     15: ("sh_wave_a", "sh_trough", "sh_wave_b", "sh_trough"),
     16: ("sh_trough", "sh_wave_b", "sh_trough", "sh_wave_a"),
     17: ("sh_wave_b", "sh_trough", "sh_wave_a", "sh_crest"),
     18: ("sh_trough", "sh_wave_a", "sh_trough", "sh_wave_b"),
-    19: ("sh_wave_a", "sh_trough", "sh_wave_b", "sh_trough"),
+    19: ("sh_trough", "sh_trough", "sh_trough", "sh_trough"),
     20: ("zone_a", "zone_b", "zone_c", "zone_d"),
-    21: ("dp_trough", "dp_trough", "dp_crest", "dp_trough"),
+    21: ("dp_trough", "dp_trough", "dp_trough", "dp_trough"),
     22: ("dp_trough", "glint_slot", "dp_wave_a", "dp_trough"),
     23: ("dp_wave_b", "dp_trough", "dp_wave_a", "dp_trough"),
     24: ("dp_trough", "dp_wave_b", "dp_trough", "glint_slot"),
