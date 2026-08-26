@@ -1,10 +1,12 @@
 """lakeside — a sub-screen half-add, asserted against the pixels it composited.
 
-runtime: ~25 s — 24 boots of a 512 KB ROM, each driven 140+ frames in
-lockstep, on a warm build tree. (The number this module carried before the
-art landed said 1:20 for 12 boots; it was never re-measured and it was
-wrong by a factor of three, which is what a runtime claim nobody checks
-does. This one is `pytest -q`'s own summary line.)
+runtime: ~1:35 — 31 boots of a 512 KB ROM plus two region subprocesses, on a
+warm build tree. It was ~25 s before the surf; two of the new cases walk the
+wave's whole 32-phase cycle photographing every phase, which is 64 captures
+neither of them can do without. (The number this module carried before the art
+landed said 1:20 for 12 boots; it was never re-measured and it was wrong by a
+factor of three, which is what a runtime claim nobody checks does. This one,
+like that correction, is `pytest -q`'s own summary line.)
 
 LOCKSTEP-NATIVE: `Machine` only, no MesenRunner import, no wall-clock surface.
 Every boot is `Machine(rom).advance(N)`, which lands on the ABSOLUTE frame N by
@@ -72,10 +74,29 @@ are joined to the picture only in the two cases that are ABOUT the declaration,
 and there the map is the subject rather than the oracle.
 
 STATE CYCLES, NOT SNAPSHOTS. The surface drifts, is stilled, drifts again, and
-is driven across both the 32 px pattern period and the 256 px map wrap. The
-still state is the control every "it moved by exactly N" claim is measured
-against, and it is a LATCHED toggle precisely so that a capture — which
-releases both pads for its own frame — cannot disturb it.
+is driven across all three of its periods — the 32 px pattern, the 128 px surf
+cycle and the 256 px map wrap. The still state is the control every "it moved by
+exactly N" claim is measured against, and it is a LATCHED toggle precisely so
+that a capture — which releases both pads for its own frame — cannot disturb it.
+
+AND THEN THE SURF, WHICH IS THE SAME CLAIM MOVING. BG2 is the sub screen, so the
+surface's top edge IS the blend boundary; sweeping that edge 26 px up the beach
+and back means the sand it crosses is `(sand + water) >> 1` while the wave is in
+and its own colour at full intensity while the wave is out. The animation and
+the colour math are one event, and the headline case
+(`test_the_swash_zone_is_wet_when_covered_and_dry_when_bare`) asserts both
+halves as EQUALITIES over the same 5,632 pixels — the zone derived from the
+surface's own coverage in VRAM, the two expected values computed from CGRAM,
+neither named in this file.
+
+Around it: the boundary is measured from the picture across the whole cycle (it
+travels 26.00 px), the run-up is measured against the draw-down (1.300 vs 0.456
+px per frame — surf is not a sine), the cycle is required to close on the
+profile it opened with, and B is required to still the wave as well as the
+drift. The one claim the pictures cannot make is the region one — every case
+above measures in EMULATED FRAMES, and an unscaled per-frame rate is invisible
+there — so the two-machine probe at the end measures the drift the surf is a
+function of in REAL seconds off the master clock instead.
 """
 import json
 import os

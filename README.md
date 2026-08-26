@@ -208,6 +208,11 @@ two of those numbers shared with claims that run in VBlank.
 | ![the lake bed dry](docs/img/lks_01_title.png) | ![the same bed under water](docs/img/lks_02_lake.png) | ![back to dry](docs/img/lks_03_returned.png) |
 | the world, blender off | the same world through a sub-screen layer | and back, byte-identical to the first |
 
+| | |
+|---|---|
+| ![the wave drawn back](docs/img/lks_04_dry.png) | ![the wave run up](docs/img/lks_05_wet.png) |
+| the wave drawn back — dry sand | the wave run up — the same sand, wet |
+
 A lakeshore with **real water**: BG2 carries a drifting surface designated to
 the SUB screen, and the PPU's colour-math unit half-adds it onto the main
 screen. The left frame is the world with the blender off — a meandering
@@ -225,12 +230,28 @@ indexed by how far the surface has drifted — so it is region-correct for free
 and holds still exactly when the drift is stilled. The text stays legible over
 the water because BG3 is left out of the math.
 
-Thirty-five composited values are on screen at once, which is what the proof
-had to grow to match: every pixel of the water is asserted to be a member of a
-legal set computed from both palettes read off CGRAM at test time, the number
-of unblended pixels in each row is counted against the surface's own
-transparency read out of VRAM, and the whole region is compared pixel for pixel
-against the composite its two decoded layers imply.
+**And the surf is the blend boundary moving.** Because BG2 is the sub screen,
+the water's own top edge is where the colour math starts: a wave that runs 26 px
+up the shore turns the sand it covers into `(sand + water) >> 1` — darker,
+cooler, wet — and gives it back at full intensity when the backwash draws down.
+The bottom pair is that pixel for pixel. Nothing repaints a "wet" palette; the
+PPU does the shading for free, and the test asserts both halves as equalities
+over the 5,632 pixels the surface's own VRAM says are covered when the wave is
+in and bare when it is out. The wave is not a sine either — the swash climbs at
+1.300 px/frame and the backwash draws down at 0.456, measured off the picture,
+because a symmetric oscillation reads as a pulsing band rather than as water.
+It costs one 512-byte VBlank transfer: every phase of the cycle is resident in
+ROM, and what moves is which of them the band's display slots are showing.
+
+Fifty composited values are on screen at once, which is what the proof had to
+grow to match: every pixel of the water is asserted to be a member of a legal
+set computed from both palettes read off CGRAM at test time, the number of
+unblended pixels in each row is counted against the surface's own transparency
+read out of VRAM, and the whole region is compared pixel for pixel against the
+composite its two decoded layers imply. The palette pays for it at author time —
+adding the beach as a main operand made two of its colours collide once halved,
+and one of them moved a step so a test could still tell wet rock from submerged
+rock.
 
 What it demonstrates is a composition, not an effect. Three features share the
 four write-only colour-math ports without any of them claiming one: one

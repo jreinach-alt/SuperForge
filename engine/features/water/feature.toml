@@ -44,6 +44,26 @@
 #   obj       absent because this rail has no sprites to designate.
 #
 # =============================================================================
+# THE SURF
+# =============================================================================
+# The blend's boundary is the surface's own top edge, so MOVING that edge is a
+# colour-math event and not merely an animation: a wave that runs up the shore
+# turns the sand it covers into (sand + water) >> 1 and gives it back whole
+# when it draws down. WET SAND, computed by the PPU.
+#
+# Tilemap rows 12..15 are DISPLAY SLOTS and the map that points at them never
+# changes; every phase of the cycle is resident in ROM, and one 512 B transfer
+# per armed VBlank chooses which of them the slots are showing. That is the
+# highlight's pattern at sixteen tiles instead of one, and it is why a 26 px
+# wave costs a fixed, declared VBlank budget rather than CPU inside VBlank.
+#
+# The phase is selected by the ACCUMULATED SCROLL, so the wave is region-correct
+# for free and holds still exactly when the drift is stilled. The schedule is
+# asymmetric on purpose — swash fast, backwash slower, then a lull — because a
+# symmetric oscillation reads as a pulsing band rather than as water; the shape
+# lives in tools/gen_lakeside_assets.py, where the tiles it draws do.
+#
+# =============================================================================
 # THE DRIFT
 # =============================================================================
 # BG2HOFS advances every frame, so the surface slides. The rate is a VELOCITY
