@@ -1117,6 +1117,9 @@ MAPS = {
     "build/scr/symbol_map.json": (
         "scroller",
         ["--game", "game/scroller", "--features-dir", "engine/features"]),
+    "build/lks/symbol_map.json": (
+        "lakeside",
+        ["--game", "game/lakeside", "--features-dir", "engine/features"]),
     "build/cf/symbol_map.json": (
         "camera_follow",
         ["--game", "game/camera_follow", "--features-dir", "engine/features"]),
@@ -1217,6 +1220,7 @@ _SUBDIR_MAP = {"mz": "build/mz/symbol_map.json",
                "rpg": "build/rpg/symbol_map.json",
                "pfs": "build/pfs/symbol_map.json",
                "scr": "build/scr/symbol_map.json",
+               "lks": "build/lks/symbol_map.json",
                "cf": "build/cf/symbol_map.json",
                "maze": "build/maze/symbol_map.json",
                "jr": "build/jr/symbol_map.json",
