@@ -1,0 +1,17 @@
+=================================== FAILURES ===================================
+______________________ test_a_plain_assertion_is_a_defect ______________________
+
+    def test_a_plain_assertion_is_a_defect():
+        got = 41
+>       assert got == 42, "the pinned budget moved"
+E       AssertionError: the pinned budget moved
+E       assert 41 == 42
+
+test_ctl.py:3: AssertionError
+___________________ test_an_unexpected_exception_is_a_defect ___________________
+
+    def test_an_unexpected_exception_is_a_defect():
+>       raise ValueError("tilemap row 7 is not backed")
+E       ValueError: tilemap row 7 is not backed
+
+test_ctl.py:6: ValueError

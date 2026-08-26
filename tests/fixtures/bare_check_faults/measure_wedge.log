@@ -1,0 +1,115 @@
+=================================== FAILURES ===================================
+______________________ test_measure_multi_queue_arm_cost _______________________
+
+runner = <mesen_runner.MesenRunner object at 0x7f812ce5e790>
+syms = {'ES_V_PROBE_TARGET': 0, 'US_DONE_H': 512, 'US_DONE_V': 514, 'US_MQ_SRC': 516, ...}
+cmd = 2, param = 1328, param2 = 4
+
+    def _cmd(runner, syms, cmd: int, param: int, param2: int = 0):
+        """Post a command and wait for the probe's sequence counter to answer.
+    
+        The budget is 30 EMULATED frames, not 30 wall sixtieths. The probe
+        answers in one or two NMIs, so what matters is that the wait is counted
+        in the probe's own frames: the loop this replaced spent 30 x 16.7 ms of
+        HOST time, which on a loaded box is a handful of probe frames rather
+        than thirty, and the sweep below issues ~250 commands.
+        """
+        s0 = runner.read_u16(WR, syms["US_SEQ"])
+        runner.write_bytes(WR, syms["US_PARAM"], param.to_bytes(2, "little"))
+        runner.write_bytes(WR, syms["US_PARAM2"], param2.to_bytes(2, "little"))
+        runner.write_bytes(WR, syms["US_CMD"], bytes([cmd]))
+        try:
+>           runner.wait_until(
+                lambda: runner.read_u16(WR, syms["US_SEQ"]) != s0,
+                max_frames=30, what=f"probe answering cmd={cmd} param={param}")
+
+tests/test_measure_vblank.py:58: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+vendor/mesen_runner.py:3863: in wait_until
+    last, last_progress = self._wait_stall_guard(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <mesen_runner.MesenRunner object at 0x7f812ce5e790>, cur = 237
+last = 237, last_progress = 1787754173.4048338, stall_s = 30.0
+detail = 'wait_until(probe answering cmd=2 param=1328) [0 elapsed]'
+
+    def _wait_stall_guard(self, cur, last, last_progress, stall_s, detail):
+        """Shared stall bookkeeping for the emulated-frame waits.
+    
+        Returns the updated ``(last, last_progress)``. Raises TimeoutError
+        only when the emulated frame counter has been FROZEN for stall_s —
+        i.e. the emulator is wedged or parked, not merely slow.
+        """
+        now = time.time()
+        if cur != last:
+            return cur, now
+        if now - last_progress > stall_s:
+>           raise TimeoutError(
+                f"{detail}: the emulated frame counter has not advanced for "
+                f"{stall_s:.1f}s (frozen at frame {cur}). The emulator is "
+                f"wedged, or execution is PARKED in frame-stepping mode — a "
+                f"parked emulator never advances, so call debug_resume() "
+                f"(or use the frame_stepping() context manager) before any "
+                f"wait_frames()/wait_until() on a shared runner.")
+E           TimeoutError: wait_until(probe answering cmd=2 param=1328) [0 elapsed]: the emulated frame counter has not advanced for 30.0s (frozen at frame 237). The emulator is wedged, or execution is PARKED in frame-stepping mode — a parked emulator never advances, so call debug_resume() (or use the frame_stepping() context manager) before any wait_frames()/wait_until() on a shared runner.
+
+vendor/mesen_runner.py:3768: TimeoutError
+
+During handling of the above exception, another exception occurred:
+
+probe = (<mesen_runner.MesenRunner object at 0x7f812ce5e790>, {'ES_V_PROBE_TARGET': 0, 'US_DONE_H': 512, 'US_DONE_V': 514, 'US_MQ_SRC': 516, ...})
+
+    def test_measure_multi_queue_arm_cost(probe):
+        """an earlier phase F9 refinement: K queued transfers per NMI, each fully re-armed.
+        usable_total(K) < usable(1) by the per-transfer arm overhead; pin the
+        per-additional-transfer cost as byte-equivalents (conservative max over K).
+        Runs after the single sweep (definition order) and extends its JSON."""
+        runner, syms = probe
+        jpath = SUPERFORGE / "build" / "measurements_vblank.json"
+        out = json.loads(jpath.read_text())          # single sweep ran first
+        usable1 = out["vblank_usable_bytes"]
+    
+        step = 16
+        totals: dict[int, int] = {}
+        for k in (2, 4, 8, 14):
+            _wipe(runner, syms)
+            hi = ((usable1 // k) // step) * step + step   # ceiling: K*S <= usable1+
+            lo = max(step, hi - 384)
+            best = None
+            seen_fail = False
+            for s in range(lo, hi + 1, step):            # ascending: tails fresh
+>               landed = _multi_trial(runner, syms, k, s)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_measure_vblank.py:156: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_measure_vblank.py:89: in _multi_trial
+    _cmd(runner, syms, 2, s, k)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+runner = <mesen_runner.MesenRunner object at 0x7f812ce5e790>
+syms = {'ES_V_PROBE_TARGET': 0, 'US_DONE_H': 512, 'US_DONE_V': 514, 'US_MQ_SRC': 516, ...}
+cmd = 2, param = 1328, param2 = 4
+
+    def _cmd(runner, syms, cmd: int, param: int, param2: int = 0):
+        """Post a command and wait for the probe's sequence counter to answer.
+    
+        The budget is 30 EMULATED frames, not 30 wall sixtieths. The probe
+        answers in one or two NMIs, so what matters is that the wait is counted
+        in the probe's own frames: the loop this replaced spent 30 x 16.7 ms of
+        HOST time, which on a loaded box is a handful of probe frames rather
+        than thirty, and the sweep below issues ~250 commands.
+        """
+        s0 = runner.read_u16(WR, syms["US_SEQ"])
+        runner.write_bytes(WR, syms["US_PARAM"], param.to_bytes(2, "little"))
+        runner.write_bytes(WR, syms["US_PARAM2"], param2.to_bytes(2, "little"))
+        runner.write_bytes(WR, syms["US_CMD"], bytes([cmd]))
+        try:
+            runner.wait_until(
+                lambda: runner.read_u16(WR, syms["US_SEQ"]) != s0,
+                max_frames=30, what=f"probe answering cmd={cmd} param={param}")
+        except TimeoutError:
+>           raise AssertionError(f"probe never answered cmd={cmd} param={param}")
+E           AssertionError: probe never answered cmd=2 param=1328
+
+tests/test_measure_vblank.py:62: AssertionError

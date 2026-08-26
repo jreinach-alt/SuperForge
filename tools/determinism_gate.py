@@ -76,7 +76,12 @@ def run_once(module: Path, log_path: Path, tag: str) -> int:
     env["SF_DETERMINISM_LOG"] = str(log_path)
     env.setdefault("SF_MESEN_HOME", str(OUT / "mesen_home"))
     r = subprocess.run(
-        [sys.executable, "-m", "pytest", str(module), "-q", "-rs", "-p", "no:cacheprovider"],
+        # `-rsfE`, not `-rs`: an explicit -r REPLACES pytest's default set
+        # (fE), so `-rs` drops the short-summary line for every failure and
+        # error -- and the three-line tail printed below is all the operator
+        # sees. With f and E restored the tail NAMES the red, not just counts it.
+        [sys.executable, "-m", "pytest", str(module), "-q", "-rsfE",
+         "-p", "no:cacheprovider"],
         cwd=SUPERFORGE, env=env, capture_output=True, text=True)
     tail = "\n".join((r.stdout or "").strip().splitlines()[-3:])
     print(f"  {tag}: pytest exit {r.returncode}; {tail.splitlines()[-1] if tail else '(no output)'}")

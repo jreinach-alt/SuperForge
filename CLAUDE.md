@@ -182,7 +182,11 @@ writing your first test.
 - **Font assets** — the one vendored face, what was examined and REJECTED, and
   the still-open proportional/VWF source question → [`docs/11`](docs/11_font_assets.md)
 - **The rom-claim backing gate** — what BACKED means, the `backed_by` hatch, the stated limits → [`docs/37`](docs/37_rom_claim_backing_gate.md)
-- **The landing gate** — what `make bare-check` proves and what it cannot → [`docs/44`](docs/44_bare_check_migration.md)
+- **The landing gate** — what `make bare-check` proves and what it cannot,
+  and **how to read a red**: `fault_reading` in `build/bare_check.json` says
+  whether the tree broke or a wall-clock liveness guard in the shared core
+  fired, beside `suite_schedule`'s who-ran-next-to-whom. Advisory — the
+  verdict is unchanged (§8) → [`docs/44`](docs/44_bare_check_migration.md)
 - **The time-coupling gate** — what `make time-check` catches, what it cannot, and `boot_to_frame` → [`docs/45`](docs/45_time_coupling_gate.md)
 - **The falsification harness** — why a plant that no-ops used to read as a pass → [`docs/46`](docs/46_falsification_harness.md)
 - **The deterministic harness** — the lockstep `Machine`, the two core patches, the determinism gate → [`docs/53`](docs/53_deterministic_harness_settlement.md)

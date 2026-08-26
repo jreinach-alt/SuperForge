@@ -106,8 +106,21 @@ if [ "${1:-}" = "--inside" ]; then
     step() {                    # step <name> <command...>
         local name="$1"; shift
         printf '\n=== bare-check: %s ===\n' "$name"
-        "$@"
-        local rc=$?
+        # TEE'd so the artifact can say WHAT went wrong, not only that
+        # something did. `make measure` runs a pytest of its own straight to
+        # the console (Makefile `measure:`) and writes no log at all, so
+        # without this capture its faults exist nowhere on disk and the
+        # artifact can only ever report "measure FAILED" -- which is why a
+        # wedged core and a moved budget pin have read the same at landing.
+        #
+        # ${PIPESTATUS[0]}, NOT $?: a pipeline returns its LAST command's
+        # status and tee always succeeds, so the naive form reads every red
+        # step as green. The Makefile `gates:` recipe carries the same warning
+        # ("no pipes anywhere") because that substitution has already pushed a
+        # red suite through this repo once. The one pipe here is paid for with
+        # the array read.
+        "$@" 2>&1 | tee "$PARTS/$name.log"
+        local rc=${PIPESTATUS[0]}
         printf '%s\t%s\n' "$name" "$rc" >> "$PARTS/steps.tsv"
         return $rc
     }
@@ -495,6 +508,36 @@ if log.exists():
             suite = ln.strip()
             break
 
+# WHICH KIND of red. The schedule above says who ran next to whom; this says
+# what the fault WAS. A verdict is one bit and two very different events set
+# it: a rail that broke, and the process-global emulator core losing a WALL
+# clock race under the load this gate itself creates. Both printed RED, and
+# reading which one cost a forensic dig per run.
+#
+# THIS DOES NOT MOVE THE VERDICT. `verdict` and `exit_code` below are
+# untouched; a `harness-liveness` reading is a note to whoever reads the file,
+# never a pass, and a second sighting of one is a bug report against the
+# harness. Guarded like the summariser above, and for the same reason: a
+# bare-check must not go red because its own post-mortem tooling is missing
+# from the tree it cloned.
+faults, fault_reading = [], "unknown"
+try:
+    sys.path.insert(0, str(clone / "tools"))   # not inherited from above
+    import harness_faults
+except Exception:
+    pass
+else:
+    seen = set()
+    for src in (clone / "build" / "pytest.log", parts / "gates.log"):
+        if not src.exists():
+            continue
+        for f in harness_faults.scan(src.read_text(errors="replace")):
+            key = (f["test"], f["phase"], f["section"])
+            if key not in seen:
+                seen.add(key)
+                faults.append(f)
+    fault_reading = harness_faults.summarize(faults)
+
 doc = {
     "schema": 1,
     "verdict": "GREEN" if rc == "0" else "RED",
@@ -538,6 +581,8 @@ doc = {
     "probe_cpu_md5": probe,
     "suite": suite,
     "suite_schedule": schedule,
+    "faults": faults,
+    "fault_reading": fault_reading,
 }
 pathlib.Path(report).write_text(json.dumps(doc, indent=2) + "\n")
 
@@ -558,6 +603,18 @@ else:
           f"{', '.join(bad) if bad else 'see the log above'} ({elapsed}s)")
 if suite:
     print(f"  suite: {suite}")
+# WHICH KIND, on the same surface, for the same reason. The neighbours below
+# answer "who could have poisoned it"; this answers "was it poisoned at all,
+# or did a rail actually break". The verdict line above is unchanged.
+if faults:
+    print(f"  reading: {fault_reading}  ({len(faults)} fault(s)) — "
+          f"advisory, the verdict above stands")
+    for f in faults:
+        print(f"    {f['reading']:<17} {f['phase']:<8} "
+              f"{'/'.join(f['exceptions']) or '?':<26} {f['test']}")
+    if fault_reading == "harness-liveness":
+        print("    every fault is a WALL-clock liveness guard in the shared "
+              "core (tools/harness_faults.py); no test asserted a defect")
 # A RED names its neighbours HERE, on the surface a reader already reads.
 # The whole record is in the JSON, but a fact that only lives in a file
 # nobody opens is a fact nobody has.

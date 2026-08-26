@@ -3069,6 +3069,13 @@ PYTEST_DIST := $(if $(strip $(XDIST)),-n $(strip $(XDIST)) --dist loadfile,)
 # suite was serial reads as "nothing to check" rather than as a silent ok.
 # pytest's own exit code wins whenever it is non-zero — a split is a finding
 # about the RUN, and must never hide the suite's own failure.
+# `-rsfE`, not `-rs`: an explicit -r REPLACES pytest's default set (fE), so
+# `-rs` reported the skips and silently dropped the short-summary line for
+# every failure and every error. The 2026-08-26 landing runs' teardown
+# MachineError therefore appeared in the log ONLY as an ERRORS block far above
+# the tail and a bare `1 error` in the count -- the 20 lines this recipe
+# prints named nothing. f and E are restored alongside s, and
+# tools/harness_faults.py then says which KIND of red it is (docs/44 section 8).
 test: toy microzero room probes breaker shmup platformer split_v_fight \
 	m7_dungeon split_h_2p_demo sh2-variants mode7_explore platformer_stream \
 	hud_game scroller lakeside camera_follow maze jumper patrol sprite_game \
@@ -3079,8 +3086,9 @@ test: toy microzero room probes breaker shmup platformer split_v_fight \
 	m7_oshoot rpg boss boss_saucer meteor_event mode7_flight seam_irq_trial \
 	sit-origin sit-mistime \
 	split_h_irq_grad_demo shg-nograd shg-origin | $(BUILD)
-	@$(PY) -m pytest tests/ -q -rs $(PYTEST_DIST) > $(BUILD)/pytest.log 2>&1; rc=$$?; \
+	@$(PY) -m pytest tests/ -q -rsfE $(PYTEST_DIST) > $(BUILD)/pytest.log 2>&1; rc=$$?; \
 	  tail -n 20 $(BUILD)/pytest.log; \
+	  $(PY) tools/harness_faults.py $(BUILD)/pytest.log; \
 	  echo "--- full log: $(BUILD)/pytest.log (exit $$rc) ---"; \
 	  $(PY) tools/schedule_summary.py $(BUILD)/worker_schedule.jsonl --check; \
 	  src=$$?; \

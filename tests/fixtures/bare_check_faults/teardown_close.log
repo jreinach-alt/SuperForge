@@ -1,0 +1,67 @@
+==================================== ERRORS ====================================
+_ ERROR at teardown of test_the_whole_screen_is_two_sprites_over_bare_backdrop _
+[gw1] linux -- Python 3.11.15 /usr/local/bin/python3
+
+    @pytest.fixture(autouse=True)
+    def hand_back_the_core():
+        """Whatever machines a test builds, the module may not leak a park
+        (conftest's module-boundary guard)."""
+        yield
+>       Machine.close_current()
+
+tests/test_sprite_game.py:173: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+vendor/machine.py:665: in close_current
+    cls._current.close()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <machine.Machine object at 0x7f6d1a0364d0>
+
+    def close(self):
+        """Hand the process-global core back free-running.
+    
+        The module-boundary contract (tests/conftest.py's parked-core
+        guard) is that no module finishes with the shared core parked; a
+        Machine parks by definition, so its teardown resumes. Ordered the
+        race-free way: the core is verifiably in its break sleep (that is
+        the Machine's invariant), so one ResumeExecution is a clean
+        release, verified by frame progress.
+        """
+        if self._closed or Machine._current is not self:
+            self._closed = True
+            return
+        self._closed = True
+        Machine._current = None
+        try:
+            self._latch(0, None)
+            self._latch(1, None)
+        except Exception:
+            pass
+        if hasattr(self._lib, "SetEmulationFlag"):
+            self._lib.SetEmulationFlag(_mr._EMU_FLAG_MAXIMUM_SPEED, False)
+        # Release-and-verify, borrowing conftest._unpark_core's shape: the
+        # verify is against EMULATED progress (the frame/scanline pair
+        # moving). The wall deadline converts a genuinely-dead core into a
+        # legible error at teardown, not into a verdict about the ROM.
+        import time
+        before = self._ppu()
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            self._lib.ResumeExecution()
+            settle = time.time() + 0.1
+            while time.time() < settle:
+                if self._ppu() != before:
+                    return
+                time.sleep(0.001)
+>       raise MachineError("close(): the core did not resume free-running")
+E       machine.MachineError: close(): the core did not resume free-running
+
+vendor/machine.py:659: MachineError
+----------------------- replay triple (lockstep Machine) -----------------------
+Replay this red exactly: the trajectory is a pure function of the
+triple below (docs/53 D-DH3). Same rom + same seed + same input
+script reproduces the same frame on any host, under any load.
+
+  rom          sprite_game.sfc  md5 8d25cdd990fceaf579adfa0446348c62
+  seed         0x5f0426   (DEFAULT_POWERON_SEED)
+  input script ((90, (), ()), (1, (), ()), ('shot',))
