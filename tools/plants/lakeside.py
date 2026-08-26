@@ -1,6 +1,6 @@
 """lakeside — the sub-screen half-add's failure modes, planted.
 
-Seven plants. Six are silent-corruption defects that still produce a plausible
+Eleven plants. Ten are silent-corruption defects that still produce a plausible
 picture, and one is the allocator refusing a declaration that lies — which is
 the other half of what this rail exists to demonstrate.
 
@@ -30,7 +30,29 @@ went away; the cases they kill now are the three that replaced it — region-wid
 membership, the unblended count against the surface's own transparency, and the
 pixel-for-pixel oracle — plus the named spot checks. Every list below was
 re-measured against the new module rather than carried across: the counts in
-the run output are 7, 8, a build refusal, 2, 3, 1 and 3.
+the run output are 7, 8, a build refusal, 2, 3, 1 and 3. The surf did not move
+any of them — the same seven counts came back from the run that added the four
+below.
+
+WHAT THE SURF ADDED, and it is a second axis rather than four more of the same.
+The seven above are all about the BLEND — whether it is composed, whether it
+reaches the ports, whether it halves, which layers it admits. The four below are
+about the wave that MOVES the blend's boundary, and each fails on a different
+claim: that the waterline moves at all, that what it crosses is wet only while
+covered, that the run-up is faster than the draw-down, and that all of it is
+measured against the declared tick rather than the frame. Their counts are 3, 3,
+1 and 1, and two were TRIMMED after the run disagreed with the prediction:
+
+  * `surf-band-never-transparent` was written listing five cases and kills
+    three. The per-row unblended COUNT survives, because it compares the
+    surface's transparency to the picture and an opaque band takes both sides
+    to zero together; the vofs geometry survives, because the row it probes is
+    empty above and covered below either way. Both are real properties of those
+    cases and finding them cost one run.
+  * `surf-drift-unscaled` kills exactly ONE case of twenty-nine, and that is
+    the finding rather than a weakness: it is invisible on NTSC by
+    construction, so the only thing that can see it is the two-machine probe.
+    Measured — the whole module was run under it and the other 28 stayed green.
 """
 import sys
 from pathlib import Path
