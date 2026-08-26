@@ -1,0 +1,117 @@
+# lake_bg — BG1: the lakeshore world, and the scene's display shape.
+#
+# =============================================================================
+# WHY THIS FEATURE EXISTS AND NOT AN EXISTING `*_bg`
+# =============================================================================
+# Measured, not assumed: 27 features in this tree raw-claim TM or TS
+# (`grep -l 'registers = \[.*"T[MS]"' engine/features/*/feature.toml | wc -l`
+# → 27), which is every `*_bg` and every `*_floor`. A raw TM/TS claim inside a
+# scene that composes a [[claims.screen]] is REFUSED (docs/99 R6) — two
+# vocabularies cannot both supply one write-only byte — so none of them can
+# stand beside `water`. That is the coexistence referee doing its job, not an
+# accident, and the answer is a vocabulary-native BG feature: this one.
+#
+# What carries across rails is the keystone BG PATTERN — enter-time
+# forced-blank CHR + palette + map upload through a declared dma_init channel,
+# an allocator-emitted SC_BASE/NBA register encoding, layer identity
+# attributed through `scene_writes`. This is that pattern with the one
+# difference the vocabulary buys: the layer's SCREEN designation is a claim
+# rather than a bit some feature happened to set in TM.
+#
+# =============================================================================
+# IT DESIGNATES BG3 TOO, AND THAT IS THE DEMONSTRATION
+# =============================================================================
+# `bg_text` claims ["BG3SC", "BG34NBA", "BG3HOFS", "BG3VOFS"] and deliberately
+# NOT TM (bg_text/feature.toml:39, and its :35 comment: those registers
+# "belong to whichever feature defines" the screen). Before the vocabulary,
+# some sibling that owned TM had to happen to set BG3's bit for text to be
+# visible. Here the bit has a name:
+#
+#     [[claims.screen]] layer = "bg3", on = "main"
+#
+# carried by the feature that defines this scene's display shape — and
+# `bg_text` composes completely untouched. That is the decomposition the
+# vocabulary exists to enable, on a feature that already shipped.
+#
+# =============================================================================
+# THE WORLD
+# =============================================================================
+# A side-on lakeshore in horizontal bands: sky, a hill horizon, sand, a rock
+# shoreline, then the lake bed in two depths. The bed is what the water is
+# half-added ONTO, so the two depths give the blend two different main-screen
+# operands and the tests two independent equalities.
+#
+# NO SCROLL. Both BG1 offsets are written once at scene enter and never
+# again — the camera is not this rail's subject, the blender is. They are in
+# `scene_writes` for that reason.
+name = "lake_bg"
+role = "feature"
+depends = ["lake_rom"]
+
+# ---- the vocabulary -------------------------------------------------------
+[[claims.screen]]
+layer = "bg1"
+on = "main"
+
+[[claims.screen]]
+layer = "bg3"
+on = "main"
+
+# ---- the world's art ------------------------------------------------------
+[[claims.dma_init]]
+name = "lk_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "lk_chr"
+kind = "chr"
+tiles = 8                # 0 empty .. 7 lake bed far; see the generator
+tile_bytes = 32          # 4bpp
+
+[[claims.vram]]
+name = "lk_map"
+kind = "tilemap"
+words = 0x400            # 32x32; BG1SC bases are 0x400-word granular
+
+# THE PALETTE AND THE BACKDROP ARE ONE CLAIM, by hardware contract.
+#
+# The map authors palette group 0, so a tilemap word is its tile id plus zero
+# attribute bits and the BG reads CGRAM words 0..15. Word 0 of that group is
+# also the BACKDROP slot — one word, two meanings, therefore necessarily one
+# owner. scroller_bg, pfs_bg and m7x_floor record the identical fold for the
+# identical reason, and it is also why this scene cannot compose `backdrop`
+# (which pins the same word, and raw-claims TM besides).
+[[claims.cgram]]
+name = "lk_pal"
+words = 16
+at = 0
+
+# C4 (docs/09 §2.1): the BG1 layer configuration and the scene's base display.
+#
+# ATTRIBUTION. Every register here is written by the scene's enter code in
+# game/lakeside/scenes/*.asm, which has no feature.toml of its own and no
+# `[[scene]]` claim vocabulary, so ownership is attributed to the feature the
+# write SERVES — this one, which is what makes the scene a Mode 1 scene with
+# BG3 on top at all.
+#
+# BGMODE is $09: mode 1, plus the BG3-priority bit. The text layer therefore
+# sits above BG1 and BG2 wherever its tiles carry the priority attribute,
+# which is what puts a legible line of text over the water.
+#
+# BG12NBA IS HERE, and it is the one byte the screen/blend vocabulary does
+# not reach. It carries BG1's chr base nibble AND BG2's in a single
+# write-only port, so it has exactly one owner per scene no matter how the
+# layers are declared. The scene's write folds `water`'s own emitted
+# ES_V_WAT_CHR_NBA into this feature's ES_V_LK_CHR_NBA (breaker_bg.asm:209 is
+# the precedent) — neither nibble is narrated. The composition emits a warning
+# naming this split; it is accurate, and it names the residue rather than
+# hiding it.
+#
+# NOT TM. The main-screen enables are composed from the two
+# [[claims.screen]] claims above; a raw TM claim beside them is refused (R6).
+[[claims.reg]]
+name = "lk_layers"
+registers = ["BGMODE", "BG1SC", "BG12NBA", "BG1HOFS", "BG1VOFS"]
+scene_writes = ["BGMODE", "BG1SC", "BG12NBA", "BG1HOFS", "BG1VOFS"]

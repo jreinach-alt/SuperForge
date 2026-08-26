@@ -1,0 +1,33 @@
+# lakeside user state.
+#
+# Both scenes keep a frame heartbeat; the lake scene additionally owns the
+# timebase pair for the one rate this rail has. The accumulated SCROLL is not
+# here — it is `water`'s own dp claim (ES_WAT_SCROLL), because the routine
+# that READS it is that feature's VBlank commit. This scene WRITES it through
+# `wat_advance`, which is the same division scroller_bg / scenes/world.asm
+# draw between a feature's camera and the scene that drives it.
+
+[scene.title]
+frames = "u16@dp"        # frames since enter — the free-running heartbeat
+
+[scene.lake]
+frames = "u16@dp"        # frames since enter — the free-running heartbeat
+
+# --- the TIMEBASE's per-consumer state (engine/features/tick_scale) ---------
+#
+# ONE RATE, ONE PAIR. The drift is a velocity in px/frame, so it takes exactly
+# one factor of the region ratio and one TS_STEP applies exactly that. There
+# is no second pair here: a rail with an ACCELERATION would need one whose
+# base already carries the second r on the PAL arm (game/jumper/state.toml is
+# that case, and its two pairs are why).
+#
+# The pair is (carried fraction, this frame's published whole-unit step). The
+# step is computed ONCE at the top of the tick and read by the one add that
+# consumes it.
+tsw_acc = "u16@dp"       # the drift: LK_WATER_SPEED px per frame
+                         # TICK: ok -- the carried FRACTION of a scaled rate.
+                         # It exists to remove a frame coupling, not to hold
+                         # one, and it has no meaning in frames.
+tsw = "u16@dp"           # ...and this frame's answer, in whole px
+                         # TICK: ok -- the OUTPUT of the scaler; already
+                         # expressed against the declared tick.

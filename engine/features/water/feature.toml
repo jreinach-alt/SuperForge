@@ -1,0 +1,156 @@
+# water — a real BG2 water surface on the SUB screen, half-added over the
+# main-screen world.
+#
+# =============================================================================
+# WHAT THIS FEATURE IS FOR
+# =============================================================================
+# The blend is the whole of it. BG2 carries a drifting water surface, that
+# layer is designated to the SUB screen, and the blender adds it to whatever
+# won the MAIN screen at half intensity — so the world shows THROUGH the
+# water where the two overlap, and at full intensity where the water has no
+# pixel. Nothing here paints a "translucent" palette: the translucency is the
+# PPU's one colour-math unit, programmed from four composed bytes.
+#
+# =============================================================================
+# WHY IT CAN BE A FEATURE AT ALL
+# =============================================================================
+# It could not, before the screen/blend vocabulary (docs/99). A sub-screen
+# blend needs TM, TS, CGWSEL and CGADSUB, all four write-only whole-port
+# claims with one owner per scene — so one feature would have had to own the
+# blender AND both layers AND the world's art, which is a monolith rather
+# than a composition. What this feature declares instead is its own INTENT:
+#
+#   [[claims.screen]]  bg2 -> sub          — this layer is the addend
+#   [[claims.blend]]   add, half, from sub — and this is what to do with it
+#
+# The allocator composes those against the rest of the scene, proves the
+# composition against the one-blender hardware, and emits the four byte
+# values as ES_SCR_<SCENE>_* symbols the scene writes. This feature claims
+# none of the four ports, so it composes beside `lake_bg` (which supplies the
+# world and designates bg1) and beside `bg_text` (untouched, its BG3 turned
+# on by a designation it does not itself carry).
+#
+# THE `math` LIST IS ["bg1", "backdrop"], AND THE OMISSIONS ARE THE POINT.
+# Colour math gates the MAIN-screen pixel by the layer that WON it, so the
+# list names the layers that should look wet:
+#   bg1       the world — shoreline, rocks, lake bed. This is the blend.
+#   backdrop  the main screen's floor, so a hole in bg1 under the water
+#             still reads as water rather than as a hard-edged gap.
+#   bg3       DELIBERATELY ABSENT. bg_text's layer draws over the water and
+#             must stay legible, so its pixels are not admitted to the math
+#             and render at full intensity. That is the per-layer enable
+#             doing exactly the job it exists for, and it is asserted:
+#             tests/test_lakeside.py::test_text_over_the_water_is_not_blended.
+#   obj       absent because this rail has no sprites to designate.
+#
+# =============================================================================
+# THE DRIFT
+# =============================================================================
+# BG2HOFS advances every frame, so the surface slides. The rate is a VELOCITY
+# — pixels per frame — which takes exactly one factor of the region ratio, so
+# the rail feeds a base through `TS_STEP` and hands the published whole-pixel
+# step to `wat_advance`. This feature holds the accumulated scroll; the
+# per-rate accumulator pair belongs to the CONSUMER and lives in the rail's
+# state.toml (game/jumper/state.toml is the worked case).
+name = "water"
+role = "feature"
+depends = ["water_rom"]
+
+# ---- the vocabulary -------------------------------------------------------
+# The designation. One layer, one screen, one owner per scene — a second
+# feature designating bg2 refuses the build even if it agrees (R1).
+[[claims.screen]]
+layer = "bg2"
+on = "sub"
+
+# The blender. `half` is what makes this a half-add rather than a wash:
+# CGADSUB bit 6 shifts the sum right by one, so a composited pixel is
+# min((main + sub) >> 1, 31) per 5-bit channel — an EQUALITY the tests assert
+# against the screenshot, not a tolerance.
+#
+# `source = "sub"` is the load-bearing field. With it, the addend is the sub
+# screen's pixel; where the sub screen is EMPTY the hardware substitutes the
+# fixed colour and disables halving, so the main pixel arrives unhalved. That
+# fallback is what draws the water's edge, and it is the case that tells a
+# real sub-screen blend from a palette trick.
+#
+# clip/prevent are left at their defaults ("never"): this rail programs no
+# colour window, and a windowed mode with no window claimant would compose a
+# mode that collapses to a fixed one (docs/99 §8).
+[[claims.blend]]
+op = "add"
+half = true
+source = "sub"
+math = ["bg1", "backdrop"]
+
+# ---- the surface itself ---------------------------------------------------
+# The enter-time CHR + map upload, word-port (mode 1 drives VMDATAL+VMDATAH).
+# Phase is forced_blank by class: scene_mgr's enter clears HDMAEN and zeroes
+# NMITIMEN, so it cannot race an active- or vblank-phase claim on a shared
+# channel number.
+[[claims.dma_init]]
+name = "wat_up"
+channel = 1
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "wat_chr"
+kind = "chr"
+tiles = 3                # 0 empty (the edge), 1 crest, 2 trough
+tile_bytes = 32          # 4bpp
+
+[[claims.vram]]
+name = "wat_map"
+kind = "tilemap"
+words = 0x400            # 32x32; BG2SC bases are 0x400-word granular
+
+# BG2 reads palette GROUP 2 — CGRAM words 32..47 — and not group 0.
+#
+# Group 0 is the world's (lake_bg claims it, word 0 included, because word 0
+# is the 4bpp transparent slot and the hardware backdrop at once). Group 1
+# would overlap bg_text's 2bpp palette 7 at words 28..31. Group 2 is the
+# first that collides with neither, and the map authors the attribute bits to
+# match.
+[[claims.cgram]]
+name = "wat_pal"
+words = 16
+at = 32
+
+# The accumulated horizontal scroll, in world pixels. u16 and UNBOUNDED: the
+# map is 32 cells = 256 px wide and the PPU keeps 10 bits of BG2HOFS, so the
+# surface wraps every 256 px, and u16 wraparound at 65536 is a multiple of
+# 256 — the picture stays continuous across both.
+#
+# NO [init] zero: `wat_arm` writes it at scene enter, and scene_mgr holds NMI
+# masked across the whole switch, so the first VBlank that can commit it is
+# the first one after the arm (scroller_bg reaches the same conclusion).
+[[claims.dp]]
+name = "wat_scroll"
+bytes = 2
+
+# C4 (docs/09 §2.1): BG2's own layer configuration.
+#
+# NOT TM AND NOT TS. Those are the vocabulary's, composed from the
+# [[claims.screen]] above — a raw claim on either inside a scene that
+# composes a screen claim is refused (R6), and correctly: two vocabularies
+# cannot both supply one write-only byte.
+#
+# NOT BG12NBA either, and that one is a real residue rather than a choice.
+# The register carries BG1's chr base nibble and BG2's in one write-only
+# byte, so it has one owner per scene whatever the vocabulary does — the
+# vocabulary composes the four BLEND ports and nothing else. It sits with
+# `lake_bg`, the feature that decides the scene's display shape, which
+# folds this layer's emitted ES_V_WAT_CHR_NBA into its own write
+# (breaker_bg's shape). The composition NAMES that split as a warning; it is
+# accurate and it is deliberate.
+#
+# BG2SC is a `scene_writes` permission: the scene enter code establishes the
+# layer's map base beside the rest of its display shape. BG2HOFS/BG2VOFS are
+# written by water.asm itself — HOFS from the NMI hook every armed frame,
+# VOFS once at arm — so they are NOT in scene_writes, and no_literals'
+# declaration-that-lies check refuses the mistake in either direction.
+[[claims.reg]]
+name = "wat_layer"
+registers = ["BG2SC", "BG2HOFS", "BG2VOFS"]
+scene_writes = ["BG2SC"]

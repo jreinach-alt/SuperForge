@@ -1,0 +1,27 @@
+# water_rom — every immutable byte the `water` feature reads.
+#
+# A `blob`: ROM claims, no behaviour, no asm — the role that exists precisely
+# because a claim set cannot distinguish it from a feature (AGENTS.md).
+#
+# Split from `lake_rom` rather than merged into it because `water` is meant to
+# be composable into another rail: the surface's art travels with the feature
+# that draws it, and the world's art travels with the world.
+#
+# All three blobs come from tools/gen_lakeside_assets.py, which holds the tile
+# patterns and the colour constants. See that generator's header for what each
+# one is and why the palette values are what they are.
+name = "water_rom"
+role = "blob"
+depends = []
+
+[[claims.rom]]
+name = "wat_chr"
+bytes = 96               # 3 x 4bpp tiles: 0 empty, 1 crest, 2 trough
+
+[[claims.rom]]
+name = "wat_map"
+bytes = 2048             # 32x32 tilemap words — the surface, band by band
+
+[[claims.rom]]
+name = "wat_pal"
+bytes = 32               # 16 CGRAM words — BG palette group 2 (words 32..47)

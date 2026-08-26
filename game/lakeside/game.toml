@@ -1,0 +1,102 @@
+# lakeside — a sub-screen water layer, half-added over a lakeshore world.
+#
+# =============================================================================
+# WHAT YOU SEE
+# =============================================================================
+# A side-on lakeshore. BG1 carries the world — sky, a hill horizon, sand, a
+# rock shoreline and the lake bed in two depths. BG2 carries the water
+# surface, designated to the SUB screen and half-added onto BG1 and the
+# backdrop, so the bed shows THROUGH the water at half intensity where the
+# two overlap and at FULL intensity where the surface has no pixel. The
+# surface drifts left at a region-correct rate; B stills it, Start returns to
+# the title.
+#
+# The translucency is the PPU's one colour-math unit, not a palette that
+# looks wet. That is the whole subject of the rail.
+#
+# =============================================================================
+# WHAT IT DEMONSTRATES
+# =============================================================================
+# Three features compose the four write-only colour-math ports without any of
+# them claiming one:
+#
+#   lake_bg    [[claims.screen]] bg1 -> main, bg3 -> main
+#   water      [[claims.screen]] bg2 -> sub  + [[claims.blend]] add/half/sub
+#   bg_text    NOTHING — it composes untouched, and its layer is on because
+#              lake_bg designates bg3
+#
+# and the allocator composes TM/TS/CGWSEL/CGADSUB per scene, proves them
+# against the one-blender hardware, and emits them as ES_SCR_<SCENE>_*
+# symbols the scene enter code writes. Before that vocabulary the same
+# picture needed one feature owning TM, TS, CGWSEL, CGADSUB and both layers.
+#
+# THE `bg_text` ARM IS THE CLEAREST HALF. It claims BG3's layout registers
+# and deliberately not TM (bg_text/feature.toml:39), so until now some
+# sibling that owned TM had to happen to set BG3's bit. Here the bit is a
+# named claim on the feature that defines the display shape, and bg_text is
+# not edited at all.
+#
+# =============================================================================
+# WHY THIS RAIL SUPPLIES ITS OWN BG FEATURE
+# =============================================================================
+# Measured on this tree: 27 features raw-claim TM or TS
+# (`grep -l 'registers = \[.*"T[MS]"' engine/features/*/feature.toml | wc -l`
+# → 27), which is every `*_bg` and every `*_floor` in it. A raw TM/TS claim
+# inside a scene that composes a screen claim is REFUSED (docs/99 R6), so
+# none of them can stand beside `water`. `lake_bg` is this rail's
+# vocabulary-native instance of the keystone BG pattern; `backdrop` is
+# unavailable for the same reason plus the CGRAM word-0 collision.
+#
+# =============================================================================
+# TRANSITION HYGIENE: EVERY SCENE COMPOSES THE VOCABULARY
+# =============================================================================
+# The composed state is per scene and nothing carries it across an edge, so a
+# successor that composes no blend half INHERITS the previous scene's blend
+# and the allocator warns per edge. This rail never trips that warning, and
+# not by luck: `title` composes `blend_off`, whose whole content is a blend
+# claim carrying the off state. So `lake -> title` disarms the blender through
+# the same vocabulary that armed it, and the title screen is not tinted by a
+# register it never wrote.
+#
+# =============================================================================
+# REGION + TICK_SCALE
+# =============================================================================
+#   region      reads $213F bit 4 once at boot and publishes ES_RGN_PAL.
+#   tick_scale  turns a per-frame delta into a region-correct one, carrying
+#               the fraction between frames. It `depends = ["region"]`, so
+#               listing both here is documentation rather than a requirement.
+#               A silent scale of 1 is ruled out from the other end: with
+#               `region` uncomposed, ES_RGN_PAL is an undefined symbol and
+#               ca65 refuses.
+#
+# ONE RATE, ONE PAIR. The drift is a VELOCITY — pixels per frame — so it takes
+# exactly one factor of the region ratio r, which is exactly what one TS_STEP
+# applies. There is no second rate: nothing here accelerates, so no r^2 arm
+# and no base-side pre-scale (game/jumper/scenes/sky.asm is where that second
+# case is spelled). NOT SCALED: nothing. The rail has no countdown, no
+# animation divider and no per-frame table cursor.
+globals = ["scene_mgr", "fade", "input", "text_dp", "font_rom",
+           "lake_rom", "water_rom", "region", "tick_scale"]
+
+# The title: the same world, no water, and the blender carrying its off state.
+[[scene]]
+id = "title"
+features = ["lake_bg", "bg_text", "blend_off"]
+
+# The lake: the same world, with the surface on the sub screen.
+[[scene]]
+id = "lake"
+features = ["lake_bg", "bg_text", "water"]
+
+[[edge]]
+from = "title"
+to = "lake"
+style = "fade"
+
+# The return edge is the one the hygiene rule is about: `lake` arms a blend
+# and `title` composes `blend_off`, so entering the title writes CGWSEL/CGADSUB
+# from its own composed symbols rather than inheriting the water's.
+[[edge]]
+from = "lake"
+to = "title"
+style = "fade"

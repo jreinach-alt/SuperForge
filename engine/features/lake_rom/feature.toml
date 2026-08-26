@@ -1,0 +1,28 @@
+# lake_rom — every immutable byte the `lake_bg` feature reads.
+#
+# A `blob`: ROM claims, no behaviour, no asm — the role that exists precisely
+# because a claim set cannot distinguish it from a feature (AGENTS.md).
+#
+# THE MAP IS A BLOB, not a build loop. `scroller_rom` argues the opposite case
+# and is right for the rail it serves: there the `(col ^ row) & 1` loop IS the
+# lesson. Here the lesson is the blend, and the world's job is to be a known,
+# banded main-screen operand — so the map is authored once, byte for byte, by
+# the generator, and the test can compare uploaded VRAM against the source
+# bytes rather than against a loop's intent.
+#
+# All three blobs come from tools/gen_lakeside_assets.py.
+name = "lake_rom"
+role = "blob"
+depends = []
+
+[[claims.rom]]
+name = "lk_chr"
+bytes = 256              # 8 x 4bpp tiles: the bands and their two seams
+
+[[claims.rom]]
+name = "lk_map"
+bytes = 2048             # 32x32 tilemap words — the banded world
+
+[[claims.rom]]
+name = "lk_pal"
+bytes = 32               # 16 CGRAM words — group 0, word 0 IS the backdrop

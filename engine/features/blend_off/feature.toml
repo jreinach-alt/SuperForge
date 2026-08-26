@@ -1,0 +1,63 @@
+# blend_off — the composed OFF state for the colour-math unit, as a claim.
+#
+# =============================================================================
+# THE PROBLEM IT SOLVES
+# =============================================================================
+# The composed screen/blend state is PER SCENE, and nothing carries it across
+# a transition. `vendor/rom/ppu_reset.inc` runs once, from the CPU bootstrap,
+# so the boot OFF state is not re-established at a scene edge. A scene that
+# arms a blend therefore leaves it armed for its successor unless the
+# successor writes those ports itself — and a successor that composes no
+# blend half owns neither port, so it writes neither. The allocator warns on
+# exactly that edge (docs/99 §4); it does not refuse, because a blend held
+# through a transition can be deliberate.
+#
+# This feature is the remedy in claim form: compose it into a non-blending
+# scene and that scene OWNS CGWSEL/CGADSUB, gets the symbols emitted for
+# them, and establishes the off state on enter. The edge then has an
+# answerable writer and the warning does not arise.
+#
+# =============================================================================
+# WHAT THE DECLARATION SAYS
+# =============================================================================
+# `prevent = "always"` is the off state: CGWSEL bits 5-4 = 3 composes $30,
+# which is the value ppu_reset writes at boot, and the colour-math unit
+# returns before any math for every pixel (Mesen2 SnesPpu.cpp:1338-1350 —
+# the ColorMathPreventMode switch, ahead of the add/sub at :1364). The
+# `math` list is inert under it and is present because CGADSUB b5-0 are the
+# only gates that admit a pixel at all, so an empty list is a malformed
+# declaration and is refused at parse (R7). `backdrop` is the cheapest
+# truthful entry: it is always the main screen's floor, so it needs no
+# [[claims.screen]] to be legal (R5 exempts it).
+#
+# The composed CGADSUB is therefore $20 rather than the boot $00, and the
+# rendered result is identical — `prevent = "always"` returns before the
+# gates are read, so the enable bit selects nothing. What matters is CGWSEL.
+#
+# `op` and `half` are the schema's required/defaulted fields carrying no
+# weight here for the same reason.
+#
+# The composition WARNS on this claim, naming it and saying that composing
+# the off state deliberately is legitimate. That warning is the feature
+# working, not a defect: it is how an author who wrote `prevent = "always"`
+# by accident finds out why their blend is invisible.
+#
+# =============================================================================
+# WHY IT IS NOT A `[[claims.reg]]` ON CGWSEL/CGADSUB
+# =============================================================================
+# It could be — docs/99 §4 names both remedies, and a raw owner that disarms
+# at scene exit is the other. But a raw claim on those ports refuses inside
+# any scene that also composes a blend (R6), so a rail that wanted the off
+# state in one scene and a real blend in another would need the two shapes to
+# be different KINDS of thing. Stated as a blend claim, both scenes speak one
+# vocabulary and the difference between them is a field.
+name = "blend_off"
+role = "feature"
+depends = []
+
+[[claims.blend]]
+op = "add"
+half = false
+source = "fixed"
+math = ["backdrop"]
+prevent = "always"
