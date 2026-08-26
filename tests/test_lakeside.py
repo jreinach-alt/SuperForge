@@ -536,13 +536,23 @@ def test_the_title_scene_does_not_inherit_the_lake_blend(boot):
     """Return from the lake and the world must be unblended again.
 
     Nothing carries the composed state across an edge and the boot PPU reset
-    runs only at power-on, so a successor that composed no blend half would
-    show this world through the lake's colour math. `title` composes
-    `blend_off`, whose whole content is the blender's off state, so the return
-    edge disarms it through the same vocabulary that armed it.
+    runs only at power-on, so a successor that established neither half would
+    show this world through the lake's colour math. The assertion is the
+    strongest available: the returned title screen must be BIT-IDENTICAL to a
+    title screen that never visited the lake.
 
-    The assertion is the strongest available: the returned title screen must be
-    BIT-IDENTICAL to a title screen that never visited the lake.
+    WHAT IT TAKES TO MAKE THAT FAIL, measured rather than reasoned. Dropping
+    the title's CGWSEL/CGADSUB write ALONE leaves this case green, and the
+    reason is the same hardware rule the edge assertions rest on: the title
+    writes TS = $00, so the sub screen is empty, so the inherited
+    `source = "sub"` blend adds the FIXED COLOUR — black, from the boot reset
+    this rail never rewrites — with halving disabled, which is the main pixel
+    unchanged. Drop the TS write TOO and the title wears the water's ripple
+    over its sky (captured: the `title-drops-both-halves` plant). So the two
+    halves of the vocabulary are independently load-bearing at an edge, this
+    case is the one that catches the pair, and the CGWSEL/CGADSUB write on its
+    own is asserted at the PORT by
+    `test_each_scene_enter_writes_every_port_its_composition_owns`.
     """
     virgin = _shot(boot(), "title_virgin")
     m = _enter_lake(boot())
@@ -600,6 +610,18 @@ def test_each_scene_enter_writes_every_port_its_composition_owns(boot):
     assert after_lake == {n: 3 for n in ports}, (
         f"expected one more write per port on entering the lake; got "
         f"{after_lake}")
+    # THE RETURN EDGE, which is the one transition hygiene is about: the off
+    # state has to be RE-established every time the title is entered, not once
+    # at boot. This is where `blend_off` earns its place — the picture case
+    # above cannot separate a disarmed blender from an inherited one that has
+    # nothing to add (see its docstring), and this can.
+    m.advance(1, pad1={"start": True})
+    m.advance(LAKE - TITLE - 1)
+    after_return = {n: m.writes(REG, a) for n, a in ports.items()}
+    assert after_return == {n: 4 for n in ports}, (
+        f"expected all four ports written again on returning to the title; "
+        f"got {after_return} — a port with 3 was not re-established, and the "
+        f"lake's value for it is still in the PPU")
 
 
 def test_every_bit_the_composition_declares_has_its_consequence_on_screen(boot):
