@@ -1,0 +1,51 @@
+# hz_rom — the heathaze rail's immutable blobs: a desert world, and 32 resident
+# phases of the displacement that bends it.
+#
+# THE WARP BLOB IS THE BIGGEST THING HERE AND IT IS WHAT BUYS THE EFFECT.
+# The alternative to holding every phase resident is composing the band's
+# HDMA table at run time. platformer_bg prices that shape at ~16 cycles an
+# entry (platformer_bg.asm:386); over a 104-line band that is ~1,700 CPU
+# cycles a frame out of the ~28-37k a whole frame gets, every frame, forever.
+# Holding all 32 phases costs 8 KB of the one budget with room to spare and
+# reduces the per-frame work to choosing WHICH phase the channel reads.
+# `water`'s surf reached the same answer at 16 KB; this is that pattern at a
+# quarter the size.
+#
+# AND THE STRIDE IS WHY IT IS ONE WRITE. 256 B per phase means a phase's
+# address is HZ_WARP + (index << 8) — low byte always zero — so selecting a
+# phase is a single 8-bit store to the channel's A1T high byte. The slack
+# (213 B used of 256) is bought deliberately.
+name = "hz_rom"
+role = "feature"
+
+[[claims.rom]]
+name = "hz_chr"
+bytes = 992              # 31 x 4bpp tiles: a four-step sky, eight sub-cell
+                         # ridge profiles, the horizon strip, three sand
+                         # treatments, the road and its edges, a saguaro and
+                         # a boulder; tools/gen_haze_assets.py
+
+[[claims.rom]]
+name = "hz_map"
+bytes = 2048             # 32x32 tilemap words — the world
+
+[[claims.rom]]
+name = "hz_pal"
+bytes = 32               # 16 CGRAM words — BG palette group 0
+
+[[claims.rom]]
+name = "hz_warp"
+bytes = 8448             # 33 x 256 B. Each blob is a complete HDMA table for
+                         # the frame: a head-skip entry holding the base
+                         # scroll over lines 0..119, a repeat entry covering
+                         # the 104-line band one scanline at a time, and a
+                         # terminator.
+                         #
+                         # THIRTY-TWO PHASES AND ONE CONTROL. The 33rd blob is
+                         # the same table with every displacement zero — the
+                         # "before distortion" half of the pair, from the same
+                         # binary, differing from the live case in the TABLE
+                         # and in nothing else. A control that disarmed the
+                         # channel instead would differ in two things at once,
+                         # and a two-variable comparison cannot attribute what
+                         # it shows.

@@ -1120,6 +1120,9 @@ MAPS = {
     "build/lks/symbol_map.json": (
         "lakeside",
         ["--game", "game/lakeside", "--features-dir", "engine/features"]),
+    "build/hz/symbol_map.json": (
+        "heathaze",
+        ["--game", "game/heathaze", "--features-dir", "engine/features"]),
     "build/cf/symbol_map.json": (
         "camera_follow",
         ["--game", "game/camera_follow", "--features-dir", "engine/features"]),
@@ -1200,7 +1203,8 @@ MAPS = {
 
 # The build subdir a module names, as it is written in source:
 #   SUPERFORGE / "build" / "mz" / "symbol_map.json"
-_SUBDIR_MAP = {"mz": "build/mz/symbol_map.json",
+_SUBDIR_MAP = {"hz": "build/hz/symbol_map.json",
+               "mz": "build/mz/symbol_map.json",
                "rm": "build/rm/symbol_map.json",
                "bk": "build/bk/symbol_map.json",
                "sh": "build/sh/symbol_map.json",

@@ -1,0 +1,521 @@
+#!/usr/bin/env python3
+"""Assets for the `heathaze` rail — a desert road, and the warp table that
+bends it.
+
+TWO KINDS OF OUTPUT, and the second is the point of the rail.
+
+  the WORLD    BG1 tile art: a sky gradient, a mesa ridge, a hot horizon
+               strip, and a desert floor with a road receding to it. Ordinary
+               4bpp tiles, palette group 0.
+
+  the WARP     `hz_warp.bin` — 32 complete phases of a per-scanline BG1HOFS
+               displacement, each 256 B, ready for an HDMA channel to read
+               straight out of ROM.
+
+WHY THE WARP IS A TABLE AND NOT ARTWORK. The obvious way to draw heat haze is
+to draw it: author a "warped" copy of every affected tile and animate between
+them. That doubles the tile budget, warps only what was pre-drawn, and buys a
+distortion that cannot follow the art it distorts. The SNES already bends a
+whole layer for free — a different BG1HOFS per scanline, delivered by HDMA —
+so what this file draws is the DISPLACEMENT, once, in every phase it will ever
+need.
+
+WHY 32 RESIDENT PHASES RATHER THAN A REBUILD. platformer_bg prices a
+per-scanline table fill at ~16 cycles an entry (platformer_bg.asm:386), which
+over this band is ~1,700 CPU cycles a frame out of ~28-37k. Holding every
+phase in ROM instead costs 8 KB of the one budget with room to spare and
+reduces the per-frame work to choosing which phase the channel reads. That is
+water's surf pattern (water/feature.toml, "the phases are all in ROM already,
+and what moves is which 512 of them the slots are showing"), and the stride is
+256 so choosing a phase is a single 8-bit write to the channel's A1T high
+byte.
+
+THE RAMP IS BAKED IN, WHICH IS WHY THE PHASES SCROLL WITHOUT DRAGGING IT.
+Amplitude is a function of SCREEN y — zero at the horizon, widest at the hot
+ground nearest the viewer, which is the sheet's "strongest distortion close to
+the source". Phase is a function of the TABLE index. Because each phase blob
+carries its own correctly-ramped column, advancing the index scrolls the wave
+UPWARD through a ramp that stays pinned to the screen. Heat rises, and it
+costs nothing.
+"""
+import pathlib
+import sys
+import math
+
+# --- BGR555 ----------------------------------------------------------------
+# The SNES word is B<<10 | G<<5 | R, five bits per channel.
+
+
+def bgr(r, g, b):
+    assert all(0 <= c <= 31 for c in (r, g, b)), f"channel out of range: {r},{g},{b}"
+    return (b << 10) | (g << 5) | r
+
+
+# --- BG1 palette, group 0 (CGRAM words 0..15) ------------------------------
+# Word 0 is the 4bpp transparent slot AND the hardware backdrop at once, so
+# this feature claims it rather than composing `backdrop` — lake_bg records
+# the same fold for the same reason. It is the sky's TOP step, which is what
+# lets a four-step gradient fit in three sky entries.
+#
+# The ramp is deliberately WARM and deliberately WIDE. Warm because the
+# subject is heat; wide because stage 2 half-adds a shimmer layer onto these
+# colours, and a half-add halves CONTRAST too — a palette packed into a narrow
+# band would come back from the blender as a wash.
+SKY_TOP   = (8, 13, 27)       # zenith. ALSO the backdrop, by hardware contract
+SKY_HI    = (14, 18, 29)
+SKY_MID   = (21, 21, 28)
+SKY_LOW   = (28, 25, 26)      # bleached, just above the ridge
+MESA_DK   = (13, 8, 10)       # the far ridge, a flat silhouette at distance
+MESA_LIT  = (20, 12, 11)      # its base, where the light comes back up
+HAZE_LINE = (31, 28, 23)      # the hot strip AT the horizon
+SAND_DK   = (18, 12, 8)       # ground in shadow, and rock
+SAND      = (26, 19, 11)      # open desert floor
+SAND_LIT  = (31, 26, 17)      # its glare
+ROAD_DK   = (12, 10, 9)       # worn asphalt, warm not blue
+ROAD      = (17, 15, 14)      # ...and its sunlit surface
+ROAD_LINE = (31, 28, 17)      # the centre dashes
+ROCK      = (21, 17, 15)      # lit faces of rock and scree
+CACTUS_DK = (4, 11, 6)
+CACTUS    = (10, 20, 10)
+
+HZ_PAL = [bgr(*SKY_TOP), bgr(*SKY_HI), bgr(*SKY_MID), bgr(*SKY_LOW),
+          bgr(*MESA_DK), bgr(*MESA_LIT), bgr(*HAZE_LINE), bgr(*SAND_DK),
+          bgr(*SAND), bgr(*SAND_LIT), bgr(*ROAD_DK), bgr(*ROAD),
+          bgr(*ROAD_LINE), bgr(*ROCK), bgr(*CACTUS_DK), bgr(*CACTUS)]
+
+(I_SKY_TOP, I_SKY_HI, I_SKY_MID, I_SKY_LOW, I_MESA_DK, I_MESA_LIT, I_HAZE,
+ I_SAND_DK, I_SAND, I_SAND_LIT, I_ROAD_DK, I_ROAD, I_ROAD_LINE, I_ROCK,
+ I_CACTUS_DK, I_CACTUS) = range(16)
+
+LEGEND = {"0": I_SKY_TOP, "1": I_SKY_HI, "2": I_SKY_MID, "3": I_SKY_LOW,
+          "m": I_MESA_DK, "M": I_MESA_LIT, "h": I_HAZE, "d": I_SAND_DK,
+          "n": I_SAND, "N": I_SAND_LIT, "a": I_ROAD_DK, "A": I_ROAD,
+          "L": I_ROAD_LINE, "R": I_ROCK, "c": I_CACTUS_DK, "C": I_CACTUS}
+
+
+def pic(*rows):
+    """Eight 8-character rows through LEGEND -> 8x8 indices."""
+    assert len(rows) == 8, f"expected 8 rows, got {len(rows)}"
+    return [[LEGEND[ch] for ch in row] for row in rows]
+
+
+def flat(index):
+    return [[index] * 8 for _ in range(8)]
+
+
+def dither(a, b, weight=2):
+    """A Bayer-ordered mix of two indices.
+
+    `weight` is how many of the four 2x2 slots take `b`, so 1/2/3 give a
+    three-step blend between any pair — which is what turns a four-colour sky
+    into a gradient with no visible banding edge.
+    """
+    order = ((0, 3), (2, 1))            # the classic 2x2 Bayer threshold
+    return [[b if order[y & 1][x & 1] < weight else a for x in range(8)]
+            for y in range(8)]
+
+
+def noise(seed):
+    """A deterministic 0..255 hash. Desert floor variation, not stripes.
+
+    The modulo patterns this replaced (`(row + col) % 5`) read as corduroy:
+    the eye finds a diagonal period instantly and the ground stops being
+    ground. A hash has no period to find.
+    """
+    x = (seed * 2654435761) & 0xFFFFFFFF
+    x ^= x >> 15
+    x = (x * 2246822519) & 0xFFFFFFFF
+    x ^= x >> 13
+    return x & 0xFF
+
+
+# =============================================================================
+# THE TILES
+# =============================================================================
+HZ_T = {}
+HZ_TILES = []
+
+
+def tile(name, rows):
+    assert name not in HZ_T, f"duplicate tile {name}"
+    HZ_T[name] = len(HZ_TILES)
+    HZ_TILES.append((name, rows))
+    return HZ_T[name]
+
+
+# --- sky: four steps, Bayer-dithered between, so there is no banding edge ---
+tile("sky_0", flat(I_SKY_TOP))
+tile("sky_01", dither(I_SKY_TOP, I_SKY_HI))
+tile("sky_1", flat(I_SKY_HI))
+tile("sky_12", dither(I_SKY_HI, I_SKY_MID))
+tile("sky_2", flat(I_SKY_MID))
+tile("sky_23", dither(I_SKY_MID, I_SKY_LOW))
+tile("sky_3", flat(I_SKY_LOW))
+
+# --- the ridge: EIGHT sub-cell profiles, so the skyline is smooth ----------
+# `mesa_p{k}` has k rows of low sky above the silhouette, so a per-column top
+# in PIXELS resolves to one tile and the ridge steps by 1 px rather than by a
+# whole cell. The comb the first pass produced was a per-column top in CELLS —
+# eight times too coarse, and the eye read the period instantly.
+for k in range(8):
+    tile(f"mesa_p{k}", [[I_SKY_LOW] * 8 if y < k else [I_MESA_DK] * 8
+                        for y in range(8)])
+tile("mesa_body", flat(I_MESA_DK))
+tile("mesa_foot", pic("mmmmmmmm", "mmmmmmmm", "mmmmmmmm", "mMmMmMmM",
+                      "MMMMMMMM", "MMMMMMMM", "MhMhMhMh", "hhhhhhhh"))
+
+# --- the horizon: the hot strip the band starts under ----------------------
+tile("horizon", pic("hhhhhhhh", "hhhhhhhh", "hNhNhNhN", "NNNNNNNN",
+                    "NNNNNNNN", "NnNnNnNn", "nnnnnnnn", "nnnnnnnn"))
+
+# --- the desert floor ------------------------------------------------------
+tile("sand", flat(I_SAND))
+tile("sand_lit", dither(I_SAND, I_SAND_LIT, 1))
+tile("sand_dk", dither(I_SAND, I_SAND_DK, 1))
+tile("scree", pic("nnnnnnnn", "nnndnnnn", "nndRdnnn", "nnnddnnn",
+                  "nnnnnnnd", "nnnnnndR", "nnnnnnnd", "nnnnnnnn"))
+
+# --- the road --------------------------------------------------------------
+tile("road", flat(I_ROAD))
+tile("road_dk", dither(I_ROAD, I_ROAD_DK, 1))
+tile("road_dash", pic("AAAAAAAA", "AAALLAAA", "AAALLAAA", "AAALLAAA",
+                      "AAALLAAA", "AAALLAAA", "AAALLAAA", "AAAAAAAA"))
+tile("road_l", pic("nnnnnAAA", "nnnnAAAA", "nnnnAAAA", "nnnAAAAA",
+                   "nnnAAAAA", "nnAAAAAA", "nnAAAAAA", "nAAAAAAA"))
+tile("road_r", pic("AAAnnnnn", "AAAAnnnn", "AAAAnnnn", "AAAAAnnn",
+                   "AAAAAnnn", "AAAAAAnn", "AAAAAAnn", "AAAAAAAn"))
+
+# --- the saguaro. ITS TRUNK IS THE TEST SURFACE ----------------------------
+# The trunk occupies x = 2..5 of the cell in EVERY body tile, so its left edge
+# sits at cell*8 + 2 in an undistorted frame and at cell*8 + 2 + warp[y] in a
+# distorted one. A per-scanline displacement is a per-scanline PREDICTION, and
+# that is what tests/test_heathaze.py reads back off the screenshot.
+#
+# The arm is in the TOP tile only, deliberately: it makes the silhouette read
+# as a saguaro at eight pixels wide without disturbing the straight edge the
+# body tiles give the test.
+tile("cact_top", pic("nnnnnnnn", "nncccCnn", "nccCCCnn", "nccCCCnn",
+                     "nccCCCcC", "nccCCCcC", "nccCCCnn", "nccCCCnn"))
+tile("cact_body", pic("nccCCCnn", "nccCCCnn", "nccCCCnn", "nccCCCnn",
+                      "nccCCCnn", "nccCCCnn", "nccCCCnn", "nccCCCnn"))
+tile("cact_foot", pic("nccCCCnn", "nccCCCnn", "nccCCCnn", "nccCCCnn",
+                      "nccCCCnn", "ndcCCCdn", "nddddddn", "nnnnnnnn"))
+tile("boulder", pic("nnnnnnnn", "nnndddnn", "nnddRRdn", "ndddRRRd",
+                    "ddRRRRRd", "dRRRRRRd", "ddRRRRdd", "nddddddn"))
+
+
+# =============================================================================
+# THE MAP — 32x32 words, 28 rows visible
+# =============================================================================
+#   rows  0..9    sky, a four-step Bayer gradient
+#   rows 10..12   the mesa ridge, its top placed per column IN PIXELS
+#   row     13    the ridge's foot, where the light comes back up
+#   row     14    the horizon strip                       (y 112..119)
+#   rows 15..27   the desert floor and the road           (y 120..223)
+#
+# HZ_BAND_TOP = 120 is the first scanline of row 15 and the top of the haze
+# band. Above it the layer is undistorted — the sky and the ridge stay still,
+# which is what gives the shimmer something to be measured against and is the
+# concept sheet's "fade out with region edges" made structural.
+HZ_ROWS, HZ_COLS = 32, 32
+HZ_BAND_TOP = 120
+HZ_BAND_LINES = 224 - HZ_BAND_TOP          # 104
+GROUND_TOP = 15
+RIDGE_BASE_Y = 104
+
+# (first col, last col, top y). Flat tops with talus shoulders between them —
+# a skyline reads as mesa country because the FLATS are long, so these runs are
+# wide and the ramps between them are short.
+MESAS = [(1, 8, 88), (11, 13, 82), (17, 26, 96), (28, 31, 90)]
+
+
+def ridge_profile():
+    """Top-of-ridge y per column, in pixels."""
+    top = [RIDGE_BASE_Y] * HZ_COLS
+    for c0, c1, y in MESAS:
+        for c in range(c0, c1 + 1):
+            top[c] = min(top[c], y)
+    # Two-column talus either side of every flat, so nothing is a sheer wall.
+    out = list(top)
+    for c in range(HZ_COLS):
+        for d in (1, 2):
+            for n in (c - d, c + d):
+                if 0 <= n < HZ_COLS:
+                    out[c] = min(out[c], top[n] + d * 5)
+    return out
+
+
+MESA_TOP = ridge_profile()
+
+ROAD_MID = 16
+
+
+def road_half_width(row):
+    """Cells either side of centre: 2 at the far end, 7 at the near one.
+
+    Gentler than a 1..8 spread, which stepped a whole cell almost every row
+    and read as a staircase rather than as a road going away.
+    """
+    return 2 + (row - GROUND_TOP) * 5 // (27 - GROUND_TOP)
+
+
+CACTI = [(4, 20, 23), (27, 18, 22), (11, 24, 26)]
+
+
+def sky_cell(row):
+    return ("sky_0", "sky_0", "sky_0", "sky_01", "sky_01", "sky_1", "sky_1",
+            "sky_12", "sky_2", "sky_23")[row]
+
+
+def floor_cell(row, col):
+    """The desert floor: road, furniture, or one of three sand treatments."""
+    for c, r0, r1 in CACTI:
+        if col == c and r0 <= row <= r1:
+            return ("cact_top" if row == r0 else
+                    "cact_foot" if row == r1 else "cact_body")
+
+    hw = road_half_width(row)
+    lo, hi = ROAD_MID - hw, ROAD_MID + hw
+    if col == lo:
+        return "road_l"
+    if col == hi:
+        return "road_r"
+    if lo < col < hi:
+        if col == ROAD_MID and row >= 19 and (row & 1) == 0:
+            return "road_dash"
+        return "road" if (row & 1) == 0 else "road_dk"
+
+    # Off-road. A hash, not a modulus: patches with no period for the eye to
+    # find. The thresholds are weighted so plain sand dominates and the
+    # variants read as scatter rather than as texture.
+    n = noise(row * 61 + col * 7 + 1)
+    if n < 13:
+        return "boulder"
+    if n < 42:
+        return "scree"
+    if n < 96:
+        return "sand_lit"
+    if n < 138:
+        return "sand_dk"
+    return "sand"
+
+
+def cell(row, col):
+    if row <= 9:
+        return sky_cell(row)
+    if row <= 12:
+        y0 = row * 8
+        top = MESA_TOP[col]
+        if top >= y0 + 8:
+            return "sky_3"
+        if top <= y0:
+            return "mesa_body"
+        return f"mesa_p{top - y0}"
+    if row == 13:
+        return "mesa_foot"
+    if row == 14:
+        return "horizon"
+    return floor_cell(row, col)
+
+
+def map_words():
+    """32x32 tilemap words. Palette group 0, no flips, no priority."""
+    return [HZ_T[cell(min(row, 27), col)]
+            for row in range(HZ_ROWS) for col in range(HZ_COLS)]
+# =============================================================================
+# THE WARP TABLE — 32 phases of a per-scanline BG1HOFS displacement
+# =============================================================================
+# ONE PHASE, byte for byte, as the HDMA channel walks it:
+#
+#   [120, lo, hi]        a NON-REPEAT entry: write the pair once at scanline 0
+#                        and idle for 119 more. The value is the scene's own
+#                        base scroll, so lines 0..119 — sky, ridge, horizon —
+#                        are exactly where the scene put them. This is the
+#                        head-skip a channel needs because HDMA always starts
+#                        at line 0, and it restates the seed rather than
+#                        inventing a value (shg_cam's seed claim is the same
+#                        shape from the other side).
+#   [$80|104]            REPEAT: a new 2-byte unit every scanline for 104
+#                        lines, which is what makes the band per-scanline
+#                        rather than banded.
+#   [lo, hi] x 104       the displacement, one pair per scanline of the band.
+#   [$00]                terminator.
+#
+# Mode 2 is one register written TWICE per transfer, which is exactly what a
+# BGnHOFS write-twice latch wants — platformer_bg's parallax channel says the
+# same thing about the same port.
+#
+# THE STRIDE IS 256 AND THAT IS A DESIGN CHOICE, not a rounding. A phase's
+# address is HZ_WARP + (phase << 8), so its low byte is always zero and
+# selecting a phase is ONE 8-bit write to the channel's A1T high byte. 213
+# bytes are used and 43 are slack; the slack buys the cheapest possible
+# per-frame cost.
+HZ_PHASES = 32
+HZ_PHASE_STRIDE = 256
+HZ_BASE_HOFS = 0                 # the rail does not scroll; the world sits at 0
+
+# Amplitude in WHOLE PIXELS at the bottom of the band. BG1HOFS is a whole-pixel
+# scroll, so the ramp quantises to this many steps and no more — which is also
+# why the test can assert an EQUALITY rather than a tolerance.
+HZ_AMP_MAX = 6
+
+# Two components, so the shimmer does not read as one clean sine. The second
+# is shorter and travels at twice the rate; both wrap on the 32-phase loop
+# (p/32 and 2p/32 are both whole cycles at p = 32), so the animation closes.
+HZ_LAMBDA_1, HZ_LAMBDA_2 = 28.0, 11.0
+HZ_MIX_1, HZ_MIX_2 = 0.70, 0.30
+HZ_PHASE_2 = 1.1                 # a fixed offset, so the two never start together
+
+
+def amplitude(line):
+    """Displacement amplitude at a band line, 0 at the top.
+
+    ZERO AT THE HORIZON AND WIDEST AT THE VIEWER'S FEET. The exponent makes
+    most of the band subtle and concentrates the visible distortion in the
+    near ground, which is the concept sheet's "strongest distortion close to
+    the source" and the reason the mesa does not appear to melt.
+    """
+    t = line / (HZ_BAND_LINES - 1)
+    return HZ_AMP_MAX * (t ** 1.3)
+
+
+def displacement(line, phase):
+    """Whole-pixel BG1HOFS offset for one band line in one phase."""
+    y = HZ_BAND_TOP + line
+    a = 2.0 * math.pi
+    w1 = math.sin(a * (y / HZ_LAMBDA_1 + phase / HZ_PHASES))
+    w2 = math.sin(a * (y / HZ_LAMBDA_2 + 2.0 * phase / HZ_PHASES) + HZ_PHASE_2)
+    return int(round(amplitude(line) * (HZ_MIX_1 * w1 + HZ_MIX_2 * w2)))
+
+
+def hofs_pair(value):
+    """BG1HOFS as the write-twice latch takes it: low byte, then high."""
+    v = value & 0x3FF
+    return bytes((v & 0xFF, (v >> 8) & 0x03))
+
+
+def warp_phase(phase):
+    """One 256 B phase blob."""
+    out = bytearray()
+    out += bytes((HZ_BAND_TOP,)) + hofs_pair(HZ_BASE_HOFS)      # head skip
+    out += bytes((0x80 | HZ_BAND_LINES,))                       # repeat entry
+    for line in range(HZ_BAND_LINES):
+        out += hofs_pair(HZ_BASE_HOFS + displacement(line, phase))
+    out += bytes((0x00,))                                       # terminator
+    assert len(out) <= HZ_PHASE_STRIDE, f"phase {phase}: {len(out)} B overruns"
+    return bytes(out) + bytes(HZ_PHASE_STRIDE - len(out))
+
+
+# ONE MORE BLOB THAN THERE ARE PHASES, and it is the control.
+#
+# `stilling` the animation freezes the phase, which leaves a FIXED warp on
+# screen — a perfectly good thing to look at and completely useless as a
+# baseline. What the concept sheet's "before distortion / after heat haze"
+# pair needs is the same picture with NO displacement at all, from the same
+# binary, differing in nothing but this table. So index HZ_FLAT_INDEX is a
+# complete, correctly-shaped HDMA table whose every displacement is zero: the
+# channel stays armed, the head-skip and repeat entries are byte-identical in
+# shape, and only the values are flat.
+#
+# That matters for the test as much as for the eye. A control that DISARMED
+# the channel would differ from the live case in two ways — the table and the
+# channel — and a two-variable comparison cannot attribute what it sees.
+HZ_FLAT_INDEX = HZ_PHASES
+
+
+def flat_phase():
+    """A complete table, same shape, every displacement zero."""
+    out = bytearray()
+    out += bytes((HZ_BAND_TOP,)) + hofs_pair(HZ_BASE_HOFS)
+    out += bytes((0x80 | HZ_BAND_LINES,))
+    out += hofs_pair(HZ_BASE_HOFS) * HZ_BAND_LINES
+    out += bytes((0x00,))
+    return bytes(out) + bytes(HZ_PHASE_STRIDE - len(out))
+
+
+def warp_table():
+    return b"".join(warp_phase(p) for p in range(HZ_PHASES)) + flat_phase()
+
+
+# =============================================================================
+# ENCODERS — assert, never mask
+# =============================================================================
+# A bitwise AND that quietly folds an out-of-range index into range is the
+# silent-corruption trap AGENTS.md names by example. Every encoder here says
+# which pixel was wrong instead.
+
+
+def encode_4bpp(rows, label):
+    """8x8 indices -> 32 B SNES 4bpp (planes 0/1 interleaved, then 2/3)."""
+    assert len(rows) == 8, f"{label}: expected 8 rows, got {len(rows)}"
+    for y, row in enumerate(rows):
+        assert len(row) == 8, f"{label}: row {y} has {len(row)} px, expected 8"
+        for x, v in enumerate(row):
+            assert 0 <= v <= 15, (
+                f"{label}: pixel ({x},{y}) index {v} is outside 4bpp 0..15")
+    out = bytearray()
+    for pair in (0, 2):
+        for y in range(8):
+            lo = hi = 0
+            for x in range(8):
+                v = rows[y][x]
+                lo = (lo << 1) | ((v >> pair) & 1)
+                hi = (hi << 1) | ((v >> (pair + 1)) & 1)
+            out += bytes((lo, hi))
+    assert len(out) == 32, f"{label}: encoded {len(out)} B, expected 32"
+    return bytes(out)
+
+
+def encode_words(words, label, count):
+    assert len(words) == count, f"{label}: {len(words)} words, expected {count}"
+    out = bytearray()
+    for i, w in enumerate(words):
+        assert 0 <= w <= 0xFFFF, f"{label}: entry {i} {w:#06x} is not 16-bit"
+        out += bytes((w & 0xFF, (w >> 8) & 0xFF))
+    return bytes(out)
+
+
+ART_INC = """; hz_art.inc — GENERATED by tools/gen_haze_assets.py. Do not edit.
+;
+; The LAYOUT of the warp blob, for the code that indexes it. The blob itself
+; arrives through .incbin; these are the only numbers the ASM needs to walk it,
+; and they are emitted rather than restated so the table and the walker cannot
+; disagree about the stride.
+HZ_PHASES        = {phases}     ; the loop closes here
+HZ_FLAT_INDEX    = {flat}     ; the zero-displacement control, same shape
+HZ_BLOB_COUNT    = {blobs}     ; phases + the control
+HZ_PHASE_SHIFT   = {shift}      ; stride 256 -> a blob is (index << 8)
+HZ_BAND_TOP      = {band_top}   ; first distorted scanline
+HZ_BAND_LINES    = {band_lines} ; how many the repeat entry covers
+HZ_TILE_COUNT    = {tiles}
+"""
+
+
+def main(argv):
+    out = pathlib.Path(argv[1] if len(argv) > 1 else "build/assets")
+    out.mkdir(parents=True, exist_ok=True)
+
+    chr_blob = b"".join(encode_4bpp(rows, name) for name, rows in HZ_TILES)
+    (out / "hz_chr.bin").write_bytes(chr_blob)
+    (out / "hz_map.bin").write_bytes(encode_words(map_words(), "hz_map", 1024))
+    (out / "hz_pal.bin").write_bytes(encode_words(HZ_PAL, "hz_pal", 16))
+
+    warp = warp_table()
+    assert len(warp) == (HZ_PHASES + 1) * HZ_PHASE_STRIDE, len(warp)
+    (out / "hz_warp.bin").write_bytes(warp)
+
+    (out / "hz_art.inc").write_text(ART_INC.format(
+        phases=HZ_PHASES, flat=HZ_FLAT_INDEX, blobs=HZ_PHASES + 1,
+        shift=8, band_top=HZ_BAND_TOP,
+        band_lines=HZ_BAND_LINES, tiles=len(HZ_TILES)))
+
+    print(f"hz_chr.bin   {len(chr_blob):6d} B  ({len(HZ_TILES)} tiles)")
+    print(f"hz_map.bin     2048 B  (32x32 words)")
+    print(f"hz_pal.bin       32 B  (16 CGRAM words)")
+    print(f"hz_warp.bin  {len(warp):6d} B  ({HZ_PHASES} phases + 1 flat "
+          f"control x {HZ_PHASE_STRIDE} B, band {HZ_BAND_TOP}..224)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

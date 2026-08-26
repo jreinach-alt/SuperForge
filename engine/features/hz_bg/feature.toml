@@ -1,0 +1,97 @@
+# hz_bg — BG1: the desert world, and the scene's display shape.
+#
+# =============================================================================
+# WHY A NEW BG FEATURE AND NOT AN EXISTING `*_bg`
+# =============================================================================
+# The same reason lake_bg exists: 27 features in this tree raw-claim TM or TS,
+# which is every `*_bg` and every `*_floor`, and a raw TM/TS claim inside a
+# scene that composes a [[claims.screen]] is REFUSED (docs/99 R6). Stage 1 of
+# this rail composes no blend, but it composes the SCREEN half — and it is
+# built to accept the blend in stage 2 without moving a register, so it is
+# vocabulary-native from the start.
+#
+# =============================================================================
+# WHAT IT DOES NOT OWN, AND WHY THAT IS THE INTERESTING PART
+# =============================================================================
+# BG1HOFS IS NOT HERE. On this rail that register is driven per scanline by
+# `haze`'s HDMA channel during the band, and a CPU-written register with a
+# transfer claim on the same port refuses unless the CPU write is declared as
+# a `seed` the transfer overrides (allocate.check_reg_ownership, check 2). So
+# BG1HOFS belongs to whichever feature answers for it IN THAT SCENE:
+# `haze` in the desert, `hz_flat` on the title screen. This feature owns the
+# rest of the display shape, which is the same in both.
+#
+# BG1VOFS stays here: nothing on this rail scrolls it, in either scene.
+#
+# =============================================================================
+# THE WORLD
+# =============================================================================
+# A four-step Bayer sky, a mesa ridge whose top is placed per column in PIXELS
+# (eight sub-cell profiles, so the skyline is smooth rather than a comb), a
+# bleached horizon strip, and a desert floor with a road receding to it —
+# saguaros and boulders scattered by a hash rather than a modulus, because a
+# modulus has a period and the eye finds it.
+#
+# THE FLOOR IS WHAT THE HAZE BENDS, so its content is not decoration: a
+# per-scanline horizontal displacement is only visible where there are
+# VERTICAL EDGES to displace. The road's converging edges, the centre dashes
+# and the saguaro trunks are all there to be bent, and the trunk is the one
+# the test measures — it is a straight edge at a known x in every body tile.
+name = "hz_bg"
+role = "feature"
+depends = ["hz_rom"]
+
+# ---- the vocabulary -------------------------------------------------------
+[[claims.screen]]
+layer = "bg1"
+on = "main"
+
+[[claims.screen]]
+layer = "bg3"
+on = "main"
+
+# ---- the world's art ------------------------------------------------------
+[[claims.dma_init]]
+name = "hz_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "hz_chr"
+kind = "chr"
+tiles = 31
+tile_bytes = 32          # 4bpp
+
+[[claims.vram]]
+name = "hz_map"
+kind = "tilemap"
+words = 0x400            # 32x32; BG1SC bases are 0x400-word granular
+
+# THE PALETTE AND THE BACKDROP ARE ONE CLAIM, by hardware contract: the map
+# authors palette group 0, so word 0 is the 4bpp transparent slot AND the
+# hardware backdrop at once — one word, two meanings, therefore one owner.
+# Here it is also the sky's top step, which is what lets a four-step gradient
+# fit in three sky entries. lake_bg, scroller_bg, pfs_bg and m7x_floor all
+# record the identical fold, and it is why this scene cannot compose
+# `backdrop` (which pins the same word and raw-claims TM besides).
+[[claims.cgram]]
+name = "hz_pal"
+words = 16
+at = 0
+
+# C4 (docs/09 §2.1): BG1's layer configuration and the scene's base display.
+#
+# ATTRIBUTION. Every register here is written by the scene's enter code in
+# game/heathaze/scenes/*.asm, which has no feature.toml of its own, so
+# ownership is attributed to the feature the write SERVES — this one.
+#
+# BGMODE is $09: mode 1, plus the BG3-priority bit, so bg_text sits above the
+# world wherever its tiles carry the priority attribute.
+#
+# NOT TM. The main-screen enables are composed from the two [[claims.screen]]
+# claims above; a raw TM claim beside them is refused (R6).
+[[claims.reg]]
+name = "hz_layers"
+registers = ["BGMODE", "BG1SC", "BG12NBA", "BG1VOFS"]
+scene_writes = ["BGMODE", "BG1SC", "BG12NBA", "BG1VOFS"]

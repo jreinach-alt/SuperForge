@@ -1,0 +1,99 @@
+# haze — heat shimmer: a per-scanline BG1HOFS displacement, delivered by HDMA.
+#
+# =============================================================================
+# THE WARP IS A TABLE, NOT ARTWORK
+# =============================================================================
+# The obvious way to draw heat haze is to draw it — author a "warped" copy of
+# every affected tile and animate between them. That doubles the tile budget,
+# warps only what was pre-drawn, and buys a distortion that cannot follow the
+# art it distorts. The PPU already bends a whole layer for free: a different
+# BG1HOFS per scanline, delivered by an HDMA channel during active display, at
+# no CPU cost at all while the picture is being drawn.
+#
+# So nothing here is a haze tile. What this feature owns is a CHANNEL and a
+# per-frame CHOICE of which resident phase that channel reads.
+#
+# =============================================================================
+# ONE WRITE A FRAME, AND WHY THE STRIDE IS 256
+# =============================================================================
+# hz_rom holds 32 complete phases at 256 B each. A phase's address is
+# HZ_WARP + (index << 8) — low byte always zero — so advancing the animation
+# is ONE 8-bit store to the channel's A1T high byte in the VBlank hook. The
+# alternative, rebuilding the table per frame, is priced by platformer_bg at
+# ~16 cycles an entry (platformer_bg.asm:386): ~1,700 CPU cycles a frame over
+# this band, every frame, for a picture that is already in ROM.
+#
+# THE RAMP IS BAKED IN AND THE PHASES SCROLL THROUGH IT. Amplitude is a
+# function of SCREEN y — zero at the horizon, widest at the viewer's feet.
+# Phase is a function of the table index. Because each blob carries its own
+# correctly-ramped column, advancing the index scrolls the wave UPWARD through
+# a ramp that stays pinned to the screen. Heat rises, for nothing.
+#
+# =============================================================================
+# BG1HOFS IS CLAIMED TWICE BY THIS FEATURE, ON PURPOSE
+# =============================================================================
+# `hzwarp` drives the port per scanline across the band; `hz_seed` is the CPU
+# write that establishes the base scroll the head-skip entry restates and that
+# holds for lines 0..119. A CPU-written register with a transfer claim on the
+# same port refuses unless the CPU write says it is a seed the transfer
+# overrides (allocate.check_reg_ownership, checks 2 and 3) — and a seed with
+# nothing overriding it is itself refused, so the pair has to be real. shg_cam
+# declares the same shape for the same reason.
+#
+# =============================================================================
+# REGION
+# =============================================================================
+# The phase advance is a RATE — phases per frame — so it takes exactly one
+# factor of the region ratio, which is exactly what one TS_STEP applies. The
+# accumulator pair belongs to the CONSUMER and lives in the rail's state.toml;
+# what this feature holds is the accumulated phase itself, because the routine
+# that READS it is this feature's own VBlank commit.
+name = "haze"
+role = "feature"
+depends = ["hz_rom"]
+
+# ---- the channel ----------------------------------------------------------
+# Mode 2 is one register written TWICE per transfer, which is exactly what a
+# BGnHOFS write-twice latch wants — platformer_bg's parallax channel says the
+# same thing about the same port. Direct, not indirect: the ROM blob IS the
+# source.
+#
+# `band` is the declared truth about WHERE the port is driven per scanline.
+# The table's leading non-repeat entry covers lines 0..119 by restating the
+# seed value, which is the head-skip an HDMA channel needs because HDMA always
+# begins at line 0 — it holds the base, it does not distort.
+[[claims.hdma]]
+name = "hzwarp"
+registers = ["BG1HOFS"]
+mode = 2
+band = [120, 224]
+phase = "active"
+channels = 1
+
+# The base scroll, established at scene enter and overridden by `hzwarp`
+# across the band. See the header: this pair is required to be real.
+[[claims.reg]]
+name = "hz_seed"
+registers = ["BG1HOFS"]
+seed = true
+
+# The accumulated phase index, 0..31. u16 so the advance is a plain add and
+# the wrap is one mask; the loop closes at 32 because both wave components
+# complete a whole number of cycles there.
+#
+# NO [init] zero: `hz_arm` writes it at scene enter, and scene_mgr holds NMI
+# masked across the whole switch, so the first VBlank that can commit it is
+# the first one after the arm (water and scroller_bg reach the same
+# conclusion).
+[[claims.dp]]
+name = "hz_phase"
+bytes = 2
+
+# WHICH BLOB IS ON SCREEN: 0 = the animation's current phase, 1 = the flat
+# control. Held apart from `hz_phase` on purpose — flattening the picture must
+# not lose the animation's position, so that a scene toggling the effect off
+# and on again resumes rather than restarts. u16 to match the direct-page
+# claim class; only bit 0 is read.
+[[claims.dp]]
+name = "hz_flat"
+bytes = 2

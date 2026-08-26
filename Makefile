@@ -24,7 +24,7 @@ LD65    := ld65
 	m7dg-assets m7_dungeon m7dg-labels m7dg-measure m7dg-measure-logic \
 	sh2-assets split_h_2p_demo sh2-variants sh2-labels sh2-measure bare-check \
 	m7x-assets mode7_explore pfs-assets platformer_stream scroller \
-	lakeside \
+	lakeside heathaze \
 	scroller-tb tb-measure tb-picture rate-oracle \
 	camera_follow maze jumper patrol sprite_game stomper scroll_run brawler \
 	split_h_matrix_demo split_h_persp3_demo \
@@ -1262,6 +1262,57 @@ $(BUILD)/lakeside.sfc: $(LKS_ASM) $(LKS)/lakeside.inc \
 	$(PY) tools/fix_checksum.py $@
 
 lakeside: $(BUILD)/lakeside.sfc
+# ---- heathaze: heat shimmer as a per-scanline displacement ----
+# BG1 carries a desert road under a mesa ridge; below the horizon an HDMA
+# channel writes a different BG1HOFS on EVERY SCANLINE, so the lower layer
+# bends while the sky above the band stays still. The warp is a TABLE, not
+# artwork: hz_rom holds 32 complete HDMA tables at a 256 B stride, and the
+# whole per-frame cost is one 8-bit store to the channel's A1T high byte.
+#
+# TWO SCENES, and the second is the hygiene lesson generalised off the
+# blender: `desert` drives BG1HOFS per scanline, so `title` composes
+# `hz_flat` — that port's `blend_off` — or it inherits the last scanline's
+# displacement.
+#
+# No TAD objects — `tad_rom` is not in this game's globals, so the link is
+# one object (scroller's shape).
+HZS      := game/heathaze
+HZS_MAP  := $(BUILD)/hz
+HZS_ASM  := $(HZS)/main.asm $(wildcard $(HZS)/scenes/*.asm) \
+            $(wildcard engine/features/*/*.asm)
+
+HZS_ASSETS := $(BUILD)/assets/hz_chr.bin $(BUILD)/assets/hz_map.bin \
+              $(BUILD)/assets/hz_pal.bin $(BUILD)/assets/hz_warp.bin \
+              $(BUILD)/assets/hz_art.inc
+
+$(HZS_ASSETS): tools/gen_haze_assets.py | $(BUILD)
+	$(PY) tools/gen_haze_assets.py $(BUILD)/assets
+
+$(HZS_MAP)/engine_state_globals.inc $(HZS_MAP)/symbol_map.json: \
+		allocator/substrate.toml allocator/allocate.py allocator/schemas.py \
+		$(wildcard engine/features/*/feature.toml) $(HZS)/game.toml \
+		$(HZS)/state.toml | $(BUILD)
+	$(PY) allocator/allocate.py --game $(HZS) --features-dir engine/features \
+		--out $(HZS_MAP)
+
+HZS_INC := -I $(HZS_MAP) -I $(VROM) -I $(HZS) -I $(BUILD)/assets \
+           -I engine/features/scene_mgr -I engine/features/input \
+           -I engine/features/fade -I engine/features/bg_text \
+           -I engine/features/region -I engine/features/tick_scale \
+           -I engine/features/hz_bg -I engine/features/haze
+
+$(BUILD)/heathaze.sfc: $(HZS_ASM) $(HZS)/heathaze.inc \
+		$(HZS_MAP)/engine_state_globals.inc $(HZS_ASSETS) \
+		$(BUILD)/assets/font_2bpp.bin \
+		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
+		$(VROM)/lorom_512k.cfg | $(BUILD)
+	$(PY) allocator/no_literals.py --map $(HZS_MAP)/symbol_map.json $(HZS_ASM)
+	$(CA65) $(HZS_INC) --bin-include-dir $(BUILD)/assets \
+		-o $(BUILD)/heathaze.o $(HZS)/main.asm
+	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/heathaze.o
+	$(PY) tools/fix_checksum.py $@
+
+heathaze: $(BUILD)/heathaze.sfc
 # ---- maze: col_map against a hand-built map -------
 # A red player walks a grey walled room (border + two interior walls) with
 # the canonical per-axis move-check: tentative position, probe, keep the axis
@@ -2880,7 +2931,7 @@ gates: | $(BUILD)
 	run split_v_fight; run m7_dungeon; run split_h_2p_demo; \
 	run sh2-variants; \
 	run mode7_explore; run platformer_stream; run scroller; \
-	run lakeside; \
+	run lakeside; run heathaze; \
 	run camera_follow; run maze; run jumper; run patrol; \
 	run sprite_game; \
 	run stomper; \
@@ -2903,7 +2954,7 @@ gates: | $(BUILD)
 	cat $(BUILD)/gates_summary.txt; \
 	for rom in microzero room breaker shmup platformer split_v_fight m7_dungeon \
 	           split_h_2p_demo mode7_explore platformer_stream hud_game \
-	           scroller lakeside camera_follow maze jumper patrol sprite_game \
+	           scroller lakeside heathaze camera_follow maze jumper patrol sprite_game \
 	           stomper scroll_run brawler \
 	           split_h_matrix_demo split_h_persp3_demo split_v_demo \
 	           split_v_seamtrial split_h_demo split_h_persp_demo \
@@ -3078,7 +3129,7 @@ PYTEST_DIST := $(if $(strip $(XDIST)),-n $(strip $(XDIST)) --dist loadfile,)
 # tools/harness_faults.py then says which KIND of red it is (docs/44 section 8).
 test: toy microzero room probes breaker shmup platformer split_v_fight \
 	m7_dungeon split_h_2p_demo sh2-variants mode7_explore platformer_stream \
-	hud_game scroller lakeside camera_follow maze jumper patrol sprite_game \
+	hud_game scroller lakeside heathaze camera_follow maze jumper patrol sprite_game \
 	stomper \
 	scroll_run brawler split_h_matrix_demo split_h_persp3_demo \
 	split_v_demo svd-nowin split_v_seamtrial split_h_demo shd-autodemo \
@@ -3273,7 +3324,7 @@ falsify:
 MODULE  ?= tests/test_split_h_2p_sprites.py
 FALSIFY ?=
 determinism: split_h_2p_demo sh2-variants microzero hud_game scroller \
-	lakeside \
+	lakeside heathaze \
 	camera_follow maze jumper patrol sprite_game stomper scroll_run \
 	brawler split_v_fight split_h_matrix_demo split_h_persp3_demo \
 	split_v_demo svd-nowin split_v_seamtrial split_h_demo shd-autodemo \

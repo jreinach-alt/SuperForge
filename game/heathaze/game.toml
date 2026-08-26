@@ -1,0 +1,103 @@
+# heathaze — heat shimmer as a per-scanline displacement, not as artwork.
+#
+# =============================================================================
+# WHAT YOU SEE
+# =============================================================================
+# A desert road running to a mesa ridge under a bleached sky. Below the
+# horizon the whole of BG1 shimmers: every scanline is drawn at a slightly
+# different horizontal offset, the offsets ramp from zero at the horizon to
+# six pixels at the viewer's feet, and the pattern travels UPWARD. The road's
+# converging edges, its centre dashes and the saguaro trunks bend with it; the
+# sky and the ridge above the band do not move at all, which is what makes the
+# effect read as heat rising off hot ground rather than as a broken picture.
+#
+# B toggles the shimmer. That is the concept sheet's "before distortion /
+# after heat haze" pair, live, on one binary — and it is the control every
+# per-scanline measurement in tests/test_heathaze.py is taken against.
+# Start returns to the title.
+#
+# =============================================================================
+# WHAT IT DEMONSTRATES
+# =============================================================================
+# THE WARP IS A TABLE, NOT A TILE. The intuitive way to draw heat haze is to
+# author pre-warped copies of the affected art and animate between them. That
+# doubles the tile budget, distorts only what was drawn in advance, and cannot
+# follow the art it distorts. The PPU bends a whole layer natively — a
+# different BG1HOFS per scanline through HDMA, at no CPU cost during active
+# display — so this rail draws the DISPLACEMENT instead of the distortion.
+#
+# ONE WRITE A FRAME. hz_rom holds 32 complete phases at a 256 B stride, so a
+# phase's address is HZ_WARP + (index << 8) and advancing the animation is a
+# single 8-bit store to the channel's A1T high byte. Rebuilding the table
+# instead is priced by platformer_bg at ~16 cycles an entry — ~1,700 CPU
+# cycles a frame over this band, out of the ~28-37k a whole frame gets.
+#
+# =============================================================================
+# TRANSITION HYGIENE, ON A REGISTER THAT IS NOT THE BLENDER
+# =============================================================================
+# This is the rail's second finding and it generalises one the tree already
+# had. `blend_off` exists because the composed blend state is per scene and
+# nothing carries it across an edge. BG1HOFS is in exactly the same position
+# here: `haze` drives it per scanline, so at the end of the scene the port
+# holds whatever the last scanline of the last armed frame left in it — up to
+# six pixels of arbitrary displacement. A successor that composes no BG1HOFS
+# claimant writes nothing and inherits it.
+#
+# So `title` composes `hz_flat`, whose whole content is that port's flat base,
+# exactly as it composes `blend_off` for the blender. AN HDMA-DRIVEN REGISTER
+# NEEDS THE SAME PER-SCENE DISARM DISCIPLINE THE BLENDER DOES — colour math
+# was never special, it was just the first port anyone noticed it on.
+#
+# =============================================================================
+# WHY BG1HOFS IS NOT IN `hz_bg`
+# =============================================================================
+# `hz_bg` is global: both scenes draw the same world. In `desert` the port has
+# a transfer claim on it, so the CPU write must be declared a `seed` the
+# transfer overrides; on `title` there is no transfer, and a seed with nothing
+# overriding it is refused (allocate.check_reg_ownership, checks 2 and 3). One
+# feature cannot be both, and a feature cannot conditionally claim — so the
+# port belongs to whichever feature answers for it in that scene.
+#
+# =============================================================================
+# STAGE 1 OF TWO
+# =============================================================================
+# This rail composes the SCREEN half of the vocabulary and no blend: both
+# scenes carry `blend_off`. Stage 2 replaces the desert scene's `blend_off`
+# with a shimmer layer on the sub screen and `haze`'s own [[claims.blend]], so
+# the displacement and a half-add compose in one scene. The diff between the
+# stages is confined to one feature.toml and one scene's feature list, which
+# is the point of decomposing it this way.
+#
+# =============================================================================
+# REGION + TICK_SCALE
+# =============================================================================
+# ONE RATE, ONE PAIR. The phase advance is a velocity — phases per frame — so
+# it takes exactly one factor of the region ratio r, which is exactly what one
+# TS_STEP applies. Nothing here accelerates, so there is no r^2 arm and no
+# base-side pre-scale. NOT SCALED: nothing.
+globals = ["scene_mgr", "fade", "input", "text_dp", "font_rom", "bg_text",
+           "hz_bg", "hz_rom", "region", "tick_scale"]
+
+# The title: the same world, undistorted, with both the blender and the scroll
+# register carrying their own off states.
+[[scene]]
+id = "title"
+features = ["blend_off", "hz_flat"]
+
+# The desert: the same world, shimmering.
+[[scene]]
+id = "desert"
+features = ["blend_off", "haze"]
+
+[[edge]]
+from = "title"
+to = "desert"
+style = "fade"
+
+# The return edge is the one the hygiene rule is about: `desert` leaves BG1HOFS
+# wherever the last scanline put it, and `title` composes `hz_flat` so entering
+# it writes the port from its own composed symbol rather than inheriting a warp.
+[[edge]]
+from = "desert"
+to = "title"
+style = "fade"
