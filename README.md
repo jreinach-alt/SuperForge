@@ -15,7 +15,7 @@ hardware at a hard 60 fps, with ~28–37k CPU cycles per frame to spend.
 *`mode7_flight` ("SKY RUNNER") — the d-pad turns, B throttles, L/R climb and
 dive, and altitude drives the perspective scale.*
 
-`game/` holds **37 complete games** built this way. Each one composes declared
+`game/` holds **38 complete games** built this way. Each one composes declared
 features, builds to a 524,288-byte ROM, and ships tests that boot that ROM on a
 cycle-accurate emulator and read the rendered output back.
 
@@ -72,7 +72,7 @@ frame ratio, carrying the fraction between frames. Everything downstream keeps
 saying "move one step" — what a step *is* becomes a property of the timebase.
 The same ROM then covers the same distance per **second** on both machines.
 
-It is opt-in, per game. **30 of the 37 games compose it** — every playable one
+It is opt-in, per game. **31 of the 38 games compose it** — every playable one
 — and they measure a real-time parity band of **0.994–1.027**, against the
 **0.832** an uncompensated game reads. The other seven decline in their own
 `game.toml`: all are determinism trials whose frame-indexed sweeps are the
@@ -83,7 +83,7 @@ the two one-time deferrals with the addenda that converted them.
 
 ## The showcase
 
-Nine of the library's games, and what each one proves. Every clip is recorded
+Ten of the library's games, and what each one proves. Every clip is recorded
 from the committed ROM at full gameplay speed, one GIF second to one gameplay
 second, and cut so it rejoins itself — the loop points and their measured seams
 are in [`reports/gallery_loop_seams.md`](reports/gallery_loop_seams.md).
@@ -199,6 +199,31 @@ crawl — and a day-night wash walks the sky and the floor. It is also the
 **channel-pressure** rail: seven of the eight HDMA channels live in one frame,
 two of those numbers shared with claims that run in VBlank.
 
+### `lakeside`
+
+| | | |
+|---|---|---|
+| ![the shore](docs/img/lks_01_title.png) | ![the same shore under water](docs/img/lks_02_lake.png) | ![back at the shore](docs/img/lks_03_returned.png) |
+| the world, blender off | the same world through a sub-screen layer | and back, with nothing carried over |
+
+A lakeshore with **real water**: BG2 carries a drifting surface designated to
+the SUB screen, and the PPU's colour-math unit half-adds it onto the main
+screen. The middle frame is the left one seen through that blend, pixel for
+pixel — `min((main + sub) >> 1, 31)` per 5-bit channel, asserted as an
+**equality** rather than a tolerance, and at the water's edge the main pixel
+arrives at full intensity because the hardware substitutes the fixed colour and
+disables halving where the sub screen is empty. The text stays legible over the
+water because BG3 is left out of the math.
+
+What it demonstrates is a composition, not an effect. Three features share the
+four write-only colour-math ports without any of them claiming one: one
+designates the world and the text layer, one designates the water and declares
+the blend, and `bg_text` — which claims BG3's layout registers and deliberately
+not `TM` — composes completely untouched. The third frame is the transition
+half: the composed state is per scene and nothing carries it across an edge, so
+the title composes the blender's off state and returning from the lake is
+pixel-identical to never having left.
+
 ---
 
 The other 28 games are in `game/` — among them `microzero`, the smallest
@@ -313,7 +338,7 @@ These are rules the tree is held to by a gate, not intentions.
 
 An allocator that refuses bad compositions is only worth something if good
 compositions are plentiful, varied and hard. So the bar this engine is held to
-is a library of finished games rather than a feature checklist. All 37 declare
+is a library of finished games rather than a feature checklist. All 38 declare
 their features in a `game.toml`, take every address from the allocator, build to
 a byte-exact ROM, and are verified by booting that ROM and reading what the PPU
 actually produced.
@@ -329,9 +354,9 @@ and a proof does not.
 
 ```
 allocator/   the declarative allocator + the collision and no-literals gates
-engine/      the 65816 engine — features/ (155 dirs), toy/ (the smallest thing
+engine/      the 65816 engine — features/ (162 dirs), toy/ (the smallest thing
              the allocator can prove) and toy_bad/ (its infeasible twin)
-game/        37 games — a game.toml, its scenes, and the game's own state.toml
+game/        38 games — a game.toml, its scenes, and the game's own state.toml
 tests/       pytest, driving ROMs on the cycle-accurate emulator
 tools/       setup, the linters, asset generators, the render/capture scripts
 vendor/      vendored and self-contained: the emulator harness, fonts, ROM

@@ -177,7 +177,8 @@ python3 -m pytest tests/ -q -n 3 --dist loadfile   # parallel, pytest-xdist  (me
                              #        mode7_explore platformer_stream boss \
                              #        boss_saucer \
                              #        meteor_event \
-                             #        hud_game scroller camera_follow \
+                             #        hud_game scroller lakeside \
+                             #        camera_follow \
                              #        maze jumper patrol sprite_game stomper \
                              #        scroll_run brawler \
                              #        split_h_matrix_demo \

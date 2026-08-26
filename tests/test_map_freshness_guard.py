@@ -263,6 +263,7 @@ def test_the_tree_agrees_with_the_rule():
         # second scan cannot replace it.)
         "test_hud_game.py": ["build/hud/symbol_map.json"],
         "test_scroller.py": ["build/scr/symbol_map.json"],
+        "test_lakeside.py": ["build/lks/symbol_map.json"],
         "test_camera_follow.py": ["build/cf/symbol_map.json"],
         # Same family, same shape: its map IS in conftest.MAPS
         # ("maze") and in _SUBDIR_MAP ("maze"), added with the module.
