@@ -41,8 +41,29 @@ enter:
     stz z:US_TSH
     sep #$20
     .a8
-    lda #ES_V_HZ_CHR_NBA
-    sta a:$210B                     ; BG12NBA — BG2's nibble is 0 in stage 1
+    ; ---- BG12NBA: the two CHR base nibbles, one write-only byte ------------
+    ; BG1's nibble is `hz_bg`'s and BG2's is `haze`'s, and the hardware puts
+    ; them in one write-only port — so the byte has ONE owner per scene
+    ; whatever the vocabulary does, and the scene folds both emitted nibbles
+    ; into a single write. `breaker_bg` is the precedent and `lake_bg` the
+    ; sibling; the composition names the split as a warning, which is accurate.
+    ; BG2's nibble is emitted RAW and lives in bits 6-4, so it is shifted
+    ; here — `lake_bg`/`water` fold theirs the same way (lake.asm:53). OR-ing
+    ; the two unshifted gives BG1 a base of 3 and BG2 a base of 0, which is
+    ; a screen of noise from uninitialised VRAM and no warning anywhere.
+    lda #(ES_V_HZ_CHR_NBA | (ES_V_HZ_SHIM_CHR_NBA << 4))
+    sta a:$210B
+    ; ---- BG2's layout, from `haze`'s scene_writes permission ---------------
+    lda #ES_V_HZ_SHIM_MAP_SC_BASE
+    sta a:$2108                     ; BG2SC
+    rep #$20
+    .a16
+    sep #$20
+    .a8
+    lda #<HZ_VOFS
+    sta a:$2110                     ; BG2VOFS, low
+    lda #>HZ_VOFS
+    sta a:$2110                     ; BG2VOFS, high
     rep #$20
     .a16
     ldx #(ES_V_TEXT_MAP + 1*32 + 3)
@@ -64,7 +85,7 @@ enter:
     ; routine's contract says the CALLER supplies. The bit's number comes from
     ; the allocator, not from a hand-written 1.
     lda z:ES_SM_NMI+2
-    ora #(1 << ES_H_HZWARP_CH)
+    ora #((1 << ES_H_HZWARP_CH) | (1 << ES_H_HZSHIM_CH))
     sta z:ES_SM_NMI+2
     rep #$20
     .a16
@@ -128,6 +149,6 @@ exit:
     rts
 
 .segment "RODATA"
-s_hint:  .byte "B FLAT    START TITLE", 0
+s_hint:  .byte "B FLAT   START TITLE", 0
 .segment "CODE"
 .endscope

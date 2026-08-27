@@ -28,13 +28,51 @@
 ; hook reaches the hardware on the same frame.
 HZ_SLOT = ES_SM_HDMA_LONG + ES_H_HZWARP_CH * 16
 
+; The enter-time GP-DMA register file for the shimmer layer's own upload,
+; addressed through the channel the `hz_shim_up` dma_init claim names.
+HZ_SHIM_REGS = $4300 + ES_D_HZ_SHIM_UP_CH * 16
+
 ; The 32 phases must not straddle a bank: HDMA increments A1T within a bank and
 ; does not carry into A1B. The blob is one contiguous claim, so this is a
 ; property of where the allocator placed it, and it is asserted rather than
 ; assumed.
 .assert (.loword(hz_warp_bin) + HZ_BLOB_COUNT * 256) <= $10000, error, "hz_warp's blobs straddle a bank boundary - HDMA cannot cross one"
 
-; --- hz_arm: the channel, the seed scroll, the phase (scene enter) ----------
+; --- hz_shim_dma: one VRAM upload for the shimmer layer ---------------------
+; CONTRACT hz_shim_dma
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       X = the source address low 16, Y = the byte count, A = the
+;             source bank in the low byte
+;   out:      the block transferred to VRAM from the caller's VMADD
+;   clobbers: A, N, Z
+;   assumes:  forced blank, and the enter-time window in which the channel
+;             registers are free — this is a dma_init claim, forced_blank by
+;             class
+;   tail:     rts
+;
+; DAS is single-shot — the transfer consumes it — so it is armed HERE, once
+; per call, which is the only shape a caller cannot forget.
+hz_shim_dma:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "hz_shim_dma"
+    stx a:HZ_SHIM_REGS + 2          ; A1T
+    sty a:HZ_SHIM_REGS + 5          ; DAS (re-armed for THIS transfer)
+    sep #$20
+    .a8
+    sta a:HZ_SHIM_REGS + 4          ; A1B — the bank byte the caller passed
+    lda #ES_D_HZ_SHIM_UP_DMAP
+    sta a:HZ_SHIM_REGS + 0          ; DMAP: A->B, 2 regs write-once (mode 1)
+    lda #ES_D_HZ_SHIM_UP_BBAD
+    sta a:HZ_SHIM_REGS + 1          ; BBAD: VMDATAL
+    lda #(1 << ES_D_HZ_SHIM_UP_CH)
+    sta a:$420B                     ; fire (enter-time: channel regs are free)
+    rep #$20
+    .a16
+    rts
+
+; --- hz_arm: the channels, the seed scrolls, the shimmer layer (scene enter) -
 ; CONTRACT hz_arm
 ;   entry:    A16 I16 DB=0
 ;   exit:     A16 I16
@@ -56,26 +94,86 @@ hz_arm:
     SF_ASSERT_WIDTH 16, 16, "hz_arm"
     stz z:ES_HZ_PHASE
     stz z:ES_HZ_FLAT                 ; the effect is ON at scene enter
+    ; ---- the shimmer layer's art ------------------------------------------
     sep #$20
     .a8
-    ; ---- the flat base BG1HOFS holds above the band ----------------------
-    ; Write-twice: the port takes the low byte then the high. The table's
-    ; head-skip entry restates this same value over lines 0..119 every frame.
+    lda #$80
+    sta a:$2115                     ; VMAIN: +1 word after the high byte
+    rep #$20
+    .a16
+    lda #ES_V_HZ_SHIM_CHR
+    sta a:$2116
+    ldx #.loword(hz_shim_chr_bin)
+    ldy #ES_R_HZ_SHIM_CHR_SIZE
+    lda #^hz_shim_chr_bin
+    jsr hz_shim_dma
+    lda #ES_V_HZ_SHIM_MAP
+    sta a:$2116
+    ldx #.loword(hz_shim_map_bin)
+    ldy #ES_R_HZ_SHIM_MAP_SIZE
+    lda #^hz_shim_map_bin
+    jsr hz_shim_dma
+    ; ---- palette group 2, CGRAM words 32..47 ------------------------------
+    ; CGDATA is a byte port written low-then-high, so the loop is CPU-side.
+    ; Word 0 of the group is the 4bpp TRANSPARENT slot and is never rendered;
+    ; it is written anyway, because power-on CGRAM is random (rule 5) and a
+    ; slot that is never READ is still a slot that must be DEFINED.
+    sep #$20
+    .a8
+    lda #ES_C_HZ_SHIM_PAL
+    sta a:$2121                     ; CGADD = the claim base
+    rep #$20
+    .a16
+    ldx #0
+:   lda f:hz_shim_pal_bin, x
+    sep #$20
+    .a8
+    sta a:$2122                     ; low byte
+    xba
+    sta a:$2122                     ; high byte
+    rep #$20
+    .a16
+    inx
+    inx
+    cpx #ES_R_HZ_SHIM_PAL_SIZE
+    bcc :-
+    sep #$20
+    .a8
+    ; ---- the flat bases the two channels hold above the band --------------
+    ; Write-twice: each port takes the low byte then the high. The table's
+    ; head-skip entry restates these same values over lines 0..119 every
+    ; frame, which is why they are declared as `seed` rather than as owners.
     lda #0
-    sta a:$210D
-    sta a:$210D
-    ; ---- the channel's shadow slots --------------------------------------
+    sta a:$210D                     ; BG1HOFS, low
+    sta a:$210D                     ; BG1HOFS, high
+    sta a:$210F                     ; BG2HOFS, low
+    sta a:$210F                     ; BG2HOFS, high
+    ; ---- the world's channel ----------------------------------------------
     ldx #(ES_H_HZWARP_CH * 16)
     lda #ES_H_HZWARP_DMAP
     sta f:ES_SM_HDMA_LONG + 0, x    ; DMAP: direct, mode 2 (write twice)
     lda #ES_H_HZWARP_BBAD
     sta f:ES_SM_HDMA_LONG + 1, x    ; BBAD -> BG1HOFS
     lda #<hz_warp_bin
-    sta f:ES_SM_HDMA_LONG + 2, x    ; A1T low — CONSTANT across every phase
+    sta f:ES_SM_HDMA_LONG + 2, x    ; A1T low — CONSTANT across every blob
     lda #>hz_warp_bin
-    sta f:ES_SM_HDMA_LONG + 3, x    ; A1T high — phase 0
+    sta f:ES_SM_HDMA_LONG + 3, x    ; A1T high — blob 0
     lda #^hz_warp_bin
     sta f:ES_SM_HDMA_LONG + 4, x    ; A1B: the ROM bank the claim landed in
+    ; ---- the shimmer layer's channel, on the SAME table --------------------
+    ; Same blob set, same stride, different phase. The lead is applied in the
+    ; VBlank commit rather than here, so the two channels stay one table.
+    ldx #(ES_H_HZSHIM_CH * 16)
+    lda #ES_H_HZSHIM_DMAP
+    sta f:ES_SM_HDMA_LONG + 0, x
+    lda #ES_H_HZSHIM_BBAD
+    sta f:ES_SM_HDMA_LONG + 1, x    ; BBAD -> BG2HOFS
+    lda #<hz_warp_bin
+    sta f:ES_SM_HDMA_LONG + 2, x
+    lda #>hz_warp_bin
+    sta f:ES_SM_HDMA_LONG + 3, x
+    lda #^hz_warp_bin
+    sta f:ES_SM_HDMA_LONG + 4, x
     rep #$20
     .a16
     rts
@@ -159,18 +257,36 @@ hz_nmi_commit:
     .i16
     SF_ASSERT_WIDTH 8, 16, "hz_nmi_commit"
     lda z:ES_HZ_FLAT                ; A8: bit 0 is the whole flag
-    beq @animating
-    lda #HZ_FLAT_INDEX
-    bra @select
-@animating:
-    .a8
-    .i16
-    lda z:ES_HZ_PHASE               ; A8: the low byte is the whole range 0..31
-@select:
-    .a8
-    .i16
+    bne @flat
+    ; ---- the world's channel: this frame's phase --------------------------
+    lda z:ES_HZ_PHASE               ; the low byte is the whole range 0..31
     clc
     adc #>hz_warp_bin
     ldx #(ES_H_HZWARP_CH * 16)
-    sta f:ES_SM_HDMA_LONG + 3, x    ; A1T high
+    sta f:ES_SM_HDMA_LONG + 3, x
+    ; ---- the shimmer's channel: HZ_SHIM_LEAD phases ahead ------------------
+    ; The mask is what makes the lead a rotation rather than an overrun — and
+    ; it is why HZ_FLAT_INDEX sits ABOVE the mask's range: the control blob can
+    ; never be reached by accident from here.
+    lda z:ES_HZ_PHASE
+    clc
+    adc #HZ_SHIM_LEAD
+    and #(HZ_PHASES - 1)
+    clc
+    adc #>hz_warp_bin
+    ldx #(ES_H_HZSHIM_CH * 16)
+    sta f:ES_SM_HDMA_LONG + 3, x
+    rts
+@flat:
+    .a8
+    .i16
+    ; BOTH channels take the control blob, so the flat state is flat in the
+    ; world AND in the glare — one variable, as a control has to be.
+    lda #HZ_FLAT_INDEX
+    clc
+    adc #>hz_warp_bin
+    ldx #(ES_H_HZWARP_CH * 16)
+    sta f:ES_SM_HDMA_LONG + 3, x
+    ldx #(ES_H_HZSHIM_CH * 16)
+    sta f:ES_SM_HDMA_LONG + 3, x
     rts

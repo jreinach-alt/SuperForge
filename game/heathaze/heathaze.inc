@@ -20,6 +20,20 @@ JOY_START = 1 << 12
 ; There is no such number here.
 HZ_PHASE_BASE = $0060
 
+; HOW FAR AHEAD THE SHIMMER LAYER RUNS, in phases of the 32-phase loop.
+;
+; THIS NUMBER IS THE EFFECT. Both HDMA channels read the same table; give them
+; the same phase and the glare rides the world like a decal stuck to it, which
+; reads as one flat layer wobbling. Give them different phases and the glare
+; slides ACROSS a surface that is itself moving — refraction, where the thing
+; doing the bending and the thing being bent do not travel together, which is
+; what the eye actually reads as hot air.
+;
+; 11 rather than 16: half a loop would put the two exactly out of phase and
+; the pair would beat symmetrically, which is its own kind of pattern. 11 is
+; coprime with 32, so the relative phase walks the whole loop before repeating.
+HZ_SHIM_LEAD = 11
+
 ; BG3 2bpp tile attr: palette 7 (bg_text's claim pins CGRAM words 28..31),
 ; priority set. With BGMODE's BG3-priority bit also set, a BG3 tile carrying
 ; it sits ABOVE BG1, which is what keeps a line of text legible over a layer

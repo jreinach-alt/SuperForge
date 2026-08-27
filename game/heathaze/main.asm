@@ -80,6 +80,10 @@ hz_map_bin:
     .incbin "hz_map.bin"
 .assert ^hz_map_bin = ES_R_HZ_MAP_BANK, error, "hz_map bank drifted from allocator claim"
 .assert .loword(hz_map_bin) = ES_R_HZ_MAP_ADDR, error, "hz_map addr drifted from allocator claim"
+hz_shim_map_bin:
+    .incbin "hz_shim_map.bin"
+.assert ^hz_shim_map_bin = ES_R_HZ_SHIM_MAP_BANK, error, "hz_shim_map bank drifted from allocator claim"
+.assert .loword(hz_shim_map_bin) = ES_R_HZ_SHIM_MAP_ADDR, error, "hz_shim_map addr drifted from allocator claim"
 font_bin:
     .incbin "font_2bpp.bin"
 .assert ^font_bin = ES_R_FONT_BIN_BANK, error, "font_bin bank drifted from allocator claim"
@@ -88,10 +92,18 @@ hz_chr_bin:
     .incbin "hz_chr.bin"
 .assert ^hz_chr_bin = ES_R_HZ_CHR_BANK, error, "hz_chr bank drifted from allocator claim"
 .assert .loword(hz_chr_bin) = ES_R_HZ_CHR_ADDR, error, "hz_chr addr drifted from allocator claim"
+hz_shim_chr_bin:
+    .incbin "hz_shim_chr.bin"
+.assert ^hz_shim_chr_bin = ES_R_HZ_SHIM_CHR_BANK, error, "hz_shim_chr bank drifted from allocator claim"
+.assert .loword(hz_shim_chr_bin) = ES_R_HZ_SHIM_CHR_ADDR, error, "hz_shim_chr addr drifted from allocator claim"
 hz_pal_bin:
     .incbin "hz_pal.bin"
 .assert ^hz_pal_bin = ES_R_HZ_PAL_BANK, error, "hz_pal bank drifted from allocator claim"
 .assert .loword(hz_pal_bin) = ES_R_HZ_PAL_ADDR, error, "hz_pal addr drifted from allocator claim"
+hz_shim_pal_bin:
+    .incbin "hz_shim_pal.bin"
+.assert ^hz_shim_pal_bin = ES_R_HZ_SHIM_PAL_BANK, error, "hz_shim_pal bank drifted from allocator claim"
+.assert .loword(hz_shim_pal_bin) = ES_R_HZ_SHIM_PAL_ADDR, error, "hz_shim_pal addr drifted from allocator claim"
 .segment "CODE"
 
 ; --- the global feature runtimes (after the blobs their uploads read) ------

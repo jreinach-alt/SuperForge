@@ -52,6 +52,49 @@ name = "haze"
 role = "feature"
 depends = ["hz_rom"]
 
+# ---- the vocabulary (stage 2) --------------------------------------------
+# THE DISPLACEMENT AND THE BLEND ARE ONE FEATURE, and that is the composition
+# this rail exists to show. `hz_bg` designates bg1 and bg3 to the main screen
+# and knows nothing about either; this feature designates bg2 to the SUB
+# screen, declares what the blender does with it, and separately owns two HDMA
+# channels. Four write-only ports — TM, TS, CGWSEL, CGADSUB — are composed
+# from claims, and no feature claims one.
+[[claims.screen]]
+layer = "bg2"
+on = "sub"
+
+# `half` is what makes this glare rather than a wash: CGADSUB bit 6 shifts the
+# sum right by one, so a composited pixel is min((main + sub) >> 1, 31) per
+# 5-bit channel.
+#
+# `source = "sub"` is the load-bearing field. With it the addend is the sub
+# screen's pixel, and where the sub screen is EMPTY the hardware substitutes
+# the fixed colour AND DISABLES HALVING — so the world arrives unhalved
+# everywhere the shimmer is transparent, which is most of the band. That
+# fallback is what keeps the desert bright instead of fogged, and it is the
+# case that tells a real sub-screen blend from a palette trick.
+#
+# THE `math` LIST IS ["bg1"] AND THE OMISSIONS ARE THE POINT:
+#   bg1       the world — the thing the heat is coming off. This is the blend.
+#   backdrop  ABSENT. The backdrop is this rail's sky, above the band, and
+#             admitting it would glare the sky too — which is the concept
+#             sheet's "use heat haze locally, only near sources" refused at
+#             the declaration rather than by hoping the art stays out of the
+#             way. `water` admits it and is right to: there, a hole in the
+#             world under the surface should still read as water.
+#   bg3       ABSENT. The text draws over the desert and must stay legible, so
+#             its pixels are not admitted and render at full intensity.
+#   obj       absent because this rail has no sprites to designate.
+#
+# clip/prevent stay at their defaults ("never"): this rail programs no colour
+# window, and a windowed mode with no window claimant would compose a mode
+# that collapses to a fixed one (docs/99 section 8).
+[[claims.blend]]
+op = "add"
+half = true
+source = "sub"
+math = ["bg1"]
+
 # ---- the channel ----------------------------------------------------------
 # Mode 2 is one register written TWICE per transfer, which is exactly what a
 # BGnHOFS write-twice latch wants — platformer_bg's parallax channel says the
@@ -70,12 +113,75 @@ band = [120, 224]
 phase = "active"
 channels = 1
 
-# The base scroll, established at scene enter and overridden by `hzwarp`
-# across the band. See the header: this pair is required to be real.
+# THE SHIMMER'S OWN CHANNEL, and the reason it is a second one rather than a
+# second register on the first: HDMA mode 2 drives ONE register. So the layer
+# in front and the world behind it get a channel each, both reading the SAME
+# 33-blob table — at phases HZ_SHIM_LEAD apart.
+#
+# THAT OFFSET IS THE WHOLE TRICK. Real heat haze is refraction: the thing
+# doing the bending and the thing being bent do not move together. Give both
+# layers the same phase and the shimmer rides the world like a decal; give
+# them different phases and the glare slides across a surface that is itself
+# moving, which is what the eye reads as air. It costs one more 8-bit store a
+# frame and no extra ROM at all.
+[[claims.hdma]]
+name = "hzshim"
+registers = ["BG2HOFS"]
+mode = 2
+band = [120, 224]
+phase = "active"
+channels = 1
+
+# The base scrolls, established at scene enter and overridden by the two
+# channels across the band. See the header: each pair is required to be real —
+# a seed with nothing overriding it is refused, and so is a plain owner
+# standing against a transfer claim.
 [[claims.reg]]
 name = "hz_seed"
-registers = ["BG1HOFS"]
+registers = ["BG1HOFS", "BG2HOFS"]
 seed = true
+
+# BG2's layout, written by the scene at enter. NOT TM and NOT TS — those are
+# the vocabulary's, composed from the screen claims above; a raw claim on
+# either beside them is refused (R6). NOT BG12NBA either: that byte carries
+# BG1's chr base nibble AND BG2's in one write-only port, so it has one owner
+# per scene whatever the vocabulary does. It sits with `hz_bg`, the feature
+# that decides the scene's display shape, which folds this layer's emitted
+# ES_V_HZ_SHIM_CHR_NBA into its own write — `breaker_bg` is the precedent and
+# `lake_bg` the sibling. The composition NAMES that split as a warning; it is
+# accurate and it is deliberate.
+[[claims.reg]]
+name = "hz_shim_layer"
+registers = ["BG2SC", "BG2VOFS"]
+scene_writes = ["BG2SC", "BG2VOFS"]
+
+# ---- the shimmer layer's art ---------------------------------------------
+[[claims.dma_init]]
+name = "hz_shim_up"
+channel = 1
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "hz_shim_chr"
+kind = "chr"
+tiles = 9
+tile_bytes = 32          # 4bpp
+
+[[claims.vram]]
+name = "hz_shim_map"
+kind = "tilemap"
+words = 0x400            # 32x32; BG2SC bases are 0x400-word granular
+
+# BG2 reads palette GROUP 2 — CGRAM words 32..47. Group 0 is the world's
+# (hz_bg claims it, word 0 included, because word 0 is the transparent slot
+# and the hardware backdrop at once); group 1 would overlap bg_text's 2bpp
+# palette 7 at words 28..31. Group 2 is the first that collides with neither,
+# and the map authors the attribute bits to match.
+[[claims.cgram]]
+name = "hz_shim_pal"
+words = 16
+at = 32
 
 # The accumulated phase index, 0..31. u16 so the advance is a plain add and
 # the wrap is one mask; the loop closes at 32 because both wave components

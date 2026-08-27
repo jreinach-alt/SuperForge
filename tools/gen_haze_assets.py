@@ -323,6 +323,129 @@ def map_words():
     return [HZ_T[cell(min(row, 27), col)]
             for row in range(HZ_ROWS) for col in range(HZ_COLS)]
 # =============================================================================
+# BG2: THE SHIMMER LAYER (stage 2) — palette group 2, CGRAM words 32..47
+# =============================================================================
+# WHAT IT IS FOR. The displacement bends the world; this layer is the GLARE
+# that sits in front of it, half-added onto the main screen by the PPU's one
+# colour-math unit. Nothing here paints a "hazy" colour: every pixel of the
+# shimmer is an OPERAND, and what you see is (world + shimmer) >> 1 where the
+# two overlap and the world UNHALVED where the shimmer is transparent — the
+# empty-sub fallback, which is the case that tells a real sub-screen blend
+# from a palette trick.
+#
+# SO IT IS MOSTLY TRANSPARENT, ON PURPOSE. A dense sub layer would halve the
+# whole band and read as fog. What makes it read as heat is sparse vertical
+# wisps over a world that is otherwise at full intensity, thickening toward
+# the hot ground exactly as the displacement's amplitude does.
+#
+# AND ITS COLOURS ARE WARM AND BRIGHT, which is a consequence of the operator
+# rather than a preference: a half-add pulls the result toward the mean of the
+# two operands, so a shimmer DARKER than the sand would read as soot. These
+# sit above the sand's own luminance, so the overlap lightens and desaturates.
+SHIM_DIM = (25, 21, 15)
+SHIM_MID = (29, 25, 19)
+SHIM_HOT = (31, 30, 26)
+
+# Word 0 is the 4bpp TRANSPARENT slot for this group and is never rendered, so
+# its value is not a colour decision — it is written black and stated as such.
+HZ_SHIM_PAL = [0, bgr(*SHIM_DIM), bgr(*SHIM_MID), bgr(*SHIM_HOT)] + [0] * 12
+
+I_SH_NONE, I_SH_DIM, I_SH_MID, I_SH_HOT = 0, 1, 2, 3
+SH_LEGEND = {".": I_SH_NONE, "d": I_SH_DIM, "m": I_SH_MID, "h": I_SH_HOT}
+
+
+def shim_pic(*rows):
+    assert len(rows) == 8, f"expected 8 rows, got {len(rows)}"
+    return [[SH_LEGEND[ch] for ch in row] for row in rows]
+
+
+HZ_SH_T = {}
+HZ_SH_TILES = []
+
+
+def shim_tile(name, rows):
+    assert name not in HZ_SH_T, f"duplicate shimmer tile {name}"
+    HZ_SH_T[name] = len(HZ_SH_TILES)
+    HZ_SH_TILES.append((name, rows))
+    return HZ_SH_T[name]
+
+
+shim_tile("none", [[I_SH_NONE] * 8 for _ in range(8)])
+# Four wisps, each a vertical stroke that wanders a pixel or two — the shape a
+# rising column of hot air makes. They are drawn at different x within the
+# cell so a run of them does not read as a grid.
+shim_tile("wisp_a", shim_pic("..d.....", "..dm....", "...m....", "...md...",
+                             "..dm....", "..m.....", "..md....", "...d...."))
+shim_tile("wisp_b", shim_pic(".....d..", "....dm..", "....m...", "...dm...",
+                             "....m...", "....mh..", ".....m..", ".....d.."))
+shim_tile("wisp_c", shim_pic("......d.", ".....dm.", ".....m..", "....dm..",
+                             ".....m..", ".....d..", "....dm..", "....m..."))
+shim_tile("wisp_d", shim_pic("d.......", "dm......", "m.......", "dm......",
+                             ".m......", ".mh.....", ".m......", "d......."))
+# Two brighter ones for the near ground, where the effect is strongest.
+shim_tile("glare_a", shim_pic("..m.....", "..mh..d.", "..h..dm.", ".mh..m..",
+                              ".h..dm..", "mh..m...", "m..dm...", "m..m...."))
+shim_tile("glare_b", shim_pic(".....m..", "d....mh.", "dm...h..", ".m..mh..",
+                              ".mh.h...", "..h.h...", "..mh....", "...m...."))
+
+# THE MIRAGE BAND, and it is the shape the reference sheet is right about.
+# A desert mirage is not vertical: just under the horizon the hot ground
+# refracts the sky into HORIZONTAL streaks, which is why it reads as standing
+# water. Vertical wisps alone read as scratches on the sand — they are the
+# right shape for a furnace vent and the wrong one for a road going away.
+shim_tile("mirage_a", shim_pic("........", "dmmmd..d", "..dmmmmd", "........",
+                               "dmd...dm", "...dmmd.", "........", "..dmd..."))
+shim_tile("mirage_b", shim_pic("..dmmd..", "........", "dmmd..dm", "...dmd..",
+                               "........", "mmd..dmm", "..dmmd..", "........"))
+
+SHIM_WISPS = ["wisp_a", "wisp_b", "wisp_c", "wisp_d"]
+SHIM_GLARE = ["glare_a", "glare_b"]
+SHIM_MIRAGE = ["mirage_a", "mirage_b"]
+MIRAGE_ROWS = 3          # rows 15..17, immediately under the horizon strip
+
+
+def shim_cell(row, col):
+    """One BG2 cell: mostly nothing, thickening toward the hot ground.
+
+    DENSITY TRACKS THE DISPLACEMENT'S OWN RAMP, which is why the two read as
+    one effect rather than as two: where the world bends most it is also most
+    glared over. Above the band there is nothing at all, so BG2 contributes no
+    sub pixel there and the sky arrives unhalved.
+    """
+    if row < GROUND_TOP:
+        return "none"
+    n = noise(row * 131 + col * 17 + 7)
+
+    # The mirage band: dense and HORIZONTAL, right under the horizon, where a
+    # real one sits. Nearly solid, because this is the one place the half-add
+    # should visibly lift the whole ground.
+    if row < GROUND_TOP + MIRAGE_ROWS:
+        return SHIM_MIRAGE[n & 1] if n < 210 else "none"
+
+    # Below it, rising air: vertical, thickening toward the viewer's feet,
+    # tracking the displacement's own amplitude ramp so the two read as one
+    # effect rather than as two.
+    t = (row - GROUND_TOP - MIRAGE_ROWS) / (27 - GROUND_TOP - MIRAGE_ROWS)
+    if n < 26 + 92 * t:
+        return SHIM_GLARE[n & 1] if t > 0.5 else SHIM_WISPS[n & 3]
+    return "none"
+
+
+def shim_map_words():
+    """32x32 tilemap words. PALETTE GROUP 2 in the attribute bits.
+
+    Group 0 is the world's (hz_bg claims it, word 0 included, because word 0
+    is the transparent slot AND the hardware backdrop at once). Group 1 would
+    overlap bg_text's 2bpp palette 7 at words 28..31. Group 2 is the first
+    that collides with neither — `water` reached the same answer for the same
+    reason.
+    """
+    attr = 2 << 10
+    return [HZ_SH_T[shim_cell(min(row, 27), col)] | attr
+            for row in range(HZ_ROWS) for col in range(HZ_COLS)]
+
+
+# =============================================================================
 # THE WARP TABLE — 32 phases of a per-scanline BG1HOFS displacement
 # =============================================================================
 # ONE PHASE, byte for byte, as the HDMA channel walks it:
@@ -488,6 +611,7 @@ HZ_PHASE_SHIFT   = {shift}      ; stride 256 -> a blob is (index << 8)
 HZ_BAND_TOP      = {band_top}   ; first distorted scanline
 HZ_BAND_LINES    = {band_lines} ; how many the repeat entry covers
 HZ_TILE_COUNT    = {tiles}
+HZ_SHIM_TILES    = {shim}
 """
 
 
@@ -500,6 +624,13 @@ def main(argv):
     (out / "hz_map.bin").write_bytes(encode_words(map_words(), "hz_map", 1024))
     (out / "hz_pal.bin").write_bytes(encode_words(HZ_PAL, "hz_pal", 16))
 
+    shim_chr = b"".join(encode_4bpp(rows, n) for n, rows in HZ_SH_TILES)
+    (out / "hz_shim_chr.bin").write_bytes(shim_chr)
+    (out / "hz_shim_map.bin").write_bytes(
+        encode_words(shim_map_words(), "hz_shim_map", 1024))
+    (out / "hz_shim_pal.bin").write_bytes(
+        encode_words(HZ_SHIM_PAL, "hz_shim_pal", 16))
+
     warp = warp_table()
     assert len(warp) == (HZ_PHASES + 1) * HZ_PHASE_STRIDE, len(warp)
     (out / "hz_warp.bin").write_bytes(warp)
@@ -507,11 +638,15 @@ def main(argv):
     (out / "hz_art.inc").write_text(ART_INC.format(
         phases=HZ_PHASES, flat=HZ_FLAT_INDEX, blobs=HZ_PHASES + 1,
         shift=8, band_top=HZ_BAND_TOP,
-        band_lines=HZ_BAND_LINES, tiles=len(HZ_TILES)))
+        band_lines=HZ_BAND_LINES, tiles=len(HZ_TILES),
+        shim=len(HZ_SH_TILES)))
 
     print(f"hz_chr.bin   {len(chr_blob):6d} B  ({len(HZ_TILES)} tiles)")
     print(f"hz_map.bin     2048 B  (32x32 words)")
     print(f"hz_pal.bin       32 B  (16 CGRAM words)")
+    print(f"hz_shim_chr.bin  {len(shim_chr):4d} B  ({len(HZ_SH_TILES)} tiles, BG2 sub screen)")
+    print(f"hz_shim_map.bin  2048 B  (32x32 words, palette group 2)")
+    print(f"hz_shim_pal.bin    32 B  (16 CGRAM words at 32)")
     print(f"hz_warp.bin  {len(warp):6d} B  ({HZ_PHASES} phases + 1 flat "
           f"control x {HZ_PHASE_STRIDE} B, band {HZ_BAND_TOP}..224)")
     return 0

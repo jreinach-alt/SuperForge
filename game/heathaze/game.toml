@@ -87,7 +87,7 @@ features = ["blend_off", "hz_flat"]
 # The desert: the same world, shimmering.
 [[scene]]
 id = "desert"
-features = ["blend_off", "haze"]
+features = ["haze"]
 
 [[edge]]
 from = "title"
