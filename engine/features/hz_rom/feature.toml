@@ -33,24 +33,6 @@ bytes = 2048             # 32x32 tilemap words — the world
 name = "hz_pal"
 bytes = 32               # 16 CGRAM words — BG palette group 0
 
-# --- BG2, the shimmer layer (stage 2) ------------------------------------
-# Seven tiles and a mostly-empty map. The layer is an OPERAND of the blend,
-# not a picture in its own right: what reaches the screen is
-# (world + shimmer) >> 1 where they overlap and the world unhalved where the
-# shimmer is transparent, which is most of it.
-[[claims.rom]]
-name = "hz_shim_chr"
-bytes = 288              # 9 x 4bpp tiles: empty, four rising wisps, two
-                         # glares, and two horizontal mirage streaks
-
-[[claims.rom]]
-name = "hz_shim_map"
-bytes = 2048             # 32x32 tilemap words, palette group 2 in the attrs
-
-[[claims.rom]]
-name = "hz_shim_pal"
-bytes = 32               # 16 CGRAM words at 32 — BG palette group 2
-
 [[claims.rom]]
 name = "hz_warp"
 bytes = 16640            # 65 x 256 B. Each blob is a complete HDMA table for

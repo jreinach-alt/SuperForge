@@ -41,30 +41,11 @@ enter:
     stz z:US_TSH
     sep #$20
     .a8
-    ; ---- BG12NBA: the two CHR base nibbles, one write-only byte ------------
-    ; BG1's nibble is `hz_bg`'s and BG2's is `haze`'s, and the hardware puts
-    ; them in one write-only port — so the byte has ONE owner per scene
-    ; whatever the vocabulary does, and the scene folds both emitted nibbles
-    ; into a single write. `breaker_bg` is the precedent and `lake_bg` the
-    ; sibling; the composition names the split as a warning, which is accurate.
-    ; BG2's nibble is emitted RAW and lives in bits 6-4, so it is shifted
-    ; here — `lake_bg`/`water` fold theirs the same way (lake.asm:53). OR-ing
-    ; the two unshifted gives BG1 a base of 3 and BG2 a base of 0, which is
-    ; a screen of noise from uninitialised VRAM and no warning anywhere.
-    lda #(ES_V_HZ_CHR_NBA | (ES_V_HZ_SHIM_CHR_NBA << 4))
-    sta a:$210B
-    ; ---- BG2's layout, from `haze`'s scene_writes permission ---------------
-    lda #ES_V_HZ_SHIM_MAP_SC_BASE
-    sta a:$2108                     ; BG2SC
-    rep #$20
-    .a16
-    sep #$20
-    .a8
-    ; BG2HOFS: the shimmer layer does not scroll sideways on this rail. Its
-    ; VERTICAL offset belongs to `haze`'s own channel, which is why that port
-    ; is not written here.
-    stz a:$210F                     ; BG2HOFS, low
-    stz a:$210F                     ; BG2HOFS, high
+    lda #ES_V_HZ_CHR_NBA
+    sta a:$210B                     ; BG12NBA — BG2's nibble is 0: this rail
+                                    ;   has no BG2 layer, so no BG2 CHR base
+                                    ;   exists to name and none is read (TS
+                                    ;   composes $00 and TM's bg2 bit is clear)
     rep #$20
     .a16
     ldx #(ES_V_TEXT_MAP + 1*32 + 3)
@@ -78,15 +59,16 @@ enter:
     lda #ES_SCR_DESERT_TS
     sta a:$212D
     lda #ES_SCR_DESERT_CGWSEL
-    sta a:$2130
-    lda #ES_SCR_DESERT_CGADSUB
-    sta a:$2131
+    sta a:$2130                     ; `blend_off`'s composed off state — this
+    lda #ES_SCR_DESERT_CGADSUB      ;   scene arms no blend, and composing the
+    sta a:$2131                     ;   off state is what stops it inheriting
+                                    ;   one across an edge
     ; ---- arm the channel ---------------------------------------------------
     ; hz_arm filled the shadow slots; this is the enable bit, which that
     ; routine's contract says the CALLER supplies. The bit's number comes from
     ; the allocator, not from a hand-written 1.
     lda z:ES_SM_NMI+2
-    ora #((1 << ES_H_HZWARP_CH) | (1 << ES_H_HZSHIM_CH))
+    ora #(1 << ES_H_HZWARP_CH)
     sta z:ES_SM_NMI+2
     rep #$20
     .a16

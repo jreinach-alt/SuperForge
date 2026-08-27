@@ -69,22 +69,25 @@
 # port belongs to whichever feature answers for it in that scene.
 #
 # =============================================================================
-# STAGE 1 OF TWO
+# WHY THERE IS NO SUB-SCREEN GLARE LAYER
 # =============================================================================
-# This rail composes the SCREEN half of the vocabulary and no blend: both
-# scenes carry `blend_off`. Stage 2 replaces the desert scene's `blend_off`
-# with a shimmer layer on the sub screen and `haze`'s own [[claims.blend]], so
-# the displacement and a half-add compose in one scene. The diff between the
-# stages is confined to one feature.toml and one scene's feature list, which
-# is the point of decomposing it this way.
+# There was one. A BG2 shimmer layer on the sub screen, half-added onto the
+# world by the colour-math unit, with its own HDMA channel on BG2VOFS running
+# a fixed phase ahead of BG1's so the glare slid across a surface that was
+# itself moving. It worked, it was verified as real colour math, and it was
+# cut on the owner's review: the displacement alone reads better.
 #
-# =============================================================================
-# REGION + TICK_SCALE
-# =============================================================================
-# ONE RATE, ONE PAIR. The phase advance is a velocity — phases per frame — so
-# it takes exactly one factor of the region ratio r, which is exactly what one
-# TS_STEP applies. Nothing here accelerates, so there is no r^2 arm and no
-# base-side pre-scale. NOT SCALED: nothing.
+# It is worth recording what the extra layer COST, because the cost is not
+# obvious from a screenshot. With two layers displaced by two different
+# amounts the frame stops being the control displaced, so BG1's own
+# displacement can only be recovered through a mask decoded out of VRAM — and
+# near the bottom of the band, where the glare was densest, that recovery is
+# not reliable enough to assert a per-row equality on. The test carried two
+# FLOORS instead: 62 decidable rows, 81% exact. With one layer it is 91
+# decidable rows, 98% exact, and every row accounted for individually.
+#
+# A second layer does not just cost VRAM and a channel. It costs the ability
+# to make an exact statement about the first one.
 globals = ["scene_mgr", "fade", "input", "text_dp", "font_rom", "bg_text",
            "hz_bg", "hz_rom", "region", "tick_scale"]
 
@@ -97,7 +100,7 @@ features = ["blend_off", "hz_flat"]
 # The desert: the same world, shimmering.
 [[scene]]
 id = "desert"
-features = ["haze"]
+features = ["blend_off", "haze"]
 
 [[edge]]
 from = "title"

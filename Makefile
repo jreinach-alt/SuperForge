@@ -1281,17 +1281,14 @@ HZS_MAP  := $(BUILD)/hz
 HZS_ASM  := $(HZS)/main.asm $(wildcard $(HZS)/scenes/*.asm) \
             $(wildcard engine/features/*/*.asm)
 
-# EVERY blob the generator emits, not just the ones that were there first.
-# The three hz_shim_* files arrived with stage 2 and were left out of this
-# list; the recipe still .incbin'd them, so the ROM contained them but `make`
-# did not know they were inputs — edit the shimmer art and the target reports
-# "Nothing to be done" while the binary keeps yesterday's layer. That is the
-# stale-artifact class the landing gate exists for, arriving through a
-# prerequisite list rather than through a stale build dir.
+# EVERY blob the generator emits. Stage 2 added three and did not add them
+# here; the recipe still .incbin'd them, so the ROM contained them but `make`
+# did not know they were inputs — editing that art reported "Nothing to be
+# done" while the binary kept the old layer. Stage 2 is gone and so are those
+# three, but the lesson is the reason this comment stays: a blob the recipe
+# reads and this list omits is a stale artifact waiting to happen.
 HZS_ASSETS := $(BUILD)/assets/hz_chr.bin $(BUILD)/assets/hz_map.bin \
               $(BUILD)/assets/hz_pal.bin $(BUILD)/assets/hz_warp.bin \
-              $(BUILD)/assets/hz_shim_chr.bin $(BUILD)/assets/hz_shim_map.bin \
-              $(BUILD)/assets/hz_shim_pal.bin \
               $(BUILD)/assets/hz_art.inc
 
 $(HZS_ASSETS): tools/gen_haze_assets.py | $(BUILD)
