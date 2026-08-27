@@ -13,7 +13,7 @@
 # =============================================================================
 # WHAT IT DOES NOT OWN, AND WHY THAT IS THE INTERESTING PART
 # =============================================================================
-# BG1HOFS IS NOT HERE. On this rail that register is driven per scanline by
+# BG1VOFS IS NOT HERE. On this rail that register is driven per scanline by
 # `haze`'s HDMA channel during the band, and a CPU-written register with a
 # transfer claim on the same port refuses unless the CPU write is declared as
 # a `seed` the transfer overrides (allocate.check_reg_ownership, check 2). So
@@ -21,7 +21,8 @@
 # `haze` in the desert, `hz_flat` on the title screen. This feature owns the
 # rest of the display shape, which is the same in both.
 #
-# BG1VOFS stays here: nothing on this rail scrolls it, in either scene.
+# BG1HOFS stays here: nothing on this rail scrolls it horizontally, in
+# either scene.
 #
 # =============================================================================
 # THE WORLD
@@ -93,5 +94,5 @@ at = 0
 # claims above; a raw TM claim beside them is refused (R6).
 [[claims.reg]]
 name = "hz_layers"
-registers = ["BGMODE", "BG1SC", "BG12NBA", "BG1VOFS"]
-scene_writes = ["BGMODE", "BG1SC", "BG12NBA", "BG1VOFS"]
+registers = ["BGMODE", "BG1SC", "BG12NBA", "BG1HOFS"]
+scene_writes = ["BGMODE", "BG1SC", "BG12NBA", "BG1HOFS"]

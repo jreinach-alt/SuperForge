@@ -8,9 +8,22 @@ TWO KINDS OF OUTPUT, and the second is the point of the rail.
                strip, and a desert floor with a road receding to it. Ordinary
                4bpp tiles, palette group 0.
 
-  the WARP     `hz_warp.bin` — 32 complete phases of a per-scanline BG1HOFS
+  the WARP     `hz_warp.bin` — 32 complete phases of a per-scanline BG1VOFS
                displacement, each 256 B, ready for an HDMA channel to read
                straight out of ROM.
+
+               VERTICAL, and that is the whole character of the effect. An
+               inferior mirage comes from a VERTICAL refractive-index
+               gradient — hot thin air at the ground, cooler denser air above
+               — and rays bend along the gradient, which is why you see an
+               inverted patch of sky below the horizon and read it as water.
+               Horizontal wobble is the secondary term, from turbulent cells.
+               A per-scanline HOFS slides each row sideways and every source
+               row still appears exactly once; a per-scanline VOFS makes
+               scanline N show source row N + d(N), so rows are DUPLICATED
+               AND SKIPPED and the picture compresses and stretches. That
+               squashing is the boiling, and a horizontal offset cannot
+               produce it at all.
 
 WHY THE WARP IS A TABLE AND NOT ARTWORK. The obvious way to draw heat haze is
 to draw it: author a "warped" copy of every affected tile and animate between
@@ -463,11 +476,11 @@ def shim_map_words():
 
 
 # =============================================================================
-# THE WARP TABLE — 32 phases of a per-scanline BG1HOFS displacement
+# THE WARP TABLE — 32 phases of a per-scanline BG1VOFS displacement
 # =============================================================================
 # ONE PHASE, byte for byte, as the HDMA channel walks it:
 #
-#   [120, lo, hi]        a NON-REPEAT entry: write the pair once at scanline 0
+#   [top, lo, hi]        a NON-REPEAT entry: write the pair once at scanline 0
 #                        and idle for 119 more. The value is the scene's own
 #                        base scroll, so lines 0..119 — sky, ridge, horizon —
 #                        are exactly where the scene put them. This is the
@@ -482,8 +495,8 @@ def shim_map_words():
 #   [$00]                terminator.
 #
 # Mode 2 is one register written TWICE per transfer, which is exactly what a
-# BGnHOFS write-twice latch wants — platformer_bg's parallax channel says the
-# same thing about the same port.
+# BGnVOFS write-twice latch wants — platformer_bg's parallax channel says the
+# same thing about the horizontal sibling of this port.
 #
 # THE STRIDE IS 256 AND THAT IS A DESIGN CHOICE, not a rounding. A phase's
 # address is HZ_WARP + (phase << 8), so its low byte is always zero and
@@ -492,12 +505,25 @@ def shim_map_words():
 # per-frame cost.
 HZ_PHASES = 32
 HZ_PHASE_STRIDE = 256
-HZ_BASE_HOFS = 0                 # the rail does not scroll; the world sits at 0
+# The base the band is displaced AROUND. This is BG1VOFS, and it is HZ_VOFS
+# (-1) rather than 0 for the reason heathaze.inc gives: the first active
+# scanline is 1, so a VOFS of -1 is what puts world row r on picture rows
+# 8r..8r+7. The table's head-skip entry restates this value over the lines
+# above the band, so an undistorted scanline is byte-identical to one the CPU
+# wrote.
+HZ_BASE_VOFS = 0xFFFF
 
-# Amplitude in WHOLE PIXELS at the PEAK, which is the horizon. BG1HOFS is a
+# Amplitude in WHOLE PIXELS at the PEAK, which is the horizon. BG1VOFS is a
 # whole-pixel scroll, so the ramp quantises to this many steps and no more —
 # which is also why the test can assert an EQUALITY rather than a tolerance.
-HZ_AMP_MAX = 7
+#
+# FIVE, NOT SEVEN, AND THE AXIS IS WHY. A vertical displacement is louder than
+# a horizontal one of the same size: shearing a row sideways still shows every
+# source row exactly once, while displacing it vertically DUPLICATES and SKIPS
+# rows. At 7 the horizon strip — 8 px tall — is scrambled into a wide pale
+# smear that eats the mesa's foot. At 5 it shimmers and stays a horizon.
+# Compared on the shipped binary at 4, 5 and 7.
+HZ_AMP_MAX = 5
 
 # WHERE THE HAZE IS STRONGEST, and the correction this rail was built wrong
 # around the first time.
@@ -566,7 +592,7 @@ def _perspective_u(y):
 
 
 def displacement(line, phase):
-    """Whole-pixel BG1HOFS offset for one band line in one phase."""
+    """Whole-pixel BG1VOFS offset for one band line in one phase."""
     u = _perspective_u(HZ_BAND_TOP + line)
     a = 2.0 * math.pi
     w1 = math.sin(a * (u / HZ_LAMBDA_1 + phase / HZ_PHASES))
@@ -574,8 +600,8 @@ def displacement(line, phase):
     return int(round(amplitude(line) * (HZ_MIX_1 * w1 + HZ_MIX_2 * w2)))
 
 
-def hofs_pair(value):
-    """BG1HOFS as the write-twice latch takes it: low byte, then high."""
+def vofs_pair(value):
+    """BG1VOFS as the write-twice latch takes it: low byte, then high."""
     v = value & 0x3FF
     return bytes((v & 0xFF, (v >> 8) & 0x03))
 
@@ -583,10 +609,10 @@ def hofs_pair(value):
 def warp_phase(phase):
     """One 256 B phase blob."""
     out = bytearray()
-    out += bytes((HZ_BAND_TOP,)) + hofs_pair(HZ_BASE_HOFS)      # head skip
+    out += bytes((HZ_BAND_TOP,)) + vofs_pair(HZ_BASE_VOFS)      # head skip
     out += bytes((0x80 | HZ_BAND_LINES,))                       # repeat entry
     for line in range(HZ_BAND_LINES):
-        out += hofs_pair(HZ_BASE_HOFS + displacement(line, phase))
+        out += vofs_pair(HZ_BASE_VOFS + displacement(line, phase))
     out += bytes((0x00,))                                       # terminator
     assert len(out) <= HZ_PHASE_STRIDE, f"phase {phase}: {len(out)} B overruns"
     return bytes(out) + bytes(HZ_PHASE_STRIDE - len(out))
@@ -612,9 +638,9 @@ HZ_FLAT_INDEX = HZ_PHASES
 def flat_phase():
     """A complete table, same shape, every displacement zero."""
     out = bytearray()
-    out += bytes((HZ_BAND_TOP,)) + hofs_pair(HZ_BASE_HOFS)
+    out += bytes((HZ_BAND_TOP,)) + vofs_pair(HZ_BASE_VOFS)
     out += bytes((0x80 | HZ_BAND_LINES,))
-    out += hofs_pair(HZ_BASE_HOFS) * HZ_BAND_LINES
+    out += vofs_pair(HZ_BASE_VOFS) * HZ_BAND_LINES
     out += bytes((0x00,))
     return bytes(out) + bytes(HZ_PHASE_STRIDE - len(out))
 

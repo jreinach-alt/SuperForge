@@ -60,10 +60,11 @@ enter:
     .a16
     sep #$20
     .a8
-    lda #<HZ_VOFS
-    sta a:$2110                     ; BG2VOFS, low
-    lda #>HZ_VOFS
-    sta a:$2110                     ; BG2VOFS, high
+    ; BG2HOFS: the shimmer layer does not scroll sideways on this rail. Its
+    ; VERTICAL offset belongs to `haze`'s own channel, which is why that port
+    ; is not written here.
+    stz a:$210F                     ; BG2HOFS, low
+    stz a:$210F                     ; BG2HOFS, high
     rep #$20
     .a16
     ldx #(ES_V_TEXT_MAP + 1*32 + 3)

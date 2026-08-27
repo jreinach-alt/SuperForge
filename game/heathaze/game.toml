@@ -4,12 +4,22 @@
 # WHAT YOU SEE
 # =============================================================================
 # A desert road running to a mesa ridge under a bleached sky. Below the
-# horizon the whole of BG1 shimmers: every scanline is drawn at a slightly
-# different horizontal offset, the offsets ramp from zero at the horizon to
-# six pixels at the viewer's feet, and the pattern travels UPWARD. The road's
-# converging edges, its centre dashes and the saguaro trunks bend with it; the
-# sky and the ridge above the band do not move at all, which is what makes the
-# effect read as heat rising off hot ground rather than as a broken picture.
+# horizon the whole of BG1 BOILS: every scanline is drawn from a slightly
+# different SOURCE ROW, so rows are duplicated and skipped and the picture
+# compresses and stretches vertically. The displacement peaks at the horizon —
+# where a sightline has travelled through the most hot air — and decays toward
+# the viewer, and the pattern travels upward. The sky above the band does not
+# move at all, which is what makes it read as heat rather than as a broken
+# picture.
+#
+# VERTICAL, NOT HORIZONTAL, and that is the effect's whole character. An
+# inferior mirage comes from a VERTICAL refractive-index gradient — hot thin
+# air at the ground, cooler denser air above — and rays bend along the
+# gradient, which is why a mirage shows an inverted patch of sky below the
+# horizon and the eye reads it as water. A per-scanline BGnHOFS only shears
+# each row sideways and every source row still appears exactly once; only a
+# per-scanline BGnVOFS duplicates and skips them, and that squashing is the
+# boiling.
 #
 # B toggles the shimmer. That is the concept sheet's "before distortion /
 # after heat haze" pair, live, on one binary — and it is the control every
@@ -23,7 +33,7 @@
 # author pre-warped copies of the affected art and animate between them. That
 # doubles the tile budget, distorts only what was drawn in advance, and cannot
 # follow the art it distorts. The PPU bends a whole layer natively — a
-# different BG1HOFS per scanline through HDMA, at no CPU cost during active
+# different BG1VOFS per scanline through HDMA, at no CPU cost during active
 # display — so this rail draws the DISPLACEMENT instead of the distortion.
 #
 # ONE WRITE A FRAME. hz_rom holds 32 complete phases at a 256 B stride, so a
@@ -37,10 +47,10 @@
 # =============================================================================
 # This is the rail's second finding and it generalises one the tree already
 # had. `blend_off` exists because the composed blend state is per scene and
-# nothing carries it across an edge. BG1HOFS is in exactly the same position
+# nothing carries it across an edge. BG1VOFS is in exactly the same position
 # here: `haze` drives it per scanline, so at the end of the scene the port
 # holds whatever the last scanline of the last armed frame left in it — up to
-# six pixels of arbitrary displacement. A successor that composes no BG1HOFS
+# six pixels of arbitrary displacement. A successor that composes no BG1VOFS
 # claimant writes nothing and inherits it.
 #
 # So `title` composes `hz_flat`, whose whole content is that port's flat base,
@@ -49,7 +59,7 @@
 # was never special, it was just the first port anyone noticed it on.
 #
 # =============================================================================
-# WHY BG1HOFS IS NOT IN `hz_bg`
+# WHY BG1VOFS IS NOT IN `hz_bg`
 # =============================================================================
 # `hz_bg` is global: both scenes draw the same world. In `desert` the port has
 # a transfer claim on it, so the CPU write must be declared a `seed` the
@@ -94,7 +104,7 @@ from = "title"
 to = "desert"
 style = "fade"
 
-# The return edge is the one the hygiene rule is about: `desert` leaves BG1HOFS
+# The return edge is the one the hygiene rule is about: `desert` leaves BG1VOFS
 # wherever the last scanline put it, and `title` composes `hz_flat` so entering
 # it writes the port from its own composed symbol rather than inheriting a warp.
 [[edge]]

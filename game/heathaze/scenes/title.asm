@@ -12,7 +12,7 @@
 ; problem on a different port. `haze` drives BG1HOFS per scanline, so when the
 ; desert scene ends the port holds whatever the LAST scanline of the last
 ; armed frame left in it — up to six pixels of arbitrary displacement. A
-; successor that composed no BG1HOFS claimant would write nothing and inherit
+; successor that composed no BG1VOFS claimant would write nothing and inherit
 ; it, and the whole world would sit visibly off-centre. `hz_flat` is that
 ; port's `blend_off`: a claim whose entire content is the flat base, so
 ; entering here writes the register from a composed symbol rather than
@@ -36,12 +36,15 @@ enter:
     .a8
     lda #ES_V_HZ_CHR_NBA
     sta a:$210B
-    ; ---- BG1HOFS: the flat base, from `hz_flat`'s claim --------------------
+    ; ---- BG1VOFS: the flat base, from `hz_flat`'s claim --------------------
     ; Write-twice: low byte then high. THIS IS THE DISARM. Without it the
-    ; picture arrives displaced by whatever the desert's last scanline held.
-    lda #0
-    sta a:$210D
-    sta a:$210D
+    ; picture arrives displaced by whatever the desert's last scanline held —
+    ; and a VERTICAL displacement left behind is worse than a horizontal one,
+    ; because it also leaves the world's rows off their tile boundaries.
+    lda #<HZ_VOFS
+    sta a:$210E
+    lda #>HZ_VOFS
+    sta a:$210E
     rep #$20
     .a16
     ; ---- the strings this scene shows -------------------------------------

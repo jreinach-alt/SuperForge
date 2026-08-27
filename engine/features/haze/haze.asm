@@ -1,5 +1,5 @@
 ; =============================================================================
-; haze.asm — heat shimmer: a per-scanline BG1HOFS displacement
+; haze.asm — heat shimmer: a per-scanline BG1VOFS displacement
 ; =============================================================================
 ; THE WHOLE PER-FRAME COST OF THIS EFFECT IS ONE 8-BIT STORE. hz_rom holds 32
 ; complete HDMA tables at a 256 B stride, so phase p lives at
@@ -77,7 +77,7 @@ hz_shim_dma:
 ;   entry:    A16 I16 DB=0
 ;   exit:     A16 I16
 ;   out:      the warp channel's shadow slots filled and pointing at phase 0,
-;             BG1HOFS seeded to the flat base, ES_HZ_PHASE and
+;             BG1VOFS seeded to the flat base, ES_HZ_PHASE and
 ;             ES_HZ_FLAT zeroed (the effect is on)
 ;   clobbers: A, X, N, Z
 ;   assumes:  forced blank, at scene enter. The caller ORs ES_H_HZWARP_CH's
@@ -141,19 +141,26 @@ hz_arm:
     .a8
     ; ---- the flat bases the two channels hold above the band --------------
     ; Write-twice: each port takes the low byte then the high. The table's
-    ; head-skip entry restates these same values over lines 0..119 every
-    ; frame, which is why they are declared as `seed` rather than as owners.
-    lda #0
-    sta a:$210D                     ; BG1HOFS, low
-    sta a:$210D                     ; BG1HOFS, high
-    sta a:$210F                     ; BG2HOFS, low
-    sta a:$210F                     ; BG2HOFS, high
+    ; head-skip entry restates these same values over the lines above the
+    ; band every frame, which is why they are declared as `seed` rather than
+    ; as owners.
+    ;
+    ; HZ_VOFS, NOT ZERO. The first active scanline is 1, so -1 is what puts
+    ; world row r on picture rows 8r..8r+7 (heathaze.inc). An undistorted
+    ; scanline under this table is therefore byte-identical to one the CPU
+    ; wrote, which is what makes the flat control a true control.
+    lda #<HZ_VOFS
+    sta a:$210E                     ; BG1VOFS, low
+    sta a:$2110                     ; BG2VOFS, low
+    lda #>HZ_VOFS
+    sta a:$210E                     ; BG1VOFS, high
+    sta a:$2110                     ; BG2VOFS, high
     ; ---- the world's channel ----------------------------------------------
     ldx #(ES_H_HZWARP_CH * 16)
     lda #ES_H_HZWARP_DMAP
     sta f:ES_SM_HDMA_LONG + 0, x    ; DMAP: direct, mode 2 (write twice)
     lda #ES_H_HZWARP_BBAD
-    sta f:ES_SM_HDMA_LONG + 1, x    ; BBAD -> BG1HOFS
+    sta f:ES_SM_HDMA_LONG + 1, x    ; BBAD -> BG1VOFS
     lda #<hz_warp_bin
     sta f:ES_SM_HDMA_LONG + 2, x    ; A1T low — CONSTANT across every blob
     lda #>hz_warp_bin
@@ -167,7 +174,7 @@ hz_arm:
     lda #ES_H_HZSHIM_DMAP
     sta f:ES_SM_HDMA_LONG + 0, x
     lda #ES_H_HZSHIM_BBAD
-    sta f:ES_SM_HDMA_LONG + 1, x    ; BBAD -> BG2HOFS
+    sta f:ES_SM_HDMA_LONG + 1, x    ; BBAD -> BG2VOFS
     lda #<hz_warp_bin
     sta f:ES_SM_HDMA_LONG + 2, x
     lda #>hz_warp_bin

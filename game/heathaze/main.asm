@@ -124,8 +124,8 @@ hz_shim_pal_bin:
 ; CONTRACT heathaze::hz_display
 ;   entry:    A16 I16 DB=0
 ;   exit:     A16 I16
-;   out:      BGMODE, BG1SC, BG1VOFS, BG3SC, BG34NBA and BG3HOFS/BG3VOFS
-;             established for the scene now entering (NOT BG1HOFS)
+;   out:      BGMODE, BG1SC, BG1HOFS, BG3SC, BG34NBA and BG3HOFS/BG3VOFS
+;             established for the scene now entering (NOT BG1VOFS)
 ;   clobbers: A, N, Z
 ;   assumes:  forced blank AND the NMI masked — the scene_mgr enter contract
 ;   tail:     rts
@@ -154,17 +154,18 @@ hz_display:
     sta a:$2109                     ; BG3SC
     lda #ES_V_TEXT_CHR_NBA
     sta a:$210C                     ; BG34NBA: BG3 chr = the font base
-    ; BG1HOFS IS DELIBERATELY ABSENT. It is not `hz_bg`'s port on this rail:
-    ; `haze` seeds and drives it in the desert scene, `hz_flat` establishes it
-    ; on the title screen, and each scene writes it from its own claim. A write
-    ; here would be a declaration that lies, and `no_literals` refuses it.
+    stz a:$210D                     ; BG1HOFS, low  (the world does not scroll)
+    stz a:$210D                     ; BG1HOFS, high
+    ; BG1VOFS IS DELIBERATELY ABSENT. It is not `hz_bg`'s port on this rail:
+    ; `haze` seeds and drives it per scanline in the desert scene, `hz_flat`
+    ; establishes it on the title screen, and each scene writes it from its
+    ; own claim. A write here would be a declaration that lies, and
+    ; `no_literals` refuses it.
     stz a:$2111                     ; BG3HOFS, low
     stz a:$2111                     ; BG3HOFS, high
     lda #<HZ_VOFS
-    sta a:$210E                     ; BG1VOFS, low
     sta a:$2112                     ; BG3VOFS, low
     lda #>HZ_VOFS
-    sta a:$210E                     ; BG1VOFS, high
     sta a:$2112                     ; BG3VOFS, high
     rep #$20
     .a16

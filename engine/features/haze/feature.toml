@@ -1,4 +1,20 @@
-# haze — heat shimmer: a per-scanline BG1HOFS displacement, delivered by HDMA.
+# haze — heat shimmer: a per-scanline BG1VOFS displacement, delivered by HDMA.
+#
+# =============================================================================
+# IT IS VERTICAL, AND THAT IS THE EFFECT'S WHOLE CHARACTER
+# =============================================================================
+# An inferior mirage comes from a VERTICAL refractive-index gradient: hot thin
+# air at the ground, cooler denser air above. Rays bend along the gradient,
+# which is why a mirage shows an inverted patch of SKY below the horizon and
+# the eye reads it as standing water. Horizontal wobble is the secondary term,
+# from turbulent cells rather than from the stratification.
+#
+# And the two are not symmetric on this hardware. A per-scanline BGnHOFS
+# slides each row sideways: every source row still appears exactly once, and
+# the picture is only sheared. A per-scanline BGnVOFS makes scanline N show
+# source row N + d(N), so as d varies rows are DUPLICATED AND SKIPPED and the
+# picture compresses and stretches vertically. That squashing is the boiling,
+# and a horizontal offset cannot produce it at all.
 #
 # =============================================================================
 # THE WARP IS A TABLE, NOT ARTWORK
@@ -7,7 +23,7 @@
 # every affected tile and animate between them. That doubles the tile budget,
 # warps only what was pre-drawn, and buys a distortion that cannot follow the
 # art it distorts. The PPU already bends a whole layer for free: a different
-# BG1HOFS per scanline, delivered by an HDMA channel during active display, at
+# BG1VOFS per scanline, delivered by an HDMA channel during active display, at
 # no CPU cost at all while the picture is being drawn.
 #
 # So nothing here is a haze tile. What this feature owns is a CHANNEL and a
@@ -30,9 +46,9 @@
 # a ramp that stays pinned to the screen. Heat rises, for nothing.
 #
 # =============================================================================
-# BG1HOFS IS CLAIMED TWICE BY THIS FEATURE, ON PURPOSE
+# THE VERTICAL PORTS ARE CLAIMED TWICE BY THIS FEATURE, ON PURPOSE
 # =============================================================================
-# `hzwarp` drives the port per scanline across the band; `hz_seed` is the CPU
+# `hzwarp` drives BG1VOFS per scanline across the band; `hz_seed` is the CPU
 # write that establishes the base scroll the head-skip entry restates and that
 # holds for lines 0..119. A CPU-written register with a transfer claim on the
 # same port refuses unless the CPU write says it is a seed the transfer
@@ -107,7 +123,7 @@ math = ["bg1"]
 # begins at line 0 — it holds the base, it does not distort.
 [[claims.hdma]]
 name = "hzwarp"
-registers = ["BG1HOFS"]
+registers = ["BG1VOFS"]
 mode = 2
 band = [100, 224]
 phase = "active"
@@ -126,7 +142,7 @@ channels = 1
 # frame and no extra ROM at all.
 [[claims.hdma]]
 name = "hzshim"
-registers = ["BG2HOFS"]
+registers = ["BG2VOFS"]
 mode = 2
 band = [100, 224]
 phase = "active"
@@ -138,7 +154,7 @@ channels = 1
 # standing against a transfer claim.
 [[claims.reg]]
 name = "hz_seed"
-registers = ["BG1HOFS", "BG2HOFS"]
+registers = ["BG1VOFS", "BG2VOFS"]
 seed = true
 
 # BG2's layout, written by the scene at enter. NOT TM and NOT TS — those are
@@ -152,8 +168,8 @@ seed = true
 # accurate and it is deliberate.
 [[claims.reg]]
 name = "hz_shim_layer"
-registers = ["BG2SC", "BG2VOFS"]
-scene_writes = ["BG2SC", "BG2VOFS"]
+registers = ["BG2SC", "BG2HOFS"]
+scene_writes = ["BG2SC", "BG2HOFS"]
 
 # ---- the shimmer layer's art ---------------------------------------------
 [[claims.dma_init]]

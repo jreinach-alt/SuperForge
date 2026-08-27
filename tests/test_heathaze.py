@@ -109,12 +109,18 @@ def warp():
         # [head_count, lo, hi][$80|lines][lo,hi]*lines[$00]
         assert b[0] == BAND_TOP, (n, b[0])
         assert b[3] == 0x80 | BAND_LINES, (n, hex(b[3]))
-        hofs = []
+        # The blob holds ABSOLUTE BG1VOFS values around a base of HZ_VOFS
+        # (-1). What a picture can be measured against is the DISPLACEMENT, so
+        # the base is subtracted here and the rows come back signed. The flat
+        # control is therefore all zeroes by construction, which is asserted.
+        base = b[1] | (b[2] << 8)
+        disp = []
         for i in range(BAND_LINES):
-            lo, hi = b[4 + 2 * i], b[5 + 2 * i]
-            hofs.append(lo | (hi << 8))
+            v = (b[4 + 2 * i] | (b[5 + 2 * i] << 8)) - base
+            v &= 0x3FF
+            disp.append(v - 1024 if v > 512 else v)
         assert b[4 + 2 * BAND_LINES] == 0, (n, "missing terminator")
-        table.append(hofs)
+        table.append(disp)
     return table
 
 
@@ -145,52 +151,32 @@ def _picture_top(shot):
     return rows[0]
 
 
-def _row_shift(a, b, y, cols=None):
-    """The horizontal offset aligning row y of `a` onto row y of `b`.
+def _row_vshift(a, b, y, cols=None):
+    """The VERTICAL offset d for which row y of `a` is row y+d of `b`.
 
-    THE ROW IS THE SURFACE — every pixel the caller admits, not one tracked
-    edge. A per-scanline horizontal displacement is a statement about the
-    whole scanline, and one edge would leave the rest of it unexamined. The
-    offset is returned only when it is UNIQUE, so a uniform row (where every
-    shift matches) is reported as undecidable rather than guessed at.
+    THE AXIS IS THE POINT OF THIS RAIL. A per-scanline BGnVOFS makes scanline
+    N show source row N + d(N), so the frame is not a shear of the control —
+    rows are duplicated and skipped and the picture compresses and stretches.
+    That means the comparison is row-against-ROW: hazed row y is some whole
+    row of the flat control, and which one it is IS the displacement.
 
-    `cols` restricts the comparison to columns the caller can vouch for. In
-    stage 2 that is where BG2 is TRANSPARENT: the sub screen is empty there,
-    so the hardware substitutes the fixed colour and disables halving and the
-    pixel is the world unhalved on both sides of the comparison. Without the
-    restriction the composite is two layers displaced by two different amounts
-    and no single shift describes it — which is a true fact about the picture,
-    not a defect, and the reason this parameter exists.
+    Returned only when the winner is UNAMBIGUOUS. A run of identical source
+    rows (flat sand) matches at several offsets and decides nothing; saying so
+    is the alternative to a confident wrong answer.
+
+    `cols` restricts the comparison to columns the caller can vouch for — the
+    ones where BG2 is transparent in both frames, so the pixels compared are
+    the world unhalved on each side.
     """
     xs = list(range(256)) if cols is None else list(cols)
-    # ENOUGH ROW, AND ENOUGH STRUCTURE IN IT. Near the bottom of the band the
-    # shimmer is densest, so the mask admits few columns and the ones it does
-    # can be a run of flat sand — on which several shifts fit equally well and
-    # the "winner" is an artefact of which pixels happened to be admitted. A
-    # row that cannot decide must SAY so; a confident wrong answer is worse
-    # than no answer, and is how a proxy assertion gets into a suite.
-    #
-    # HALF THE SCANLINE, at least. Not a tolerance on the VALUE — the shift
-    # returned is still one whole-pixel offset out of seventeen, matched
-    # against a byte the ROM holds — but a statement about where the
-    # measurement is POSSIBLE at all: BG1's own displacement is recoverable
-    # from a composite only where enough of BG1 is arriving unblended.
     if len(xs) < 128:
         return None                      # under half the scanline is clear
     if len({b[y][x] for x in xs}) < 4:
-        return None
+        return None                      # no structure to decide on
     scored = sorted(
-        (sum(1 for x in xs if a[y][x] != b[y][(x + d) % 256]), d)
-        for d in range(-8, 9))
+        (sum(1 for x in xs if a[y][x] != b[y + d][x]), d)
+        for d in range(-8, 9) if 0 <= y + d < len(b))
     best, runner = scored[0], scored[1]
-    # DECIDABLE means the winner is UNAMBIGUOUS, not that it is perfect. With a
-    # single layer the best shift matches every admitted pixel and `best[0]` is
-    # 0; with two layers the admitted columns come from a mask decoded out of
-    # VRAM, and a few pixels at a wisp's own edge fall on the wrong side of it.
-    # Requiring a clear separation keeps the ANSWER exact — the shift returned
-    # is still one whole-pixel offset out of seventeen — while not demanding
-    # that a derived mask be pixel-perfect. A row whose winner is not clearly
-    # better than the runner-up decides nothing and is skipped.
     if best[0] * 2 >= runner[0]:
         return None
     return best[1]
@@ -303,16 +289,20 @@ EDGE_PX = 1
 #                  which is a question about WHICH byte and never about the
 #                  value.
 #
-# Measured on the shipped binary: 44/54 exact (81%) and 49/54 exact-or-
-# adjacent (91%). The exact figure is lower than it was before the amplitude
-# ramp was inverted, and the reason is the perspective coordinate rather than
-# any loss of fidelity: the wave is now COMPRESSED toward the horizon, so
-# consecutive band lines carry different displacements far more often, and a
-# one-line ambiguity that used to fall between two equal bytes now falls
-# between two different ones. Same hardware, same table, more places for the
-# boundary to show.
-EXACT_FLOOR = 0.72
-ADJACENT_FLOOR = 0.86
+# Measured on the shipped binary, VERTICAL axis: 62 decidable rows, 50 exact
+# (81%), 54 exact-or-adjacent (87%). The floors sit below those with real
+# headroom rather than shaved to just under them — a floor with one row of
+# margin is a flake waiting for the next tweak, and these are meant to catch a
+# regression, not to record today's number to the digit.
+#
+# Why the exact figure is not higher: the perspective coordinate compresses
+# the wave toward the horizon, so consecutive band lines carry different
+# displacements far more often than a constant-wavelength wave would, and the
+# one-line latch ambiguity that would otherwise fall between two EQUAL bytes
+# falls between two different ones. Same hardware, same table, more places for
+# the boundary to show.
+EXACT_FLOOR = 0.70
+ADJACENT_FLOOR = 0.80
 SCANLINE_LATCH_SLACK = 1    # ...and the rest inside their own line's neighbourhood
                             # — one entry either side, which is the width of the
                             # ambiguity and not a tolerance chosen to pass
@@ -383,18 +373,14 @@ def test_every_band_row_is_displaced_by_the_table_the_rom_holds(warp):
         # (the control flattens the displacement, not the layer) — so the
         # columns admitted are the ones where BG2 is transparent in each.
         h2 = shim[line]
-        h2 = h2 - 1024 if h2 > 512 else h2
         f2 = warp[FLAT_INDEX][line]
-        # The mask indexes by SCREEN row directly. BG2VOFS is HZ_VOFS = -1 and
-        # the table is read one line late (HDMA_LATCH_LINES), and the two
-        # cancel — MEASURED, not reasoned: offsets -1/0/+1 recover BG1's table
-        # on 59/67, 67/74 and 51/63 decidable rows respectively, and the
-        # maximum is sharp.
-        my = (y - top) & 0xFF
+        # BG2 rides its own channel at its own phase and displaces VERTICALLY
+        # too, so the mask row shifts with it. BG2HOFS is 0 on this rail, so
+        # the column maps straight through.
         cols = [x for x in range(256)
-                if not opaque[my][(x + h2) & 0xFF]
-                and not opaque[my][(x + f2) & 0xFF]]
-        d = _row_shift(hazed, flat, y, cols)
+                if not opaque[(y - top + h2) & 0xFF][x]
+                and not opaque[(y - top + f2) & 0xFF][x]]
+        d = _row_vshift(hazed, flat, y, cols)
         if d is None:
             continue                     # uniform, or too little clear row
         assert d is not False, (
@@ -402,13 +388,11 @@ def test_every_band_row_is_displaced_by_the_table_the_rom_holds(warp):
             f"in -8..+8 — the row is not this world horizontally displaced")
         decidable += 1
         want = hofs[line]
-        want = want - 1024 if want > 512 else want
         if d == want:
             exact += 1
         else:
             window = [hofs[line + k] for k in (-1, 0, 1)
                       if 0 <= line + k < BAND_LINES]
-            window = [v - 1024 if v > 512 else v for v in window]
             if min(window) <= d <= max(window):
                 neighbour += 1
         assert -8 <= d <= 8, (

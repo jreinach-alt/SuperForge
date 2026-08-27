@@ -1,22 +1,22 @@
-# hz_flat — the composed UNDISTORTED state for BG1HOFS, as a claim.
+# hz_flat — the composed UNDISTORTED state for BG1VOFS, as a claim.
 #
 # =============================================================================
 # THE PROBLEM IT SOLVES, AND IT IS `blend_off`'S PROBLEM ON ANOTHER REGISTER
 # =============================================================================
-# `haze` drives BG1HOFS per scanline through an HDMA channel. Whatever value
+# `haze` drives BG1VOFS per scanline through an HDMA channel. Whatever value
 # the LAST scanline of the last armed frame left in that port is the value the
 # port still holds when the scene ends — a displacement of up to six pixels,
 # chosen by wherever the animation happened to be. Nothing carries a scroll
-# register across a scene edge, and a successor that composes no BG1HOFS
+# register across a scene edge, and a successor that composes no BG1VOFS
 # claimant writes nothing, so it inherits the warp: the title screen comes
 # back with its world shifted by an arbitrary amount.
 #
 # That is exactly the shape `blend_off` exists for on CGWSEL/CGADSUB, and the
 # remedy is the same one in claim form: compose this into a scene that has no
-# haze and the scene OWNS BG1HOFS, gets the symbol emitted for it, and
+# haze and the scene OWNS BG1VOFS, gets the symbol emitted for it, and
 # establishes the flat base on enter.
 #
-# WHY NOT PUT BG1HOFS IN `hz_bg` INSTEAD. Because `hz_bg` is global — both
+# WHY NOT PUT BG1VOFS IN `hz_bg` INSTEAD. Because `hz_bg` is global — both
 # scenes draw the same world — and a feature cannot conditionally claim. In
 # the desert scene the port has a transfer claim on it and the CPU write must
 # be declared a `seed`; on the title screen there is no transfer, and a seed
@@ -35,5 +35,5 @@ role = "feature"
 
 [[claims.reg]]
 name = "hz_flat_scroll"
-registers = ["BG1HOFS"]
-scene_writes = ["BG1HOFS"]
+registers = ["BG1VOFS"]
+scene_writes = ["BG1VOFS"]
