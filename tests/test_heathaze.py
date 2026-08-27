@@ -78,7 +78,24 @@ STRIDE = 256
 PHASES = ART["HZ_PHASES"]
 FLAT_INDEX = ART["HZ_FLAT_INDEX"]
 BLOBS = ART["HZ_BLOB_COUNT"]
-SHIM_LEAD = 11              # game/heathaze/heathaze.inc HZ_SHIM_LEAD
+def _rail_const(name):
+    """One equate out of game/heathaze/heathaze.inc.
+
+    READ, NOT RETYPED. A copy of HZ_SHIM_LEAD lived here as a literal and went
+    stale the moment the phase count doubled — the module still passed, which
+    is worse than failing: it meant the mask was being built against the wrong
+    layer offset and the case was quietly weaker than it claimed. Anything the
+    ROM and this file must agree about is read from the source of truth.
+    """
+    for line in (SUPERFORGE / "game" / "heathaze" / "heathaze.inc").read_text().splitlines():
+        if line.strip().startswith(name):
+            head, _, rest = line.partition("=")
+            if head.strip() == name:
+                return int(rest.split(";")[0].strip())
+    raise KeyError(f"{name} is not in heathaze.inc")
+
+
+SHIM_LEAD = _rail_const("HZ_SHIM_LEAD")
 BAND_TOP = ART["HZ_BAND_TOP"]
 BAND_LINES = ART["HZ_BAND_LINES"]
 

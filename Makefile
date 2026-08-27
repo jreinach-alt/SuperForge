@@ -1281,8 +1281,17 @@ HZS_MAP  := $(BUILD)/hz
 HZS_ASM  := $(HZS)/main.asm $(wildcard $(HZS)/scenes/*.asm) \
             $(wildcard engine/features/*/*.asm)
 
+# EVERY blob the generator emits, not just the ones that were there first.
+# The three hz_shim_* files arrived with stage 2 and were left out of this
+# list; the recipe still .incbin'd them, so the ROM contained them but `make`
+# did not know they were inputs — edit the shimmer art and the target reports
+# "Nothing to be done" while the binary keeps yesterday's layer. That is the
+# stale-artifact class the landing gate exists for, arriving through a
+# prerequisite list rather than through a stale build dir.
 HZS_ASSETS := $(BUILD)/assets/hz_chr.bin $(BUILD)/assets/hz_map.bin \
               $(BUILD)/assets/hz_pal.bin $(BUILD)/assets/hz_warp.bin \
+              $(BUILD)/assets/hz_shim_chr.bin $(BUILD)/assets/hz_shim_map.bin \
+              $(BUILD)/assets/hz_shim_pal.bin \
               $(BUILD)/assets/hz_art.inc
 
 $(HZS_ASSETS): tools/gen_haze_assets.py | $(BUILD)

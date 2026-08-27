@@ -53,13 +53,13 @@ bytes = 32               # 16 CGRAM words at 32 — BG palette group 2
 
 [[claims.rom]]
 name = "hz_warp"
-bytes = 8448             # 33 x 256 B. Each blob is a complete HDMA table for
+bytes = 16640            # 65 x 256 B. Each blob is a complete HDMA table for
                          # the frame: a head-skip entry holding the base
                          # scroll over lines 0..119, a repeat entry covering
                          # the 104-line band one scanline at a time, and a
                          # terminator.
                          #
-                         # THIRTY-TWO PHASES AND ONE CONTROL. The 33rd blob is
+                         # SIXTY-FOUR PHASES AND ONE CONTROL. The 33rd blob is
                          # the same table with every displacement zero — the
                          # "before distortion" half of the pair, from the same
                          # binary, differing from the live case in the TABLE

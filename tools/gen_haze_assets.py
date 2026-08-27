@@ -503,7 +503,19 @@ def shim_map_words():
 # selecting a phase is ONE 8-bit write to the channel's A1T high byte. 213
 # bytes are used and 43 are slack; the slack buys the cheapest possible
 # per-frame cost.
-HZ_PHASES = 32
+# SIXTY-FOUR PHASES, AND THE COUNT IS HOW THIS RAIL GOES SLOWER.
+#
+# The rate the consumer feeds in is phases-per-frame, so halving it would make
+# the wave advance half as often — same 1/N-of-a-cycle jump each time, just
+# further apart, which reads as MORE stepped rather than slower. Doubling the
+# COUNT instead halves the angular speed AND halves the jump: the motion slows
+# and gets smoother in the same change. It costs 8 KB more ROM and not one
+# extra cycle, because selecting a blob is still a single 8-bit store.
+#
+# The ceiling is the bank: a blob is 256 B and HDMA cannot cross a bank
+# boundary, so 65 blobs is 16,640 B and 128 phases would be 33 KB — over the
+# 32 KB window. haze.asm asserts the placement rather than trusting this note.
+HZ_PHASES = 64
 HZ_PHASE_STRIDE = 256
 # The base the band is displaced AROUND. This is BG1VOFS, and it is HZ_VOFS
 # (-1) rather than 0 for the reason heathaze.inc gives: the first active
@@ -517,13 +529,13 @@ HZ_BASE_VOFS = 0xFFFF
 # whole-pixel scroll, so the ramp quantises to this many steps and no more —
 # which is also why the test can assert an EQUALITY rather than a tolerance.
 #
-# FIVE, NOT SEVEN, AND THE AXIS IS WHY. A vertical displacement is louder than
+# FOUR, AND THE AXIS IS WHY IT IS NOT MORE. A vertical displacement is louder than
 # a horizontal one of the same size: shearing a row sideways still shows every
 # source row exactly once, while displacing it vertically DUPLICATES and SKIPS
 # rows. At 7 the horizon strip — 8 px tall — is scrambled into a wide pale
 # smear that eats the mesa's foot. At 5 it shimmers and stays a horizon.
 # Compared on the shipped binary at 4, 5 and 7.
-HZ_AMP_MAX = 5
+HZ_AMP_MAX = 4
 
 # WHERE THE HAZE IS STRONGEST, and the correction this rail was built wrong
 # around the first time.

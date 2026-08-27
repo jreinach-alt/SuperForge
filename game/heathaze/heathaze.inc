@@ -29,10 +29,12 @@ HZ_PHASE_BASE = $0060
 ; doing the bending and the thing being bent do not travel together, which is
 ; what the eye actually reads as hot air.
 ;
-; 11 rather than 16: half a loop would put the two exactly out of phase and
-; the pair would beat symmetrically, which is its own kind of pattern. 11 is
-; coprime with 32, so the relative phase walks the whole loop before repeating.
-HZ_SHIM_LEAD = 11
+; 23 rather than 32: half a loop would put the two exactly out of phase and
+; the pair would beat symmetrically, which is its own kind of pattern. It is
+; also coprime with 64, so the relative phase walks the WHOLE loop before
+; repeating — 22 would be the exact scaling of the 11 this carried at 32
+; phases, but 22 and 64 share a factor of two and would close after half.
+HZ_SHIM_LEAD = 23
 
 ; BG3 2bpp tile attr: palette 7 (bg_text's claim pins CGRAM words 28..31),
 ; priority set. With BGMODE's BG3-priority bit also set, a BG3 tile carrying
