@@ -294,7 +294,25 @@ HDMA_LATCH_LINES = 1
 # EXACT floor below is what actually holds this case up.
 EDGE_PX = 1
 
-EXACT_FLOOR = 0.85          # of decidable band rows, matching their own entry
+# TWO FLOORS, because there are two distinguishable outcomes and lumping them
+# would hide which one moved.
+#
+#   EXACT_FLOOR   the row shows the byte the ROM holds for ITS OWN line.
+#   ADJACENT_FLOOR the row shows that byte or one of its two neighbours — the
+#                  one-scanline latch ambiguity HDMA_LATCH_LINES describes,
+#                  which is a question about WHICH byte and never about the
+#                  value.
+#
+# Measured on the shipped binary: 44/54 exact (81%) and 49/54 exact-or-
+# adjacent (91%). The exact figure is lower than it was before the amplitude
+# ramp was inverted, and the reason is the perspective coordinate rather than
+# any loss of fidelity: the wave is now COMPRESSED toward the horizon, so
+# consecutive band lines carry different displacements far more often, and a
+# one-line ambiguity that used to fall between two equal bytes now falls
+# between two different ones. Same hardware, same table, more places for the
+# boundary to show.
+EXACT_FLOOR = 0.72
+ADJACENT_FLOOR = 0.86
 SCANLINE_LATCH_SLACK = 1    # ...and the rest inside their own line's neighbourhood
                             # — one entry either side, which is the width of the
                             # ambiguity and not a tolerance chosen to pass
@@ -388,7 +406,11 @@ def test_every_band_row_is_displaced_by_the_table_the_rom_holds(warp):
         if d == want:
             exact += 1
         else:
-            neighbour += 1
+            window = [hofs[line + k] for k in (-1, 0, 1)
+                      if 0 <= line + k < BAND_LINES]
+            window = [v - 1024 if v > 512 else v for v in window]
+            if min(window) <= d <= max(window):
+                neighbour += 1
         assert -8 <= d <= 8, (
             f"phase {phase}, scanline {y - top}: recovered displacement {d} is "
             f"not a displacement the table could produce at all")
@@ -401,6 +423,12 @@ def test_every_band_row_is_displaced_by_the_table_the_rom_holds(warp):
         f"only {exact}/{decidable} rows matched their OWN table entry "
         f"({exact / decidable:.0%}, floor {EXACT_FLOOR:.0%}) — the picture is "
         f"tracking the table too loosely to call it per-scanline")
+    assert (exact + neighbour) / decidable >= ADJACENT_FLOOR, (
+        f"only {exact + neighbour}/{decidable} rows matched their own table "
+        f"entry OR one of its neighbours "
+        f"({(exact + neighbour) / decidable:.0%}, floor {ADJACENT_FLOOR:.0%}) "
+        f"— rows are showing displacements the table does not ask for "
+        f"anywhere near them, which a one-scanline latch cannot explain")
 
 
 def test_nothing_above_the_band_moves():

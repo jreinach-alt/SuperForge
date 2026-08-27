@@ -218,8 +218,19 @@ tile("boulder", pic("nnnnnnnn", "nnndddnn", "nnddRRdn", "ndddRRRd",
 # which is what gives the shimmer something to be measured against and is the
 # concept sheet's "fade out with region edges" made structural.
 HZ_ROWS, HZ_COLS = 32, 32
-HZ_BAND_TOP = 120
-HZ_BAND_LINES = 224 - HZ_BAND_TOP          # 104
+# THE BAND REACHES ABOVE THE HORIZON, and that is a consequence of what heat
+# haze IS. A sightline to a distant object grazes ALONG the hot layer for its
+# whole length, so the mesa's foot and the horizon strip are seen through more
+# hot air than anything else on screen. Starting the band at the ground line
+# would leave the one part of the picture that should shimmer most perfectly
+# still.
+#
+# 100 rather than 96: a blob is 5 bytes of structure plus two per band line and
+# the stride is 256, so 125 lines is the ceiling and 124 is the clean number
+# under it. The stride is what makes a phase change ONE 8-bit store; a band
+# wide enough to break it would cost more per frame than the extra 4 lines buy.
+HZ_BAND_TOP = 100
+HZ_BAND_LINES = 224 - HZ_BAND_TOP          # 124
 GROUND_TOP = 15
 RIDGE_BASE_Y = 104
 
@@ -401,7 +412,12 @@ shim_tile("mirage_b", shim_pic("..dmmd..", "........", "dmmd..dm", "...dmd..",
 SHIM_WISPS = ["wisp_a", "wisp_b", "wisp_c", "wisp_d"]
 SHIM_GLARE = ["glare_a", "glare_b"]
 SHIM_MIRAGE = ["mirage_a", "mirage_b"]
-MIRAGE_ROWS = 3          # rows 15..17, immediately under the horizon strip
+
+# The glare band straddles the HORIZON — rows 13..16, the mesa's foot through
+# the first ground rows — because that is where a sightline has passed through
+# the most hot air. It is not "just under the horizon" as a composition
+# choice; it is the same reason the displacement peaks there.
+MIRAGE_ROW_LO, MIRAGE_ROW_HI = 13, 16
 
 
 def shim_cell(row, col):
@@ -412,22 +428,23 @@ def shim_cell(row, col):
     glared over. Above the band there is nothing at all, so BG2 contributes no
     sub pixel there and the sky arrives unhalved.
     """
-    if row < GROUND_TOP:
+    if row < MIRAGE_ROW_LO:
         return "none"
     n = noise(row * 131 + col * 17 + 7)
 
-    # The mirage band: dense and HORIZONTAL, right under the horizon, where a
-    # real one sits. Nearly solid, because this is the one place the half-add
-    # should visibly lift the whole ground.
-    if row < GROUND_TOP + MIRAGE_ROWS:
-        return SHIM_MIRAGE[n & 1] if n < 210 else "none"
+    # The mirage band: dense and HORIZONTAL, straddling the horizon, where the
+    # sightline has passed through the most hot air. Nearly solid, because this
+    # is the one place the half-add should visibly lift the whole ground.
+    if row <= MIRAGE_ROW_HI:
+        return SHIM_MIRAGE[n & 1] if n < 215 else "none"
 
-    # Below it, rising air: vertical, thickening toward the viewer's feet,
-    # tracking the displacement's own amplitude ramp so the two read as one
-    # effect rather than as two.
-    t = (row - GROUND_TOP - MIRAGE_ROWS) / (27 - GROUND_TOP - MIRAGE_ROWS)
-    if n < 26 + 92 * t:
-        return SHIM_GLARE[n & 1] if t > 0.5 else SHIM_WISPS[n & 3]
+    # Below it, rising air — THINNING toward the viewer's feet, tracking the
+    # displacement's own ramp so the two read as one effect rather than as two.
+    # This is the way round it is for the reason HZ_PEAK_Y gives: the near
+    # ground is seen through hardly any hot air at all.
+    t = (row - MIRAGE_ROW_HI) / (27 - MIRAGE_ROW_HI)
+    if n < 96 - 74 * t:
+        return SHIM_WISPS[n & 3] if t > 0.45 else SHIM_GLARE[n & 1]
     return "none"
 
 
@@ -477,10 +494,40 @@ HZ_PHASES = 32
 HZ_PHASE_STRIDE = 256
 HZ_BASE_HOFS = 0                 # the rail does not scroll; the world sits at 0
 
-# Amplitude in WHOLE PIXELS at the bottom of the band. BG1HOFS is a whole-pixel
-# scroll, so the ramp quantises to this many steps and no more — which is also
-# why the test can assert an EQUALITY rather than a tolerance.
-HZ_AMP_MAX = 6
+# Amplitude in WHOLE PIXELS at the PEAK, which is the horizon. BG1HOFS is a
+# whole-pixel scroll, so the ramp quantises to this many steps and no more —
+# which is also why the test can assert an EQUALITY rather than a tolerance.
+HZ_AMP_MAX = 7
+
+# WHERE THE HAZE IS STRONGEST, and the correction this rail was built wrong
+# around the first time.
+#
+# The obvious reading of "strongest distortion close to the source" puts the
+# maximum at the bottom of the screen, nearest the viewer. That is right for a
+# LOCALISED source — a furnace vent, an exhaust plume — where the hot column is
+# in one place and screen-distance from it IS physical distance from it.
+#
+# It is exactly backwards for a HOT GROUND PLANE seen in perspective. The hot
+# layer is everywhere, the air is the same everywhere, and what varies is how
+# much of it a sightline passes THROUGH. Look at the dirt at your feet and you
+# look down across a thin layer: almost no refraction. Look at the horizon and
+# your sightline grazes ALONG that layer for its whole length: the refraction
+# accumulates over hundreds of metres. That is why a desert mirage pools at the
+# horizon and the ground at your boots looks normal, and why this ramp peaks
+# there and decays toward the viewer.
+HZ_PEAK_Y = 116                  # the horizon strip — the longest sightline
+
+# The falloff below the peak. Apparent ground distance on a plane goes like
+# 1/(y - horizon), and path length through the hot layer goes with distance, so
+# amplitude follows the same reciprocal. HZ_FALLOFF sets how fast: at the
+# bottom of the screen the amplitude is HZ_FALLOFF/(HZ_FALLOFF + 108) of the
+# peak, which at 40 is a bit over a quarter — visible, but plainly weaker than
+# the distance.
+HZ_FALLOFF = 40.0
+
+# Above the peak the sky is not hot, so the band ramps in over the ridge's foot
+# rather than starting at full strength on the mesa.
+HZ_RISE_LINES = HZ_PEAK_Y - HZ_BAND_TOP
 
 # Two components, so the shimmer does not read as one clean sine. The second
 # is shorter and travels at twice the rate; both wrap on the 32-phase loop
@@ -491,23 +538,39 @@ HZ_PHASE_2 = 1.1                 # a fixed offset, so the two never start togeth
 
 
 def amplitude(line):
-    """Displacement amplitude at a band line, 0 at the top.
+    """Displacement amplitude at a band line. WIDEST AT THE HORIZON.
 
-    ZERO AT THE HORIZON AND WIDEST AT THE VIEWER'S FEET. The exponent makes
-    most of the band subtle and concentrates the visible distortion in the
-    near ground, which is the concept sheet's "strongest distortion close to
-    the source" and the reason the mesa does not appear to melt.
+    See HZ_PEAK_Y for why this is the way round it is: the quantity that
+    matters is path length through hot air, and a sightline to the horizon has
+    far more of it than one to the viewer's feet.
     """
-    t = line / (HZ_BAND_LINES - 1)
-    return HZ_AMP_MAX * (t ** 1.3)
+    y = HZ_BAND_TOP + line
+    if y <= HZ_PEAK_Y:
+        # Ramping in over the ridge's foot — the sky above is not hot.
+        return HZ_AMP_MAX * (y - HZ_BAND_TOP) / HZ_RISE_LINES
+    return HZ_AMP_MAX * HZ_FALLOFF / (HZ_FALLOFF + (y - HZ_PEAK_Y))
+
+
+def _perspective_u(y):
+    """A vertical coordinate in which equal steps are equal GROUND distance.
+
+    The same physical eddy of hot air subtends fewer scanlines the further away
+    it is, so a wave of constant wavelength in `y` is a wave that gets
+    physically larger with distance — which reads as the horizon boiling in
+    slow motion while the near ground vibrates. Integrating the reciprocal
+    falloff gives a log, and in THIS coordinate the wave has one physical
+    scale everywhere: features compress toward the horizon exactly as the
+    ground does.
+    """
+    return HZ_FALLOFF * math.log(1.0 + (y - HZ_PEAK_Y + HZ_FALLOFF) / HZ_FALLOFF)
 
 
 def displacement(line, phase):
     """Whole-pixel BG1HOFS offset for one band line in one phase."""
-    y = HZ_BAND_TOP + line
+    u = _perspective_u(HZ_BAND_TOP + line)
     a = 2.0 * math.pi
-    w1 = math.sin(a * (y / HZ_LAMBDA_1 + phase / HZ_PHASES))
-    w2 = math.sin(a * (y / HZ_LAMBDA_2 + 2.0 * phase / HZ_PHASES) + HZ_PHASE_2)
+    w1 = math.sin(a * (u / HZ_LAMBDA_1 + phase / HZ_PHASES))
+    w2 = math.sin(a * (u / HZ_LAMBDA_2 + 2.0 * phase / HZ_PHASES) + HZ_PHASE_2)
     return int(round(amplitude(line) * (HZ_MIX_1 * w1 + HZ_MIX_2 * w2)))
 
 

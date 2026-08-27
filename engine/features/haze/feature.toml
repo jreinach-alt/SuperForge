@@ -109,7 +109,7 @@ math = ["bg1"]
 name = "hzwarp"
 registers = ["BG1HOFS"]
 mode = 2
-band = [120, 224]
+band = [100, 224]
 phase = "active"
 channels = 1
 
@@ -128,7 +128,7 @@ channels = 1
 name = "hzshim"
 registers = ["BG2HOFS"]
 mode = 2
-band = [120, 224]
+band = [100, 224]
 phase = "active"
 channels = 1
 
