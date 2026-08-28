@@ -265,6 +265,7 @@ def test_the_tree_agrees_with_the_rule():
         "test_scroller.py": ["build/scr/symbol_map.json"],
         "test_lakeside.py": ["build/lks/symbol_map.json"],
         "test_heathaze.py": ["build/hz/symbol_map.json"],
+        "test_smelter.py": ["build/smt/symbol_map.json"],
         "test_camera_follow.py": ["build/cf/symbol_map.json"],
         # Same family, same shape: its map IS in conftest.MAPS
         # ("maze") and in _SUBDIR_MAP ("maze"), added with the module.

@@ -91,6 +91,15 @@ COMMERCIAL+="star${_S}?fox|metroid|kirby|battletoads|silius|space${_S}?harrier|"
 COMMERCIAL+="out${_S}?run|super${_S}?scaler|galaxy${_S}?force|after${_S}?burner|"
 COMMERCIAL+="contra|axelay|street${_S}?racer|dragon${_S}?ball|but[oō]uden|"
 COMMERCIAL+="air${_S}?strike${_S}?patrol|r-?type|parodius|darius|actraiser|"
+# Added with the `smelter` rail (offset-per-tile). These are the shipping
+# OFFSET-PER-TILE users the capability-map research named and this sprint
+# consciously read the behaviour of before designing a per-column table —
+# `yoshi` in particular, whose wavy-lava effect is the closest published
+# precedent for what this rail draws. Reading how a stage looks is fine;
+# NAMING it in a committed file is what this list refuses, and adding the
+# names one worked from is how that stays true rather than merely unchecked.
+COMMERCIAL+="yoshi|tetris${_S}?attack|panel${_S}de${_S}pon|aladdin|turrican|"
+COMMERCIAL+="ghouls|sonic|frogger|"
 COMMERCIAL+="nintendo|konami|capcom|squaresoft|enix|sega|"
 COMMERCIAL+="juno-?106|linndrum|dx-?7|yamaha|roland|korg|legowelt|zophar|snesmusic"
 COMMERCIAL+=")${_BR}"

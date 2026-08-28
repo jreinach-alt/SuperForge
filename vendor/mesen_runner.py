@@ -130,8 +130,10 @@ class _AddressCounters(ctypes.Structure):
 # SCOPE LIMIT: these counters
 # increment on CPU/BUS reads only, NOT on PPU render fetches. So including
 # VRAM/OAM/CGRAM here catches the CPU *reading* those regions (rare — e.g. the
-# VRAM read port), NOT the common "PPU displays uninitialized VRAM" class (S2 /
-# Tetris-Attack). That display class is caught by G6 (render-determinism), not
+# VRAM read port), NOT the common "PPU displays uninitialized VRAM" class (S2 —
+# the shipped-game shape is an OBJ CHR page the ROM never uploads and the PPU
+# draws anyway, which the name tripwire now refuses to have spelled out here).
+# That display class is caught by G6 (render-determinism), not
 # here. This detector = CPU-side uninit reads; G6 = uninit memory reaching screen.
 UNINIT_DETECT_MEMORY_TYPES = (
     MemoryType.SnesWorkRam,
