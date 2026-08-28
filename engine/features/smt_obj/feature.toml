@@ -1,0 +1,120 @@
+# smt_obj — the knight, and the reason this rail is a game.
+#
+# =============================================================================
+# WHAT IT PROVES THAT THE PICTURE ALONE DOES NOT
+# =============================================================================
+# The rail's claim is that BG3's tilemap IS every column's scroll position.
+# A picture can show that; only a PLAYER can show that the number is a fact
+# about the world rather than about the display. This knight stands on a plate
+# whose height is a word in that table, and RIDES IT: `smt_kn_tick` reads the
+# plate's height out of the same blob the VBlank transfer moves into VRAM
+# (`smt_plate_top`, smt_opt.asm), so the collision and the picture cannot
+# disagree — not because they are kept in step, but because there is only one
+# number.
+#
+# It also costs the proof nothing, which is why the rail could have one at all.
+# The plates are BACKGROUND: the per-column equalities read a BG edge, and a
+# sprite drawn over four columns of it is a sprite, not a displacement. That is
+# the difference from `heathaze`, where a moving object would have destroyed
+# the per-row equalities it exists to assert.
+#
+# =============================================================================
+# THE ART
+# =============================================================================
+# Arthur Pendragon from the vendored `camelot` pack (CC0 — analogStudios_ /
+# Kevin's Mom's House), traced from the pack's own PNG at build time. Two
+# things about it are load-bearing rather than decorative:
+#
+#   * the pack frames every 32x32 cell with FOUR TRANSPARENT ROWS UNDER THE
+#     FEET, so the drawn content ends at row 28 of 32. That number is
+#     SMT_KN_BOTTOM in the generated smt_art.inc, measured off the pixels
+#     rather than taken from the pack's README, and it is what puts the feet on
+#     the plate's top edge instead of four pixels into the metal.
+#   * a 32x32 knight is exactly a plate's four columns wide. One knight, one
+#     plate — which is what makes "he is standing on THAT plate" legible at a
+#     glance, and what makes the gaps a jump rather than a step.
+name = "smt_obj"
+role = "consumer"
+depends = ["oam_sprites", "smt_rom"]
+
+# ---- the vocabulary -------------------------------------------------------
+# OBJ to the main screen. Sprites render in every mode, so this designation is
+# the one the mode constraint never touches — and the composition says so by
+# exempting `obj` from the layer-existence rule (docs/100 O8).
+[[claims.screen]]
+layer = "obj"
+on = "main"
+
+# ---- the art --------------------------------------------------------------
+[[claims.dma_init]]
+name = "smt_obj_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "smt_obj_chr"
+kind = "chr"
+obj = true
+words = 0x1000          # 256 tiles = 16 frames of 32x32, one whole OBJ name
+                        # table. OBSEL's base field steps in 8K words, so the
+                        # allocator's chr alignment is what makes the base
+                        # expressible at all — asserted in the ASM
+
+[[claims.cgram]]
+name = "smt_obj_pal"
+words = 16
+at = 128                # hardware contract: OBJ palette 0 = CGRAM 128..143
+
+[[claims.oam]]
+name = "knight"
+sprites = 1
+at = 0                  # ONE entry: a 32x32 sprite is one OAM entry with the
+                        # hi-table size bit set (OBSEL pair 3 = small 16x16 /
+                        # large 32x32). Pinned at 0 so it starts a hi-table
+                        # byte, which is what lets the draw rebuild that byte
+                        # whole instead of patching it
+
+# ---- state ----------------------------------------------------------------
+# The knight's whole world, in ten bytes, and there is NO ANIMATION CURSOR in
+# it: the walk is indexed by the knight's own screen X (one step every 8 px, so
+# the legs move with the ground) and the idle by the rail's phase. Both are
+# already region-correct quantities, so the animation inherits the scaler with
+# no clock, no accumulator and no countdown of its own. It is `smt_obj`'s and not the
+# scene's because the routine that READS it is this feature's tick — the
+# lakeside division between the feature that owns a quantity and the scene
+# that drives it.
+[[claims.dp]]
+name = "smt_kn_x"
+bytes = 2                # screen x, pixels
+
+[[claims.dp]]
+name = "smt_kn_y"
+bytes = 2                # screen y, 8.8 — the fall needs a fraction, and the
+                         # plate it lands on does not
+
+[[claims.dp]]
+name = "smt_kn_vy"
+bytes = 2                # 8.8 signed, positive = falling
+
+[[claims.dp]]
+name = "smt_kn_plate"
+bytes = 2                # which plate it stands on, or SMT_KN_AIRBORNE
+
+[[claims.dp]]
+name = "smt_kn_face"
+bytes = 2                # 0 right, 1 left — an OAM H-flip, not a second sheet
+
+# C4 (docs/09 §2.1): OBSEL $2101, written at scene enter.
+#
+# Bits 0-2 are the OBJ name base in 8K-word steps and bits 5-7 the size pair;
+# pair 3 is small 16x16 / large 32x32, which is the one that makes a 32x32
+# frame a single OAM entry. Both fields come from emitted symbols or from a
+# named constant, never from a narrated byte.
+# NO `scene_writes`: this feature writes OBSEL itself, in `smt_kn_arm`, and
+# nothing else does. The permission is for a port scene-enter code has to
+# establish; opening one the owner also writes is the declaration-that-lies
+# `no_literals` refuses by name.
+[[claims.reg]]
+name = "smt_obsel"
+registers = ["OBSEL"]

@@ -204,7 +204,7 @@ smt_nmi_row:
 ;   entry:    A16 I16 DB=0
 ;   exit:     A16 I16
 ;   in:       X = the plate index, 0..SMT_PLAT_COUNT-1
-;   out:      A = the plate's top edge in screen pixels
+;   out:      A = the plate's top edge as a PICTURE ROW
 ;   clobbers: A, X, Y, N, Z, C
 ;   assumes:  main thread, after this frame's phase has been advanced
 ;   tail:     rts
@@ -245,7 +245,13 @@ smt_plate_top:
     lda f:smt_col_bin, x            ;   indexed by X and no Y form of it
     and #ES_OPT_WORKS_MASK          ; the value field, from the allocator
     sta z:ES_SMT_SCRATCH
-    lda #SMT_PLAT_TOP_PX
+    ; SMT_ROW_BIAS IS IN HERE, and that is what makes this a PICTURE ROW rather
+    ; than a map coordinate. The vertical latch reads "scanline N shows tilemap
+    ; line VOFS + N" and the first ACTIVE scanline is 1, so map pixel row P
+    ; lands on picture row P - VOFS - 1 (smelter.inc). Leaving the bias out put
+    ; the knight's feet one row INTO the metal — measured on the binary, which
+    ; is the only place a one-pixel claim can be settled.
+    lda #(SMT_PLAT_TOP_PX - SMT_ROW_BIAS)
     sec
     sbc z:ES_SMT_SCRATCH
     rts

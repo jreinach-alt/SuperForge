@@ -1346,9 +1346,12 @@ SMT_ASM  := $(SMT)/main.asm $(wildcard $(SMT)/scenes/*.asm) \
 SMT_ASSETS := $(BUILD)/assets/smt_chr.bin $(BUILD)/assets/smt_pmap.bin \
               $(BUILD)/assets/smt_mmap.bin $(BUILD)/assets/smt_pal.bin \
               $(BUILD)/assets/smt_hrow.bin $(BUILD)/assets/smt_col.bin \
+              $(BUILD)/assets/smt_obj.bin $(BUILD)/assets/smt_obj_pal.bin \
+              $(BUILD)/assets/smt_anim.bin \
               $(BUILD)/assets/smt_art.inc
 
-$(SMT_ASSETS): tools/gen_smelter_assets.py | $(BUILD)
+$(SMT_ASSETS): tools/gen_smelter_assets.py \
+		vendor/art/camelot/arthurPendragon_.png | $(BUILD)
 	$(PY) tools/gen_smelter_assets.py $(BUILD)/assets
 
 $(SMT_MAP)/engine_state_globals.inc $(SMT_MAP)/symbol_map.json: \
@@ -1362,7 +1365,8 @@ SMT_INC := -I $(SMT_MAP) -I $(VROM) -I $(SMT) -I $(BUILD)/assets \
            -I engine/features/scene_mgr -I engine/features/input \
            -I engine/features/fade -I engine/features/bg_text \
            -I engine/features/region -I engine/features/tick_scale \
-           -I engine/features/smt_bg -I engine/features/smt_opt
+           -I engine/features/smt_bg -I engine/features/smt_opt \
+           -I engine/features/smt_obj -I engine/features/oam_sprites
 
 $(BUILD)/smelter.sfc: $(SMT_ASM) $(SMT)/smelter.inc \
 		$(SMT_MAP)/engine_state_globals.inc $(SMT_ASSETS) \

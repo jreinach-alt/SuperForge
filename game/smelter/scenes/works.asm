@@ -27,6 +27,35 @@
 .include "engine_state_works.inc"   ; GENERATED — this scene's map
 .include "smt_opt.asm"              ; scene-scoped: its claims are this
                                     ;   scene's, so its symbols resolve here
+.include "smt_obj.asm"              ; ...and the knight, AFTER it: his landing
+                                    ;   calls smt_plate_top
+
+; =============================================================================
+; THE KNIGHT'S THREE RATES, and the one that takes the region ratio twice
+; =============================================================================
+; TS_STEP applies exactly one r. A run is px per frame and takes one; a GRAVITY
+; is px per frame SQUARED and takes two, so the second goes into the BASE — on
+; the PAL arm only, which is why the tick branches on ES_RGN_PAL BEFORE the
+; macro rather than after it. Both arms share one accumulator: a console cannot
+; change region, so only one of them is ever taken.
+;
+; TS_SCALED is tick_scale's build-time twin of TS_STEP's PAL arm. It is NOT a
+; second copy of the ratio — TS_GAIN_NUM / TS_GAIN_DEN are tick_scale's own and
+; single-sourced — so the compile-time and run-time arms cannot disagree by a
+; count. game/jumper/scenes/sky.asm is where this tree first spelled it.
+TS_RUN_BASE  = SMT_KN_SPEED * TS_ONE
+TS_GRAV_BASE = SMT_KN_GRAVITY * TS_ONE
+TS_SCALED TS_GRAV_BASE_R, TS_GRAV_BASE
+
+; --- the two velocities: one r each, chosen once at enter ------------------
+TS_SCALED SMT_KN_MAX_FALL_R, SMT_KN_MAX_FALL
+TS_SCALED SMT_KN_JUMP_VEL_R, SMT_KN_JUMP_VEL
+SMT_KN_NEG_JUMP_VEL_R = (1 << 16) - SMT_KN_JUMP_VEL_R
+
+; smelter.inc's own bound, re-asserted on the SCALED pair: a region scale is
+; exactly the kind of change that walks a tuned constant through a bound
+; nobody re-checked.
+.assert (SMT_KN_MAX_FALL_R >> 8) <= SMT_KN_LAND_WIN, error, "the PAL-scaled terminal fall is faster than the landing window is wide — the knight can pass through a plate in one frame"
 
 ; --- enter: forced blank + NMI masked (scene_mgr contract) ------------------
 ; In/out: A16/I16, DB=0.
@@ -39,8 +68,36 @@ enter:
     stz z:ES_SMT_PHASE              ; ...and the animation starts at phase 0
     stz z:ES_SMT_FLATSEL            ; running, not flat, on entry
     stz z:ES_SMT_SCRATCH
+    stz z:ES_SMT_SCRATCH + 2
+    stz z:ES_SMT_SCRATCH + 4
     stz z:US_TSC_ACC                ; the timebase's carried fraction
     stz z:US_TSC
+    ; ---- the knight's timebase, and his two region-selected velocities ----
+    ; Power-on DP is RANDOM (rule 5), so these stores ARE the write-before-read
+    ; contract rather than defensive initialisation.
+    stz z:US_TSKR_ACC
+    stz z:US_TSKR
+    stz z:US_TSKG_ACC
+    stz z:US_TSKG
+    lda z:ES_RGN_PAL
+    beq :+
+    lda #SMT_KN_MAX_FALL_R
+    sta z:US_VMAX
+    lda #SMT_KN_NEG_JUMP_VEL_R
+    sta z:US_VJUMP
+    bra :++
+:   .a16
+    .i16
+    lda #SMT_KN_MAX_FALL            ; today's constants, to the bit
+    sta z:US_VMAX
+    lda #SMT_KN_NEG_JUMP_VEL
+    sta z:US_VJUMP
+:   .a16
+    .i16
+    jsr smt_kn_arm                  ; the knight: CHR, palette, OBSEL, spawn
+    jsr smt_kn_draw                 ; ...staged BEFORE the first NMI, so frame
+                                    ;   0 commits a real entry rather than
+                                    ;   whatever oam_park_all left
     sep #$20
     .a8
     ; ---- the composed video mode ------------------------------------------
@@ -122,6 +179,25 @@ tick:
     ; restarts.
     lda z:US_TSC
     jsr smt_advance
+    ; ---- the knight's two rates, and then the knight ----------------------
+    ; The gravity arm branches on the region BEFORE the macro, because the
+    ; second factor of r lives in the BASE (see the header). Anonymous labels
+    ; rather than cheap ones: TS_STEP's own `.local` labels are plain, so a
+    ; `@name` here would collide with the expansion's.
+    TS_STEP z:US_TSKR_ACC, TS_RUN_BASE
+    sta z:US_TSKR
+    lda z:ES_RGN_PAL
+    beq :+
+    TS_STEP z:US_TSKG_ACC, TS_GRAV_BASE_R
+    bra :++
+:   .a16
+    .i16
+    TS_STEP z:US_TSKG_ACC, TS_GRAV_BASE
+:   .a16
+    .i16
+    sta z:US_TSKG
+    jsr smt_kn_tick
+    jsr smt_kn_draw
     ; ---- B: latch the flat control ----------------------------------------
     lda z:ES_INP_PRESS
     and #JOY_B

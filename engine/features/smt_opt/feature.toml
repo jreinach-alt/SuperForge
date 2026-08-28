@@ -103,10 +103,20 @@ bytes = 2                # 0 = the running table, 1 = the flat control row
 
 [[claims.dp]]
 name = "smt_scratch"
-bytes = 2                # one word of working space for `smt_plate_top`,
-                         # which needs both index registers to reach the blob
+bytes = 6                # THREE words of main-thread working space, at +0, +2
+                         # and +4. `smt_plate_top` needs one because it wants
+                         # both index registers to reach the blob
                          # (absolute-long indexed exists for X only) and so
-                         # cannot hold its intermediate in one
+                         # cannot hold its intermediate in one; the knight's
+                         # draw needs three, to carry a driving quantity, a
+                         # (mask, shift) pair and a table row across the same
+                         # register pressure.
+                         #
+                         # ONE BLOCK, OFFSETS INSIDE IT, rather than three
+                         # claims: they are one routine's scratch at a time and
+                         # never live across a call, so three names would say
+                         # they were independent when the thing that keeps them
+                         # apart is that nothing else runs in between
 
 # C4: the two fallback scrolls, in THIS scene.
 #

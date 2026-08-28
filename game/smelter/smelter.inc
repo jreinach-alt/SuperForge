@@ -32,6 +32,80 @@ SMT_PHASE_BASE = $0060
 ; the PPU reads out of its map are scroll offsets.
 SMT_TXT_ATTR = (7 << 10) | (1 << 13)
 
+; =============================================================================
+; THE KNIGHT
+; =============================================================================
+; The pad. $4218's word layout is B = bit 15 ... R = bit 4; JOY_B and JOY_START
+; are above.
+JOY_A     = 1 << 7
+JOY_RIGHT = 1 << 8
+JOY_LEFT  = 1 << 9
+
+; The screen's width, as a SHIFT rather than as 256. `no_literals` reads an
+; operand's numeric tokens and cannot tell a screen dimension from an address;
+; building the constant out of a shift keeps the arithmetic visible AND the
+; gate satisfied, which is `tick_scale`'s own note about TS_ONE.
+SMT_SCREEN_W = 1 << 8
+
+; The run, in px per frame — a RATE, scaled by one factor of the region ratio
+; through TS_STEP. This is still the one number to reach for when tuning how
+; the rail feels.
+SMT_KN_SPEED = 2
+
+; THE KNIGHT'S VERTICAL UNIT IS 9.7, NOT 8.8, AND THE SEVENTH BIT IS THE
+; REASON. His Y has to hold both ends of a jump: the highest plate's top is
+; screen row 11 and the apex is 50 px above his standing height, so Y goes
+; genuinely NEGATIVE — while a miss drops him past row 232 on the way out of
+; the world. In 8.8 those two are the same bit pattern (row 232 is $E8.., and
+; so is row -24), so no test can tell "above the screen" from "below the
+; world": the first build read row 236 as negative, skipped the kill, and let
+; him wrap around to the top of the screen instead of respawning. One bit
+; moved from the fraction to the row settles it — 9.7 spans -256..+255 whole
+; rows, which covers both ends with the sign intact, and 1/128 px is finer
+; than anything this rail's velocities need.
+;
+; Every conversion is written against SMT_KN_FRAC rather than as a shift by a
+; typed number, so the two directions cannot drift apart.
+SMT_KN_FRAC  = 7
+SMT_KN_ONE_PX = 1 << SMT_KN_FRAC
+
+; Gravity, in 9.7 velocity per frame — a per-frame-SQUARED quantity, so it
+; takes TWO factors of the ratio and works.asm is where that arithmetic is
+; spelled. 1/4 px per frame per frame.
+SMT_KN_GRAVITY = SMT_KN_ONE_PX / 4
+
+; The take-off, 9.7 px per frame. WITH THE GRAVITY ABOVE THIS IS THE GAME:
+; apex = v^2 / 2g = 25 / 0.5 = 50 px, over 40 frames of flight, which at the
+; run speed carries 80 px horizontally. The widest gap between two plates is
+; 4 columns = 32 px, so a jump clears any of them comfortably — and 50 px of
+; apex is LESS than the 80 px spread between the highest and lowest plate, so
+; reaching the top one means waiting for it to come down. That is the mechanic
+; the moving plates buy, and it is a consequence of these two numbers rather
+; than of any code.
+SMT_KN_JUMP_VEL = 5 * SMT_KN_ONE_PX
+SMT_KN_NEG_JUMP_VEL = (1 << 16) - SMT_KN_JUMP_VEL
+
+; Terminal fall, 9.7 px per frame. Bounded by the landing window below: a fall
+; faster than the window is wide can pass through a plate in one frame.
+SMT_KN_MAX_FALL = 6 * SMT_KN_ONE_PX
+
+; THE LANDING WINDOW, in whole px, and it is sized by TWO motions rather than
+; one. The knight falls at up to SMT_KN_MAX_FALL a frame and THE PLATE MOVES
+; TOO — the fastest harmonic is 3 cycles of +/-40 px over the 64-phase loop at
+; 0.375 phases a frame, which peaks near 4 px a frame — so the feet and the
+; metal can close on each other from both sides. 12 covers the sum with margin,
+; and the snap on landing is what keeps the overshoot invisible.
+SMT_KN_LAND_WIN = 12
+.assert SMT_KN_LAND_WIN >= (SMT_KN_MAX_FALL / SMT_KN_ONE_PX), error, "the fall is faster than the landing window is wide — the knight can pass through a plate in one frame"
+
+; Below this screen row he has missed everything and comes back on plate 0.
+SMT_KN_KILL_Y = 232
+
+; Where he starts. Plate 0's own column, so the spawn is a plate rather than a
+; coordinate, and moving the plates moves the spawn with them.
+SMT_KN_SPAWN_PLATE = 0
+SMT_PLAT_SPAWN_COL = SMT_PLAT_0_COL
+
 ; THE SCROLL LATCH'S OFF-BY-ONE, which every screen-position number in this
 ; rail and in tests/test_smelter.py is expressed through.
 ;

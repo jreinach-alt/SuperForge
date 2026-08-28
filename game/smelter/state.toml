@@ -27,3 +27,41 @@ tsc_acc = "u16@dp"       # the columns: SMT_PHASE_BASE phases per frame
 tsc = "u16@dp"           # ...and this frame's answer, in whole phases
                          # TICK: ok -- the OUTPUT of the scaler; already
                          # expressed against the declared tick.
+
+# THREE RATES, AND THE THIRD IS THE ONE WORTH READING. The columns above are a
+# velocity in phases/frame. The knight adds two more: a RUN (px per frame,
+# region scale r) and a GRAVITY (px per frame SQUARED, region scale r^2), and
+# TS_STEP applies exactly one r. So the run is an ordinary consumer pair while
+# gravity feeds TS_STEP a base that already carries one r on the PAL arm --
+# scenes/works.asm is the only place that arithmetic is spelled, and
+# game/jumper is where the tree first paid for it.
+#
+# WHY THE ARC AND NOT JUST THE SPEED. Scaling gravity by one r would make the
+# fall accelerate at NTSC's rate through frames 20% longer: the arc flattens,
+# the apex drops, and a jump tuned to clear a gap stops clearing it. The pair
+# preserves the SHAPE -- apex v0^2/2g becomes (v0*r)^2/(2*g*r^2), the same
+# number of pixels -- so a PAL player lands on the same plate.
+tskr_acc = "u16@dp"      # the run: SMT_KN_SPEED px per frame
+                         # TICK: ok -- the carried FRACTION of a scaled rate.
+tskr = "u16@dp"          # ...and this frame's answer, in whole px
+                         # TICK: ok -- the OUTPUT of the scaler.
+tskg_acc = "u16@dp"      # gravity: SMT_KN_GRAVITY of 9.7 velocity per frame
+                         # TICK: ok -- as tskr_acc.
+tskg = "u16@dp"          # ...and this frame's answer, in whole 9.7 counts
+                         # TICK: ok -- as tskr.
+
+# --- the two velocities, region-selected once at enter ---------------------
+# ASSIGNMENTS rather than accumulations -- a take-off writes one and a terminal
+# clamp reads the other -- so there is no fraction to carry and no accumulator
+# to declare. What they need is the region's answer, and a console cannot
+# change region, so the pair is chosen once at enter and every site reads the
+# word.
+vmax = "u16@dp"          # the terminal fall, 9.7 (smelter.inc says why
+                         # the knight's vertical unit is not the usual 8.8)
+                         # TICK: ok -- a CONSTANT the region picks, not a
+                         #   quantity anything accumulates per frame. It is
+                         #   already the scaled answer: the arm writes
+                         #   SMT_KN_MAX_FALL or its PAL twin once at enter and
+                         #   every site reads the word.
+vjump = "u16@dp"         # ...and the take-off, as a negative 9.7 word
+                         # TICK: ok -- as vmax.

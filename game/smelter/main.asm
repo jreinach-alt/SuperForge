@@ -55,6 +55,9 @@ NMI:
 .include "fade.asm"
 .include "input.asm"
 .include "region.asm"               ; $213F bit 4 -> ES_RGN_PAL, once at boot
+.include "oam_sprites.asm"          ; the OAM shadow's VBlank DMA — global, so
+                                    ;   the title parks its sprites rather than
+                                    ;   not having any
 .include "tick_scale.asm"           ; TS_STEP: the macro works.asm's tick uses.
                                     ;   INCLUDED BEFORE THE SCENES, and it must
                                     ;   be — a ca65 macro has to be defined
@@ -67,6 +70,15 @@ NMI:
 ; would reserve the window and let whatever the linker left there be read as
 ; art — or, for `smt_col`, as scroll offsets.
 .segment "BANK1"
+; THE ORDER HERE IS THE PACKER'S, not this file's. The allocator sorts rom
+; claims by size and the `.assert`s below are what turn a disagreement into a
+; build failure instead of art read from the wrong address — which is exactly
+; what happened when the knight's three blobs were appended in a reading order
+; rather than in the packed one.
+smt_obj_bin:
+    .incbin "smt_obj.bin"
+.assert ^smt_obj_bin = ES_R_SMT_OBJ_BANK, error, "smt_obj bank drifted from allocator claim"
+.assert .loword(smt_obj_bin) = ES_R_SMT_OBJ_ADDR, error, "smt_obj addr drifted from allocator claim"
 smt_col_bin:
     .incbin "smt_col.bin"
 .assert ^smt_col_bin = ES_R_SMT_COL_BANK, error, "smt_col bank drifted from allocator claim"
@@ -100,6 +112,14 @@ smt_pal_bin:
     .incbin "smt_pal.bin"
 .assert ^smt_pal_bin = ES_R_SMT_PAL_BANK, error, "smt_pal bank drifted from allocator claim"
 .assert .loword(smt_pal_bin) = ES_R_SMT_PAL_ADDR, error, "smt_pal addr drifted from allocator claim"
+smt_obj_pal_bin:
+    .incbin "smt_obj_pal.bin"
+.assert ^smt_obj_pal_bin = ES_R_SMT_OBJ_PAL_BANK, error, "smt_obj_pal bank drifted from allocator claim"
+.assert .loword(smt_obj_pal_bin) = ES_R_SMT_OBJ_PAL_ADDR, error, "smt_obj_pal addr drifted from allocator claim"
+smt_anim_bin:
+    .incbin "smt_anim.bin"
+.assert ^smt_anim_bin = ES_R_SMT_ANIM_BANK, error, "smt_anim bank drifted from allocator claim"
+.assert .loword(smt_anim_bin) = ES_R_SMT_ANIM_ADDR, error, "smt_anim addr drifted from allocator claim"
 .segment "CODE"
 
 ; --- the global feature runtimes (after the blobs their uploads read) ------
@@ -174,6 +194,10 @@ smt_layer_bases:
 sm_nmi_hook:
     .a8
     .i16
+    jsr oam_nmi_dma                 ; the OAM shadow, every armed VBlank, in
+                                    ;   both scenes: the title's entries are
+                                    ;   the parked ones and they still have to
+                                    ;   reach the hardware
     lda z:ES_SM_CTL                 ; the scene now running
     cmp #ES_E_TITLE_TO_WORKS_DST    ; ...the works?
     bne @done
@@ -197,6 +221,8 @@ MAIN:
     jsr sm_init
     jsr input_init
     jsr fade_init
+    jsr oam_park_all                ; every sprite off-screen before anything
+                                    ;   draws — power-on OAM is random (rule 5)
     jsr region_init                 ; the console's own region line, once. It
                                     ;   is game-lifetime state: a console does
                                     ;   not change region between scenes.

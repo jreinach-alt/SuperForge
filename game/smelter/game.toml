@@ -4,11 +4,16 @@
 # =============================================================================
 # WHAT YOU SEE
 # =============================================================================
-# A foundry floor. Four steel plates hang over a cavern of molten metal, and
-# each plate rises and falls ON ITS OWN — different amplitude, different
+# A foundry floor with a knight on it. Four steel plates hang over a cavern of
+# molten metal, and each plate rises and falls ON ITS OWN — different amplitude, different
 # period, no two ever in step. Between them the melt erupts: the crust line
 # lifts out of the surface in an arch, column by 8-pixel column, and settles
 # back. Under the plates the melt is calm.
+#
+# D-pad walks, A jumps, and the knight RIDES whichever plate he is standing
+# on — his collision reads the same word the picture is drawn from, so the two
+# cannot disagree. A jump's apex is 50 px and the plates span 80, so the top
+# one is reached by waiting for it to come down rather than by jumping higher.
 #
 # B flattens everything. Every plate drops to one level and the crust goes
 # straight across, and that stillness is the CONTROL every per-column
@@ -60,17 +65,23 @@
 # refusal is quoted verbatim in tests/test_smelter.py, off these same
 # features.
 globals = ["scene_mgr", "fade", "input", "text_dp", "font_rom",
-           "smt_bg", "smt_rom", "region", "tick_scale"]
+           "smt_bg", "smt_rom", "oam_sprites", "region", "tick_scale"]
 
 # The title: the same world, flat, in mode 1 with a line of text over it.
 [[scene]]
 id = "title"
 features = ["blend_off", "bg_text", "smt_flat"]
 
-# The works: the same world, in mode 2, with BG3 as the column table.
+# The works: the same world, in mode 2, with BG3 as the column table, and a
+# knight standing on a plate whose height is a word in it.
+#
+# `oam_sprites` is GLOBAL and `smt_obj` is not. The OAM shadow's VBlank DMA has
+# to run in both scenes — the title parks its sprites rather than not having
+# any — while the knight's CHR, palette, OAM slot and physics belong to the one
+# scene that has a floor to stand on.
 [[scene]]
 id = "works"
-features = ["blend_off", "smt_opt"]
+features = ["blend_off", "smt_opt", "smt_obj"]
 
 [[edge]]
 from = "title"

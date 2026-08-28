@@ -46,6 +46,8 @@ import math
 import pathlib
 import sys
 
+from PIL import Image
+
 # --------------------------------------------------------------------------
 # geometry — every number here is emitted into smt_art.inc, never restated
 # --------------------------------------------------------------------------
@@ -387,6 +389,210 @@ def h_row():
     return bytes(COLS * 2)
 
 
+
+
+# ===========================================================================
+# THE KNIGHT — traced from the vendored camelot pack's own PNG
+# ===========================================================================
+# `vendor/art/camelot/arthurPendragon_.png`, CC0 (analogStudios_ / Kevin's
+# Mom's House, the `legends_` series). The PNG is the pack's ORIGINAL file,
+# sha256-matched against its zip member in docs/92 §5.1, and reading it
+# directly rather than a converted blob is what the asset-import rule asks
+# for: a converter validated against your own re-rendering of your own output
+# is a tautology, and the PNG is independent of everything this repo emits.
+#
+# WHY A KNIGHT ON A FOUNDRY FLOOR, AND WHY THIS ONE. The rail needed a sprite
+# whose FEET ARE A SHARP HORIZONTAL EDGE, because the whole claim it makes is
+# that the collision reads the same word the picture is drawn from: the knight
+# stands on a plate whose height is a table entry, and rides it. The pack
+# frames every 32x32 cell with FOUR TRANSPARENT ROWS UNDER THE FEET, so the
+# drawn content ends at row 28 of 32 — a number this rail depends on and the
+# pack's README already measured, which is exactly the kind of thing you want
+# to inherit rather than re-derive.
+#
+# RIGHT-FACING ONLY (columns 0-3). The pack draws both directions by hand,
+# and walking left here is an OAM H-flip — half the CHR, and the same idiom
+# `split_v_obj` uses.
+#
+# THE HELPERS BELOW ARE COPIED, NOT IMPORTED, and this is the fourth copy of
+# `encode_tile_4bpp` in tools/. Not promoted, deliberately: the other three
+# have three DIFFERENT signatures (`gen_brawler_assets` takes a label,
+# `gen_m7_dungeon_assets` takes a grid and an origin), so a shared module
+# would be a signature negotiation across three byte-pinned rails rather than
+# a move. Two committed oracles would prove such a move pure —
+# `vendor/art/camelot/ref_arthur.inc` and `vendor/art/split_v/sv_knight_chr.bin`
+# — which is what makes it a good follow-up and a bad thing to do inside a
+# sprint about offset-per-tile. Filed in docs/dx_paper_cuts.md.
+CAMELOT = pathlib.Path(__file__).resolve().parent.parent / "vendor" / "art" / "camelot"
+ARTHUR_PNG = CAMELOT / "arthurPendragon_.png"
+
+# TICK: ok -- these index the ART, not the clock. A `frame` here is one of
+#   the pack's 32x32 animation cells, and NOTHING ON THIS RAIL COUNTS
+#   HARDWARE FRAMES to choose between them: the walk is indexed by the
+#   knight's own screen X and the idle by the rail's phase, both of which
+#   TS_STEP has already scaled. There is no table here indexed by a frame
+#   number, so a change of tick rate leaves every one of these correct.
+FRAME_BOX = 32              # the pack's cell, in PIXELS
+FRAMES_PER_GROUP = 4        # four 32x32 cells fill one 64-tile grid group
+                            # TICK: ok -- a VRAM packing ratio, as above.
+
+# (row, col) on the 8x8 grid of 32x32 cells. The pack's own READ ME maps
+# arthurPendragon_'s rows: idle [0], run [1,2], jump-idle [3], jump-run [4],
+# turn [5], hit [6], death [7]. ONE SLOT PER LINE, and the slot index IS the
+# position in this list — it is what the anim tables index and what the ASM's
+# SMT_F_* names mirror.
+KNIGHT_CELLS = [
+    (0, 0), (0, 1), (0, 2), (0, 3),          # 0-3   idle
+    (1, 0), (1, 1), (1, 2), (1, 3),          # 4-7   run, first half
+    (2, 0), (2, 1), (2, 2), (2, 3),          # 8-11  run, second half
+    (3, 1),                                  # 12    jump-idle, legs tucked
+]
+KNIGHT_SLOTS = 16           # 13 cells, padded to four whole grid groups
+                            # TICK: ok -- a VRAM slot count, as above.
+
+# The anim tables, by state. The tuple order IS the state index the ASM
+# stores, and the second number is a SHIFT rather than a frame count —
+# because NOTHING ON THIS RAIL COUNTS FRAMES.
+#
+# The walk is indexed by the knight's own screen X, one step every 8 px, so the
+# legs move with the ground and the cadence is region-correct for free: X is
+# advanced by TS_STEP's output, so the animation inherits the scaler with no
+# clock of its own. The idle is indexed by the rail's phase, one step every 16
+# of them, which is the same argument on the quantity that already carries it.
+# Neither needs an accumulator, a countdown or a `TICK: ok` stamp, because
+# neither is a frame count.
+#
+# EVERY LENGTH IS A POWER OF TWO, asserted below: the index is a shift and a
+# MASK, so a length that was not would need a compare-and-wrap in the draw.
+KNIGHT_ANIM = [
+    ("idle", [0, 1, 2, 3], 4),               # phase >> 4, & 3
+    ("walk", [4, 5, 6, 7, 8, 9, 10, 11], 3),  # x >> 3, & 7
+    ("jump", [12], 0),                        # one pose; the shift is inert
+]
+ANIM_STRIDE = 8             # frame slots per state in smt_anim.bin
+META_STRIDE = 2             # (index mask, shift) per state
+
+
+def rgb_to_bgr15(rgb):
+    r, g, b = rgb
+    return (r >> 3) | ((g >> 3) << 5) | ((b >> 3) << 10)
+
+
+def rgba_pixels(img):
+    raw = img.tobytes()
+    return [tuple(raw[i:i + 4]) for i in range(0, len(raw), 4)]
+
+
+def opaque_colors(img):
+    return {p[:3] for p in rgba_pixels(img) if p[3] >= 128}
+
+
+def build_palette(colors):
+    """Index 0 transparent; 1..15 sorted by luminance then RGB."""
+    ordered = sorted(colors,
+                     key=lambda c: (c[0] * 299 + c[1] * 587 + c[2] * 114, c))
+    pal = [(0, 0, 0)] + ordered
+    c2i = {c: i + 1 for i, c in enumerate(ordered)}
+    assert len(pal) <= 16, f"{len(pal)} colours will not fit a 4bpp palette"
+    return [rgb_to_bgr15(c) for c in pal] + [0] * (16 - len(pal)), c2i
+
+
+def index_frame(img, c2i):
+    w, h = img.size
+    data = rgba_pixels(img)
+    return [[c2i[data[y * w + x][:3]] if data[y * w + x][3] >= 128 else 0
+             for x in range(w)] for y in range(h)]
+
+
+def slot_base_tile(slot):
+    """Frame slot -> its top-left tile on the 16-wide OBJ name table.
+
+    A 32x32 sprite reads {N..N+3, N+16..N+19, N+32..N+35, N+48..N+51} — the
+    row stride of 16 is hardware-fixed — so four frames fill one group of four
+    grid rows and frame N starts at (N//4)*64 + (N%4)*4.
+    """
+    return (slot // FRAMES_PER_GROUP) * 64 + (slot % FRAMES_PER_GROUP) * 4
+
+
+def content_bottom(rows):
+    """The last row of a frame with any opaque pixel in it.
+
+    MEASURED per build rather than taken from the pack's README, because it is
+    the number the collision is expressed through: the knight's feet must land
+    ON the plate's top edge, and a frame whose content ended somewhere else
+    would put them in the air or in the metal. The README says 28 of 32; this
+    asserts it against the pixels.
+    """
+    for y in range(len(rows) - 1, -1, -1):
+        if any(rows[y]):
+            return y + 1
+    raise AssertionError("an entirely transparent knight frame")
+
+
+def knight_sheet():
+    """The knight's frames -> (CHR blob, 16 palette words, content bottom).
+
+    ONE PALETTE OVER THE WHOLE SET, built from the union of every chosen
+    cell's opaque colours — the pack's README measures Arthur at 8, so this is
+    a lossless conversion and not a quantisation.
+    """
+    sheet = Image.open(ARTHUR_PNG).convert("RGBA")
+    cells = []
+    for row, col in KNIGHT_CELLS:
+        # The pack's cell IS the OBJ box, so there is no crop and no
+        # re-centring here — `png2snes.py`'s `recenter` is skipped for a frame
+        # that already measures exactly the box ("already exact; keep author's
+        # framing"), and re-centring anyway would push the art 4 px down and
+        # move the feet off the number the collision is written against.
+        cells.append(sheet.crop((col * FRAME_BOX, row * FRAME_BOX,
+                                 (col + 1) * FRAME_BOX, (row + 1) * FRAME_BOX)))
+        assert cells[-1].size == (FRAME_BOX, FRAME_BOX)
+
+    allc = set()
+    for c in cells:
+        allc |= opaque_colors(c)
+    words, c2i = build_palette(allc)
+
+    groups = (KNIGHT_SLOTS + FRAMES_PER_GROUP - 1) // FRAMES_PER_GROUP
+    blob = bytearray(groups * 64 * 32)
+    bottom = 0
+    for slot, cell in enumerate(cells):
+        rows = index_frame(cell, c2i)
+        bottom = max(bottom, content_bottom(rows))
+        base = slot_base_tile(slot)
+        for ty in range(FRAME_BOX // 8):
+            for tx in range(FRAME_BOX // 8):
+                tile = [r[tx * 8:(tx + 1) * 8]
+                        for r in rows[ty * 8:(ty + 1) * 8]]
+                ti = base + ty * 16 + tx
+                blob[ti * 32:(ti + 1) * 32] = encode_4bpp(tile, f"knight{slot}")
+    return bytes(blob), words, bottom, len(allc)
+
+
+def anim_tables():
+    """(frames, meta) — the anim tables as one flat pair of blobs.
+
+    `frames` is ANIM_STRIDE TILE NUMBERS per state (the slot's base tile, not
+    its slot index: the draw writes an OAM tile field and should not have to
+    know the grid arithmetic), `meta` is (index mask, shift) per state.
+    Emitted rather than written into the ASM for the reason every table in
+    this rail is: the walker and the table cannot disagree about a number
+    neither of them holds twice.
+    """
+    frames = bytearray(len(KNIGHT_ANIM) * ANIM_STRIDE)
+    meta = bytearray(len(KNIGHT_ANIM) * META_STRIDE)
+    for i, (name, slots, shift) in enumerate(KNIGHT_ANIM):
+        assert len(slots) <= ANIM_STRIDE, f"{name}: {len(slots)} > stride"
+        assert len(slots) & (len(slots) - 1) == 0, (
+            f"{name}: {len(slots)} frames is not a power of two, and the draw "
+            f"indexes with a mask")
+        for j, s in enumerate(slots):
+            frames[i * ANIM_STRIDE + j] = slot_base_tile(s)
+        meta[i * META_STRIDE + 0] = len(slots) - 1      # the index mask
+        meta[i * META_STRIDE + 1] = shift
+    return bytes(frames), bytes(meta)
+
+
 # --------------------------------------------------------------------------
 def encode_4bpp(rows, label):
     """8x8 indices -> 32 B SNES 4bpp (planes 0/1 interleaved, then 2/3)."""
@@ -433,12 +639,31 @@ SMT_ROW_BYTES     = {stride}
 SMT_TILE_COUNT    = {tiles}
 SMT_PAL_MELT_OFF  = 32     ; the melt group's byte offset in smt_pal.bin
 
+; --- the knight (vendor/art/camelot, CC0) ----------------------------------
+SMT_KN_BOX        = {kbox}     ; the pack's cell AND the OBJ box: no crop, no
+                             ;   re-centre -- see the generator
+SMT_KN_BOTTOM     = {kbot}     ; MEASURED: the last row of a frame with any
+                             ;   opaque pixel in it. The pack frames every cell
+                             ;   with four transparent rows under the feet, and
+                             ;   this is the number the collision is written
+                             ;   against
+SMT_KN_SLOTS      = {kslots}     ; frames, padded to whole 64-tile grid groups
+SMT_KN_STATES     = {kstates}      ; idle, walk, jump -- the state index the ASM
+                             ;   stores IS the row of the anim table
+SMT_KN_ST_IDLE    = 0
+SMT_KN_ST_WALK    = 1
+SMT_KN_ST_JUMP    = 2
+SMT_KN_ANIM_STRIDE = {kstride}     ; frame slots per state in smt_anim.bin
+SMT_ANIM_META_OFF = {kmetaoff}     ; ...and where the (index mask, shift) pairs start
+
 ; --- BG1: the plates -------------------------------------------------------
 SMT_PLAT_MAP_ROW  = {prow}     ; the plate band's first tilemap row
 SMT_PLAT_TOP_PX   = {ptop}    ; ...in map pixels: the edge measurements use
 SMT_PLAT_BASE     = {pbase}    ; the flat control's value for a plate column
 SMT_PLAT_AMP      = {pamp}
 SMT_PLAT_COUNT    = {pcount}
+SMT_PLAT_WIDTH    = {pwidth}      ; columns, and every plate is the same: a
+                             ;   32 px slab, which is also the knight's box
 SMT_VOFS_BG1      = {vbg1}      ; the fallback for a column with bit 13 clear
 {platcols}
 
@@ -450,6 +675,11 @@ SMT_MELT_AMP      = {mamp}
 SMT_VOFS_BG2      = {vbg2}    ; the fallback for a column with bit 14 clear —
                              ;   the plates' columns, where the melt is calm
 """
+
+
+assert len({p[1] for p in PLATES}) == 1, (
+    "the plates are not all the same width, and SMT_PLAT_WIDTH is emitted as "
+    "one number the collision indexes every plate with")
 
 
 def main(argv):
@@ -475,6 +705,13 @@ def main(argv):
         encode_words(PAL_PLATE + PAL_MELT, "smt_pal", 32))
     (out / "smt_hrow.bin").write_bytes(h_row())
 
+    kchr, kpal, kbottom, kcolours = knight_sheet()
+    (out / "smt_obj.bin").write_bytes(kchr)
+    (out / "smt_obj_pal.bin").write_bytes(
+        encode_words(kpal, "smt_obj_pal", 16))
+    kframes, kmeta = anim_tables()
+    (out / "smt_anim.bin").write_bytes(kframes + kmeta)
+
     col = col_table()
     assert len(col) == (PHASES + 1) * STRIDE, len(col)
     (out / "smt_col.bin").write_bytes(col)
@@ -483,13 +720,16 @@ def main(argv):
         cols=COLS, phases=PHASES, flat=PHASES, rows=PHASES + 1,
         shift=PHASE_SHIFT, stride=STRIDE, tiles=len(tiles),
         prow=PLAT_MAP_ROW, ptop=PLAT_TOP_PX, pbase=PLAT_BASE, pamp=PLAT_AMP,
-        pcount=len(PLATES), vbg1=0,
+        pcount=len(PLATES), pwidth=PLATES[0][1], vbg1=0,
         platcols="\n".join(
             f"SMT_PLAT_{i}_COL     = {first}"
             f"{' ' * (5 - len(str(first)))}; ...and it is {w} columns wide"
             for i, (first, w) in enumerate(PLATES)),
         crow=CRUST_MAP_ROW, ctop=CRUST_TOP_PX, mbase=MELT_BASE, mamp=MELT_AMP,
-        vbg2=MELT_BASE))
+        vbg2=MELT_BASE,
+        kbox=FRAME_BOX, kbot=kbottom, kslots=KNIGHT_SLOTS,
+        kstates=len(KNIGHT_ANIM), kstride=ANIM_STRIDE,
+        kmetaoff=len(kframes)))
 
     print(f"smt_chr.bin  {len(chr_blob):6d} B  ({len(tiles)} tiles)")
     print(f"smt_pmap.bin   4096 B  (32x64 words, {len(PLATES)} plates)")
@@ -499,6 +739,11 @@ def main(argv):
     print(f"smt_hrow.bin  {COLS * 2:6d} B  (the H row: all zero, V-only table)")
     print(f"smt_col.bin  {len(col):6d} B  ({PHASES} phases + 1 flat control "
           f"x {STRIDE} B; {len(GAPS)} jets, {len(PLATES)} plates)")
+    print(f"smt_obj.bin  {len(kchr):6d} B  ({len(KNIGHT_CELLS)} knight frames "
+          f"in {KNIGHT_SLOTS} slots, {kcolours} opaque colours, content "
+          f"bottom {kbottom}/{FRAME_BOX})")
+    print(f"smt_obj_pal.bin  32 B  /  smt_anim.bin  "
+          f"{len(kframes) + len(kmeta)} B")
     return 0
 
 

@@ -52,6 +52,35 @@ bytes = 64               # BG3 row 0, the HORIZONTAL offset word per column.
                          # is expressed. Uploaded once, at scene enter — only
                          # the V row is rewritten per frame
 
+# --- the knight, traced from the vendored camelot pack (CC0) ---------------
+# `vendor/art/camelot/arthurPendragon_.png`, read at build time by
+# tools/gen_smelter_assets.py. The PNG is the pack's own unmodified file,
+# sha256-matched against its zip member (docs/92 §5.1) and already vendored
+# because `brawler` reads it; tracing it directly is strictly better
+# provenance than reading a derived blob, and it is the same route `brawler`
+# and `split_v_fight` take from the same sheet.
+[[claims.rom]]
+name = "smt_obj"
+bytes = 8192             # 13 frames of 32x32 in 16 slots = 256 tiles, one
+                         # whole OBJ name table. Right-facing only: the pack
+                         # draws both directions by hand and walking left here
+                         # is an OAM H-flip, which halves the CHR
+
+[[claims.rom]]
+name = "smt_obj_pal"
+bytes = 32               # 16 CGRAM words — OBJ palette 0. Arthur uses 8
+                         # opaque colours, so this is a lossless conversion
+                         # and not a quantisation (the pack's README measures
+                         # the same 8, and the generator asserts it)
+
+[[claims.rom]]
+name = "smt_anim"
+bytes = 30               # 3 states x 8 frame slots, then 3 (length, rate)
+                         # pairs. Emitted rather than written into the ASM for
+                         # the reason every table in this rail is: the walker
+                         # and the table cannot disagree about a number
+                         # neither of them holds twice
+
 [[claims.rom]]
 name = "smt_col"
 bytes = 4160             # 65 x 64 B. Each blob is a complete BG3 V-offset row

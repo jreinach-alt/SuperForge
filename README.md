@@ -244,6 +244,13 @@ by a **third background layer the hardware reads as data instead of drawing**,
 one number per column, refreshed once a frame. Watch two neighbouring columns
 of the melt — one can be forty pixels up while the other has not moved.
 
+And there is a knight standing on one of the plates, going up and down with it.
+That is the part that makes the number a **position** rather than a display
+trick: his collision reads the same word the picture is drawn from, so his feet
+are on the metal by construction and not by tuning. D-pad walks him, A jumps —
+the apex is fifty pixels and the plates span eighty, so the top one is reached
+by waiting for it to come down.
+
 ---
 
 The other 28 games are in `game/` — among them `microzero`, the smallest

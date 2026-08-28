@@ -113,6 +113,7 @@ DP_FLAT = _sym("ES_SMT_FLATSEL")["start"]
 VRAM_TABLE = _sym("ES_V_SMT_TAB")["start"]          # in WORDS
 CG_PLATE = _sym("ES_C_SMT_PPAL")["start"]
 CG_MELT = _sym("ES_C_SMT_MPAL")["start"]
+CG_OBJ = _sym("ES_C_SMT_OBJ_PAL")["start"]
 
 # The composed video mode and the offset table's declared shape, machine-read
 # out of the map rather than retyped — the screen_blend precedent.
@@ -170,21 +171,39 @@ def plate_of(col):
 
 
 # --- the picture, read against CGRAM as the ROM left it ---------------------
+def _cg(raw, i):
+    v = raw[2 * i] | (raw[2 * i + 1] << 8)
+    r, g, b = v & 0x1F, (v >> 5) & 0x1F, (v >> 10) & 0x1F
+    return (r * 255 // 31, g * 255 // 31, b * 255 // 31)
+
+
 def _palette(m):
-    """CGRAM words 0..47 as RGB triples, read off the running machine.
+    """The BG palettes AND the knight's, as RGB triples, off the machine.
 
     The colours a test matches on are the colours the ROM UPLOADED, so a
     palette change moves the test with the art instead of breaking it — and a
     palette that never got uploaded fails here rather than silently matching
     nothing.
+
+    THE KNIGHT'S PALETTE IS IN HERE FOR A REASON. `_classify` picks the
+    NEAREST entry it is given, so a palette holding only the BG colours has no
+    choice but to call every knight pixel a background one — and his helmet
+    highlight landed on the plate's top-edge index, which made `plate_y` report
+    HIM as a plate three rows above where the plate actually is. Three cases
+    went red and none of them were about the sprite. Entries 48..63 are OBJ
+    palette 0 (CGRAM word ES_C_SMT_OBJ_PAL onward), so a knight pixel now
+    classifies as a knight pixel and the column scans walk past him.
+
+    The 80 words between the BG palettes and his are NOT read: nothing uploads
+    them, they hold power-on garbage, and offering them to a nearest-match
+    would let random colour steal a classification.
     """
     raw = m.read_bytes(C, 0, 48 * 2)
-    out = []
-    for i in range(48):
-        v = raw[2 * i] | (raw[2 * i + 1] << 8)
-        r, g, b = v & 0x1F, (v >> 5) & 0x1F, (v >> 10) & 0x1F
-        out.append((r * 255 // 31, g * 255 // 31, b * 255 // 31))
-    return out
+    obj = m.read_bytes(C, CG_OBJ * 2, 16 * 2)
+    return [_cg(raw, i) for i in range(48)] + [_cg(obj, i) for i in range(16)]
+
+
+OBJ_IX0 = 48                    # where the knight's 16 entries start above
 
 
 def _classify(px, pal):
@@ -563,6 +582,284 @@ def test_the_title_is_the_flat_picture_in_another_mode(tmp_path):
     tops = {plate_y(im, pal, c) for c in range(COLS) if plate_of(c) is not None}
     assert tops == {where(PLAT_PX, PLAT_BASE)}
     assert crust_y(im, pal, 0) == where(CRUST_PX, MELT_BASE)
+
+
+# ==========================================================================
+# the knight — the number is a fact about the WORLD, not about the display
+# ==========================================================================
+#
+# A picture can show that every column scrolls on its own. Only something that
+# STANDS on one can show that the offset is a position rather than a display
+# trick, and that is what this section asserts: the knight's feet, IN THE
+# PICTURE, on the plate's top edge, IN THE PICTURE, at whatever height the word
+# THE ROM HOLDS puts it — every frame, through a jump, through a fall, and
+# through the flat control.
+#
+# HE IS FOUND BY HIS OWN PALETTE, never by where he is expected to be.
+# `_palette` carries OBJ palette 0 at OBJ_IX0.., so `_knight` is a scan of the
+# whole picture for pixels that are his — which means a knight drawn in the
+# wrong place, or not drawn at all, fails here rather than being looked for
+# somewhere else.
+
+KN_BOX = _art("SMT_KN_BOX")             # the sprite's 32x32 cell
+KN_BOTTOM = _art("SMT_KN_BOTTOM")       # ...and where its drawn content ends
+DP_KN_X = _sym("ES_SMT_KN_X")["start"]
+OAM = MemoryType.SnesSpriteRam
+
+
+def _knight(im, pal):
+    """The bounding box of the knight's OWN pixels, in screen coordinates.
+
+    Returns (x0, x1, y0, y1), or None if he is not in the picture at all —
+    which is a real state, not a failure: a jump carries him off the top edge.
+    """
+    xs, ys = [], []
+    for y in range(PICTURE_TOP, im.size[1]):
+        for x in range(im.size[0]):
+            if _classify(im.getpixel((x, y))[:3], pal) >= OBJ_IX0:
+                xs.append(x)
+                ys.append(y - PICTURE_TOP)
+    return (min(xs), max(xs), min(ys), max(ys)) if xs else None
+
+
+def _feet(im, pal):
+    """The picture row his lowest drawn pixel sits ABOVE — where the metal
+    starts if he is standing on it."""
+    b = _knight(im, pal)
+    return None if b is None else b[3] + 1
+
+
+def _cols_of(x):
+    """The screen columns a 32-pixel box at `x` covers."""
+    return range(x // 8, (x + KN_BOX - 1) // 8 + 1)
+
+
+def _under(im, pal, kn_x):
+    """The plate top in the columns a knight at `kn_x` occupies, and None when
+    he is over a gap or straddling two plates at different heights."""
+    ys = {plate_y(im, pal, c) for c in _cols_of(kn_x)}
+    ys.discard(None)
+    return ys.pop() if len(ys) == 1 else None
+
+
+def _kn_x():
+    """His X, off the machine at the settled frame every case here starts from.
+
+    A coordinate, not a measurement: it decides WHICH columns to look in, the
+    way the phase decides which row of the oracle to join against.
+    """
+    with Machine(str(ROM)) as m:
+        m.advance(TITLE)
+        m.advance(1, pad1=JOY_START)
+        m.advance(SETTLE)
+        return m.read_u16(W, DP_KN_X)
+
+
+def test_the_knight_is_the_sprite_the_oam_entry_describes(frame):
+    """THE DESTINATION REGION AND THE PICTURE, joined.
+
+    OAM says a 32x32 sprite at (X, Y); the picture says pixels in OBJ palette
+    0 somewhere. Either half alone is passable while the other is broken — an
+    entry with the size bit clear draws a plausible 16x16 corner, and a CHR or
+    CGRAM upload that never fired draws a perfectly valid sprite made of
+    power-on noise (rule 5). This requires the pixels to fall inside the box
+    the entry declares.
+
+    The hardware OAM is one frame behind the shadow the tick stages, so the Y
+    is not compared here — the X does not move in this scene, and containment
+    is what the case is about. The rows are the ride cases below.
+    """
+    im, pal, _ = frame
+    with Machine(str(ROM)) as m:
+        m.advance(TITLE)
+        m.advance(1, pad1=JOY_START)
+        m.advance(SETTLE)
+        entry = m.read_bytes(OAM, 0, 4)
+        hi = m.read_bytes(OAM, 512, 1)[0]
+    assert hi & 0b10 == 0b10, f"OAM hi byte ${hi:02X}: the 32x32 size bit is clear"
+    assert hi & 0b01 == 0, "X9 is set with the knight on the left of the screen"
+    b = _knight(im, pal)
+    assert b is not None, "no pixel in the picture is in the knight's palette"
+    assert entry[0] <= b[0] and b[1] <= entry[0] + KN_BOX - 1, \
+        f"his pixels span x {b[0]}..{b[1]}, outside the entry at x={entry[0]}"
+    assert b[3] - b[2] + 1 <= KN_BOX
+
+
+def test_the_knight_stands_on_the_word_the_rom_holds(frame):
+    """THE SPRITE'S HEADLINE, and it closes the chain in one statement.
+
+    His feet are at `map row - word - 1` for the word THE ROM HOLDS for his own
+    columns, in the row the picture was drawn from. Not "he is near the plate",
+    and not "his state variable agrees with the plate's" — the PIXELS where his
+    art stops, against the BYTES in build/smelter.sfc.
+
+    That is only true because there is one number: `smt_kn_ride` takes his Y
+    from `smt_plate_top`, which reads the same blob the VBlank transfer moves
+    into VRAM. A rail that computed the collision separately would pass this on
+    the frame it was tuned for and drift on every other one.
+    """
+    im, pal, phase = frame
+    _, _, idx = _fit(im, pal, phase)[0]
+    words = {row(idx)[c] & VALUE_MASK for c in _cols_of(_kn_x())}
+    assert len(words) == 1, f"the knight straddles two heights: {words}"
+    assert _feet(im, pal) == where(PLAT_PX, words.pop()), \
+        "his feet are not where the plate's own word puts the metal"
+
+
+def test_the_knight_rides_the_plate_rather_than_hovering_over_it(tmp_path):
+    """A SINGLE FRAME CANNOT TELL A RIDE FROM A COINCIDENCE.
+
+    Six captures spread across the harmonic, and the equality has to hold at
+    every one of them: a knight pinned to a screen row would match on the frame
+    he was placed and miss the other five. The travel is asserted too, because
+    a plate that had stopped moving would make the case vacuous.
+    """
+    kn_x = _kn_x()
+    pal, shots = _drive(tmp_path, [(7, None)] * 6)
+    seen = []
+    for im, _, _ in shots:
+        under = _under(im, pal, kn_x)
+        assert under is not None, "the knight is not over exactly one plate"
+        assert _feet(im, pal) == under, \
+            f"feet at {_feet(im, pal)}, metal at {under}"
+        seen.append(under)
+    assert len(set(seen)) >= 4, f"the plate barely moved: {seen}"
+    assert max(seen) - min(seen) >= 30, f"only {max(seen) - min(seen)} px of travel"
+
+
+def test_the_flat_control_levels_the_knight_too(tmp_path):
+    """The control, applied to the player. Flattening the table puts every
+    plate on its base — and the knight goes with it, because the height he
+    stands at is read out of the table rather than held anywhere of his own."""
+    pal, shots = _drive(tmp_path, [(20, JOY_B)])
+    im, _, flat = shots[0]
+    assert flat == 1
+    assert _feet(im, pal) == where(PLAT_PX, PLAT_BASE)
+
+
+def test_the_jump_leaves_the_metal_and_the_metal_catches_him_again(tmp_path):
+    """THE WHOLE TIME-AXIS CYCLE, not the apex.
+
+    An apex-only case passes while the landing embeds him in the floor, which
+    is a documented way to ship a broken platformer. This drives ascent, apex,
+    descent and landing and requires all four: he leaves the metal, he goes off
+    the TOP of the picture entirely, he comes back down onto the plate at the
+    ride equality, and the plate is still moving under him afterwards.
+
+    Leaving the picture is also the case that would have caught the vertical
+    unit: at 8.8 a Y above the screen and a Y below the world are the same bit
+    pattern, and the first build read row 236 as negative and wrapped him back
+    to the top instead of respawning him.
+    """
+    kn_x = _kn_x()
+    pal, shots = _drive(tmp_path, [(3, {"a": True})] + [(3, None)] * 21)
+    frames = [(_feet(im, pal), _under(im, pal, kn_x)) for im, _, _ in shots]
+    assert any(feet is None for feet, _ in frames), \
+        "he never leaves the top of the picture — the jump is not a jump"
+    airborne = [i for i, (feet, under) in enumerate(frames)
+                if feet is not None and under is not None and feet < under - 8]
+    assert airborne and airborne[0] == 0, \
+        f"he is on the metal at the start of the arc: {frames}"
+    landed = [i for i, (feet, under) in enumerate(frames)
+              if feet is not None and under is not None and feet == under]
+    assert landed, f"he never lands: {frames}"
+    assert landed[0] > max(airborne[:1]), "he lands before he rises"
+    assert landed == list(range(landed[0], len(frames))), \
+        f"he lands and then leaves the metal again untold: {landed}"
+    assert frames[landed[0]][1] != frames[-1][1], \
+        "the plate stopped moving after the landing — the ride did not resume"
+
+
+def _hold(tmp_path, pad, shots, every):
+    """Drive the works scene with `pad` HELD, capturing every `every` frames.
+
+    `_drive` taps a pad for one frame — right for the toggles it was written
+    for, and useless for a walk, which needs the button down. The knight covers
+    two pixels a frame, so a tap moves him two.
+    """
+    out = []
+    with Machine(str(ROM)) as m:
+        m.advance(TITLE)
+        m.advance(1, pad1=JOY_START)
+        m.advance(SETTLE)
+        pal = _palette(m)
+        for i in range(shots):
+            m.advance(every, pad1=pad)
+            f = tmp_path / f"h{i}.png"
+            m.screenshot(str(f))
+            out.append((Image.open(f).convert("RGB"), m.read_u16(W, DP_KN_X)))
+    return pal, out
+
+
+def test_walking_off_the_span_drops_him_and_the_world_gives_him_back(tmp_path):
+    """The other state cycle, on the horizontal axis, and every step of it is
+    read off the picture.
+
+    He starts ON the metal; he is carried past his plate's four columns; he
+    falls, which is asserted as his feet being further below the nearest metal
+    than he is tall rather than as "his state variable says airborne"; he
+    reaches the bottom of the world — out of the picture, or past two thirds of
+    it, and he cannot leave through the top while walking; and he comes back
+    standing on a plate at the ride equality, near where he started.
+
+    The return is the half that needs the vertical sign to mean what it says.
+    He passes row 232 on the way out, and in the 8.8 unit the first build used,
+    that row and a row above the screen are the same bit pattern: the kill test
+    read it as negative, skipped the respawn, and wrapped him round to the top
+    of the screen instead.
+    """
+    span = _art("SMT_PLAT_WIDTH") * 8
+    pal, shots = _hold(tmp_path, {"right": True}, 14, 6)
+    start = shots[0][1]
+    seen = []
+    for im, kn_x in shots:
+        box = _knight(im, pal)
+        seen.append((kn_x, None if box is None else box[3] + 1,
+                     _under(im, pal, kn_x)))
+
+    riding = [i for i, (_x, f, u) in enumerate(seen) if u is not None and f == u]
+    walked = [i for i, (x, _f, _u) in enumerate(seen) if x > start + span]
+    falling = [i for i, (_x, f, u) in enumerate(seen)
+               if f is not None and u is not None and f > u + KN_BOX]
+    out = [i for i, (_x, f, _u) in enumerate(seen)
+           if f is None or f > 2 * PICTURE_LINES // 3]
+
+    assert riding and riding[0] == 0, f"he did not start on the metal: {seen}"
+    assert walked, f"he never walked past his plate's {span} px of metal"
+    # >= rather than >: the captures are six frames apart, so leaving the metal
+    # and being visibly below it can land in the same one. The ORDER is the
+    # claim; the cadence is not.
+    assert falling and falling[0] >= walked[0], \
+        "he walked off the metal and kept standing on air"
+    assert out and out[0] >= falling[0], "he never reached the bottom of the world"
+    back = [i for i in riding if i > out[0]]
+    assert back, "he fell out of the world and never came back onto a plate"
+    assert seen[back[0]][0] <= start + span, \
+        f"he came back at x={seen[back[0]][0]}, not on the spawn plate"
+
+
+def test_the_knight_does_not_hide_the_edge_the_per_column_cases_read(frame):
+    """THE DEPENDENCY, NAMED — because three unrelated cases rest on it.
+
+    `plate_y` scans a column for the plate's top-edge colour, and the knight
+    stands in four of those columns. It keeps working only because the art
+    frames every cell with transparent rows under the feet (SMT_KN_BOTTOM), so
+    his lowest drawn pixel is ABOVE the edge rather than on it. Art whose
+    content reached row 31 would occlude the edge and send
+    test_every_plate_column_stands_where_its_word_says red with a message about
+    the offset table, which is nowhere near the truth.
+
+    So: in the columns he occupies, the plate's top-edge row is still a plate
+    pixel — asserted here, once, where the reason is written down.
+    """
+    im, pal, _ = frame
+    feet = _feet(im, pal)
+    for c in _cols_of(_kn_x()):
+        px = im.getpixel((8 * c + 3, PICTURE_TOP + feet))[:3]
+        assert _classify(px, pal) == PLATE_IX, \
+            f"column {c} at row {feet} is not the plate's edge — the knight " \
+            f"is standing ON it and the plate cases are reading him"
+    assert KN_BOTTOM < KN_BOX, "the art has no transparent rows under the feet"
 
 
 # ==========================================================================

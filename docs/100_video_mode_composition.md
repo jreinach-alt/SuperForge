@@ -5,7 +5,9 @@
 > per-scene composition and refusal set (`allocator/allocate.py`,
 > `compose_video_offset`), and the writer-side consent that lets scene code
 > write the composed state (the synthesized ownership claim in each scene's
-> `symbol_map.json` reg union). Exercised by one rail, `smelter`.
+> `symbol_map.json` reg union). Exercised by one rail, `smelter` — which
+> since 2026-08-28 also carries a PLAYER standing on the table's own
+> numbers (§10).
 
 ## 1. The problem: the mode was a value nobody declared
 
@@ -357,7 +359,66 @@ ever ran.
 Colour math was never special. Neither was a scroll port. What persists is
 **everything a scene establishes and its successor does not**.
 
-## 10. Stated limits
+## 10. The rail's player, and what a sprite costs the proof
+
+`smelter` ships a knight. He walks, he jumps, and he **rides** whichever plate
+he is standing on — and the reason he is in a document about a claim class is
+that he closes a gap a picture cannot.
+
+Everything in §5 and §9 is about what the DISPLAY does. A per-column equality
+says the crust line in column 17 is exactly where the word for column 17 puts
+it, and that is a strong statement about the PPU. It is not a statement about
+the world the rail is drawing. A rail could satisfy every one of those
+equalities while the number meant nothing at all outside the frame buffer.
+
+The knight is the statement that it does. `smt_kn_ride` takes his Y from
+`smt_plate_top`, which reads **the same 64-byte row the VBlank transfer moves
+into BG3's map** — so the collision and the picture are not kept in step, they
+are the same number used twice. The assertion is his FEET, in the rendered
+frame, on the plate's TOP EDGE, in the same frame, at the height the word in
+`build/smelter.sfc` puts it, at every phase of the harmonic
+(`tests/test_smelter.py::test_the_knight_stands_on_the_word_the_rom_holds`,
+and `..._rides_the_plate_rather_than_hovering_over_it` for the six-capture
+version a single frame cannot distinguish from a coincidence).
+
+**And it costs the composition nothing, which is why this rail could have one
+and `heathaze` could not.** The plates are BACKGROUND. A per-column equality
+reads a BG edge; a sprite drawn over four columns of that edge is a sprite, not
+a displacement, and the OBJ layer is exempt from the mode's layer-existence
+rule (O8) because sprites render in every mode. `heathaze` is the contrast: its
+claim is a per-ROW equality on the picture itself, and a moving object in the
+band would have destroyed it. The rule generalises — **a player is free where
+the subject is a layer the player is not drawn on, and expensive where the
+subject is the picture.**
+
+Two things about the art turned out to be load-bearing rather than decorative,
+and both are inherited from the pack rather than re-derived:
+
+- the `camelot` pack frames every 32x32 cell with **four transparent rows under
+  the feet**, so the drawn content ends at row 28. That number (`SMT_KN_BOTTOM`,
+  measured off the pixels at build time) is what puts him ON the metal instead
+  of four pixels into it — and it is also why the per-column plate cases keep
+  working while he stands in four of their columns, which
+  `..._does_not_hide_the_edge_the_per_column_cases_read` asserts where the
+  reason is written down;
+- a 32x32 knight is exactly a plate's four columns wide, which is what makes
+  "he is standing on THAT plate" legible and the gaps a jump rather than a step.
+
+**One defect this bought, worth recording because the shape recurs.** His
+vertical position started as 8.8, the tree's usual unit. It cannot hold both
+ends of his own movement: the highest plate sits at screen row 11 and a jump's
+apex is 50 px, so his Y goes genuinely NEGATIVE — while a miss carries him past
+row 232 on the way out of the world. In 8.8 those two are **the same bit
+pattern** (row 232 and row -24 are both `$E8..`), so the kill test read a fall
+as "above the screen", skipped the respawn, and wrapped him round to the top.
+The fix is one bit moved from the fraction to the row: **9.7**, spanning
+-256..+255 whole rows, with both conversions written against a single
+`SMT_KN_FRAC` so they cannot drift. It is planted
+(`tools/plants/smelter.py::the-knights-y-is-8-8-again`) because it took a person
+walking him off the edge to find it the first time, and every other case in the
+module stays green under it.
+
+## 11. Stated limits
 
 - **The offset TABLE'S CONTENT is not modelled.** The claim says BG3's tilemap
   is a table of scroll words; it does not say which words, how they get there,
