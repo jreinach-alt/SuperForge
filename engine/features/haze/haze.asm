@@ -1,5 +1,5 @@
 ; =============================================================================
-; haze.asm — heat shimmer: a per-scanline BG1VOFS displacement
+; haze.asm — heat shimmer: per-scanline BG1VOFS and BG1HOFS displacement
 ; =============================================================================
 ; THE WHOLE PER-FRAME COST OF THIS EFFECT IS ONE 8-BIT STORE. hz_rom holds 32
 ; complete HDMA tables at a 256 B stride, so phase p lives at
@@ -33,6 +33,7 @@ HZ_SLOT = ES_SM_HDMA_LONG + ES_H_HZWARP_CH * 16
 ; property of where the allocator placed it, and it is asserted rather than
 ; assumed.
 .assert (.loword(hz_warp_bin) + HZ_BLOB_COUNT * 256) <= $10000, error, "hz_warp's blobs straddle a bank boundary - HDMA cannot cross one"
+.assert (.loword(hz_hwarp_bin) + HZ_BLOB_COUNT * 256) <= $10000, error, "hz_hwarp's blobs straddle a bank boundary - HDMA cannot cross one"
 
 ; --- hz_arm: the channel, the seed scroll, the phase (scene enter) ----------
 ; CONTRACT hz_arm
@@ -72,6 +73,10 @@ hz_arm:
     sta a:$210E                     ; BG1VOFS, low
     lda #>HZ_VOFS
     sta a:$210E                     ; BG1VOFS, high
+    lda #0
+    sta a:$210D                     ; BG1HOFS, low  — the world does not
+    sta a:$210D                     ;   scroll sideways; the turbulent term
+                                    ;   is displaced around zero
     ; ---- the channel's shadow slots ---------------------------------------
     ldx #(ES_H_HZWARP_CH * 16)
     lda #ES_H_HZWARP_DMAP
@@ -84,6 +89,21 @@ hz_arm:
     sta f:ES_SM_HDMA_LONG + 3, x    ; A1T high — blob 0
     lda #^hz_warp_bin
     sta f:ES_SM_HDMA_LONG + 4, x    ; A1B: the ROM bank the claim landed in
+    ; ---- the turbulent term's channel, on its OWN table --------------------
+    ; Same stride and same blob count, so the commit indexes both the same
+    ; way; different amplitude, wavelength and phase, because the two
+    ; components do not come from the same thing (feature.toml).
+    ldx #(ES_H_HZHORIZ_CH * 16)
+    lda #ES_H_HZHORIZ_DMAP
+    sta f:ES_SM_HDMA_LONG + 0, x
+    lda #ES_H_HZHORIZ_BBAD
+    sta f:ES_SM_HDMA_LONG + 1, x    ; BBAD -> BG1HOFS
+    lda #<hz_hwarp_bin
+    sta f:ES_SM_HDMA_LONG + 2, x
+    lda #>hz_hwarp_bin
+    sta f:ES_SM_HDMA_LONG + 3, x
+    lda #^hz_hwarp_bin
+    sta f:ES_SM_HDMA_LONG + 4, x
     rep #$20
     .a16
     rts
@@ -168,18 +188,39 @@ hz_nmi_commit:
     .i16
     SF_ASSERT_WIDTH 8, 16, "hz_nmi_commit"
     lda z:ES_HZ_FLAT                ; A8: bit 0 is the whole flag
-    beq @animating
-    lda #HZ_FLAT_INDEX
-    bra @select
-@animating:
-    .a8
-    .i16
+    bne @flat
+    ; ---- the mirage: this frame's phase ------------------------------------
     lda z:ES_HZ_PHASE               ; the low byte is the whole range 0..63
-@select:
-    .a8
-    .i16
     clc
     adc #>hz_warp_bin
     ldx #(ES_H_HZWARP_CH * 16)
     sta f:ES_SM_HDMA_LONG + 3, x    ; A1T high
+    ; ---- the turbulence: HZ_HORIZ_LEAD phases ahead -------------------------
+    ; The mask makes the lead a rotation rather than an overrun, and it is why
+    ; HZ_FLAT_INDEX sits ABOVE the mask's range: the control blob can never be
+    ; reached by accident from here.
+    lda z:ES_HZ_PHASE
+    clc
+    adc #HZ_HORIZ_LEAD
+    and #(HZ_PHASES - 1)
+    clc
+    adc #>hz_hwarp_bin
+    ldx #(ES_H_HZHORIZ_CH * 16)
+    sta f:ES_SM_HDMA_LONG + 3, x
+    rts
+@flat:
+    .a8
+    .i16
+    ; BOTH channels take their control blob, so flat is flat on both axes —
+    ; one variable, as a control has to be.
+    lda #HZ_FLAT_INDEX
+    clc
+    adc #>hz_warp_bin
+    ldx #(ES_H_HZWARP_CH * 16)
+    sta f:ES_SM_HDMA_LONG + 3, x
+    lda #HZ_FLAT_INDEX
+    clc
+    adc #>hz_hwarp_bin
+    ldx #(ES_H_HZHORIZ_CH * 16)
+    sta f:ES_SM_HDMA_LONG + 3, x
     rts

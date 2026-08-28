@@ -1289,6 +1289,7 @@ HZS_ASM  := $(HZS)/main.asm $(wildcard $(HZS)/scenes/*.asm) \
 # reads and this list omits is a stale artifact waiting to happen.
 HZS_ASSETS := $(BUILD)/assets/hz_chr.bin $(BUILD)/assets/hz_map.bin \
               $(BUILD)/assets/hz_pal.bin $(BUILD)/assets/hz_warp.bin \
+              $(BUILD)/assets/hz_hwarp.bin \
               $(BUILD)/assets/hz_art.inc
 
 $(HZS_ASSETS): tools/gen_haze_assets.py | $(BUILD)

@@ -3,7 +3,7 @@
 # =============================================================================
 # THE PROBLEM IT SOLVES, AND IT IS `blend_off`'S PROBLEM ON ANOTHER REGISTER
 # =============================================================================
-# `haze` drives BG1VOFS per scanline through an HDMA channel. Whatever value
+# `haze` drives BG1VOFS and BG1HOFS per scanline through an HDMA channel. Whatever value
 # the LAST scanline of the last armed frame left in that port is the value the
 # port still holds when the scene ends — a displacement of up to six pixels,
 # chosen by wherever the animation happened to be. Nothing carries a scroll
@@ -35,5 +35,5 @@ role = "feature"
 
 [[claims.reg]]
 name = "hz_flat_scroll"
-registers = ["BG1VOFS"]
-scene_writes = ["BG1VOFS"]
+registers = ["BG1VOFS", "BG1HOFS"]
+scene_writes = ["BG1VOFS", "BG1HOFS"]

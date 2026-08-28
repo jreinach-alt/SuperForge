@@ -88,9 +88,28 @@ channels = 1
 # across the band. See the header: the pair is required to be real — a seed
 # with nothing overriding it is refused, and so is a plain owner standing
 # against a transfer claim.
+# THE TURBULENT TERM, on its own channel. HDMA mode 2 drives ONE register, so
+# the two axes need two channels — and they SHOULD have two, because they do
+# not come from the same thing: the vertical displacement is the hot layer's
+# stratification, the horizontal is turbulent cells drifting through the
+# sightline. Separate channels give each its own table, amplitude, wavelength
+# and phase.
+#
+# Mode 3 would put both on one channel (B, B, B+1, B+1 over $210D/$210E —
+# `sh2_cam` and three siblings do exactly that) but it is 4 bytes a scanline,
+# which doubles the stride to 512 and puts 65 blobs at 33,280 B against a
+# 32,768 B bank window that HDMA cannot cross. It would cost half the phases.
+[[claims.hdma]]
+name = "hzhoriz"
+registers = ["BG1HOFS"]
+mode = 2
+band = [100, 224]
+phase = "active"
+channels = 1
+
 [[claims.reg]]
 name = "hz_seed"
-registers = ["BG1VOFS"]
+registers = ["BG1VOFS", "BG1HOFS"]
 seed = true
 # The accumulated phase index, 0..31. u16 so the advance is a plain add and
 # the wrap is one mask; the loop closes at 32 because both wave components

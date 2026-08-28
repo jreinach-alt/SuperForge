@@ -72,10 +72,10 @@ NMI:
 ; would reserve the window and let whatever the linker left there be read as
 ; art.
 .segment "BANK1"
-hz_warp_bin:
-    .incbin "hz_warp.bin"
-.assert ^hz_warp_bin = ES_R_HZ_WARP_BANK, error, "hz_warp bank drifted from allocator claim"
-.assert .loword(hz_warp_bin) = ES_R_HZ_WARP_ADDR, error, "hz_warp addr drifted from allocator claim"
+hz_hwarp_bin:
+    .incbin "hz_hwarp.bin"
+.assert ^hz_hwarp_bin = ES_R_HZ_HWARP_BANK, error, "hz_hwarp bank drifted from allocator claim"
+.assert .loword(hz_hwarp_bin) = ES_R_HZ_HWARP_ADDR, error, "hz_hwarp addr drifted from allocator claim"
 hz_map_bin:
     .incbin "hz_map.bin"
 .assert ^hz_map_bin = ES_R_HZ_MAP_BANK, error, "hz_map bank drifted from allocator claim"
@@ -92,6 +92,23 @@ hz_pal_bin:
     .incbin "hz_pal.bin"
 .assert ^hz_pal_bin = ES_R_HZ_PAL_BANK, error, "hz_pal bank drifted from allocator claim"
 .assert .loword(hz_pal_bin) = ES_R_HZ_PAL_ADDR, error, "hz_pal addr drifted from allocator claim"
+
+; TWO WARP TABLES, TWO BANKS, AND THE ALLOCATOR CHOSE THE SPLIT. 16,640 B each
+; is more than one 32 KB LoROM bank holds beside the world's art, so the
+; packer put the horizontal table at the head of bank 1 and the vertical one
+; alone in bank 2. This file follows that decision rather than making its own:
+; the `.assert`s above and below are what turn a disagreement into a build
+; failure instead of a table read from the wrong bank at run time.
+;
+; Each table is INTACT within its bank, which is the property that matters —
+; HDMA increments A1T inside a bank and does not carry into A1B, so a blob set
+; straddling a boundary would walk into whatever follows it. haze.asm asserts
+; that separately, per table.
+.segment "BANK2"
+hz_warp_bin:
+    .incbin "hz_warp.bin"
+.assert ^hz_warp_bin = ES_R_HZ_WARP_BANK, error, "hz_warp bank drifted from allocator claim"
+.assert .loword(hz_warp_bin) = ES_R_HZ_WARP_ADDR, error, "hz_warp addr drifted from allocator claim"
 .segment "CODE"
 
 ; --- the global feature runtimes (after the blobs their uploads read) ------
@@ -112,8 +129,8 @@ hz_pal_bin:
 ; CONTRACT heathaze::hz_display
 ;   entry:    A16 I16 DB=0
 ;   exit:     A16 I16
-;   out:      BGMODE, BG1SC, BG1HOFS, BG3SC, BG34NBA and BG3HOFS/BG3VOFS
-;             established for the scene now entering (NOT BG1VOFS)
+;   out:      BGMODE, BG1SC, BG3SC, BG34NBA and BG3HOFS/BG3VOFS established
+;             for the scene now entering (NEITHER BG1 scroll port)
 ;   clobbers: A, N, Z
 ;   assumes:  forced blank AND the NMI masked — the scene_mgr enter contract
 ;   tail:     rts
@@ -142,13 +159,11 @@ hz_display:
     sta a:$2109                     ; BG3SC
     lda #ES_V_TEXT_CHR_NBA
     sta a:$210C                     ; BG34NBA: BG3 chr = the font base
-    stz a:$210D                     ; BG1HOFS, low  (the world does not scroll)
-    stz a:$210D                     ; BG1HOFS, high
-    ; BG1VOFS IS DELIBERATELY ABSENT. It is not `hz_bg`'s port on this rail:
-    ; `haze` seeds and drives it per scanline in the desert scene, `hz_flat`
-    ; establishes it on the title screen, and each scene writes it from its
-    ; own claim. A write here would be a declaration that lies, and
-    ; `no_literals` refuses it.
+    ; NEITHER BG1 SCROLL PORT IS HERE. It is not `hz_bg`'s port on this rail:
+    ; `haze` seeds and drives BOTH per scanline in the desert scene — BG1VOFS
+    ; for the mirage, BG1HOFS for the turbulence — and `hz_flat` establishes
+    ; them on the title screen. A write here would be a declaration that lies,
+    ; and `no_literals` refuses it.
     stz a:$2111                     ; BG3HOFS, low
     stz a:$2111                     ; BG3HOFS, high
     lda #<HZ_VOFS

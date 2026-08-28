@@ -42,9 +42,12 @@ enter:
     ; and a VERTICAL displacement left behind is worse than a horizontal one,
     ; because it also leaves the world's rows off their tile boundaries.
     lda #<HZ_VOFS
-    sta a:$210E
+    sta a:$210E                     ; BG1VOFS, low
     lda #>HZ_VOFS
-    sta a:$210E
+    sta a:$210E                     ; BG1VOFS, high
+    lda #0
+    sta a:$210D                     ; BG1HOFS, low
+    sta a:$210D                     ; BG1HOFS, high
     rep #$20
     .a16
     ; ---- the strings this scene shows -------------------------------------

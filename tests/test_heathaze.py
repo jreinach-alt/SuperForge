@@ -56,6 +56,23 @@ def _sym(name, scene="desert"):
     raise KeyError(f"{name} not in the emitted map — did the allocator move it?")
 
 
+def _rail_const(name):
+    """One equate out of game/heathaze/heathaze.inc.
+
+    READ, NOT RETYPED. A copy of a rail constant lived here as a literal once
+    and went stale the moment the phase count changed — the module still
+    passed, which is worse than failing, because the case was quietly weaker
+    than it claimed. Anything the ROM and this file must agree about is read
+    from the source of truth.
+    """
+    for line in (SUPERFORGE / "game" / "heathaze" / "heathaze.inc").read_text().splitlines():
+        head, _, rest = line.partition("=")
+        if head.strip() == name:
+            return int(rest.split(";")[0].strip())
+    raise KeyError(f"{name} is not in heathaze.inc")
+
+
+HORIZ_LEAD = _rail_const("HZ_HORIZ_LEAD")
 DP_PHASE = _sym("ES_HZ_PHASE")["start"]
 DP_FLAT = _sym("ES_HZ_FLAT")["start"]
 
@@ -94,12 +111,18 @@ def warp():
     allocator said, and this proves the bytes are the ones the generator made.
     """
     rom = ROM.read_bytes()
-    blob = (ASSETS / "hz_warp.bin").read_bytes()
-    at = rom.find(blob)
-    assert at >= 0, "the warp blob is not in build/heathaze.sfc byte for byte"
-    assert rom.find(blob, at + 1) < 0, "the warp blob appears twice in the ROM"
-    assert len(blob) == BLOBS * STRIDE, (len(blob), BLOBS * STRIDE)
+    tables = {}
+    for axis, name in (("v", "hz_warp.bin"), ("h", "hz_hwarp.bin")):
+        blob = (ASSETS / name).read_bytes()
+        at = rom.find(blob)
+        assert at >= 0, f"{name} is not in build/heathaze.sfc byte for byte"
+        assert rom.find(blob, at + 1) < 0, f"{name} appears twice in the ROM"
+        assert len(blob) == BLOBS * STRIDE, (name, len(blob))
+        tables[axis] = _decode(blob)
+    return tables
 
+
+def _decode(blob):
     table = []
     for n in range(BLOBS):
         b = blob[n * STRIDE:(n + 1) * STRIDE]
@@ -148,35 +171,34 @@ def _picture_top(shot):
     return rows[0]
 
 
-def _row_vshift(a, b, y, cols=None):
-    """The VERTICAL offset d for which row y of `a` is row y+d of `b`.
+def _row_shift2(a, b, y, vmax=8, hmax=4):
+    """The (dv, dh) for which row y of `a` is row y+dv of `b` shifted by dh.
 
-    THE AXIS IS THE POINT OF THIS RAIL. A per-scanline BGnVOFS makes scanline
-    N show source row N + d(N), so the frame is not a shear of the control —
-    rows are duplicated and skipped and the picture compresses and stretches.
-    That means the comparison is row-against-ROW: hazed row y is some whole
-    row of the flat control, and which one it is IS the displacement.
+    TWO CHANNELS, TWO AXES, ONE MEASUREMENT. BG1VOFS carries the mirage and
+    BG1HOFS the turbulence, so a band row is its control row displaced BOTH
+    ways — and searching one axis while the other moves finds nothing. This
+    recovers the pair, and the case asserts each component against its own
+    table, which is what makes it a test of two channels rather than of one.
 
-    Returned only when the winner is UNAMBIGUOUS. A run of identical source
-    rows (flat sand) matches at several offsets and decides nothing; saying so
-    is the alternative to a confident wrong answer.
+    The horizontal bound is tighter than the vertical because the tables are:
+    the turbulent term peaks at a quarter of the mirage's amplitude. Searching
+    +/-4 rather than +/-8 halves the work and cannot hide a correct answer.
 
-    `cols` restricts the comparison to columns the caller can vouch for — the
-    ones where BG2 is transparent in both frames, so the pixels compared are
-    the world unhalved on each side.
+    Returned only when the winner is UNAMBIGUOUS — a run of identical rows
+    decides nothing, and saying so beats a confident wrong answer.
     """
-    xs = list(range(256)) if cols is None else list(cols)
-    if len(xs) < 128:
-        return None                      # under half the scanline is clear
-    if len({b[y][x] for x in xs}) < 4:
-        return None                      # no structure to decide on
-    scored = sorted(
-        (sum(1 for x in xs if a[y][x] != b[y + d][x]), d)
-        for d in range(-8, 9) if 0 <= y + d < len(b))
-    best, runner = scored[0], scored[1]
-    if best[0] * 2 >= runner[0]:
+    scored = []
+    for dv in range(-vmax, vmax + 1):
+        if not 0 <= y + dv < len(b):
+            continue
+        row = b[y + dv]
+        for dh in range(-hmax, hmax + 1):
+            bad = sum(1 for x in range(256) if a[y][x] != row[(x + dh) & 0xFF])
+            scored.append((bad, dv, dh))
+    scored.sort()
+    if not scored or scored[0][0] * 2 >= scored[1][0]:
         return None
-    return best[1]
+    return scored[0][1], scored[0][2]
 
 
 def _to_desert(m):
@@ -271,8 +293,11 @@ def test_the_flat_table_leaves_every_band_row_undisplaced(warp):
         m.advance(SHOW * 4)
         flat_b = _frame(m)
 
-    assert all(v == 0 for v in warp[FLAT_INDEX]), (
-        "the ROM's control blob is not all-zero — it cannot be a control")
+    for axis in ("v", "h"):
+        assert all(v == 0 for v in warp[axis][FLAT_INDEX]), (
+            f"the ROM's {axis} control blob is not all-zero — it cannot be a "
+            f"control, and the flat state would differ from the live one in "
+            f"more than the table")
     assert flat_a == flat_b, (
         "the flat control still changes between frames: the channel is reading "
         "something that moves")
@@ -303,7 +328,8 @@ def test_every_band_row_is_displaced_by_the_table_the_rom_holds(warp):
 
     top = _picture_top(hazed)
     assert top == _picture_top(flat)
-    hofs = warp[phase]
+    vert = warp["v"][phase]
+    horiz = warp["h"][(phase + HORIZ_LEAD) % PHASES]
 
     exact = neighbour = decidable = 0
     for y in range(top + BAND_TOP, top + BAND_TOP + BAND_LINES):
@@ -313,20 +339,29 @@ def test_every_band_row_is_displaced_by_the_table_the_rom_holds(warp):
         # BG2 rides its own channel at its own phase, and BOTH frames have it
         # (the control flattens the displacement, not the layer) — so the
         # columns admitted are the ones where BG2 is transparent in each.
-        d = _row_vshift(hazed, flat, y)
-        if d is None:
-            continue                     # uniform, or too little clear row
+        pair = _row_shift2(hazed, flat, y)
+        if pair is None:
+            continue                     # a uniform row decides nothing
+        d, dh = pair
         assert d is not False, (
             f"PNG row {y} (scanline {y - top}) aligns to NO whole-pixel offset "
             f"in -8..+8 — the row is not this world horizontally displaced")
         decidable += 1
-        want = hofs[line]
+        want = vert[line]
         if d == want:
             exact += 1
             continue
-        window = [hofs[line + k]
+        window = [vert[line + k]
                   for k in range(-SCANLINE_LATCH_SLACK, SCANLINE_LATCH_SLACK + 1)
                   if 0 <= line + k < BAND_LINES]
+        hwin = [horiz[line + k]
+                for k in range(-SCANLINE_LATCH_SLACK, SCANLINE_LATCH_SLACK + 1)
+                if 0 <= line + k < BAND_LINES]
+        assert min(hwin) <= dh <= max(hwin), (
+            f"phase {phase}, scanline {y - top} (band line {line}): the "
+            f"HORIZONTAL table says BG1HOFS is displaced by {horiz[line]} "
+            f"there and its neighbourhood spans {min(hwin)}..{max(hwin)}; the "
+            f"frame is displaced sideways by {dh}")
         assert min(window) <= d <= max(window), (
             f"phase {phase}, scanline {y - top} (band line {line}): the ROM's "
             f"table says BG1VOFS is displaced by {want} there, and its own "

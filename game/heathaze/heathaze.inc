@@ -20,7 +20,7 @@ JOY_START = 1 << 12
 ; There is no such number here.
 HZ_PHASE_BASE = $0060
 
-; HOW FAR AHEAD THE SHIMMER LAYER RUNS, in phases of the 32-phase loop.
+; HOW FAR AHEAD THE TURBULENT TERM RUNS, in phases of the 32-phase loop.
 ;
 ; THIS NUMBER IS THE EFFECT. Both HDMA channels read the same table; give them
 ; the same phase and the glare rides the world like a decal stuck to it, which
@@ -34,7 +34,7 @@ HZ_PHASE_BASE = $0060
 ; also coprime with 64, so the relative phase walks the WHOLE loop before
 ; repeating — 22 would be the exact scaling of the 11 this carried at 32
 ; phases, but 22 and 64 share a factor of two and would close after half.
-HZ_SHIM_LEAD = 23
+HZ_HORIZ_LEAD = 29
 
 ; BG3 2bpp tile attr: palette 7 (bg_text's claim pins CGRAM words 28..31),
 ; priority set. With BGMODE's BG3-priority bit also set, a BG3 tile carrying

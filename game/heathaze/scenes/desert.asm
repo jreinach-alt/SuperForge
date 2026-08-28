@@ -68,7 +68,7 @@ enter:
     ; routine's contract says the CALLER supplies. The bit's number comes from
     ; the allocator, not from a hand-written 1.
     lda z:ES_SM_NMI+2
-    ora #(1 << ES_H_HZWARP_CH)
+    ora #((1 << ES_H_HZWARP_CH) | (1 << ES_H_HZHORIZ_CH))
     sta z:ES_SM_NMI+2
     rep #$20
     .a16

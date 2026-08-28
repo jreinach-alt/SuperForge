@@ -533,6 +533,99 @@ def warp_table():
 
 
 # =============================================================================
+# THE HORIZONTAL TABLE — the turbulent half, on its own channel
+# =============================================================================
+# The vertical displacement is the STRATIFICATION: a hot layer lying over the
+# ground, its refractive index varying with height, bending near-horizontal
+# rays up. That is the mirage and it is the loud half.
+#
+# But real air over hot ground is also TURBULENT — cells of warmer and cooler
+# air drifting through the sightline — and those bend rays sideways as well.
+# It is a small effect next to the mirage and it is what stops the picture
+# looking like a clean vertical oscillation.
+#
+# IT GETS ITS OWN TABLE AND ITS OWN CHANNEL, and that is a physical statement
+# rather than an implementation convenience. HDMA mode 3 could drive BG1HOFS
+# and BG1VOFS from ONE channel (B, B, B+1, B+1 — `sh2_cam` and three siblings
+# do exactly that), but it would force both axes to share one table: one
+# wavelength, one phase, one ramp. The two components do not come from the
+# same thing and should not move together. Two mode-2 channels cost one more
+# 8-bit store a frame and let each axis carry its own scale.
+#
+# It would also not FIT. Mode 3 is 4 bytes a scanline, so a blob goes 253 to
+# 502 and the stride doubles to 512; 65 blobs is 33,280 B against a 32,768 B
+# bank window, and HDMA cannot cross a bank. Mode 3 would mean falling back to
+# 32 phases and undoing the smoothness the doubled count just bought.
+
+# A QUARTER of the vertical peak. "Slight" is the whole brief: the horizontal
+# term is there to break up the vertical one, and at 2 px it is felt more than
+# seen — which is what turbulence looks like next to a mirage.
+HZ_HAMP_MAX = 2
+
+# FINER AND OFFSET. Turbulent cells are smaller than the layer they drift
+# through, so the horizontal wavelength is shorter; the phase offset keeps the
+# two axes from ever crossing zero together, which would read as a single
+# diagonal wobble rather than as two independent things.
+HZ_HLAMBDA_1, HZ_HLAMBDA_2 = 17.0, 7.0
+HZ_HMIX_1, HZ_HMIX_2 = 0.6, 0.4
+HZ_HPHASE_2 = 2.3
+HZ_BASE_HOFS = 0                 # the world does not scroll sideways
+
+
+def h_displacement(line, phase):
+    """Whole-pixel BG1HOFS offset for one band line in one phase."""
+    u = _perspective_u(HZ_BAND_TOP + line)
+    a = 2.0 * math.pi
+    w1 = math.sin(a * (u / HZ_HLAMBDA_1 + phase / HZ_PHASES) + HZ_HPHASE_2)
+    w2 = math.sin(a * (u / HZ_HLAMBDA_2 + 3.0 * phase / HZ_PHASES))
+    # A FLATTER RAMP THAN THE VERTICAL TERM'S, and not for the arithmetic's
+    # sake. The mirage comes from a layer whose whole depth lies along a
+    # horizon-ward sightline, so its strength collapses as the sightline tilts
+    # down — the reciprocal falloff. Turbulent cells are distributed through
+    # the air column instead: the horizon still passes through more of them,
+    # but a downward sightline does not stop meeting them the way it stops
+    # meeting the layer. The square root is that weaker dependence.
+    #
+    # It also has to survive quantisation. BG1HOFS is whole pixels, and a 2 px
+    # peak under the vertical term's ramp rounds to zero below about y=140 —
+    # the effect would exist only in the top twenty lines and would not be
+    # worth a channel. Under this ramp it holds +/-1 across the band.
+    scale = math.sqrt(amplitude(line) / HZ_AMP_MAX)
+    return int(round(HZ_HAMP_MAX * scale * (HZ_HMIX_1 * w1 + HZ_HMIX_2 * w2)))
+
+
+def hofs_pair(value):
+    """BG1HOFS as the write-twice latch takes it: low byte, then high."""
+    v = value & 0x3FF
+    return bytes((v & 0xFF, (v >> 8) & 0x03))
+
+
+def h_phase(phase):
+    """One 256 B horizontal blob, same shape as the vertical ones."""
+    out = bytearray()
+    out += bytes((HZ_BAND_TOP,)) + hofs_pair(HZ_BASE_HOFS)
+    out += bytes((0x80 | HZ_BAND_LINES,))
+    for line in range(HZ_BAND_LINES):
+        out += hofs_pair(HZ_BASE_HOFS + h_displacement(line, phase))
+    out += bytes((0x00,))
+    assert len(out) <= HZ_PHASE_STRIDE, f"h-phase {phase}: {len(out)} B overruns"
+    return bytes(out) + bytes(HZ_PHASE_STRIDE - len(out))
+
+
+def h_flat_phase():
+    out = bytearray()
+    out += bytes((HZ_BAND_TOP,)) + hofs_pair(HZ_BASE_HOFS)
+    out += bytes((0x80 | HZ_BAND_LINES,))
+    out += hofs_pair(HZ_BASE_HOFS) * HZ_BAND_LINES
+    out += bytes((0x00,))
+    return bytes(out) + bytes(HZ_PHASE_STRIDE - len(out))
+
+
+def h_warp_table():
+    return b"".join(h_phase(p) for p in range(HZ_PHASES)) + h_flat_phase()
+
+
+# =============================================================================
 # ENCODERS — assert, never mask
 # =============================================================================
 # A bitwise AND that quietly folds an out-of-range index into range is the
@@ -600,6 +693,10 @@ def main(argv):
     assert len(warp) == (HZ_PHASES + 1) * HZ_PHASE_STRIDE, len(warp)
     (out / "hz_warp.bin").write_bytes(warp)
 
+    hwarp = h_warp_table()
+    assert len(hwarp) == (HZ_PHASES + 1) * HZ_PHASE_STRIDE, len(hwarp)
+    (out / "hz_hwarp.bin").write_bytes(hwarp)
+
     (out / "hz_art.inc").write_text(ART_INC.format(
         phases=HZ_PHASES, flat=HZ_FLAT_INDEX, blobs=HZ_PHASES + 1,
         shift=8, band_top=HZ_BAND_TOP,
@@ -610,6 +707,8 @@ def main(argv):
     print(f"hz_pal.bin       32 B  (16 CGRAM words)")
     print(f"hz_warp.bin  {len(warp):6d} B  ({HZ_PHASES} phases + 1 flat "
           f"control x {HZ_PHASE_STRIDE} B, band {HZ_BAND_TOP}..224)")
+    print(f"hz_hwarp.bin {len(hwarp):6d} B  (the horizontal term, peak "
+          f"{HZ_HAMP_MAX} px against the vertical's {HZ_AMP_MAX})")
     return 0
 
 
