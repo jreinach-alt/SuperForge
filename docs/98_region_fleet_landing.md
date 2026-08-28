@@ -50,6 +50,39 @@
 > IS every plate's height and every jet's at once. Its guard is
 > `ES_SMT_FLATSEL`, the flat control -- the same reason `heathaze` guards
 > `ES_HZ_FLAT`.
+>
+> **AMENDED AGAIN, same day: the rail gained a PLAYER, and one observable
+> stopped covering it.** `smt_obj` puts a knight on the plates, and his run and
+> his gravity are separate `TS_STEP` outputs from the phase's. A region error
+> in either would have left `column_phase`'s ratio untouched -- the table would
+> still advance correctly while the character moved at 83% of the right speed
+> -- so a second observable was owed the moment the rail stopped being a pure
+> animation:
+>
+> | rail | observable | NTSC/s | PAL/s | ratio |
+> |---|---|---:|---:|---:|
+> | `smelter` | `knight_cycle` (cycles / s) | 1.084 | 1.083 | **0.99989** |
+>
+> With right held for the whole window he walks off plate 0, falls out of the
+> world and respawns on it, over and over; `ES_SMT_KN_PLATE` is 0 on that plate
+> and `$FFFF` in the air, so `0 -> non-0` is one whole cycle. The period is the
+> walk across 32 px of metal PLUS the fall to row 232, which is the run and the
+> gravity jointly. **No gate**, and for a stronger reason than the phase's: the
+> pad is held for the entire window, so there are no press edges at all and the
+> trap the `platformer` entry documents -- a numerator the SCRIPT clocks --
+> cannot arise.
+>
+> **Read the full-window ratio and not the halves on this one.** The numerator
+> is an integer count and the window holds about 13 cycles, so one boundary
+> cycle is worth 8% of a half-window; the printed halves are 1.169 / 0.999 on
+> NTSC and 1.000 / 1.167 on PAL -- mirrored, which is the boundary landing on
+> opposite sides in the two regions, and it cancels in the total. That is the
+> same quantisation the `platformer` entry sizes its alternation period
+> against, stated here rather than left for the next reader to rediscover.
+>
+> And **the same 0.99989 a third time**, which by now is the expected answer
+> rather than a surprise: the run's rate and the phase's are the same scaler
+> applied to different constants, so they round the same way.
 
 > Both sit inside the band this section reports, so **the band is unchanged**
 > at 0.994-1.027. What these two add is a shape the sweep did not have: a rail

@@ -1919,7 +1919,13 @@ RAILS = {
                      "NOTHING PACES IT BUT THE ROM: the pad is held for the "
                      "entire window, so this needs no gate -- the trap the "
                      "`platformer` entry documents is a numerator the SCRIPT "
-                     "clocks, and there are no press edges here at all."),
+                     "clocks, and there are no press edges here at all. READ "
+                     "THE FULL-WINDOW RATIO AND NOT THE HALVES: the numerator "
+                     "is an integer count and the window holds about 13 "
+                     "cycles, so one boundary cycle is worth 8% of a half. "
+                     "Measured 1.169/0.999 NTSC against 1.000/1.167 PAL -- "
+                     "mirrored, the boundary landing on opposite sides, and it "
+                     "cancels in the total at 0.99989."),
         ],
     ),
     "lakeside": dict(
