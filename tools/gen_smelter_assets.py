@@ -130,17 +130,66 @@ PAL_PLATE = [
     rgb(16, 12, 6),      # 7 rivet
 ] + [0] * 8
 
+# --------------------------------------------------------------------------
+# THE WALL'S OWN INDEX RANGE — what makes a colour rotation move a PATTERN
+# --------------------------------------------------------------------------
+# The wall used to be two indices, dark and light, with the streaks drawn into
+# the TILE. Two indices cannot flow: rotating two colours is a flicker, not a
+# direction. So the wall now spends EIGHT indices, one per pixel column of its
+# tile, and carries no pattern in its pixels at all — the pattern lives in the
+# PALETTE, and rotating the eight colours walks it across the screen.
+#
+# That is the classic trick and it is the only one available here, because the
+# wall is the one surface that cannot be CHR-animated: it has to be invariant
+# under vertical displacement (see `melt_map`), and every animation frame would
+# have to be vertically uniform. A PALETTE cycle does not touch a pixel, so the
+# invariance is untouched by construction rather than by care.
+#
+# 8..15 IS FREE SPACE IN THIS GROUP and that is why the range is private: the
+# melt's own indices 3..7 are what every per-column measurement in
+# tests/test_smelter.py resolves the crust by, and a cycle that reached them
+# would be moving the instrument rather than the picture. The wall cycling in
+# 8..15 cannot touch 3..7 by construction. `wall_ramp` asserts the two families
+# stay far apart in RGB as well, so a wall pixel can never be nearest-matched to
+# the crust's index.
+WALL_IX0 = 8                 # the wall's first palette index
+WALL_SHADES = 8              # ...and one per pixel column of its tile
+WALL_DARK = (3, 2, 5)        # the ramp's ends, in 5-bit BGR555 components
+WALL_LIGHT = (6, 5, 10)      # ...and the span is DELIBERATELY narrow: the
+                             #   first pass ran to (9, 8, 14) and the wall
+                             #   read as a bold barber-pole competing with
+                             #   the plates. A background that announces
+                             #   itself is not a background — the flow has
+                             #   to be legible when looked at and ignorable
+                             #   when not
+
+
+def wall_ramp(k):
+    """The eight colours entries 8..15 hold at cycle step k.
+
+    A raised cosine between the two ends, ROTATED by k, so what travels is a
+    smooth band of lightness rather than a hard edge — and rotation is what
+    makes the cycle close exactly at WALL_SHADES with nothing to hide.
+    """
+    out = []
+    for i in range(WALL_SHADES):
+        t = (1 - math.cos(2 * math.pi * ((i - k) % WALL_SHADES) / WALL_SHADES)) / 2
+        out.append(rgb(*(int(round(a + (b - a) * t))
+                         for a, b in zip(WALL_DARK, WALL_LIGHT))))
+    return out
+
+
 # Group 1 — BG2's cavern and melt.
 PAL_MELT = [
     rgb(0, 0, 0),        # 0 unused (BG2 is opaque everywhere)
-    rgb(4, 3, 5),        # 1 wall dark
-    rgb(6, 5, 8),        # 2 wall light
+    rgb(0, 0, 0),        # 1 unused — the wall left for 8..15
+    rgb(0, 0, 0),        # 2 unused — as above
     rgb(31, 30, 14),     # 3 crust white-hot
     rgb(31, 20, 2),      # 4 crust orange
     rgb(28, 9, 0),       # 5 melt bright
     rgb(20, 4, 0),       # 6 melt mid
     rgb(12, 1, 0),       # 7 melt dark
-] + [0] * 8
+] + wall_ramp(0)
 
 
 # --------------------------------------------------------------------------
@@ -150,21 +199,22 @@ def solid(v):
     return [[v] * 8 for _ in range(8)]
 
 
-def wall_tile(shift):
-    """A cavern-wall tile with VERTICAL streaks only: every row is identical,
-    so displacing a column of wall is invisible. That is the point — the wall
-    is the still background against which the crust's movement is the whole
-    signal, and a wall with a horizontal seam in it would make the per-column
-    equality unreadable at exactly the rows it matters.
+def wall_tile():
+    """The cavern wall: ONE tile, every row identical, every column its own
+    palette index. It carries no pattern — the pattern is in the palette, and
+    `wall_ramp` walks it sideways.
 
-    A UNIFORM TILE IS HALF THE PROPERTY AND THE MAP IS THE OTHER HALF. This
-    function was correct and the rail still shipped a wall that slid sideways
-    under displacement, because `melt_map` alternated the two streak phases
-    per MAP ROW — which puts the horizontal seam back every 8 pixels. Read
-    that function's comment before changing either.
+    EVERY ROW IDENTICAL IS THE LOAD-BEARING PART, and it is why the wall gets
+    its motion from a colour rotation rather than from a CHR swap: one offset
+    word displaces a whole column of BG2, so a wall with any horizontal
+    feature slides that feature past the screen as the melt rises. The rail
+    shipped exactly that once — a uniform tile whose MAP alternated two streak
+    phases per row, which is a horizontal seam every 8 pixels — and a human
+    caught it in the gallery clip. There is now only one wall tile, so there
+    is no alternation left to get wrong, and a palette cycle cannot
+    reintroduce one because it does not touch a pixel.
     """
-    row = [2 if ((x + shift) % 5 == 0 or (x + shift) % 7 == 3) else 1
-           for x in range(8)]
+    row = [WALL_IX0 + x for x in range(8)]
     return [list(row) for _ in range(8)]
 
 
@@ -230,7 +280,7 @@ PLATE_TILES = [
     ("und_r", plate_under(2)),
 ]
 MELT_TILES = [
-    ("wall_a", wall_tile(0)), ("wall_b", wall_tile(3)),
+    ("wall", wall_tile()),
     ("crust_a", crust_tile(0)), ("crust_b", crust_tile(2)),
     ("melt_a", melt_tile(0)), ("melt_b", melt_tile(5)),
 ]
@@ -289,6 +339,60 @@ def rot_v(rows, k):
     return [rows[(y + k) % 8] for y in range(8)]
 
 
+# TICK: ok -- a colour-rotation STEP count the already-scaled phase indexes,
+#   never a hardware frame. `smt_nmi_row` computes (phase >> SHIFT) & 7 and
+#   counts nothing.
+WALL_PAL_FRAMES = WALL_SHADES   # a full rotation, so step 8 IS step 0
+WALL_PAL_SHIFT = 1             # frame = (phase >> 1) & 7 -- 16 phases for the
+                               #   band to travel one tile, which DIVIDES the
+                               #   64-phase loop and keeps the clip's seam shut
+
+
+def _far(a, b):
+    """RGB distance between two BGR555 words, in 5-bit units."""
+    return sum((((a >> s) & 31) - ((b >> s) & 31)) ** 2 for s in (0, 5, 10))
+
+
+def wall_pal():
+    """-> the cycle's blob: WALL_PAL_FRAMES x WALL_SHADES BGR555 words.
+
+    Step 0 is what `PAL_MELT` already holds, so the enter upload and the cycle
+    are the same colours rather than two that happen to agree — the same rule
+    the CHR animation's frame 0 follows.
+
+    AND NO SHADE MAY IMPERSONATE A MEASURED EDGE, at any step. The test module
+    finds the crust and the plate by NEAREST CGRAM COLOUR against a palette it
+    read ONCE, so while the cycle runs a wall pixel's colour may not be in that
+    snapshot at all — it is matched to whatever is closest. The requirement is
+    therefore not "far from everything" but the sharp version: every wall shade
+    must be closer to some OTHER WALL SHADE than to either measured edge. The
+    ramp's own span bounds the first, so comparing that span to the distance to
+    each edge settles it for every snapshot at once.
+
+    Without this a wall shade could drift into nearest-match range of the
+    crust's white-hot line and `crust_y` would report an edge a hundred rows
+    above the metal — a failure that would read as the offset table being
+    wrong.
+    """
+    ramps = [wall_ramp(k) for k in range(WALL_PAL_FRAMES)]
+    assert ramps[0] == PAL_MELT[WALL_IX0:WALL_IX0 + WALL_SHADES], \
+        "step 0 is not the palette the enter upload writes"
+    shades = {w for r in ramps for w in r}
+    span = max(_far(a, b) for a in shades for b in shades)
+    for name, edge in (("the crust's white-hot line", PAL_MELT[3]),
+                       ("the plate's top edge", PAL_PLATE[4])):
+        worst = min(_far(w, edge) for w in shades)
+        assert worst > span, (
+            f"a wall shade is within {worst} of {name} while the ramp's own "
+            f"span is {span} — a stale palette snapshot could nearest-match a "
+            f"wall pixel to that edge and the column scans would find the wall")
+    blob = bytearray()
+    for r in ramps:
+        for w in r:
+            blob += bytes((w & 0xFF, w >> 8))
+    return bytes(blob)
+
+
 def melt_anim():
     """-> (blob, [tile names]) — MELT_ANIM_FRAMES x 4 tiles of 4bpp CHR.
 
@@ -301,7 +405,7 @@ def melt_anim():
     # `crust_tile(0)` here would be a second copy of the seeds, and a seed
     # changed in one place and not the other gives a rail whose lava snaps on
     # the first frame of every cycle.
-    base = list(zip(MELT_TILES[2:], (rot_h, rot_h, rot_v, rot_v)))
+    base = list(zip(MELT_TILES[1:], (rot_h, rot_h, rot_v, rot_v)))
     assert [n for (n, _), _ in base] == ["crust_a", "crust_b",
                                          "melt_a", "melt_b"], MELT_TILES
     blob = bytearray()
@@ -323,17 +427,24 @@ def melt_anim():
 T_CLEAR, T_TOP_L, T_TOP_M, T_TOP_R, T_UND_L, T_UND_M, T_UND_R = range(7)
 # BG2's tiles sit after BG1's in one shared CHR claim, so their ids are offset.
 MELT_BASE_TILE = len(PLATE_TILES)
-T_WALL_A, T_WALL_B, T_CRUST_A, T_CRUST_B, T_MELT_A, T_MELT_B = \
-    (MELT_BASE_TILE + i for i in range(6))
+T_WALL, T_CRUST_A, T_CRUST_B, T_MELT_A, T_MELT_B = \
+    (MELT_BASE_TILE + i for i in range(5))
 
 # The animated block starts at the crust and runs to the end of the melt: four
 # CONTIGUOUS slots, which is what makes the swap one transfer rather than two.
-MELT_ANIM_FIRST = MELT_BASE_TILE + 2
+MELT_ANIM_FIRST = MELT_BASE_TILE + 1     # ...past the one wall tile
 MELT_ANIM_TILES = 4
 # A POWER OF TWO, because the ASM turns the frame index into a blob offset with
 # a shift — ca65 has no multiply available in a `.repeat` count. Asserted here
 # so a fifth animated tile stops the GENERATOR rather than silently emitting a
 # stride the walker cannot express.
+assert (WALL_SHADES * 2) & (WALL_SHADES * 2 - 1) == 0, \
+    "the wall cycle's per-step stride must be a power of two — a shift scales it"
+assert WALL_PAL_FRAMES & (WALL_PAL_FRAMES - 1) == 0, \
+    "the wall cycle's step count must be a power of two — the index is a mask"
+assert PHASES % (WALL_PAL_FRAMES << WALL_PAL_SHIFT) == 0, \
+    ("the wall cycle must DIVIDE the phase loop, or the picture stops being a "
+     "pure function of the phase and the gallery clip's seam opens")
 assert (MELT_ANIM_TILES * 32) & (MELT_ANIM_TILES * 32 - 1) == 0, \
     "the animation's per-frame stride must be a power of two"
 assert MELT_ANIM_FRAMES & (MELT_ANIM_FRAMES - 1) == 0, \
@@ -372,21 +483,18 @@ def melt_map():
     m = []
     for r in range(MAP_ROWS):
         if r < CRUST_MAP_ROW:
-            # ON THE COLUMN ONLY, AND THAT IS THE WHOLE POINT. `wall_tile`
-            # goes to the trouble of making all eight of its rows identical
-            # so that displacing a column of wall is invisible — and a map
-            # that alternated the two streak phases on `(c + r) % 2` threw
-            # that away, because swapping the tile every 8 map rows IS a
-            # horizontal seam every 8 pixels. A displaced column then slid
-            # that seam past the screen and the streaks jumped 3 px sideways
-            # every 8 px of travel: the background visibly moving with the
-            # melt, which is exactly what the rail claims cannot happen.
-            # Alternating on `c` keeps the column-to-column variety and makes
-            # the wall EXACTLY invariant under vertical displacement.
-            # Measured, both ways: tests/test_smelter.py
+            # ONE TILE EVERYWHERE, WHICH IS THE STRONGEST FORM OF THE
+            # PROPERTY. `wall_tile` makes all eight of its rows identical so
+            # that displacing a column of wall is invisible — and this map
+            # once alternated two streak phases on `(c + r) % 2`, which threw
+            # that away: swapping the tile every 8 map rows IS a horizontal
+            # seam every 8 pixels, and a displaced column slid it past the
+            # screen. A human caught it in the gallery clip. Alternating on
+            # `c` fixed it; moving the wall's pattern into the PALETTE removed
+            # the alternation altogether, so there is no longer a second tile
+            # to get wrong. Measured either way: tests/test_smelter.py
             # ::test_the_wall_does_not_move_when_its_column_does.
-            row = [(T_WALL_A if c % 2 == 0 else T_WALL_B) | ATTR_G1
-                   for c in range(COLS)]
+            row = [T_WALL | ATTR_G1 for c in range(COLS)]
         elif r == CRUST_MAP_ROW:
             row = [(T_CRUST_A if c % 2 == 0 else T_CRUST_B) | ATTR_G1
                    for c in range(COLS)]
@@ -814,6 +922,29 @@ SMT_MELT_ANIM_BYTES  = {manimbytes}   ; one frame, and one transfer
 SMT_MELT_ANIM_LOG2_BYTES = {manimlog2}  ; ...as a shift, because the frame
                              ;   index is scaled to a blob offset with `asl`
                              ;   and ca65 has no multiply in a .repeat count
+
+; --- BG2's WALL: a colour rotation, and the pattern that flows on it -------
+; The wall carries no pattern in its pixels — one tile, every row identical,
+; and EVERY COLUMN ITS OWN PALETTE INDEX. The pattern is the eight colours
+; those indices hold, and rotating them walks a band of lightness across the
+; screen for {wpalbytes} bytes of CGRAM a frame.
+;
+; IT IS A PALETTE CYCLE AND NOT A CHR SWAP FOR A REASON. The wall is the one
+; surface that must be invariant under vertical displacement, so every frame of
+; a CHR animation would have to be vertically uniform — and the case that
+; checks the invariance could no longer tell "the wall moved" from "the wall
+; animated". A colour rotation does not touch a pixel, so the invariance holds
+; by construction, and the test tells the two apart by comparing frames one
+; whole cycle apart.
+;
+SMT_WALL_IX0        = {wix0}      ; the wall's first palette index
+SMT_WALL_SHADES     = {wshades}      ; ...one per pixel column of its tile
+; TICK: ok -- a colour-rotation STEP the phase indexes, not a frame counter.
+SMT_WALL_PAL_FRAMES = {wpalf}      ; a full rotation: step 8 IS step 0
+SMT_WALL_PAL_SHIFT  = {wpalshift}      ; frame = (phase >> SHIFT) & (FRAMES-1)
+SMT_WALL_PAL_BYTES  = {wpalbytes}     ; one step, written straight to CGDATA
+SMT_WALL_PAL_LOG2_BYTES = {wpallog2}  ; ...as a shift, for the same reason
+                             ;   SMT_MELT_ANIM_LOG2_BYTES is one
 """
 
 
@@ -854,6 +985,8 @@ def main(argv):
 
     manim, mnames = melt_anim()
     (out / "smt_melt_anim.bin").write_bytes(manim)
+    wpal = wall_pal()
+    (out / "smt_wall_pal.bin").write_bytes(wpal)
 
     col = col_table()
     assert len(col) == (PHASES + 1) * STRIDE, len(col)
@@ -876,7 +1009,10 @@ def main(argv):
         manimf=MELT_ANIM_FRAMES, manimt=MELT_ANIM_TILES,
         manimfirst=MELT_ANIM_FIRST, manimshift=MELT_ANIM_SHIFT,
         manimbytes=MELT_ANIM_TILES * 32,
-        manimlog2=(MELT_ANIM_TILES * 32).bit_length() - 1))
+        manimlog2=(MELT_ANIM_TILES * 32).bit_length() - 1,
+        wix0=WALL_IX0, wshades=WALL_SHADES, wpalf=WALL_PAL_FRAMES,
+        wpalshift=WALL_PAL_SHIFT, wpalbytes=WALL_SHADES * 2,
+        wpallog2=(WALL_SHADES * 2).bit_length() - 1))
 
     print(f"smt_chr.bin  {len(chr_blob):6d} B  ({len(tiles)} tiles)")
     print(f"smt_pmap.bin   4096 B  (32x64 words, {len(PLATES)} plates)")
@@ -889,6 +1025,8 @@ def main(argv):
     print(f"smt_obj.bin  {len(kchr):6d} B  ({len(KNIGHT_CELLS)} knight frames "
           f"in {KNIGHT_SLOTS} slots, {kcolours} opaque colours, content "
           f"bottom {kbottom}/{FRAME_BOX})")
+    print(f"smt_wall_pal.bin  {len(wpal):5d} B  ({WALL_PAL_FRAMES} steps x "
+          f"{WALL_SHADES} words — the wall's colours, rotated)")
     print(f"smt_melt_anim.bin {len(manim):5d} B  ({MELT_ANIM_FRAMES} frames x "
           f"{len(mnames)} tiles: {', '.join(mnames)})")
     print(f"smt_obj_pal.bin  32 B  /  smt_anim.bin  "

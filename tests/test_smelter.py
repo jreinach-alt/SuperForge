@@ -476,47 +476,78 @@ def test_the_wall_does_not_move_when_its_column_does(tmp_path):
     word displaces the WHOLE column of the layer — one value per column per
     layer is what the hardware gives, so nothing can move the melt and hold the
     wall still. The rail's answer is not to separate them but to make the wall
-    INVARIANT under vertical displacement: `wall_tile` builds every one of its
-    eight rows identically, so sliding it costs nothing to look at.
+    INVARIANT under vertical displacement: one tile, every one of its eight rows
+    identical, so sliding it costs nothing to look at.
 
     THAT CLAIM WAS FALSE FOR A WHILE AND NOTHING CAUGHT IT. The tile was
-    uniform; the MAP alternated two streak phases on `(c + r) % 2`, and
-    swapping the tile every 8 map rows IS a horizontal seam every 8 pixels —
-    the exact feature the tile avoided, reintroduced one function later. A
-    displaced column slid that seam past the screen and the streaks jumped
-    3 px sideways every 8 px of travel: the background visibly moving with the
-    melt. The owner saw it in the gallery clip; no case here could, because
-    every case measured the crust's POSITION and none measured what the rest of
-    the column did while it moved.
+    uniform; the MAP alternated two streak phases on `(c + r) % 2`, and swapping
+    the tile every 8 map rows IS a horizontal seam every 8 pixels — the exact
+    feature the tile avoided, reintroduced one function later. A displaced
+    column slid that seam past the screen and the streaks jumped 3 px sideways
+    every 8 px of travel: the background visibly moving with the melt. The owner
+    saw it in the gallery clip; no case here could, because every case measured
+    the crust's POSITION and none measured what the rest of the column did while
+    it moved. There is now only ONE wall tile, so there is no alternation left
+    to get wrong.
 
-    So this one measures the rest of the column. The band is strictly ABOVE the
-    highest the crust reaches in EITHER frame, so a difference in it cannot be
-    the melt having risen into view, and it is asserted pixel-identical while
-    the crust below it moves — which is also what makes the case non-vacuous:
-    a column that did not move proves nothing about a column that does.
+    THE PAIR IS TWO CAPTURES WITH IDENTICAL ART, AND THAT IS WHAT MAKES THIS A
+    ONE-VARIABLE COMPARISON. The wall's pattern lives in its PALETTE now and
+    rotates; the melt's CHR swaps. So a pair has to be matched on the art
+    itself, and it is matched on the BYTES — the wall's CGRAM words and the
+    animated CHR block, read off the machine at each capture. Two frames whose
+    palette and CHR are identical differ ONLY in how far each column is
+    displaced, and a difference in the wall band is then attributable to
+    nothing else.
+
+    MATCHED ON THE BYTES RATHER THAN ON THE PHASE, and the phase was tried
+    first. `TS_STEP` publishes WHOLE units and carries the fraction, so the
+    phase advances 1 on some frames and 0 on others: the lag between "the phase
+    a test reads" and "the phase the NMI drew from" is not constant, and two
+    captures at equal `phase % 16` were drawn from different steps often enough
+    to fail. The art in CGRAM and VRAM is what actually drew the frame.
     """
-    pal, shots = _drive(tmp_path, [(10, None)] * 2)
-    (a, _, _), (b, _, _) = shots
-    moved = 0
-    for c in range(COLS):
-        if plate_of(c) is not None:
-            continue                    # BG1's plates hang in this band
-        ya, yb = crust_y(a, pal, c), crust_y(b, pal, c)
-        if ya is None or yb is None:
-            continue
-        if abs(ya - yb) >= 8:
-            moved += 1
-        for y in range(2, min(ya, yb) - 2):
-            for x in range(8 * c, 8 * c + 8):
-                assert a.getpixel((x, PICTURE_TOP + y)) \
-                    == b.getpixel((x, PICTURE_TOP + y)), (
-                        f"column {c} row {y}: the wall moved with the melt. "
-                        f"Its crust went {ya} -> {yb}; everything above "
-                        f"{min(ya, yb) - 2} is supposed to be invariant under "
-                        f"the displacement that carried it")
+    shots = []
+    with Machine(str(ROM)) as m:
+        m.advance(TITLE)
+        m.advance(1, pad1=JOY_START)
+        m.advance(SETTLE)
+        pal = _palette(m)
+        for i in range(18):
+            m.advance(5)
+            art = (m.read_bytes(C, (CG_MELT + WALL_IX0) * 2, WALL_SHADES * 2),
+                   _vram_chr(m))
+            f = tmp_path / f"w{i}.png"
+            m.screenshot(str(f))
+            shots.append((art, Image.open(f).convert("RGB")))
+
+    checked = moved = 0
+    for i, (ka, a) in enumerate(shots):
+        for kb, b in shots[i + 1:]:
+            if ka != kb:
+                continue                    # ...different art; not comparable
+            for c in range(COLS):
+                if plate_of(c) is not None:
+                    continue                # BG1's plates hang in this band
+                ya, yb = crust_y(a, pal, c), crust_y(b, pal, c)
+                if ya is None or yb is None:
+                    continue
+                if abs(ya - yb) >= 8:
+                    moved += 1
+                checked += 1
+                for y in range(2, min(ya, yb) - 2):
+                    for x in range(8 * c, 8 * c + 8):
+                        assert a.getpixel((x, PICTURE_TOP + y)) \
+                            == b.getpixel((x, PICTURE_TOP + y)), (
+                                f"column {c} row {y}: the wall moved with the "
+                                f"melt. Its crust went {ya} -> {yb}, and at "
+                                f"equal art phase everything above "
+                                f"{min(ya, yb) - 2} is supposed to be invariant "
+                                f"under the displacement that carried it")
+    assert checked, "no two captures landed on the same art phase — nothing " \
+                    "was compared at all"
     assert moved >= 4, \
-        f"only {moved} melt column(s) moved 8 px between the two frames — " \
-        f"the invariance is not being tested against any displacement"
+        f"only {moved} column comparison(s) had the crust move 8 px — the " \
+        f"invariance is not being tested against any displacement"
 
 
 # ==========================================================================
@@ -651,6 +682,10 @@ ANIM_TILES = _art("SMT_MELT_ANIM_TILES")
 ANIM_FRAMES = _art("SMT_MELT_ANIM_FRAMES")
 ANIM_SHIFT = _art("SMT_MELT_ANIM_SHIFT")
 ANIM_BYTES = _art("SMT_MELT_ANIM_BYTES")
+WALL_IX0 = _art("SMT_WALL_IX0")
+WALL_SHADES = _art("SMT_WALL_SHADES")
+WALL_FRAMES = _art("SMT_WALL_PAL_FRAMES")
+WALL_SHIFT = _art("SMT_WALL_PAL_SHIFT")
 VRAM_CHR = _sym("ES_V_SMT_CHR")["start"]            # in WORDS
 
 
@@ -764,6 +799,126 @@ def test_the_melt_churns_while_every_column_stands_still(tmp_path):
         "the swap is moving under the flat control"
     assert len(byblock) == len(set(bands)), \
         "two CHR blocks drew the same melt — a frame is a duplicate"
+
+
+def _wall_pal_blob():
+    """The wall's cycle steps, out of build/smelter.sfc — same oracle rule."""
+    want = (ASSETS / "smt_wall_pal.bin").read_bytes()
+    rom = ROM.read_bytes()
+    at = rom.find(want)
+    assert at >= 0, "the wall's colour cycle is not in build/smelter.sfc"
+    assert rom.find(want, at + 1) < 0, "it appears twice"
+    n = WALL_SHADES * 2
+    return [rom[at + i * n:at + (i + 1) * n] for i in range(WALL_FRAMES)]
+
+
+WALL_PAL = _wall_pal_blob()
+
+
+def test_the_wall_pattern_flows_one_way_across_the_screen(tmp_path):
+    """THE PALETTE CYCLE, AND THE DIRECTION IT MOVES — read off the picture.
+
+    The wall carries NO pattern in its pixels: one tile, every row identical,
+    every column its own palette index. So what a viewer sees travelling is the
+    eight colours those indices hold, rotating. This is the case that says it
+    travels, that it travels ONE WAY, and that the way is left to right.
+
+    THE MEASUREMENT IS THE BRIGHT BAND'S COLUMN. Each step puts the ramp's peak
+    at one pixel column of the tile; the case finds it in the rendered frame and
+    requires the sequence of positions to advance by exactly +1 (mod 8) from one
+    step to the next. A cycle that jittered, reversed, or skipped would satisfy
+    "the wall changes" and fail this, which is the difference between animation
+    and a direction.
+
+    UNDER THE FLAT CONTROL, so nothing is displaced while it is measured: the
+    columns stand still and the only thing moving in the wall band is colour.
+    """
+    seen = []
+    with Machine(str(ROM)) as m:
+        m.advance(TITLE)
+        m.advance(1, pad1=JOY_START)
+        m.advance(SETTLE)
+        m.advance(1, pad1=JOY_B)
+        m.advance(20)
+        assert m.read_u16(W, DP_FLAT) == 1
+        for i in range(14):
+            m.advance(4)
+            cg = m.read_bytes(C, (CG_MELT + WALL_IX0) * 2, WALL_SHADES * 2)
+            f = tmp_path / f"f{i}.png"
+            m.screenshot(str(f))
+            im = Image.open(f).convert("RGB")
+            row = [im.getpixel((x, PICTURE_TOP + 20)) for x in range(WALL_SHADES)]
+            seen.append((cg, row.index(max(row, key=sum))))
+
+    # The CGRAM the machine holds must be one of the ROM's steps, and the peak
+    # in the PICTURE must be the peak in that step — the palette reached the
+    # screen, not merely CGRAM.
+    steps = []
+    for cg, peak in seen:
+        hits = [i for i, f in enumerate(WALL_PAL) if f == cg]
+        assert len(hits) == 1, \
+            f"the wall's CGRAM matches {len(hits)} of the blob's " \
+            f"{WALL_FRAMES} steps — it should be exactly one"
+        words = [cg[2 * j] | (cg[2 * j + 1] << 8) for j in range(WALL_SHADES)]
+        bright = max(range(WALL_SHADES), key=lambda j: sum(
+            ((words[j] >> sh) & 31) for sh in (0, 5, 10)))
+        assert bright == peak, \
+            f"step {hits[0]}: the palette's brightest entry is {bright} and " \
+            f"the picture's brightest column is {peak}"
+        steps.append(hits[0])
+
+    assert len(set(steps)) >= 5, f"the cycle barely moved: {steps}"
+    # ...and every advance is exactly one column to the RIGHT.
+    for a, b in zip(steps, steps[1:]):
+        d = (b - a) % WALL_FRAMES
+        assert d in (0, 1), \
+            f"the cycle went {a} -> {b}: a step of {d}, not a flow"
+    assert any((b - a) % WALL_FRAMES == 1 for a, b in zip(steps, steps[1:]))
+    peaks = [p for _, p in seen]
+    for a, b in zip(peaks, peaks[1:]):
+        assert (b - a) % WALL_SHADES in (0, 1), \
+            f"the bright band jumped {a} -> {b} — it is not flowing one way"
+
+
+def test_the_wall_cycle_cannot_impersonate_a_measured_edge():
+    """THE INSTRUMENT, PROTECTED — and this is the constraint a palette cycle
+    has that a CHR swap does not.
+
+    Every column scan in this module finds its edge by NEAREST CGRAM COLOUR
+    against a palette read ONCE. While the wall's colours rotate, a wall pixel's
+    actual colour need not be in that snapshot at all — it is matched to
+    whatever is closest. So the requirement is not "the wall looks different
+    from the crust": it is that every wall shade is closer to some OTHER WALL
+    SHADE than to either measured edge, at every step, which holds for every
+    snapshot at once.
+
+    Checked here against the ROM's own bytes because the generator asserts the
+    same thing, and the generator is what would be wrong.
+    """
+    shades = set()
+    for f in WALL_PAL:
+        for j in range(WALL_SHADES):
+            shades.add(f[2 * j] | (f[2 * j + 1] << 8))
+
+    def rgb(w):
+        return tuple((w >> s) & 31 for s in (0, 5, 10))
+
+    def d2(a, b):
+        return sum((x - y) ** 2 for x, y in zip(rgb(a), rgb(b)))
+
+    span = max(d2(a, b) for a in shades for b in shades)
+    with Machine(str(ROM)) as m:
+        m.advance(TITLE)
+        raw = m.read_bytes(C, 0, 48 * 2)
+    edges = {"the crust's white-hot line": (CG_MELT + 3),
+             "the plate's top edge": (CG_PLATE + 4)}
+    for name, ix in edges.items():
+        w = raw[2 * ix] | (raw[2 * ix + 1] << 8)
+        worst = min(d2(s, w) for s in shades)
+        assert worst > span, \
+            f"a wall shade is within {worst} of {name} while the ramp's own " \
+            f"span is {span} — a stale palette snapshot could nearest-match a " \
+            f"wall pixel to that edge, and every column scan would find the wall"
 
 
 def test_the_crust_edge_survives_every_animation_frame():

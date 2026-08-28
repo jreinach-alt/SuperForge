@@ -111,6 +111,10 @@ smt_chr_bin:
     .incbin "smt_chr.bin"
 .assert ^smt_chr_bin = ES_R_SMT_CHR_BANK, error, "smt_chr bank drifted from allocator claim"
 .assert .loword(smt_chr_bin) = ES_R_SMT_CHR_ADDR, error, "smt_chr addr drifted from allocator claim"
+smt_wall_pal_bin:
+    .incbin "smt_wall_pal.bin"
+.assert ^smt_wall_pal_bin = ES_R_SMT_WALL_PAL_BANK, error, "smt_wall_pal bank drifted from allocator claim"
+.assert .loword(smt_wall_pal_bin) = ES_R_SMT_WALL_PAL_ADDR, error, "smt_wall_pal addr drifted from allocator claim"
 smt_hrow_bin:
     .incbin "smt_hrow.bin"
 .assert ^smt_hrow_bin = ES_R_SMT_HROW_BANK, error, "smt_hrow bank drifted from allocator claim"

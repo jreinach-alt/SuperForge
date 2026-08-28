@@ -106,6 +106,69 @@ smt_pal_up:
     bcc @word
     rts
 
+; --- smt_wall_glow: one step of the wall's colour rotation ------------------
+; CONTRACT smt_wall_glow
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       A = the cycle step, 0..SMT_WALL_PAL_FRAMES-1
+;   out:      the wall's eight CGRAM words rewritten with that step's colours
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  VBlank or forced blank — CGRAM is not writable during active
+;             display. Called from the works scene's NMI hook, and NOT called
+;             at all by the title, which keeps step 0 from its enter upload
+;   tail:     rts
+;
+; THE PATTERN IS IN THE PALETTE, WHICH IS WHY THIS EXISTS AT ALL. The wall's
+; tile carries no pattern — one tile, every row identical, every column its own
+; index — so rotating these eight colours walks a band of lightness sideways
+; across the whole layer for 16 bytes of CGRAM a frame. Sixteen bytes buys what
+; a CHR swap would spend a hundred and twenty-eight on, and it is the ONLY
+; motion available to this surface: the wall must be invariant under vertical
+; displacement, so a CHR animation would have to keep every frame vertically
+; uniform and would leave the case that checks the invariance unable to tell
+; "moved" from "animated". A colour rotation does not touch a pixel.
+;
+; IT LIVES HERE AND NOT IN `smt_opt` BECAUSE OWNERSHIP IS WHERE THE CLAIM IS.
+; `smt_mpal` is this feature's CGRAM claim and this feature is global to both
+; scenes; the PHASE that picks a step is scene-scoped to the works. So the
+; works decides WHEN and WHICH and this file does the writing, which is the
+; same split the rail uses everywhere a global asset is driven by scene state.
+;
+; TICK: ok -- the step is a function of the accumulated PHASE, which the scaler
+;   already expressed against the declared tick. Nothing here counts frames.
+smt_wall_glow:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "smt_wall_glow"
+    .repeat ::SMT_WALL_PAL_LOG2_BYTES
+    asl a                           ; ...the step's offset, in blob bytes
+    .endrepeat
+    tax
+    sep #$20
+    .a8
+    lda #(ES_C_SMT_MPAL + ::SMT_WALL_IX0)
+    sta a:$2121                     ; CGADD = the wall's first entry
+    rep #$20
+    .a16
+    ldy #0                          ; X walks the blob (absolute-long indexed
+@word:                              ;   exists for X only), Y counts words out
+    .a16
+    .i16
+    lda f:smt_wall_pal_bin, x
+    sep #$20
+    .a8
+    sta a:$2122                     ; low byte
+    xba
+    sta a:$2122                     ; high byte
+    rep #$20
+    .a16
+    inx
+    inx
+    iny
+    cpy #::SMT_WALL_SHADES
+    bcc @word
+    rts
+
 ; --- smt_arm_bg: CHR, both tilemaps, both palettes (scene enter) ------------
 ; CONTRACT smt_arm_bg
 ;   entry:    A16 I16 DB=0

@@ -1,8 +1,8 @@
 """smelter — offset-per-tile's failure modes, planted.
 
-Ten plants. Eight are silent-corruption defects that still produce a plausible
+Eleven plants. Nine are silent-corruption defects that still produce a plausible
 picture and two are the allocator refusing a declaration that lies. One of the
-ten found a hole in the test module on its first run, which is the whole
+eleven found a hole in the test module on its first run, which is the whole
 reason this file exists rather than a list of defects somebody was already
 confident about; three more are defects the rail SHIPPED and a person caught,
 put here so the next one is caught by the harness instead.
@@ -151,6 +151,27 @@ PLANTS = [
               "assertion a picture-only test set would not have had, and the "
               "one a test set written without a plant did not have either."),
 
+    Plant(id="the-wall-pattern-flows-the-other-way",
+          file=GEN,
+          old="""        t = (1 - math.cos(2 * math.pi * ((i - k) % WALL_SHADES) / WALL_SHADES)) / 2""",
+          new="""        t = (1 - math.cos(2 * math.pi * ((i + k) % WALL_SHADES) / WALL_SHADES)) / 2  # PLANT""",
+          artifact=ROM,
+          build=["smelter"],
+          tests=[
+              T + "test_the_wall_pattern_flows_one_way_across_the_screen",
+          ],
+          why="THE DIRECTION, AND NOTHING ELSE. One sign in the rotation, and "
+              "the band travels right to left instead of left to right. The "
+              "wall still animates; the cycle still closes; the colours are "
+              "the same eight, in the same order, at the same rate; every "
+              "other case in the module is untouched, INCLUDING the invariance "
+              "case, because the pair it compares is matched on the art bytes "
+              "and a reversed cycle still produces matching pairs. A viewer "
+              "asked for a flow gets one. It is simply the wrong one, and "
+              "'the wall changes' cannot tell the difference — which is why "
+              "the case this names measures the bright band's COLUMN and "
+              "requires every advance to be +1."),
+
     Plant(id="melt-anim-frame-index-ignores-the-phase",
           file=OPT_ASM,
           old="""    lda z:ES_SMT_PHASE
@@ -174,28 +195,33 @@ PLANTS = [
               "A transfer that fires, lands, and carries a constant is the "
               "shape a `vblank_bytes_per_frame` budget cannot see either."),
 
-    Plant(id="the-wall-alternates-per-ROW-again",
+    Plant(id="the-wall-stops-being-vertically-uniform",
           file=GEN,
-          old="""            row = [(T_WALL_A if c % 2 == 0 else T_WALL_B) | ATTR_G1""",
-          new="""            row = [(T_WALL_A if (c + r) % 2 == 0 else T_WALL_B) | ATTR_G1  # PLANT""",
+          old="""    row = [WALL_IX0 + x for x in range(8)]
+    return [list(row) for _ in range(8)]""",
+          new="""    return [[WALL_IX0 + ((x + y) % 8) for x in range(8)]  # PLANT
+            for y in range(8)]""",
           artifact=ROM,
           build=["smelter"],
           tests=[
               T + "test_the_wall_does_not_move_when_its_column_does",
           ],
-          why="A DEFECT THIS RAIL SHIPPED AND A HUMAN CAUGHT, restored. "
-              "`wall_tile` makes all eight of its rows identical so that "
-              "displacing a column of wall is invisible — and a map that "
-              "alternates the two streak phases per MAP ROW throws that away, "
-              "because swapping the tile every 8 rows IS a horizontal seam "
-              "every 8 pixels. The streaks then jump 3 px sideways for every "
-              "8 px a column travels: the background moving with the melt, "
-              "which is the one thing the rail's art exists to avoid. EVERY "
-              "OTHER CASE IN THE MODULE STAYS GREEN under it — every one of "
-              "them measures where the crust IS, and not one of them measured "
-              "what the rest of the column did while it got there. That is "
-              "the shape of the hole, and it is why the case this names reads "
-              "a band ABOVE the crust rather than the crust itself."),
+          why="THE DEFECT CLASS A HUMAN CAUGHT, expressed against the art "
+              "that replaced it. The original was a map alternating two streak "
+              "phases per MAP ROW under a vertically uniform tile — a "
+              "horizontal seam every 8 pixels, so a displaced column slid it "
+              "past the screen and the streaks jumped sideways as the melt "
+              "rose. That exact edit is no longer possible: the wall's pattern "
+              "moved into its PALETTE and there is only one wall tile left, so "
+              "there is no alternation to reintroduce. The class survives the "
+              "redesign though — anything that puts a horizontal feature in "
+              "the wall does it — so the plant now tilts the TILE itself, "
+              "which is the same defect through the one door still open. "
+              "EVERY OTHER CASE IN THE MODULE STAYS GREEN under it, including "
+              "the flow case: the band still travels, one column per step, "
+              "left to right. Every case measures where the crust IS, and only "
+              "the one this names measures what the rest of the column does "
+              "while it gets there."),
 
     Plant(id="ride-reads-a-fixed-height",
           file=OBJ,

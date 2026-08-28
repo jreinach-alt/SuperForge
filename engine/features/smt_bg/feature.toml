@@ -59,7 +59,7 @@ mode = 1
 [[claims.vram]]
 name = "smt_chr"
 kind = "chr"
-tiles = 13
+tiles = 12
 tile_bytes = 32          # 4bpp — BG1 and BG2 both, in mode 1 and mode 2 alike
 
 # 32x64 — 512 PIXELS TALL, AND THE SHAPE IS DECLARED, NOT NARRATED. This is

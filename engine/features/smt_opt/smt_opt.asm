@@ -259,6 +259,23 @@ smt_nmi_melt:
     .a8
     lda #(1 << ES_H_SMT_VROW_CH)
     sta a:$420B                     ; MDMAEN: fire
+    ; ---- and the wall's colours, which are not a transfer at all ----------
+    ; SIXTEEN BYTES OF CGRAM, written by the feature that OWNS the palette.
+    ; The wall's pattern lives in its eight colours rather than in its pixels,
+    ; so rotating them walks a band of lightness across the layer — the only
+    ; motion available to a surface that has to stay invariant under vertical
+    ; displacement. `smt_bg` does the writing because `smt_mpal` is its claim;
+    ; this scene decides the step, because the phase is the scene's.
+    rep #$20
+    .a16
+    lda z:ES_SMT_PHASE
+    .repeat ::SMT_WALL_PAL_SHIFT
+    lsr a
+    .endrepeat
+    and #(::SMT_WALL_PAL_FRAMES - 1)
+    jsr smt_wall_glow
+    sep #$20
+    .a8
     rts
 
 ; --- smt_plate_top: where a plate's surface is, this frame ------------------

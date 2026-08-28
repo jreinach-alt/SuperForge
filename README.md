@@ -245,9 +245,13 @@ one number per column, refreshed once a frame. Watch two neighbouring columns
 of the melt — one can be forty pixels up while the other has not moved.
 
 The lava churns while it does: the same tilemap with different pixels swapped
-under it every frame, four tiles at a time. Hold B and every column drops to one
-level — and the melt goes on moving, which is how you can see that the churn and
-the columns are two different mechanisms.
+under it every frame, four tiles at a time. Behind it a band of light drifts
+left to right across the cavern wall — and that one is not pixels at all. The
+wall is a single tile with every column set to its own palette entry, so
+rotating eight colours walks a pattern across the whole layer for sixteen bytes
+a frame. Hold B and every column drops to one level; both keep moving, which is
+how you can see that the churn, the drift and the columns are three different
+mechanisms sharing one picture.
 
 And there is a knight standing on one of the plates, going up and down with it.
 That is the part that makes the number a **position** rather than a display

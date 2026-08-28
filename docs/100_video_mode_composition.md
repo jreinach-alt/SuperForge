@@ -473,6 +473,62 @@ without anything new being written. That is not an assumption —
 `test_the_title_returns_with_bg3_a_layer_again` requires the returned title
 PIXEL-IDENTICAL to the one before the works ever ran, and it is what proves it.
 
+### 11.1 The wall's colour rotation — the other half, and why it is a palette
+
+The melt churns by swapping CHR. The wall flows by rotating COLOURS, and the
+split is not stylistic: **it is the constraint from §11 deciding which mechanism
+each surface may have.**
+
+The wall must be invariant under vertical displacement — one word moves a whole
+column of BG2, and the wall shares that layer with the melt. A CHR animation
+would have to keep every frame vertically uniform, and worse, it would leave
+`test_the_wall_does_not_move_when_its_column_does` unable to tell "the wall
+moved" from "the wall animated". **A palette cycle does not touch a pixel**, so
+the invariance survives by construction rather than by care.
+
+That forced a change of shape, and the change is the interesting part. The wall
+used to be two indices with its streaks drawn into the tile, and **two indices
+cannot flow** — rotating two colours is a flicker, not a direction. So the wall
+now carries no pattern in its pixels at all: **one tile, every row identical,
+every column its own palette index** (8..15, free space in the melt's CGRAM
+group). The pattern IS the eight colours those indices hold, and rotating them
+walks a band of lightness left to right across the whole layer, for **16 bytes
+of CGRAM a frame** against the CHR swap's 128.
+
+Two consequences worth keeping:
+
+- **The wall's map lost its second tile.** The defect a human caught — a
+  vertically uniform tile whose MAP alternated two streak phases per row, which
+  is a horizontal seam every 8 pixels — was fixed by alternating on the column.
+  Moving the pattern into the palette removed the alternation altogether: there
+  is now one wall tile everywhere, so there is no second tile left to get wrong.
+- **A palette cycle has a constraint a CHR swap does not, and it is about the
+  test instrument.** Every column scan in `tests/test_smelter.py` finds its edge
+  by NEAREST CGRAM COLOUR against a palette read once; while the wall's colours
+  rotate, a wall pixel's colour need not be in that snapshot at all. So the
+  requirement is the sharp one: every wall shade must be closer to some other
+  WALL shade than to either measured edge, at every step — which the ramp's own
+  span settles for every snapshot at once. Asserted in the generator and again
+  from the ROM's bytes in
+  `test_the_wall_cycle_cannot_impersonate_a_measured_edge`. Without it a shade
+  could drift into range of the crust's white-hot line and every column scan
+  would find the wall, reported as the offset table being wrong.
+
+**Ownership went where the claim is.** `smt_mpal` is `smt_bg`'s CGRAM claim and
+`smt_bg` is global to both scenes; the phase that picks a step is scene-scoped
+to `works`. So `smt_bg` does the writing and `works` decides when and which —
+the same split the rail uses wherever scene state drives a global asset. The
+title never calls it and keeps step 0 from its enter upload.
+
+**And matching a test pair got harder in a way worth recording.** With two art
+cycles running, the invariance case has to compare frames drawn with IDENTICAL
+art. Pairing on `phase % 16` looked right and failed: `TS_STEP` publishes whole
+units and carries the fraction, so the phase advances 1 on some frames and 0 on
+others, and the lag between the phase a test reads and the phase the NMI drew
+from is not constant. The pair is matched on the ART BYTES instead — the wall's
+CGRAM words and the animated CHR block, read off the machine at each capture —
+which is what actually drew the frame.
+
 ## 12. Stated limits
 
 - **The offset TABLE'S CONTENT is not modelled.** The claim says BG3's tilemap

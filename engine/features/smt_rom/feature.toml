@@ -15,7 +15,7 @@ role = "blob"
 
 [[claims.rom]]
 name = "smt_chr"
-bytes = 416              # 13 x 4bpp tiles: a transparent cell, the plate's
+bytes = 384              # 12 x 4bpp tiles: a transparent cell, the plate's
                          # three top and three underside profiles, two wall
                          # tiles, two crust tiles and two melt tiles;
                          # tools/gen_smelter_assets.py
@@ -80,6 +80,26 @@ bytes = 30               # 3 states x 8 frame slots, then 3 (length, rate)
                          # the reason every table in this rail is: the walker
                          # and the table cannot disagree about a number
                          # neither of them holds twice
+
+# --- the wall's colour rotation --------------------------------------------
+[[claims.rom]]
+name = "smt_wall_pal"
+bytes = 128              # 8 steps x 8 BGR555 words. The wall carries no
+                         # pattern in its pixels — one tile, every row
+                         # identical, every column its own palette index — so
+                         # the pattern IS these eight colours and rotating
+                         # them walks a band of lightness across the screen.
+                         #
+                         # A PALETTE CYCLE AND NOT A CHR SWAP, deliberately.
+                         # The wall is the one surface that must be invariant
+                         # under vertical displacement, so every frame of a CHR
+                         # animation would have to be vertically uniform AND
+                         # the case that checks the invariance could no longer
+                         # tell "moved" from "animated". A colour rotation does
+                         # not touch a pixel, so the invariance survives by
+                         # construction. Step 0 is what `smt_pal` already
+                         # holds, so the enter upload and the cycle are the
+                         # same colours rather than two that agree.
 
 # --- the melt's CHR animation ----------------------------------------------
 [[claims.rom]]
