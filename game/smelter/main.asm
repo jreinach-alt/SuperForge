@@ -100,6 +100,13 @@ font_bin:
     .incbin "font_2bpp.bin"
 .assert ^font_bin = ES_R_FONT_BIN_BANK, error, "font_bin bank drifted from allocator claim"
 .assert .loword(font_bin) = ES_R_FONT_BIN_ADDR, error, "font_bin addr drifted from allocator claim"
+smt_melt_anim_bin:
+    .incbin "smt_melt_anim.bin"
+.assert ^smt_melt_anim_bin = ES_R_SMT_MELT_ANIM_BANK, error, "smt_melt_anim bank drifted from allocator claim"
+.assert .loword(smt_melt_anim_bin) = ES_R_SMT_MELT_ANIM_ADDR, error, "smt_melt_anim addr drifted from allocator claim"
+; ONE BANK, same reason as smt_col: smt_nmi_melt adds the frame's offset to the
+; blob's low word with a 16-bit add and takes the bank from `^`.
+SF_ASSERT_NO_BANK_CROSS smt_melt_anim_bin, ES_R_SMT_MELT_ANIM_SIZE, "smt_melt_anim crosses a bank"
 smt_chr_bin:
     .incbin "smt_chr.bin"
 .assert ^smt_chr_bin = ES_R_SMT_CHR_BANK, error, "smt_chr bank drifted from allocator claim"

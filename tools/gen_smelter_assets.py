@@ -235,11 +235,113 @@ MELT_TILES = [
     ("melt_a", melt_tile(0)), ("melt_b", melt_tile(5)),
 ]
 
+# --------------------------------------------------------------------------
+# THE MELT'S CHR ANIMATION — the same tilemap, different pixels
+# --------------------------------------------------------------------------
+# The classic BG animation: the map never changes, and a VBlank transfer swaps
+# the CHR under it. Four tiles, eight frames, 128 B a frame — the lava churns
+# with no extra tilemap traffic and no second layer.
+#
+# WHICH FOUR, AND WHY NOT THE WALL. The animated block is the crust pair and
+# the body pair, which sit CONTIGUOUSLY in the shared CHR claim (slots 9..12),
+# so the whole swap is ONE transfer. The wall is deliberately left out and it
+# is the one surface here that could not have joined: it has to be invariant
+# under vertical displacement (see `melt_map`), which forces every one of its
+# frames to be vertically uniform, and it would also make
+# `test_the_wall_does_not_move_when_its_column_does` unable to tell "the wall
+# moved" from "the wall animated" without pinning both frames to one animation
+# bucket. The lava is under no such constraint: it is SUPPOSED to move with its
+# column, so a texture that changes as it moves reads as molten rather than as
+# a defect. Motion belongs where the constraint is not.
+#
+# BOTH MOTIONS CLOSE EXACTLY AT FRAME 8, which is what keeps the gallery clip's
+# loop seam at zero. The crust's rows rotate HORIZONTALLY and the body's rotate
+# VERTICALLY: a rotation by 8 of an 8-wide, 8-tall tile is the identity, so
+# frame 8 IS frame 0 with no discontinuity to hide. A seed-drift animation
+# (varying `crust_tile`'s dither seed) was the obvious first idea and does not
+# close — its periods are 3, 4 and 5, so eight frames land mid-cycle and the
+# wrap is a visible jump.
+#
+# AND THE CRUST'S ROW 0 SURVIVES BY CONSTRUCTION, not by care. It is the single
+# bright unbroken line every per-column measurement in tests/test_smelter.py
+# lands on (`CRUST_IX`), so an animation that disturbed it would take the whole
+# module down. A HORIZONTAL rotation of a uniform row is that row, so the
+# invariant needs no special case -- and it is asserted below anyway, because
+# "it happens to be safe" is not a thing to leave unstated in the one place a
+# future frame set gets added.
+# TICK: ok -- an ANIMATION frame count, indexed by the already-scaled PHASE and
+#   never by a hardware frame. `smt_nmi_melt` computes (phase >> SHIFT) & 7 and
+#   counts nothing, so a change of tick rate leaves this table correct.
+MELT_ANIM_FRAMES = 8            # ...and 8 is also the rotation's own period
+MELT_ANIM_SHIFT = 1             # frame = (phase >> 1) & 7 -- 16 phases a
+                                #   cycle, which DIVIDES the 64-phase loop, so
+                                #   the picture stays a pure function of the
+                                #   phase and the clip still closes on itself
+
+
+def rot_h(rows, k):
+    """Every row rotated left by k. A uniform row is unchanged by this."""
+    return [r[k % 8:] + r[:k % 8] for r in rows]
+
+
+def rot_v(rows, k):
+    """The tile's rows cycled, so its content drifts UPWARD by k."""
+    return [rows[(y + k) % 8] for y in range(8)]
+
+
+def melt_anim():
+    """-> (blob, [tile names]) — MELT_ANIM_FRAMES x 4 tiles of 4bpp CHR.
+
+    Frame 0 is byte-identical to the four tiles in the static CHR blob, so the
+    boot upload and the animation agree and the title's restore is a real
+    restore rather than a fifth picture.
+    """
+    # TAKEN FROM `MELT_TILES` RATHER THAN REBUILT FROM THE SAME SEEDS, so
+    # "frame 0 is the static tile" is true by construction. Re-calling
+    # `crust_tile(0)` here would be a second copy of the seeds, and a seed
+    # changed in one place and not the other gives a rail whose lava snaps on
+    # the first frame of every cycle.
+    base = list(zip(MELT_TILES[2:], (rot_h, rot_h, rot_v, rot_v)))
+    assert [n for (n, _), _ in base] == ["crust_a", "crust_b",
+                                         "melt_a", "melt_b"], MELT_TILES
+    blob = bytearray()
+    for k in range(MELT_ANIM_FRAMES):
+        for (name, rows), rot in base:
+            f = rot(rows, k)
+            if name.startswith("crust"):
+                assert f[0] == rows[0] == [3] * 8, (
+                    f"{name} frame {k}: the crust's top row is not the "
+                    f"unbroken bright line every per-column measurement reads")
+            else:
+                assert all(3 not in r for r in f), (
+                    f"{name} frame {k}: a body pixel is the CRUST's index, "
+                    f"which would give `crust_y` a second edge to find")
+            blob += encode_4bpp(f, f"{name}@{k}")
+    return bytes(blob), [n for (n, _), _ in base]
+
+
 T_CLEAR, T_TOP_L, T_TOP_M, T_TOP_R, T_UND_L, T_UND_M, T_UND_R = range(7)
 # BG2's tiles sit after BG1's in one shared CHR claim, so their ids are offset.
 MELT_BASE_TILE = len(PLATE_TILES)
 T_WALL_A, T_WALL_B, T_CRUST_A, T_CRUST_B, T_MELT_A, T_MELT_B = \
     (MELT_BASE_TILE + i for i in range(6))
+
+# The animated block starts at the crust and runs to the end of the melt: four
+# CONTIGUOUS slots, which is what makes the swap one transfer rather than two.
+MELT_ANIM_FIRST = MELT_BASE_TILE + 2
+MELT_ANIM_TILES = 4
+# A POWER OF TWO, because the ASM turns the frame index into a blob offset with
+# a shift — ca65 has no multiply available in a `.repeat` count. Asserted here
+# so a fifth animated tile stops the GENERATOR rather than silently emitting a
+# stride the walker cannot express.
+assert (MELT_ANIM_TILES * 32) & (MELT_ANIM_TILES * 32 - 1) == 0, \
+    "the animation's per-frame stride must be a power of two"
+assert MELT_ANIM_FRAMES & (MELT_ANIM_FRAMES - 1) == 0, \
+    "the frame count must be a power of two — the index is a mask"
+assert (MELT_ANIM_FRAMES << MELT_ANIM_SHIFT) <= PHASES and \
+    PHASES % (MELT_ANIM_FRAMES << MELT_ANIM_SHIFT) == 0, \
+    ("the animation's cycle must DIVIDE the phase loop, or the picture stops "
+     "being a pure function of the phase and the gallery clip's seam opens")
 
 ATTR_G0 = 0 << 10            # palette group 0 — the plates
 ATTR_G1 = 2 << 10            # palette group 2 — the cavern and the melt. Not
@@ -695,6 +797,23 @@ SMT_MELT_BASE     = {mbase}    ; the flat control's value for a gap column
 SMT_MELT_AMP      = {mamp}
 SMT_VOFS_BG2      = {vbg2}    ; the fallback for a column with bit 14 clear —
                              ;   the plates' columns, where the melt is calm
+
+; --- BG2's CHR animation: the same map, different pixels -------------------
+; The classic BG swap. {manimf} frames of {manimt} CONTIGUOUS tiles, moved into
+; the same CHR slots every VBlank, so the lava churns for no tilemap traffic
+; and no second layer. The frame is a function of the PHASE — nothing here
+; counts hardware frames — and {manimf} frames every {manimshift} phase(s) is a
+; cycle that DIVIDES the {phases}-phase loop, so the picture stays a pure
+; function of one number and the gallery clip still closes on itself.
+; TICK: ok -- an ANIMATION frame count the PHASE indexes, not a frame counter.
+SMT_MELT_ANIM_FRAMES = {manimf}
+SMT_MELT_ANIM_TILES  = {manimt}
+SMT_MELT_ANIM_FIRST  = {manimfirst}     ; the first animated CHR slot
+SMT_MELT_ANIM_SHIFT  = {manimshift}     ; frame = (phase >> SHIFT) & (FRAMES-1)
+SMT_MELT_ANIM_BYTES  = {manimbytes}   ; one frame, and one transfer
+SMT_MELT_ANIM_LOG2_BYTES = {manimlog2}  ; ...as a shift, because the frame
+                             ;   index is scaled to a blob offset with `asl`
+                             ;   and ca65 has no multiply in a .repeat count
 """
 
 
@@ -733,6 +852,9 @@ def main(argv):
     kframes, kmeta = anim_tables()
     (out / "smt_anim.bin").write_bytes(kframes + kmeta)
 
+    manim, mnames = melt_anim()
+    (out / "smt_melt_anim.bin").write_bytes(manim)
+
     col = col_table()
     assert len(col) == (PHASES + 1) * STRIDE, len(col)
     (out / "smt_col.bin").write_bytes(col)
@@ -750,7 +872,11 @@ def main(argv):
         vbg2=MELT_BASE,
         kbox=FRAME_BOX, kbot=kbottom, kslots=KNIGHT_SLOTS,
         kstates=len(KNIGHT_ANIM), kstride=ANIM_STRIDE,
-        kmetaoff=len(kframes)))
+        kmetaoff=len(kframes),
+        manimf=MELT_ANIM_FRAMES, manimt=MELT_ANIM_TILES,
+        manimfirst=MELT_ANIM_FIRST, manimshift=MELT_ANIM_SHIFT,
+        manimbytes=MELT_ANIM_TILES * 32,
+        manimlog2=(MELT_ANIM_TILES * 32).bit_length() - 1))
 
     print(f"smt_chr.bin  {len(chr_blob):6d} B  ({len(tiles)} tiles)")
     print(f"smt_pmap.bin   4096 B  (32x64 words, {len(PLATES)} plates)")
@@ -763,6 +889,8 @@ def main(argv):
     print(f"smt_obj.bin  {len(kchr):6d} B  ({len(KNIGHT_CELLS)} knight frames "
           f"in {KNIGHT_SLOTS} slots, {kcolours} opaque colours, content "
           f"bottom {kbottom}/{FRAME_BOX})")
+    print(f"smt_melt_anim.bin {len(manim):5d} B  ({MELT_ANIM_FRAMES} frames x "
+          f"{len(mnames)} tiles: {', '.join(mnames)})")
     print(f"smt_obj_pal.bin  32 B  /  smt_anim.bin  "
           f"{len(kframes) + len(kmeta)} B")
     return 0

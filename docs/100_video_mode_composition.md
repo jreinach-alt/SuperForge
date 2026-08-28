@@ -418,7 +418,62 @@ The fix is one bit moved from the fraction to the row: **9.7**, spanning
 walking him off the edge to find it the first time, and every other case in the
 module stays green under it.
 
-## 11. Stated limits
+## 11. What the rail animates that is NOT the table
+
+`smelter` swaps four CHR tiles every VBlank, so the lava churns under a tilemap
+that never changes. It is in this document for one reason: **it is the only
+motion in the rail that the offset vocabulary has nothing to do with**, and a
+rail that demonstrates a claim class has to be able to say which of its moving
+parts the class accounts for.
+
+The two mechanisms are shown apart by the rail's own control. B selects the
+table's flat row — every column on its base, every enable bit still set — and
+with the picture standing still, anything left moving in the melt is the CHR
+and can be nothing else
+(`tests/test_smelter.py::test_the_melt_churns_while_every_column_stands_still`).
+**The control deliberately does not freeze the animation**: its whole value is
+that exactly ONE variable moves between running and flat, and a control that
+stopped the CHR too would leave two.
+
+Three constraints shaped what could be animated, and the first is the
+interesting one:
+
+- **The wall is excluded, and it is the one surface that could not have
+  joined.** It has to be invariant under vertical displacement — one word moves
+  a whole column of a layer, and the wall shares BG2 with the melt — so every
+  animation frame would have to be vertically uniform, and the case that checks
+  the invariance would no longer be able to tell "the wall moved" from "the
+  wall animated". **Motion belongs where the constraint is not.** The lava is
+  supposed to move with its column, so a texture that changes as it moves reads
+  as molten rather than as a defect.
+- **The animation's cycle must DIVIDE the phase loop.** The rail's picture is a
+  pure function of `ES_SMT_PHASE`, which is what makes the gallery clip close on
+  itself at a measured seam of 0.00/255. Eight frames every 2 phases is 16, and
+  16 divides 64. Asserted in the generator, and asserted again from the picture's
+  side by requiring a single constant lag to explain the frame index at every
+  capture.
+- **The crust's top row may not move.** It is the unbroken bright line every
+  per-column equality lands on, so an animation that disturbed it would take the
+  whole module down with a failure pointing at the offset table rather than at
+  the art. The crust's frames rotate HORIZONTALLY, which leaves a uniform row
+  alone by construction; the body's rotate vertically. Both rotations are the
+  identity at frame 8, which is also why the loop closes with no discontinuity
+  to hide — a seed-drift animation was the obvious first idea and does not close,
+  its periods being 3, 4 and 5.
+
+**Cost**: 128 B a frame on the channel the offset row already uses, taking the
+scene to 192 B and two VBlank transfers. DAS is single-shot and the row spends
+it, so the second transfer re-arms — the tree's own lesson, and the reason the
+declaration says two.
+
+**And the hygiene obligation it creates was already discharged.** A scene that
+animates shared CHR hands its successor whichever frame it stopped on; here
+`smt_bg` re-uploads its whole art on every scene enter, so the title is frame 0
+without anything new being written. That is not an assumption —
+`test_the_title_returns_with_bg3_a_layer_again` requires the returned title
+PIXEL-IDENTICAL to the one before the works ever ran, and it is what proves it.
+
+## 12. Stated limits
 
 - **The offset TABLE'S CONTENT is not modelled.** The claim says BG3's tilemap
   is a table of scroll words; it does not say which words, how they get there,

@@ -85,9 +85,12 @@ band = "scene"
 phase = "vblank"
 channels = 1
 
+# ...and the melt's CHR under it: 4 contiguous tiles, 128 B, through the same
+# word port on the same channel. TWO transfers a frame now, and the second is
+# what makes the lava churn without a single extra tilemap word.
 [claims.dma]
-vblank_bytes_per_frame = 64
-vblank_transfers_per_frame = 1
+vblank_bytes_per_frame = 192
+vblank_transfers_per_frame = 2
 
 # ---- state ----------------------------------------------------------------
 [[claims.dp]]

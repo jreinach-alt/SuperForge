@@ -197,6 +197,68 @@ smt_nmi_row:
     .a8
     lda #(1 << ES_H_SMT_VROW_CH)
     sta a:$420B                     ; MDMAEN: fire
+    ; fall through — the same channel, re-armed, for the melt's CHR
+
+; --- smt_nmi_melt: the melt's CHR, every armed VBlank -----------------------
+; CONTRACT smt_nmi_melt
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   in:       ES_SMT_PHASE — the current phase, 0..SMT_PHASES-1
+;   out:      the four animated CHR slots rewritten with this frame's pixels,
+;             so the lava churns under a tilemap that never changes
+;   clobbers: A, N, Z, C
+;   assumes:  VBlank, immediately after smt_nmi_row, in the same A8/I16
+;             convention. It programs its own VMADD and RE-ARMS DAS, because
+;             the row transfer above CONSUMED it
+;   tail:     rts
+;
+; THE CLASSIC BG ANIMATION, and the cheapest thing in this rail after the
+; offset row itself: 128 B into four contiguous CHR slots and the whole melt
+; changes. No tilemap word moves, no second layer is spent, and the columns go
+; on being displaced by exactly the same table — the swap is under the picture
+; the offsets bend, not beside it.
+;
+; DAS IS SINGLE-SHOT AND THE ROW ABOVE ALREADY SPENT IT. This is the second
+; transfer on the same channel in the same VBlank, so DAS is re-armed here;
+; the tree's own lesson, and the reason `vblank_transfers_per_frame` is 2.
+;
+; NOT DISARMED BY THE FLAT CONTROL, deliberately. B selects the offset table's
+; flat row and nothing else: if it also froze the lava, running and flat would
+; differ in TWO things and the comparison could not attribute what it showed.
+; The control isolates the table, so the lava churns in both states.
+;
+; TICK: ok -- the frame index is a function of the accumulated PHASE, the same
+;   already-scaled quantity the row index is. Nothing here counts frames, and
+;   SMT_MELT_ANIM_FRAMES << SMT_MELT_ANIM_SHIFT divides SMT_PHASES, so the
+;   cycle closes with the loop rather than across it.
+smt_nmi_melt:
+    .a8
+    .i16
+    SF_ASSERT_WIDTH 8, 16, "smt_nmi_melt"
+    lda #^smt_melt_anim_bin
+    sta a:SMT_ROW_REGS + 4          ; A1B: the animation blob's own bank
+    rep #$20
+    .a16
+    lda #(ES_V_SMT_CHR + ::SMT_MELT_ANIM_FIRST * 16)
+    sta a:$2116                     ; VMADD = the first animated CHR slot
+    lda #::SMT_MELT_ANIM_BYTES
+    sta a:SMT_ROW_REGS + 5          ; DAS, re-armed: the row transfer spent it
+    ; ---- which frame ------------------------------------------------------
+    lda z:ES_SMT_PHASE
+    .repeat ::SMT_MELT_ANIM_SHIFT
+    lsr a
+    .endrepeat
+    and #(::SMT_MELT_ANIM_FRAMES - 1)
+    .repeat ::SMT_MELT_ANIM_LOG2_BYTES
+    asl a                           ; ...the frame's offset, in blob bytes
+    .endrepeat
+    clc
+    adc #.loword(smt_melt_anim_bin) ; one bank, asserted at the .incbin
+    sta a:SMT_ROW_REGS + 2
+    sep #$20
+    .a8
+    lda #(1 << ES_H_SMT_VROW_CH)
+    sta a:$420B                     ; MDMAEN: fire
     rts
 
 ; --- smt_plate_top: where a plate's surface is, this frame ------------------

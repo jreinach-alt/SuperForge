@@ -635,6 +635,160 @@ def test_the_title_is_the_flat_picture_in_another_mode(tmp_path):
 
 
 # ==========================================================================
+# the melt's CHR animation — the same map, different pixels
+# ==========================================================================
+#
+# The classic BG swap, and the point of asserting it here is that it is the one
+# kind of motion in this rail that is NOT the offset table. Four contiguous CHR
+# slots are rewritten every VBlank; not one tilemap word moves and not one
+# column's displacement changes. So the two mechanisms have to be shown apart,
+# and the rail already owns the instrument for that: THE FLAT CONTROL. With
+# every column standing on its base, anything left moving in the melt is the
+# CHR and can be nothing else.
+
+ANIM_FIRST = _art("SMT_MELT_ANIM_FIRST")
+ANIM_TILES = _art("SMT_MELT_ANIM_TILES")
+ANIM_FRAMES = _art("SMT_MELT_ANIM_FRAMES")
+ANIM_SHIFT = _art("SMT_MELT_ANIM_SHIFT")
+ANIM_BYTES = _art("SMT_MELT_ANIM_BYTES")
+VRAM_CHR = _sym("ES_V_SMT_CHR")["start"]            # in WORDS
+
+
+def _anim_blob():
+    """The animation's frames, out of build/smelter.sfc — the same oracle rule
+    the column table gets: found by SEARCHING the ROM image, so locating it is
+    itself the proof that the blob reached the binary."""
+    want = (ASSETS / "smt_melt_anim.bin").read_bytes()
+    rom = ROM.read_bytes()
+    at = rom.find(want)
+    assert at >= 0, "the melt animation is not in build/smelter.sfc"
+    assert rom.find(want, at + 1) < 0, "the melt animation appears twice"
+    return [rom[at + i * ANIM_BYTES:at + (i + 1) * ANIM_BYTES]
+            for i in range(ANIM_FRAMES)]
+
+
+ANIM = _anim_blob()
+
+
+def _vram_chr(m):
+    return m.read_bytes(V, (VRAM_CHR + ANIM_FIRST * 16) * 2, ANIM_BYTES)
+
+
+def test_the_melt_chr_in_vram_is_the_frame_the_rom_holds():
+    """THE DESTINATION REGION AGAINST THE ROM'S BYTES, and the index against
+    the phase.
+
+    Two claims in one pass, both exact. The 128 B in VRAM must equal ONE of the
+    eight frames in the blob — not resemble one — which is what says the
+    transfer moved the right bytes to the right place. And which one must be
+    `(phase >> SHIFT) & (FRAMES - 1)` at a CONSTANT lag across every capture:
+    the NMI commits a frame and the main thread advances the phase afterwards,
+    so the pixels on screen are one behind the phase a test can read, and a lag
+    that varied would mean the index was not a function of the phase at all.
+
+    That last part is what keeps the gallery clip's seam at zero, so it is
+    asserted rather than assumed.
+    """
+    seen = []
+    with Machine(str(ROM)) as m:
+        m.advance(TITLE)
+        m.advance(1, pad1=JOY_START)
+        m.advance(SETTLE)
+        for _ in range(8):
+            m.advance(5)
+            v = _vram_chr(m)
+            hits = [i for i, f in enumerate(ANIM) if f == v]
+            assert len(hits) == 1, \
+                f"VRAM's animated block matches {len(hits)} of the blob's " \
+                f"{ANIM_FRAMES} frames — it should be exactly one"
+            seen.append((m.read_u16(W, DP_PHASE), hits[0]))
+    lags = [lag for lag in range(3)
+            if all(((ph - lag) >> ANIM_SHIFT) % ANIM_FRAMES == f
+                   for ph, f in seen)]
+    assert len(lags) == 1, \
+        f"no single lag explains the frame index: {seen} (lags {lags})"
+    assert len({f for _, f in seen}) >= 4, \
+        f"only {len({f for _, f in seen})} frame(s) were ever uploaded"
+
+
+def test_the_melt_churns_while_every_column_stands_still(tmp_path):
+    """THE CHR SWAP, ISOLATED BY THE RAIL'S OWN CONTROL — and the reason the
+    control does NOT freeze it.
+
+    B selects the offset table's flat row: every column at its base, every
+    enable bit still set, nothing displaced. So the crust line is one flat row
+    across the whole screen and stays there. Anything still moving in the melt
+    under those conditions is the CHR and can be nothing else, which is the
+    only way to show these two mechanisms apart — a running frame moves for
+    both reasons at once.
+
+    IT WOULD HAVE BEEN EASY TO FREEZE THE LAVA WITH THE TABLE, and wrong: the
+    control's whole value is that exactly ONE variable moves between running
+    and flat. A control that also stopped the CHR would leave two, and a
+    two-variable comparison cannot attribute what it shows. So the lava churns
+    in both states, and this case is where that decision is written down.
+    """
+    with Machine(str(ROM)) as m:
+        m.advance(TITLE)
+        m.advance(1, pad1=JOY_START)
+        m.advance(SETTLE)
+        m.advance(1, pad1=JOY_B)
+        m.advance(20)
+        assert m.read_u16(W, DP_FLAT) == 1
+        pal = _palette(m)
+        rows, chrs = [], []
+        for i in range(8):
+            m.advance(5)
+            chrs.append(_vram_chr(m))
+            f = tmp_path / f"c{i}.png"
+            m.screenshot(str(f))
+            im = Image.open(f).convert("RGB")
+            top = crust_y(im, pal, 0)
+            band = tuple(im.getpixel((x, PICTURE_TOP + top + dy))
+                         for dy in range(4, 20) for x in range(0, 64))
+            rows.append((top, band))
+
+    tops = {t for t, _ in rows}
+    assert tops == {where(CRUST_PX, MELT_BASE)}, \
+        f"the picture is not flat — the crust sits at {tops}"
+    bands = [b for _, b in rows]
+    assert len(set(bands)) >= 4, \
+        f"only {len(set(bands))} distinct melt picture(s) with the columns " \
+        f"stationary — the CHR swap is not reaching the screen"
+    # ...and the pixels are a FUNCTION of the CHR: same block, same picture.
+    byblock = {}
+    for c, b in zip(chrs, bands):
+        byblock.setdefault(c, set()).add(b)
+    assert all(len(v) == 1 for v in byblock.values()), \
+        "the same CHR block drew two different melts — something other than " \
+        "the swap is moving under the flat control"
+    assert len(byblock) == len(set(bands)), \
+        "two CHR blocks drew the same melt — a frame is a duplicate"
+
+
+def test_the_crust_edge_survives_every_animation_frame():
+    """THE ONE ROW THE ANIMATION MAY NOT TOUCH, checked against the ROM.
+
+    `CRUST_IX` — the melt's unbroken white-hot top row — is the edge every
+    per-column equality in this module lands on. The animation rewrites the
+    crust tiles, so an author adding a frame set that disturbed row 0 would
+    take the whole module down at once, with a failure that pointed at the
+    offset table and not at the art.
+
+    So: in every frame the ROM holds, the first bitplane row of each crust tile
+    is the same as frame 0's. Read out of the blob rather than from the
+    generator, because the generator is what would be wrong.
+    """
+    for i, f in enumerate(ANIM):
+        for t in range(2):              # the two crust tiles lead the block
+            base, ref = f[t * 32:t * 32 + 2], ANIM[0][t * 32:t * 32 + 2]
+            assert base == ref, \
+                f"frame {i}, crust tile {t}: row 0 is {base.hex()} against " \
+                f"frame 0's {ref.hex()} — the edge every measurement reads " \
+                f"is not invariant under the animation"
+
+
+# ==========================================================================
 # the knight — the number is a fact about the WORLD, not about the display
 # ==========================================================================
 #

@@ -244,6 +244,11 @@ by a **third background layer the hardware reads as data instead of drawing**,
 one number per column, refreshed once a frame. Watch two neighbouring columns
 of the melt — one can be forty pixels up while the other has not moved.
 
+The lava churns while it does: the same tilemap with different pixels swapped
+under it every frame, four tiles at a time. Hold B and every column drops to one
+level — and the melt goes on moving, which is how you can see that the churn and
+the columns are two different mechanisms.
+
 And there is a knight standing on one of the plates, going up and down with it.
 That is the part that makes the number a **position** rather than a display
 trick: his collision reads the same word the picture is drawn from, so his feet

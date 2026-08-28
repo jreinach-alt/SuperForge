@@ -1,8 +1,8 @@
 """smelter — offset-per-tile's failure modes, planted.
 
-Nine plants. Seven are silent-corruption defects that still produce a plausible
+Ten plants. Eight are silent-corruption defects that still produce a plausible
 picture and two are the allocator refusing a declaration that lies. One of the
-nine found a hole in the test module on its first run, which is the whole
+ten found a hole in the test module on its first run, which is the whole
 reason this file exists rather than a list of defects somebody was already
 confident about; three more are defects the rail SHIPPED and a person caught,
 put here so the next one is caught by the harness instead.
@@ -79,6 +79,7 @@ from falsify import Plant                                   # noqa: E402
 SUPERFORGE = Path(__file__).resolve().parent.parent.parent
 GEN = SUPERFORGE / "tools" / "gen_smelter_assets.py"
 OPT = SUPERFORGE / "engine" / "features" / "smt_opt" / "feature.toml"
+OPT_ASM = SUPERFORGE / "engine" / "features" / "smt_opt" / "smt_opt.asm"
 GAME = SUPERFORGE / "game" / "smelter" / "game.toml"
 OBJ = SUPERFORGE / "engine" / "features" / "smt_obj" / "smt_obj.asm"
 INC = SUPERFORGE / "game" / "smelter" / "smelter.inc"
@@ -149,6 +150,29 @@ PLANTS = [
               "every word's ENABLE BIT as well as its value — which is the "
               "assertion a picture-only test set would not have had, and the "
               "one a test set written without a plant did not have either."),
+
+    Plant(id="melt-anim-frame-index-ignores-the-phase",
+          file=OPT_ASM,
+          old="""    lda z:ES_SMT_PHASE
+    .repeat ::SMT_MELT_ANIM_SHIFT""",
+          new="""    lda #0                          ; PLANT: frame 0, every frame
+    .repeat ::SMT_MELT_ANIM_SHIFT""",
+          artifact=ROM,
+          build=["smelter"],
+          tests=[
+              T + "test_the_melt_chr_in_vram_is_the_frame_the_rom_holds",
+              T + "test_the_melt_churns_while_every_column_stands_still",
+          ],
+          why="the CHR swap, still firing and still moving the right number "
+              "of bytes into the right place — at the same frame every time. "
+              "THE PICTURE IS ENTIRELY PLAUSIBLE: the lava simply stops "
+              "churning, and a running frame still moves for the other reason, "
+              "because every column is being displaced by the table exactly as "
+              "before. That is why the case this names drives the FLAT control "
+              "first: with the columns standing still, the melt is either "
+              "changing or it is not, and there is nothing else it could be. "
+              "A transfer that fires, lands, and carries a constant is the "
+              "shape a `vblank_bytes_per_frame` budget cannot see either."),
 
     Plant(id="the-wall-alternates-per-ROW-again",
           file=GEN,

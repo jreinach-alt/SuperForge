@@ -81,6 +81,26 @@ bytes = 30               # 3 states x 8 frame slots, then 3 (length, rate)
                          # and the table cannot disagree about a number
                          # neither of them holds twice
 
+# --- the melt's CHR animation ----------------------------------------------
+[[claims.rom]]
+name = "smt_melt_anim"
+bytes = 1024             # 8 frames x 4 tiles x 32 B. The four are CONTIGUOUS
+                         # in `smt_chr`'s slot order (the crust pair and the
+                         # body pair), which is what makes the per-frame swap
+                         # ONE transfer rather than two, and frame 0 is
+                         # byte-identical to those same four slots in
+                         # `smt_chr` — so the boot upload, the animation and
+                         # the title's restore are all the same pixels rather
+                         # than three pictures that happen to agree.
+                         #
+                         # The WALL is deliberately not in here. It is the one
+                         # surface under a hard constraint — invariant under
+                         # vertical displacement — and animating it would put
+                         # that constraint on every frame while making the
+                         # test that checks it unable to tell "moved" from
+                         # "animated". Motion belongs where the constraint is
+                         # not.
+
 [[claims.rom]]
 name = "smt_col"
 bytes = 4160             # 65 x 64 B. Each blob is a complete BG3 V-offset row
