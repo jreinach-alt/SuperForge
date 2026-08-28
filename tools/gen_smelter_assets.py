@@ -10,7 +10,8 @@ THREE KINDS OF OUTPUT, and the third is the point of the rail.
                world behind it.
 
   the MELT     BG2 4bpp tile art: a cavern wall with no horizontal feature in
-               it at all, a bright crust line, and the melt below. The wall's
+               it at all -- IN THE TILE **AND** IN THE MAP, which took two
+               goes: see melt_map -- a bright crust line, and the melt below. The wall's
                vertical uniformity is deliberate and load-bearing: displacing
                a column of it shows nothing, so the ONLY thing a viewer (or a
                test) can see move is the crust — which is exactly the edge the
@@ -154,7 +155,14 @@ def wall_tile(shift):
     so displacing a column of wall is invisible. That is the point — the wall
     is the still background against which the crust's movement is the whole
     signal, and a wall with a horizontal seam in it would make the per-column
-    equality unreadable at exactly the rows it matters."""
+    equality unreadable at exactly the rows it matters.
+
+    A UNIFORM TILE IS HALF THE PROPERTY AND THE MAP IS THE OTHER HALF. This
+    function was correct and the rail still shipped a wall that slid sideways
+    under displacement, because `melt_map` alternated the two streak phases
+    per MAP ROW — which puts the horizontal seam back every 8 pixels. Read
+    that function's comment before changing either.
+    """
     row = [2 if ((x + shift) % 5 == 0 or (x + shift) % 7 == 3) else 1
            for x in range(8)]
     return [list(row) for _ in range(8)]
@@ -262,7 +270,20 @@ def melt_map():
     m = []
     for r in range(MAP_ROWS):
         if r < CRUST_MAP_ROW:
-            row = [(T_WALL_A if (c + r) % 2 == 0 else T_WALL_B) | ATTR_G1
+            # ON THE COLUMN ONLY, AND THAT IS THE WHOLE POINT. `wall_tile`
+            # goes to the trouble of making all eight of its rows identical
+            # so that displacing a column of wall is invisible — and a map
+            # that alternated the two streak phases on `(c + r) % 2` threw
+            # that away, because swapping the tile every 8 map rows IS a
+            # horizontal seam every 8 pixels. A displaced column then slid
+            # that seam past the screen and the streaks jumped 3 px sideways
+            # every 8 px of travel: the background visibly moving with the
+            # melt, which is exactly what the rail claims cannot happen.
+            # Alternating on `c` keeps the column-to-column variety and makes
+            # the wall EXACTLY invariant under vertical displacement.
+            # Measured, both ways: tests/test_smelter.py
+            # ::test_the_wall_does_not_move_when_its_column_does.
+            row = [(T_WALL_A if c % 2 == 0 else T_WALL_B) | ATTR_G1
                    for c in range(COLS)]
         elif r == CRUST_MAP_ROW:
             row = [(T_CRUST_A if c % 2 == 0 else T_CRUST_B) | ATTR_G1

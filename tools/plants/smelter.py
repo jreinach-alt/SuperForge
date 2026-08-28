@@ -1,11 +1,11 @@
 """smelter — offset-per-tile's failure modes, planted.
 
-Eight plants. Six are silent-corruption defects that still produce a plausible
+Nine plants. Seven are silent-corruption defects that still produce a plausible
 picture and two are the allocator refusing a declaration that lies. One of the
-eight found a hole in the test module on its first run, which is the whole
+nine found a hole in the test module on its first run, which is the whole
 reason this file exists rather than a list of defects somebody was already
-confident about; two more are defects the rail SHIPPED and a person caught, put
-here so the next one is caught by the harness instead.
+confident about; three more are defects the rail SHIPPED and a person caught,
+put here so the next one is caught by the harness instead.
 
 THE SET IS BUILT AROUND WHAT A PER-COLUMN TABLE CAN GET WRONG WITHOUT
 LOOKING WRONG. A picture where every column has moved to *some* height is the
@@ -61,6 +61,14 @@ different, and each leaves a picture with a knight on a platform in it.
     draws the top-left quarter of him — a small, complete-looking sprite, in
     the right palette, at the right place — which is exactly the shape of
     failure a "there is a sprite on screen" assertion cannot see.
+
+AND ONE THAT IS ABOUT THE ART RATHER THAN THE MECHANISM.
+`the-wall-alternates-per-ROW-again` is the third shipped defect, and the only
+one in this file a person found by LOOKING at the clip rather than by running
+anything. Every case in the module measured where the crust IS; none measured
+what the rest of the column did while it got there, so a wall that slid its
+own texture sideways under displacement passed everything. The plant restores
+it and the case that now catches it reads a band strictly above the crust.
 """
 import sys
 from pathlib import Path
@@ -141,6 +149,29 @@ PLANTS = [
               "every word's ENABLE BIT as well as its value — which is the "
               "assertion a picture-only test set would not have had, and the "
               "one a test set written without a plant did not have either."),
+
+    Plant(id="the-wall-alternates-per-ROW-again",
+          file=GEN,
+          old="""            row = [(T_WALL_A if c % 2 == 0 else T_WALL_B) | ATTR_G1""",
+          new="""            row = [(T_WALL_A if (c + r) % 2 == 0 else T_WALL_B) | ATTR_G1  # PLANT""",
+          artifact=ROM,
+          build=["smelter"],
+          tests=[
+              T + "test_the_wall_does_not_move_when_its_column_does",
+          ],
+          why="A DEFECT THIS RAIL SHIPPED AND A HUMAN CAUGHT, restored. "
+              "`wall_tile` makes all eight of its rows identical so that "
+              "displacing a column of wall is invisible — and a map that "
+              "alternates the two streak phases per MAP ROW throws that away, "
+              "because swapping the tile every 8 rows IS a horizontal seam "
+              "every 8 pixels. The streaks then jump 3 px sideways for every "
+              "8 px a column travels: the background moving with the melt, "
+              "which is the one thing the rail's art exists to avoid. EVERY "
+              "OTHER CASE IN THE MODULE STAYS GREEN under it — every one of "
+              "them measures where the crust IS, and not one of them measured "
+              "what the rest of the column did while it got there. That is "
+              "the shape of the hole, and it is why the case this names reads "
+              "a band ABOVE the crust rather than the crust itself."),
 
     Plant(id="ride-reads-a-fixed-height",
           file=OBJ,

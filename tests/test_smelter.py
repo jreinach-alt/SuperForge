@@ -469,6 +469,56 @@ def test_a_plate_is_rigid_across_its_own_columns(frame):
         assert len(vals) == 1, f"plate at {first} carries {vals}"
 
 
+def test_the_wall_does_not_move_when_its_column_does(tmp_path):
+    """THE COST OF ONE VALUE A COLUMN, PAID IN ART RATHER THAN IN MOTION.
+
+    BG2 carries the cavern wall AND the crust AND the melt body, and a column's
+    word displaces the WHOLE column of the layer — one value per column per
+    layer is what the hardware gives, so nothing can move the melt and hold the
+    wall still. The rail's answer is not to separate them but to make the wall
+    INVARIANT under vertical displacement: `wall_tile` builds every one of its
+    eight rows identically, so sliding it costs nothing to look at.
+
+    THAT CLAIM WAS FALSE FOR A WHILE AND NOTHING CAUGHT IT. The tile was
+    uniform; the MAP alternated two streak phases on `(c + r) % 2`, and
+    swapping the tile every 8 map rows IS a horizontal seam every 8 pixels —
+    the exact feature the tile avoided, reintroduced one function later. A
+    displaced column slid that seam past the screen and the streaks jumped
+    3 px sideways every 8 px of travel: the background visibly moving with the
+    melt. The owner saw it in the gallery clip; no case here could, because
+    every case measured the crust's POSITION and none measured what the rest of
+    the column did while it moved.
+
+    So this one measures the rest of the column. The band is strictly ABOVE the
+    highest the crust reaches in EITHER frame, so a difference in it cannot be
+    the melt having risen into view, and it is asserted pixel-identical while
+    the crust below it moves — which is also what makes the case non-vacuous:
+    a column that did not move proves nothing about a column that does.
+    """
+    pal, shots = _drive(tmp_path, [(10, None)] * 2)
+    (a, _, _), (b, _, _) = shots
+    moved = 0
+    for c in range(COLS):
+        if plate_of(c) is not None:
+            continue                    # BG1's plates hang in this band
+        ya, yb = crust_y(a, pal, c), crust_y(b, pal, c)
+        if ya is None or yb is None:
+            continue
+        if abs(ya - yb) >= 8:
+            moved += 1
+        for y in range(2, min(ya, yb) - 2):
+            for x in range(8 * c, 8 * c + 8):
+                assert a.getpixel((x, PICTURE_TOP + y)) \
+                    == b.getpixel((x, PICTURE_TOP + y)), (
+                        f"column {c} row {y}: the wall moved with the melt. "
+                        f"Its crust went {ya} -> {yb}; everything above "
+                        f"{min(ya, yb) - 2} is supposed to be invariant under "
+                        f"the displacement that carried it")
+    assert moved >= 4, \
+        f"only {moved} melt column(s) moved 8 px between the two frames — " \
+        f"the invariance is not being tested against any displacement"
+
+
 # ==========================================================================
 # the control, and the state cycle
 # ==========================================================================

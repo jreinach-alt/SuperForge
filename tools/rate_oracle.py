@@ -1882,7 +1882,13 @@ RAILS = {
         rom="build/smelter.sfc", map="build/smt/symbol_map.json",
         scene="works",
         klass="animating",
-        script=[(0.0, {}), (1.2, {"start": True}), (1.5, {})],
+        # RIGHT IS HELD FOR THE WHOLE WINDOW, and it buys the second observable
+        # without costing the first. The phase advances on its own accumulator
+        # and no input reaches it, so `column_phase` reads what it read before
+        # the knight existed; holding right is what puts him through the
+        # walk-off / fall / respawn cycle `knight_cycle` counts. B is never
+        # pressed, so the flat guard below holds throughout.
+        script=[(0.0, {}), (1.2, {"start": True}), (1.5, {"right": True})],
         warmup_s=4.0, window_s=12.0,
         guard=[("ES_SMT_FLATSEL", 2, 0)],
         observables=[
@@ -1897,6 +1903,23 @@ RAILS = {
                      "modulus is 64 rather than 256 for `heathaze`'s reason: "
                      "`smt_advance` masks with SMT_PHASES-1, so a byte-width "
                      "unwrap would read the loop close as a 63-phase jump."),
+            dict(name="knight_cycle", kind="edges", unit="cycles / s",
+                 mem="wram", fields=[("ES_SMT_KN_PLATE", 0, 2, 65536)],
+                 why="THE RAIL'S SECOND SCALED QUANTITY, and the phase above "
+                     "cannot see it. `column_phase` measures the TABLE; the "
+                     "knight's run and his gravity are separate TS_STEP "
+                     "outputs and a region error in either would leave the "
+                     "table's ratio untouched. With right held he walks off "
+                     "plate 0, falls out of the world and respawns on it, "
+                     "over and over -- and ES_SMT_KN_PLATE is 0 while he is "
+                     "on that plate and SMT_KN_AIRBORNE ($FFFF) while he is "
+                     "not, so 0 -> non-0 is one whole cycle. The period is "
+                     "the walk across 32 px of metal plus the fall to row "
+                     "232, which is the RUN and the GRAVITY jointly, and "
+                     "NOTHING PACES IT BUT THE ROM: the pad is held for the "
+                     "entire window, so this needs no gate -- the trap the "
+                     "`platformer` entry documents is a numerator the SCRIPT "
+                     "clocks, and there are no press edges here at all."),
         ],
     ),
     "lakeside": dict(
