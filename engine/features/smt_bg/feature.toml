@@ -1,0 +1,126 @@
+# smt_bg — BG1 and BG2: the plates, the melt, and the layer bases both scenes
+# share.
+#
+# =============================================================================
+# ONE SET OF ART, TWO DECLARED MODES
+# =============================================================================
+# This feature is GLOBAL, and that is the rail's structural point. `title` is
+# a mode-1 scene and `works` is a mode-2 scene, and BG1 and BG2 are 4bpp in
+# both — so the identical CHR, the identical tilemaps and the identical
+# palettes carry the identical picture under both declarations. What changes
+# across the edge is not the art. It is BG3: a 2bpp text layer in `title`, and
+# in `works` not a layer at all.
+#
+# The mode itself is therefore NOT here — it is a [[claims.video]] claim on
+# whichever feature answers for the scene's display shape, because a feature
+# cannot conditionally claim and this one spans both.
+#
+# =============================================================================
+# WHY BG1 IS MOSTLY TRANSPARENT
+# =============================================================================
+# A per-column vertical offset displaces a WHOLE COLUMN of a layer. If BG1
+# carried a background as well as the plates, moving a plate would move the
+# background behind it by the same amount and the effect would read as the
+# world tearing. So BG1 carries the plates and NOTHING else: every cell that
+# is not plate is the transparent tile, and BG2 shows through it everywhere.
+# That is what turns one background layer into four independently movable
+# objects, at no cost in sprites, tiles or channels.
+#
+# BG2's cavern wall is the same idea from the other side: it is drawn with
+# VERTICAL streaks only and no horizontal feature anywhere, so displacing a
+# column of wall is invisible and the crust line is the only thing that can be
+# seen to move. That is deliberate — it is what makes the per-column equality
+# in tests/test_smelter.py readable at every column instead of at the few
+# where some texture happened to land.
+name = "smt_bg"
+role = "feature"
+depends = ["smt_rom"]
+
+# ---- the vocabulary -------------------------------------------------------
+# BG1 and BG2 to the main screen, in both scenes. NOT bg3: `title` designates
+# it (the text layer is that scene's business) and `works` may not — a bg3
+# designation in a scene that composes an offset table is refused by name
+# (docs/100 O5), which is the whole reason the designation lives per scene.
+[[claims.screen]]
+layer = "bg1"
+on = "main"
+
+[[claims.screen]]
+layer = "bg2"
+on = "main"
+
+# ---- the art --------------------------------------------------------------
+[[claims.dma_init]]
+name = "smt_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "smt_chr"
+kind = "chr"
+tiles = 13
+tile_bytes = 32          # 4bpp — BG1 and BG2 both, in mode 1 and mode 2 alike
+
+# 32x64 — 512 PIXELS TALL, AND THE SHAPE IS DECLARED, NOT NARRATED. This is
+# the first non-32x32 tilemap in the tree, and it is why `shape` exists: BGnSC
+# bits 0 and 1 are the size, `words` alone cannot tell 64x32 from 32x64, and
+# before the field the two bits were left to be written by hand at the store.
+# The height is not decoration either — the plate band sits at map row 40 and
+# the melt's crust at row 32, so a 256 px map could not hold both with 224 px
+# of screen between the scroll extremes without wrapping the picture.
+[[claims.vram]]
+name = "smt_pmap"
+kind = "tilemap"
+words = 0x800
+shape = "32x64"
+
+[[claims.vram]]
+name = "smt_mmap"
+kind = "tilemap"
+words = 0x800
+shape = "32x64"
+
+# THE PALETTE AND THE BACKDROP ARE ONE CLAIM, by hardware contract: BG1's maps
+# author palette group 0, so word 0 is the 4bpp transparent slot AND the
+# hardware backdrop at once. lake_bg, hz_bg, scroller_bg, pfs_bg and m7x_floor
+# all record the identical fold, and it is why this scene cannot compose
+# `backdrop` (which pins the same word and raw-claims TM besides).
+#
+# Nothing ever SEES the backdrop here — BG2 is opaque across the whole picture
+# — and the word is claimed anyway, because the hardware does not care what we
+# expect to see.
+[[claims.cgram]]
+name = "smt_ppal"
+words = 16
+at = 0
+
+# GROUP 2, not group 1, and the allocator chose it. `bg_text` pins CGRAM
+# words 28..31 for its 2bpp palette 7, which lands inside group 1 — and the
+# title scene composes both this feature and `bg_text`. The build refused
+# `at = 16` by name; the melt map's attribute bits say 2 because of it.
+[[claims.cgram]]
+name = "smt_mpal"
+words = 16
+at = 32
+
+# C4 (docs/09 §2.1): the two layers' configuration, in both scenes.
+#
+# ATTRIBUTION. Every register here is written by scene-enter code in
+# game/smelter/scenes/*.asm, which has no feature.toml of its own, so
+# ownership is attributed to the feature the write SERVES — this one.
+#
+# NOT BGMODE. The mode is a [[claims.video]] claim per scene, and a raw BGMODE
+# claim beside one is refused (docs/100). NOT TM either: the main-screen
+# enables are composed from the two [[claims.screen]] claims above.
+#
+# NOT THE SCROLL PORTS. BG1VOFS and BG2VOFS answer to a different feature in
+# each scene — `smt_flat` on the title, `smt_opt` in the works — for the same
+# reason `hz_flat` exists: in `works` they are the FALLBACK a column with its
+# enable bit clear falls back to, and on the title they are the whole picture's
+# position. One feature cannot be both, and a feature cannot conditionally
+# claim.
+[[claims.reg]]
+name = "smt_layers"
+registers = ["BG1SC", "BG2SC", "BG12NBA"]
+scene_writes = ["BG1SC", "BG2SC", "BG12NBA"]

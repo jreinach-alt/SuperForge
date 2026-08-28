@@ -59,10 +59,17 @@ kind = "chr"
 tiles = 25               # the Four Seasons set: ground, grass cap, wood
 tile_bytes = 32          # platform, dirt, bush, crate — 4bpp, 4 quads each
 
+# THE SHAPE IS DECLARED, not narrated at the store. BGnSC bits 0 and 1 are
+# the size and `words` alone cannot tell 64x32 from 32x64, so the shape is
+# a declaration and the emitted _SC_BASE carries it. Before the field this
+# claim's size bits were OR'd in by hand at the write site — a second,
+# uncheckable copy of the claim, which is exactly what the emitted
+# encodings exist to prevent.
 [[claims.vram]]
 name = "pfs_map"
 kind = "tilemap"
 words = 0x1000           # 64x64 = four 32x32 pages. See the header.
+shape = "64x64"
 
 # THE PALETTE AND THE BACKDROP ARE ONE CLAIM, by hardware contract.
 #

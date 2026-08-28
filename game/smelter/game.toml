@@ -1,0 +1,87 @@
+# smelter — per-column vertical scroll out of BG3's tilemap, for no HDMA
+# channel at all.
+#
+# =============================================================================
+# WHAT YOU SEE
+# =============================================================================
+# A foundry floor. Four steel plates hang over a cavern of molten metal, and
+# each plate rises and falls ON ITS OWN — different amplitude, different
+# period, no two ever in step. Between them the melt erupts: the crust line
+# lifts out of the surface in an arch, column by 8-pixel column, and settles
+# back. Under the plates the melt is calm.
+#
+# B flattens everything. Every plate drops to one level and the crust goes
+# straight across, and that stillness is the CONTROL every per-column
+# measurement in tests/test_smelter.py is taken against. Start returns to the
+# title.
+#
+# =============================================================================
+# WHAT IT DEMONSTRATES
+# =============================================================================
+# THE DISPLACEMENT IS A TILEMAP, NOT A CHANNEL. In modes 2, 4 and 6 the PPU
+# stops reading BG3's map as tiles: for every 8-pixel column it fetches a word
+# out of it and uses that word as the column's scroll, with two bits saying
+# which layer it applies to (bit 13 = BG1, bit 14 = BG2). The fetch rides the
+# tilemap read a layer already pays for, so this rail spends ZERO HDMA
+# channels and zero cycles during active display. Its entire per-frame cost is
+# moving 64 B into VRAM in VBlank — one transfer, 1.1% of the byte pin — and
+# thirty-two independent columns cost exactly what one would.
+#
+# ONE VALUE A COLUMN, TWO GATES. A word carries one offset. BG1 and BG2 can
+# each be gated in or out of a column but cannot take different offsets in the
+# same one, so the columns are PARTITIONED: a plate's four drive BG1, the gaps
+# drive BG2. The melt being calm under the plates and erupting between them is
+# that constraint seen from the picture's side, drawn to rather than worked
+# around.
+#
+# =============================================================================
+# TWO MODES, ONE SET OF ART, AND BG3 CHANGING WHAT IT MEANS
+# =============================================================================
+# `title` is mode 1 and `works` is mode 2. BG1 and BG2 are 4bpp in both, so
+# the same CHR, the same maps and the same palettes carry the same picture
+# under both declarations — `smt_bg` is global and does not change a byte.
+# What changes is BG3: a 2bpp text layer on the title, and in the works not a
+# layer at all.
+#
+# That is the rail's hygiene lesson, and it generalises the tree's list one
+# step further. `blend_off` exists because the composed blend state is per
+# scene; `hz_flat` exists because an HDMA-driven scroll port is in the same
+# position. Here it is a WHOLE LAYER'S IDENTITY: `works` hands its successor a
+# BG3SC pointing at a table of scroll words, and a scene that drew text
+# without re-pointing it would render offset words as glyphs. `bg_text` does
+# re-point it — all four of its BG3 registers are in `scene_writes` and all
+# four are written by the title's enter — so the obligation is discharged
+# where it is visible, which is the point.
+#
+# `bg_text` IS SCENE-SCOPED, NOT GLOBAL, AND THE ALLOCATOR IS WHY. Its
+# BG3SC/BG34NBA/BG3HOFS/BG3VOFS claim meets the offset composition's
+# synthesized ownership of the BG3 fetch path, and a global `bg_text` would
+# put both in `works`'s union and stop the build by name (docs/100 O5). The
+# refusal is quoted verbatim in tests/test_smelter.py, off these same
+# features.
+globals = ["scene_mgr", "fade", "input", "text_dp", "font_rom",
+           "smt_bg", "smt_rom", "region", "tick_scale"]
+
+# The title: the same world, flat, in mode 1 with a line of text over it.
+[[scene]]
+id = "title"
+features = ["blend_off", "bg_text", "smt_flat"]
+
+# The works: the same world, in mode 2, with BG3 as the column table.
+[[scene]]
+id = "works"
+features = ["blend_off", "smt_opt"]
+
+[[edge]]
+from = "title"
+to = "works"
+style = "fade"
+
+# The return edge is the one the hygiene rule is about: `works` leaves BG3
+# pointed at a table of scroll words and both scroll ports at their fallbacks,
+# and `title` re-establishes all of it from its own composed symbols rather
+# than inheriting any of it.
+[[edge]]
+from = "works"
+to = "title"
+style = "fade"

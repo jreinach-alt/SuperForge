@@ -187,12 +187,14 @@ enter:
     ; ---- the scene's base display -----------------------------------------
     ; BGMODE, TM, BG1SC, BG12NBA: the scene_writes this scene owns on sr_bg's
     ; behalf; BG3SC/BG34NBA/BG3HOFS/BG3VOFS: on bg_text's. Values from the
-    ; allocator's emitted encodings — EXCEPT the two hardware-shape bits an
-    ; encoding cannot carry: BG1SC's size bit (the claim IS 64x32, sr_bg's
-    ; feature.toml) and BGMODE's BG3-priority bit (hud_game's derivation).
+    ; allocator's emitted encodings — EXCEPT BGMODE's BG3-priority bit
+    ; (hud_game's derivation). BG1SC's size bit used to be the other
+    ; exception; it is not one any more, because the claim declares its
+    ; `shape` and the emitted encoding carries the two size bits with the
+    ; base (sr_bg's feature.toml).
     sep #$20
     .a8
-    lda #(ES_V_SR_MAP_SC_BASE | 1)  ; BG1SC: base from the claim, size 64x32
+    lda #ES_V_SR_MAP_SC_BASE        ; BG1SC: base AND size, from the claim
     sta a:$2107
     lda #ES_V_SR_CHR_NBA
     sta a:$210B                     ; BG12NBA: BG1 chr page in the low nibble

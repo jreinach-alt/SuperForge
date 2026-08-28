@@ -1,0 +1,63 @@
+# smt_flat — the title scene's answer for the two scroll ports, and the
+# generalisation of `hz_flat` from a PORT to a LAYER'S IDENTITY.
+#
+# =============================================================================
+# WHAT `works` LEAVES BEHIND
+# =============================================================================
+# Three things, and the third is the one this rail adds to the tree's list.
+#
+#   BGMODE      — `title` declares its own [[claims.video]] claim, so its
+#                 enter writes the composed byte. Handled by the vocabulary.
+#
+#   BG1VOFS / BG2VOFS — `works` writes them as FALLBACKS: 0 for BG1 (whose
+#                 gap columns are transparent at every row, so the value never
+#                 shows) and the melt's base for BG2. Neither is where the
+#                 title wants its picture, and nothing carries a scroll
+#                 register across an edge. That is `hz_flat`'s problem exactly,
+#                 and this claim is its answer: the title owns both ports and
+#                 establishes the flat picture on enter.
+#
+#   BG3'S IDENTITY — and this one is new. In `works` BG3SC points at a table
+#                 of scroll words and BG3 is not drawn at all. In `title` BG3
+#                 is a 2bpp text layer. A successor that did not re-point
+#                 BG3SC would render 64 bytes of offset words AS GLYPHS. The
+#                 discharge is `bg_text`'s, whose four BG3 registers are all
+#                 in `scene_writes` and all written by title's enter — but the
+#                 obligation is the same one, and it is worth naming: AN
+#                 OFFSET-PER-TILE SCENE HANDS ITS SUCCESSOR A LAYER POINTED AT
+#                 DATA. `blend_off` was the blender, `hz_flat` was a scroll
+#                 port an HDMA channel drove, and this is a whole layer's
+#                 meaning. The rule was never about colour math.
+#
+# WHY NOT PUT THE PORTS IN `smt_bg` INSTEAD. Because `smt_bg` is global — both
+# scenes draw the same world — and the two scenes want different values in
+# these ports for different reasons. A feature cannot conditionally claim, so
+# the port belongs to whichever feature answers for it in that scene.
+name = "smt_flat"
+role = "feature"
+
+# BG3 IS A LAYER HERE, and this designation is where the tree says so. It is
+# on a TITLE-ONLY feature and not on the global `smt_bg` for one reason: a
+# `bg3 -> main` designation in a scene that composes an offset table is
+# refused by name (docs/100 O5). Putting it on `smt_bg` would make the global
+# composition illegal in `works` — correctly — so the designation belongs to
+# whichever scene actually draws on the layer, which is what the refusal
+# exists to force.
+[[claims.screen]]
+layer = "bg3"
+on = "main"
+
+[[claims.reg]]
+name = "smt_flat_scroll"
+registers = ["BG1VOFS", "BG2VOFS", "BG1HOFS", "BG2HOFS"]
+scene_writes = ["BG1VOFS", "BG2VOFS", "BG1HOFS", "BG2HOFS"]
+
+# The title's mode: 1, with BG3 above BG1 and BG2 wherever a BG3 tile carries
+# the priority attribute — which is what keeps a line of text legible over the
+# plates. THE SAME BG1 AND BG2 ART AS `works`, under a different declared
+# mode, which is the rail's structural demonstration: what changes across the
+# edge is BG3's identity, not the picture.
+[[claims.video]]
+name = "smt_title_mode"
+mode = 1
+bg3_priority = true

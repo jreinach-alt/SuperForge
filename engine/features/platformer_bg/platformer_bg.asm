@@ -28,10 +28,11 @@ PLF_REGS = $4300 + ES_D_PLF_UP_CH * 16
 ; colours.
 PLF_ATTR = (ES_C_PLF_PAL / 16) << 10
 
-; BG1SC's size bits: 01 = 64x32, two hardware pages side by side. The emitted
-; _SC_BASE carries only the base (bits 2-7), so the size is OR'd in here — a
-; VALUE, not an address.
-PLF_MAP_SC = ES_V_PLF_MAP_SC_BASE | 1
+; BG1SC: base AND size, both from the claim. 64x32 is two hardware pages side
+; by side, and `shape = "64x32"` in feature.toml is where that is said — the
+; emitted encoding carries the size bits, so this is an alias rather than the
+; hand-OR it used to be. Byte-identical: the immediate is the same value.
+PLF_MAP_SC = ES_V_PLF_MAP_SC_BASE
 
 ; plf_build_level's scratch, on enter_scr — the global companion whose whole
 ; purpose is enter-time scratch for routines that run under forced blank,

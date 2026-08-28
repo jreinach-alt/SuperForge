@@ -48,10 +48,17 @@ tiles = 4                # tile 0 empty, 1 pad, 2 terrain, 3 goal — reference
                          # ids
 tile_bytes = 32          # 4bpp
 
+# THE SHAPE IS DECLARED, not narrated at the store. BGnSC bits 0 and 1 are
+# the size and `words` alone cannot tell 64x32 from 32x64, so the shape is
+# a declaration and the emitted _SC_BASE carries it. Before the field this
+# claim's size bits were OR'd in by hand at the write site — a second,
+# uncheckable copy of the claim, which is exactly what the emitted
+# encodings exist to prevent.
 [[claims.vram]]
 name = "sr_map"
 kind = "tilemap"
 words = 0x800            # 64x32: TWO hardware pages, page 1 at base + 0x400.
+shape = "64x32"
                          # The 0x400-word tilemap alignment means the base
                          # encodes exactly in BG1SC bits 2..7; the enter code
                          # ORs in size bit 0 (64x32).

@@ -103,10 +103,17 @@ tile_bytes = 32          # hill body, hill crest -- BG1 AND BG2 read this page
 # at 0 for the rail's life. Running a full two-axis follow camera with a CAMY
 # that never moves costs the same code and the same tests as one that does;
 # dropping the axis removes a whole degree of freedom from both.
+# THE SHAPE IS DECLARED, not narrated at the store. BGnSC bits 0 and 1 are
+# the size and `words` alone cannot tell 64x32 from 32x64, so the shape is
+# a declaration and the emitted _SC_BASE carries it. Before the field this
+# claim's size bits were OR'd in by hand at the write site — a second,
+# uncheckable copy of the claim, which is exactly what the emitted
+# encodings exist to prevent.
 [[claims.vram]]
 name = "plf_map"
 kind = "tilemap"
 words = 0x800
+shape = "64x32"
 
 [[claims.vram]]
 name = "plf_sky"

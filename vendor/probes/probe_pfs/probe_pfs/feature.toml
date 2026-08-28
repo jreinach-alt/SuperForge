@@ -62,6 +62,9 @@ vblank_transfers_per_frame = 8
 name = "pfs_map"
 kind = "tilemap"
 words = 0x1000
+shape = "64x64"          # mirrors pfs_bg's claim: the shape is declared, not
+                         # narrated at the store, and the emitted _SC_BASE
+                         # carries BGnSC's two size bits with the base
 
 # The default reg tier is the composed union, so a
 # vendored probe is CHECKED and declares its own boot/display writes. This

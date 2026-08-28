@@ -1,0 +1,69 @@
+# smt_rom — the `smelter` rail's resident data.
+#
+# Six blobs and one of them is the rail: `smt_col` holds every complete BG3
+# offset row this rail will ever show. The others are ordinary art.
+#
+# WHY THE TABLE IS RESIDENT AND NOT COMPUTED. A row is 32 words — one per
+# 8-pixel column — and composing one per frame would mean a sine, a shape
+# term and a rectifier per column on a CPU with no multiply instruction, every
+# frame, forever, to produce a value that is the same every 64 frames. Holding
+# all 65 rows costs 4,160 B of a ROM budget with room to spare and reduces the
+# per-frame work to choosing WHICH row and moving 64 B in VBlank. That is the
+# heathaze trade made on a table a quarter the size.
+name = "smt_rom"
+role = "blob"
+
+[[claims.rom]]
+name = "smt_chr"
+bytes = 416              # 13 x 4bpp tiles: a transparent cell, the plate's
+                         # three top and three underside profiles, two wall
+                         # tiles, two crust tiles and two melt tiles;
+                         # tools/gen_smelter_assets.py
+
+[[claims.rom]]
+name = "smt_pmap"
+bytes = 4096             # BG1: 32x64 tilemap words. A 512 px tall map so no
+                         # scroll value in range wraps — the plates live at
+                         # map row 40 and everything else is the transparent
+                         # cell, which is what makes BG1 four movable objects
+                         # rather than a picture
+
+[[claims.rom]]
+name = "smt_mmap"
+bytes = 4096             # BG2: 32x64 tilemap words. Wall above map row 32,
+                         # the crust line at 32, the melt below
+
+# ONE BLOB, TWO CGRAM GROUPS: 16 words for the plates at CGRAM 0 and 16 for
+# the cavern and the melt at CGRAM 32. They are one claim because the uploader
+# needs one base symbol and a small POSITIVE offset — two claims would leave
+# it adding the difference between two linker-placed symbols, and the packer
+# is free to order them either way (it ordered an earlier pair the other way
+# round), which makes that difference negative and walks absolute-long
+# indexed addressing into the next bank.
+[[claims.rom]]
+name = "smt_pal"
+bytes = 64
+
+[[claims.rom]]
+name = "smt_hrow"
+bytes = 64               # BG3 row 0, the HORIZONTAL offset word per column.
+                         # All zero: with neither enable bit set no column is
+                         # displaced horizontally, which is how a V-only table
+                         # is expressed. Uploaded once, at scene enter — only
+                         # the V row is rewritten per frame
+
+[[claims.rom]]
+name = "smt_col"
+bytes = 4160             # 65 x 64 B. Each blob is a complete BG3 V-offset row
+                         # for one frame: 32 words, each one column's absolute
+                         # vertical scroll plus the enable bit naming the layer
+                         # it drives (bit 13 = BG1, bit 14 = BG2).
+                         #
+                         # SIXTY-FOUR PHASES AND ONE CONTROL. The 65th row is
+                         # the same shape with every value at its base and
+                         # EVERY ENABLE BIT STILL SET, so the flat picture and
+                         # the moving one differ in the table and in nothing
+                         # else. A control that cleared the enable bits would
+                         # differ in two things at once — the values and
+                         # whether the mechanism runs at all — and could not
+                         # tell a wrong table from a dead transfer

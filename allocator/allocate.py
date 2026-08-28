@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from schemas import (BLEND_REGS, MATH_LAYERS, MODE_BPP, MODE_LAYERS,  # noqa: E402
                      OFFSET_H_VALUE_MASK, OFFSET_LAYER_BITS, OFFSET_MODES,
                      OFFSET_REGS, OFFSET_VALUE_MASK, OFFSET_VSEL_BIT,
-                     REGISTER_FOOTPRINT, VIDEO_REGS,
+                     REGISTER_FOOTPRINT, TILEMAP_SHAPES, VIDEO_REGS,
                      SCREEN_LAYERS, SCREEN_REGS, WINDOW_MODES,
                      BytesClaim, DmaInitClaim,
                      FeatureDecl, GameManifest, HdmaClaim, RegClaim,
@@ -68,6 +68,10 @@ class Placement:
     # the exemption without re-reading feature.toml. Empty = the default rule
     # (an in-scope .incbin claim site must exist).
     backed_by: str = ""
+    # vram tilemap only: BGnSC's two size bits, from the claim's declared
+    # `shape` (schemas.TILEMAP_SHAPES). 0 for every other class and for every
+    # 32x32 map, so _SC_BASE is unchanged wherever a shape was never declared.
+    shape_bits: int = 0
 
     @property
     def end(self) -> int:
@@ -1329,7 +1333,8 @@ def place_vram(claims: list[tuple[VramClaim, str]], sub: Substrate, scope: str,
                 f"[${at:04X}..${at + c.words:04X}) collides with {with_}")
         out.append(Placement(c.name, "vram", at, c.words, scope, who,
                              "chr_obj" if (c.kind == "chr" and c.obj)
-                             else c.kind))
+                             else c.kind,
+                             shape_bits=TILEMAP_SHAPES[c.shape][1]))
 
     packed.sort(key=lambda t: (-align_of(t[0]), -t[0].words, t[0].name))
     for c, who in packed:
@@ -1342,7 +1347,8 @@ def place_vram(claims: list[tuple[VramClaim, str]], sub: Substrate, scope: str,
                               sub.vram_words, "words")
         out.append(Placement(c.name, "vram", at, c.words, scope, who,
                              "chr_obj" if (c.kind == "chr" and c.obj)
-                             else c.kind))
+                             else c.kind,
+                             shape_bits=TILEMAP_SHAPES[c.shape][1]))
     return out
 
 
@@ -2233,7 +2239,16 @@ def _placement_lines(placements, sub: Substrate) -> list[str]:
             # BGnnNBA nibble = base >> 12; see lessons_learned "PPU
             # Register Encoding")
             if p.kind == "tilemap":
-                lines += [f"{s}_SC_BASE = ${(p.start >> 8) & 0x7C:02X}"]
+                # THE WHOLE BGnSC BYTE, base AND size bits. The size bits were
+                # left out until a 32x64 map arrived, and their absence was
+                # the emitted-encoding rule's own failure mode: the shape got
+                # narrated at the write site, where nothing checks it, and a
+                # map declared 0x800 words was addressed as 0x400 — a picture
+                # made entirely of its first 32 rows, with no gate red.
+                # Byte-identical for every 32x32 claim, which is every claim
+                # that predates the `shape` field.
+                lines += [f"{s}_SC_BASE = "
+                          f"${((p.start >> 8) & 0x7C) | p.shape_bits:02X}"]
             elif p.kind in ("chr", "chr_obj"):
                 lines += [f"{s}_NBA = ${(p.start >> 12) & 0x0F:02X}"]
                 if p.kind == "chr_obj":

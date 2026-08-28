@@ -24,7 +24,7 @@ LD65    := ld65
 	m7dg-assets m7_dungeon m7dg-labels m7dg-measure m7dg-measure-logic \
 	sh2-assets split_h_2p_demo sh2-variants sh2-labels sh2-measure bare-check \
 	m7x-assets mode7_explore pfs-assets platformer_stream scroller \
-	lakeside heathaze \
+	lakeside heathaze smelter \
 	scroller-tb tb-measure tb-picture rate-oracle \
 	camera_follow maze jumper patrol sprite_game stomper scroll_run brawler \
 	split_h_matrix_demo split_h_persp3_demo \
@@ -1320,6 +1320,62 @@ $(BUILD)/heathaze.sfc: $(HZS_ASM) $(HZS)/heathaze.inc \
 	$(PY) tools/fix_checksum.py $@
 
 heathaze: $(BUILD)/heathaze.sfc
+# ---- smelter: per-column scroll out of BG3's tilemap, for no channel ----
+# Four steel plates over a cavern of molten metal, and every 8-pixel column
+# scrolling on its own. In modes 2, 4 and 6 the PPU reads BG3's map entries as
+# per-column scroll offsets instead of as tiles, so the displacement rides the
+# tilemap fetch a layer already pays for: ZERO HDMA channels, zero cycles
+# during active display, and one 64 B VBlank transfer a frame whatever the
+# columns are doing.
+#
+# TWO SCENES, TWO DECLARED MODES, ONE SET OF ART. `title` is mode 1 with text
+# on BG3; `works` is mode 2 with the offset table on BG3. BG1 and BG2 are 4bpp
+# in both, so `smt_bg` is global and changes nothing across the edge — what
+# changes is what BG3 MEANS, which is the rail's hygiene lesson.
+#
+# No TAD objects -- `tad_rom` is not in this game's globals, so the link is
+# one object (scroller's shape).
+SMT      := game/smelter
+SMT_MAP  := $(BUILD)/smt
+SMT_ASM  := $(SMT)/main.asm $(wildcard $(SMT)/scenes/*.asm) \
+            $(wildcard engine/features/*/*.asm)
+
+# EVERY blob the generator emits, because a blob the recipe .incbin's and this
+# list omits is a stale artifact waiting to happen: `make` would report
+# "Nothing to be done" while the binary kept the old table.
+SMT_ASSETS := $(BUILD)/assets/smt_chr.bin $(BUILD)/assets/smt_pmap.bin \
+              $(BUILD)/assets/smt_mmap.bin $(BUILD)/assets/smt_pal.bin \
+              $(BUILD)/assets/smt_hrow.bin $(BUILD)/assets/smt_col.bin \
+              $(BUILD)/assets/smt_art.inc
+
+$(SMT_ASSETS): tools/gen_smelter_assets.py | $(BUILD)
+	$(PY) tools/gen_smelter_assets.py $(BUILD)/assets
+
+$(SMT_MAP)/engine_state_globals.inc $(SMT_MAP)/symbol_map.json: \
+		allocator/substrate.toml allocator/allocate.py allocator/schemas.py \
+		$(wildcard engine/features/*/feature.toml) $(SMT)/game.toml \
+		$(SMT)/state.toml | $(BUILD)
+	$(PY) allocator/allocate.py --game $(SMT) --features-dir engine/features \
+		--out $(SMT_MAP)
+
+SMT_INC := -I $(SMT_MAP) -I $(VROM) -I $(SMT) -I $(BUILD)/assets \
+           -I engine/features/scene_mgr -I engine/features/input \
+           -I engine/features/fade -I engine/features/bg_text \
+           -I engine/features/region -I engine/features/tick_scale \
+           -I engine/features/smt_bg -I engine/features/smt_opt
+
+$(BUILD)/smelter.sfc: $(SMT_ASM) $(SMT)/smelter.inc \
+		$(SMT_MAP)/engine_state_globals.inc $(SMT_ASSETS) \
+		$(BUILD)/assets/font_2bpp.bin \
+		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
+		$(VROM)/lorom_512k.cfg | $(BUILD)
+	$(PY) allocator/no_literals.py --map $(SMT_MAP)/symbol_map.json $(SMT_ASM)
+	$(CA65) $(SMT_INC) --bin-include-dir $(BUILD)/assets \
+		-o $(BUILD)/smelter.o $(SMT)/main.asm
+	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/smelter.o
+	$(PY) tools/fix_checksum.py $@
+
+smelter: $(BUILD)/smelter.sfc
 # ---- maze: col_map against a hand-built map -------
 # A red player walks a grey walled room (border + two interior walls) with
 # the canonical per-axis move-check: tentative position, probe, keep the axis
@@ -2938,7 +2994,7 @@ gates: | $(BUILD)
 	run split_v_fight; run m7_dungeon; run split_h_2p_demo; \
 	run sh2-variants; \
 	run mode7_explore; run platformer_stream; run scroller; \
-	run lakeside; run heathaze; \
+	run lakeside; run heathaze; run smelter; \
 	run camera_follow; run maze; run jumper; run patrol; \
 	run sprite_game; \
 	run stomper; \
@@ -2961,7 +3017,7 @@ gates: | $(BUILD)
 	cat $(BUILD)/gates_summary.txt; \
 	for rom in microzero room breaker shmup platformer split_v_fight m7_dungeon \
 	           split_h_2p_demo mode7_explore platformer_stream hud_game \
-	           scroller lakeside heathaze camera_follow maze jumper patrol sprite_game \
+	           scroller lakeside heathaze smelter camera_follow maze jumper patrol sprite_game \
 	           stomper scroll_run brawler \
 	           split_h_matrix_demo split_h_persp3_demo split_v_demo \
 	           split_v_seamtrial split_h_demo split_h_persp_demo \
@@ -3136,7 +3192,7 @@ PYTEST_DIST := $(if $(strip $(XDIST)),-n $(strip $(XDIST)) --dist loadfile,)
 # tools/harness_faults.py then says which KIND of red it is (docs/44 section 8).
 test: toy microzero room probes breaker shmup platformer split_v_fight \
 	m7_dungeon split_h_2p_demo sh2-variants mode7_explore platformer_stream \
-	hud_game scroller lakeside heathaze camera_follow maze jumper patrol sprite_game \
+	hud_game scroller lakeside heathaze smelter camera_follow maze jumper patrol sprite_game \
 	stomper \
 	scroll_run brawler split_h_matrix_demo split_h_persp3_demo \
 	split_v_demo svd-nowin split_v_seamtrial split_h_demo shd-autodemo \
@@ -3331,7 +3387,7 @@ falsify:
 MODULE  ?= tests/test_split_h_2p_sprites.py
 FALSIFY ?=
 determinism: split_h_2p_demo sh2-variants microzero hud_game scroller \
-	lakeside heathaze \
+	lakeside heathaze smelter \
 	camera_follow maze jumper patrol sprite_game stomper scroll_run \
 	brawler split_v_fight split_h_matrix_demo split_h_persp3_demo \
 	split_v_demo svd-nowin split_v_seamtrial split_h_demo shd-autodemo \

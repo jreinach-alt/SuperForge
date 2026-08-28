@@ -1,0 +1,125 @@
+# smt_opt — OFFSET-PER-TILE: BG3's tilemap as this scene's per-column scroll
+# table.
+#
+# =============================================================================
+# WHAT THE CLAIM SAYS THAT NO OTHER CLAIM COULD
+# =============================================================================
+# The table itself is an ordinary [[claims.vram]] tilemap region and always
+# was. What the claim classes could not say is the CONSEQUENCE: in this scene
+# BG3 IS NOT A LAYER. The PPU reads its map entries as scroll offsets and
+# never renders it (Mesen2 Core/SNES/SnesPpu.cpp RenderMode2 draws BG1, BG2
+# and OBJ only), so every other feature's belief that it can draw on BG3 is
+# false here — and before [[claims.offset]] nothing collided: a text feature
+# and this one both owned "their" BG3 and the build was green.
+#
+# [[claims.offset]] moves ownership to the thing actually contended, the BG3
+# fetch path. The composition synthesizes ownership of BG3SC/BG3HOFS/BG3VOFS,
+# so `bg_text` meets this feature as an ordinary register intersection with a
+# message that names the mechanism — and the same scene composing a
+# `bg3 -> main` designation refuses in the composition. tests/test_smelter.py
+# quotes both refusals verbatim off this tree's own features.
+#
+# =============================================================================
+# ZERO HDMA CHANNELS DURING ACTIVE DISPLAY. THAT IS THE HEADLINE.
+# =============================================================================
+# Every other per-column or per-scanline effect in this tree buys its
+# displacement with an HDMA channel running the length of the picture:
+# `haze` spends two, `rgb_gradient` spends three. Offset-per-tile spends NONE.
+# The words ride the tilemap fetch BG3 already pays for, so the entire cost is
+# getting the row into VRAM — 64 B in one VBlank transfer, declared below —
+# and 32 independent columns cost exactly what 1 would.
+#
+# =============================================================================
+# ONE VALUE A COLUMN, TWO GATES — the constraint this rail is drawn around
+# =============================================================================
+# A word carries ONE offset and two enable bits. BG1 and BG2 can each be gated
+# in or out of a column, but they cannot take DIFFERENT offsets in the same
+# one. So the columns are partitioned: a plate's four columns drive BG1 and
+# leave BG2 at its base, and the gap columns drive BG2 and leave BG1 at its.
+# The melt is calm under the plates and erupts in the gaps — which is a
+# picture, not a workaround, and it is the honest shape of the silicon.
+name = "smt_opt"
+role = "feature"
+depends = ["smt_rom"]
+
+# ---- the vocabulary -------------------------------------------------------
+# `axis = "v"` because this rail displaces vertically and only vertically: a
+# horizontal offset is 8-PIXEL granular (the layer keeps its own low three
+# bits — SnesPpu.cpp:157) and could not lift a crust line by a pixel. The H
+# row is still uploaded, all zero, because mode 2 FETCHES a word for each axis
+# whether or not you mean to use one.
+[[claims.offset]]
+name = "smt_table"
+axis = "v"
+layers = ["bg1", "bg2"]
+
+# The scene's mode. Mode 2 rather than 4: mode 4's BG1 is 8bpp and its BG2 is
+# 2bpp — a different art path and four colours for the melt — and it fetches
+# ONE word per column with bit 15 choosing the axis, so a column carries one
+# axis instead of two. Mode 2 gives 4bpp on both layers, which is the art path
+# this tree already ships, and two independent words a column.
+[[claims.video]]
+name = "smt_mode"
+mode = 2
+
+# ---- the table's VRAM -----------------------------------------------------
+# 0x400 words because BG3SC bases are 1K-word granular; the fetch reads two
+# rows of it (row 0 = the H words, row 1 = the V words, because BG3VOFS is 0
+# and the V row is the H row plus 0x20 words — SnesPpu.cpp:273). The other 30
+# rows are addressable and never read, which is what a 1K-word granularity
+# costs and is cheaper than any way of avoiding it.
+[[claims.vram]]
+name = "smt_tab"
+kind = "tilemap"
+words = 0x400
+
+# ---- getting a row in, every frame ----------------------------------------
+# The V row, into VRAM, in VBlank: 32 words through the word port, from the
+# resident blob. One queued transfer, 64 B — 1.1% of the measured VBlank byte
+# pin — and it is the WHOLE per-frame cost of every column on screen moving.
+[[claims.hdma]]
+name = "smt_vrow"
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1                 # 2-reg write-once: the $2118/$2119 word port
+band = "scene"
+phase = "vblank"
+channels = 1
+
+[claims.dma]
+vblank_bytes_per_frame = 64
+vblank_transfers_per_frame = 1
+
+# ---- state ----------------------------------------------------------------
+[[claims.dp]]
+name = "smt_phase"
+bytes = 2                # the accumulated animation phase, 8.8. The scene
+                         # ADVANCES it through TS_STEP; this feature READS it
+                         # in its VBlank commit — lakeside's division between
+                         # `water`'s scroll and the scene that drives it
+
+[[claims.dp]]
+name = "smt_flatsel"
+bytes = 2                # 0 = the running table, 1 = the flat control row
+
+[[claims.dp]]
+name = "smt_scratch"
+bytes = 2                # one word of working space for `smt_plate_top`,
+                         # which needs both index registers to reach the blob
+                         # (absolute-long indexed exists for X only) and so
+                         # cannot hold its intermediate in one
+
+# C4: the two fallback scrolls, in THIS scene.
+#
+# BG2VOFS is not decoration here: it is the level the melt sits at in every
+# column whose bit 14 is clear, which is every plate column. BG1VOFS is the
+# fallback for the gap columns, where BG1 is transparent at every row — so its
+# value is unobservable and it is written anyway, because a register nobody
+# establishes holds whatever the previous scene left in it.
+#
+# BG3's own registers are NOT here. The offset composition owns BG3SC,
+# BG3HOFS and BG3VOFS and grants this scene's enter code the consent to write
+# them; a raw claim on them beside the composition is the refusal above.
+[[claims.reg]]
+name = "smt_fallback"
+registers = ["BG1VOFS", "BG2VOFS", "BG1HOFS", "BG2HOFS"]
+scene_writes = ["BG1VOFS", "BG2VOFS", "BG1HOFS", "BG2HOFS"]

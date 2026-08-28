@@ -185,6 +185,19 @@ def load_substrate(path: str | Path) -> Substrate:
 # feature declarations
 # --------------------------------------------------------------------------
 
+# A tilemap's SHAPE -> (words, BGnSC size bits). Bit 0 is DoubleWidth and
+# bit 1 DoubleHeight (Mesen2 Core/SNES/SnesPpu.cpp:1979-1980); one screen is
+# 32x32 tiles = 0x400 words and each set bit doubles the map on that axis.
+#
+# The pair 64x32 and 32x64 is why this is a DECLARATION and not a derivation:
+# both are 0x800 words and nothing in the size distinguishes them.
+TILEMAP_SHAPES = {
+    "32x32": (0x400, 0x00),
+    "64x32": (0x800, 0x01),
+    "32x64": (0x800, 0x02),
+    "64x64": (0x1000, 0x03),
+}
+
 VRAM_KINDS = ("tilemap", "chr", "mode7", "raw")
 
 # Register names a claim may name, each mapped to the PHYSICAL resource it
@@ -547,6 +560,18 @@ class VramClaim:
     words: int                # size in words (mode7: fixed by substrate)
     obj: bool = False         # chr claim holds OBJ tiles (Mode 7 displacement rule)
     at: int | None = None     # pinned word address (hardware contract) or packed
+    # tilemap only: WHICH 0x800-word shape a 0x800-word claim is. BGnSC bits
+    # 0 and 1 are DoubleWidth and DoubleHeight (Mesen2 SnesPpu.cpp:1979-1980)
+    # and `words` cannot distinguish 64x32 from 32x64 — so the SHAPE is a
+    # declaration, and the emitted _SC_BASE encoding carries it.
+    #
+    # WHY IT EXISTS AT ALL: before it, _SC_BASE emitted the base and left the
+    # two size bits to be narrated at the write site, which is the second
+    # uncheckable copy of a claim the emitted encodings exist to prevent. It
+    # went unnoticed because every tilemap in the tree was 32x32, where the
+    # narrated bits are zero. The first 32x64 map found it — and found it as
+    # a picture made entirely of the map's first 32 rows.
+    shape: str = "32x32"
 
 
 @dataclass(frozen=True)
@@ -1246,7 +1271,8 @@ def load_feature(path: str | Path, substrate: Substrate) -> FeatureDecl:
     for i, t in enumerate(_as_list_of_tables(claims.get("vram", []), where)):
         w = f"{where} [[claims.vram]] #{i}"
         _table(t, w, {"kind": str}, {"name": str, "words": int, "tiles": int,
-                                     "tile_bytes": int, "obj": bool, "at": int})
+                                     "tile_bytes": int, "obj": bool, "at": int,
+                                     "shape": str})
         kind = t["kind"]
         if kind not in VRAM_KINDS:
             raise SchemaError(f"{w}: kind '{kind}' not in {VRAM_KINDS}")
@@ -1267,9 +1293,30 @@ def load_feature(path: str | Path, substrate: Substrate) -> FeatureDecl:
             raise SchemaError(f"{w}: give words= or tiles= (except kind=mode7)")
         if words <= 0:
             raise SchemaError(f"{w}: size must be positive")
+        shape = t.get("shape", "32x32")
+        if "shape" in t and kind != "tilemap":
+            raise SchemaError(
+                f"{w}: `shape` is a TILEMAP property — it names the BGnSC "
+                f"size bits (DoubleWidth/DoubleHeight), and a "
+                f"kind = \"{kind}\" claim has no such register.")
+        if shape not in TILEMAP_SHAPES:
+            raise SchemaError(
+                f"{w}: shape = '{shape}' is not one of "
+                f"{sorted(TILEMAP_SHAPES)}. BGnSC bits 0 and 1 select a 32-"
+                f"or 64-tile width and height and there is no third size on "
+                f"either axis.")
+        if kind == "tilemap" and words != TILEMAP_SHAPES[shape][0]:
+            raise SchemaError(
+                f"{w}: shape = '{shape}' is "
+                f"{TILEMAP_SHAPES[shape][0]} words but the claim declares "
+                f"{words}. A screen is 0x400 words and the size bits double "
+                f"the map on one axis or both, so the shape and the size are "
+                f"one fact stated twice — and a disagreement between them "
+                f"means the register would address rows the claim does not "
+                f"reserve, or the claim would reserve rows no fetch reads.")
         vram.append(VramClaim(name=t.get("name", f"{name}_{kind}{i if i else ''}"),
                               kind=kind, words=words, obj=t.get("obj", False),
-                              at=t.get("at")))
+                              at=t.get("at"), shape=shape))
 
     def bytes_claims(key: str, dma_source_allowed: bool) -> list[BytesClaim]:
         out = []

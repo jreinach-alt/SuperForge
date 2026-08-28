@@ -67,7 +67,6 @@ PFS_CAM_Y0     = PFS_SPAWN_Y - PFS_SCREEN_H / 2
 ; the hardware's own 512-px tilemap wrap lands the visible window on the right
 ; slots for as long as those slots hold the resident window, which is exactly
 ; what the streamer maintains.
-PFS_SC_64X64   = 3                                   ; BGnSC size bits 1-0
 
 ; --- scene-scoped engine feature code — INSIDE the scope: its claims are
 ; scene-scoped, so its symbols must be too --------------------------------
@@ -241,7 +240,8 @@ enter:
     .a8
     lda #$01
     sta a:$2105                     ; BGMODE 1 (BG1 4bpp; no BG2/BG3 on screen)
-    lda #(ES_V_PFS_MAP_SC_BASE | PFS_SC_64X64)
+    lda #ES_V_PFS_MAP_SC_BASE       ; base AND the 64x64 size bits, both from
+                                    ;   the claim's `shape` (pfs_bg)
     sta a:$2107                     ; BG1SC: the claim's base + 64x64 size bits
     lda #ES_V_PFS_CHR_V_NBA
     sta a:$210B                     ; BG12NBA: BG1 in the low nibble
