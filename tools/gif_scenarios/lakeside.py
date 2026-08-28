@@ -34,8 +34,12 @@ from tools.record_gallery_clip import STEP
 
 ROM = "lakeside"
 
+# NOT `SETTLE`: the scenario interface reserves that name for EMULATED boot
+# frames before recording starts (gif_scenarios/__init__.py), so a beat
+# constant called SETTLE would be read by the dispatcher as one and would
+# silently change the take. This is a BEAT, in captures.
 TITLE_HOLD = 6      # the opening title, blender composed OFF
-SETTLE_B   = 27     # a scene switch + both fade ramps (~81 frames)
+SCENE_SWITCH   = 27     # a scene switch + both fade ramps (~81 frames)
 DRIFT_A    = 45     # the surface drifting, and a WHOLE SURF CYCLE
 STILL      = 12     # B latched: the same surface, holding -- surf included
 DRIFT_B    = 45     # B again: the drift resumes, and another whole cycle
@@ -51,10 +55,10 @@ class Drive:
 
     def __init__(self):
         self.marks, i = {}, TITLE_HOLD
-        self.marks[i] = {"start": True}; i += 1 + SETTLE_B + DRIFT_A
+        self.marks[i] = {"start": True}; i += 1 + SCENE_SWITCH + DRIFT_A
         self.marks[i] = {"b": True};     i += 1 + STILL
         self.marks[i] = {"b": True};     i += 1 + DRIFT_B
-        self.marks[i] = {"start": True}; i += 1 + SETTLE_B
+        self.marks[i] = {"start": True}; i += 1 + SCENE_SWITCH
         self.total = i
 
     def __call__(self, runner, i):

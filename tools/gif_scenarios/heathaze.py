@@ -29,14 +29,18 @@ from tools.record_gallery_clip import STEP
 
 ROM = "heathaze"
 
+# NOT `SETTLE`: the scenario interface reserves that name for EMULATED boot
+# frames before recording starts (gif_scenarios/__init__.py), so a beat
+# constant called SETTLE would be read by the dispatcher as one and would
+# silently change the take. This is a BEAT, in captures.
 TITLE_HOLD = 6          # long enough to read the title
-SETTLE_B   = 24         # title -> desert, both fade ramps
+SCENE_SWITCH   = 24         # title -> desert, both fade ramps
 SHIMMER    = 30         # the shimmer, running
 FLAT       = 14         # ...and the same picture with the flat table
 SHIMMER_2  = 22         # B again: it RESUMES, it does not restart
 RETURN     = 24         # desert -> title, and the undisplaced world
 
-CAPTURES = TITLE_HOLD + SETTLE_B + SHIMMER + FLAT + SHIMMER_2 + RETURN
+CAPTURES = TITLE_HOLD + SCENE_SWITCH + SHIMMER + FLAT + SHIMMER_2 + RETURN
 
 
 class Drive:
@@ -50,11 +54,11 @@ class Drive:
         press = None
         if self.n == TITLE_HOLD:
             press = {"start": True}                     # -> desert
-        elif self.n == TITLE_HOLD + SETTLE_B + SHIMMER:
+        elif self.n == TITLE_HOLD + SCENE_SWITCH + SHIMMER:
             press = {"b": True}                         # -> flat
-        elif self.n == TITLE_HOLD + SETTLE_B + SHIMMER + FLAT:
+        elif self.n == TITLE_HOLD + SCENE_SWITCH + SHIMMER + FLAT:
             press = {"b": True}                         # -> shimmer again
-        elif self.n == TITLE_HOLD + SETTLE_B + SHIMMER + FLAT + SHIMMER_2:
+        elif self.n == TITLE_HOLD + SCENE_SWITCH + SHIMMER + FLAT + SHIMMER_2:
             press = {"start": True}                     # -> title
         # frame_step, not advance: this is the frame-stepping runner the clip
         # recorder parks.
