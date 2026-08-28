@@ -73,9 +73,9 @@ saying "move one step" — what a step *is* becomes a property of the timebase.
 The same ROM then covers the same distance per **second** on both machines.
 
 It is opt-in, per game. **32 of the 39 games compose it** — every playable one,
-plus both screen-effect rails — and the 30 measured so far hold a real-time
-parity band of **0.994–1.027**, against the **0.832** an uncompensated game
-reads. The other seven decline in their own
+plus both screen-effect rails — and every one of them is measured, at a
+real-time parity band of **0.994–1.027** against the **0.832** an uncompensated
+game reads. The other seven decline in their own
 `game.toml`: all are determinism trials whose frame-indexed sweeps are the
 thing under test. NTSC does not move — the picture is pixel-identical against
 every pre-change image, per game.

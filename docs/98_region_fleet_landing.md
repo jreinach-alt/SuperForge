@@ -16,6 +16,28 @@
 > Everything else in this section is the sweep's own result and stands as it
 > landed.
 
+> **AMENDED 2026-08-28.** Two rails have joined the tree since the sweep --
+> `lakeside` and `heathaze`, the screen-effect pair -- and both compose
+> `region` + `tick_scale`. Both are now in the registry and **measured**, so
+> the live counts are **32 of 39 composing** and, again, no deferrals:
+>
+> | rail | observable | NTSC/s | PAL/s | ratio |
+> |---|---|---:|---:|---:|
+> | `heathaze` | `warp_phase` (phases) | 22.506 | 22.503 | **0.99989** |
+> | `lakeside` | `surface_drift` (world px) | 60.099 | 60.175 | **1.00127** |
+>
+> Both sit inside the band this section reports, so **the band is unchanged**
+> at 0.994-1.027. What these two add is a shape the sweep did not have: a rail
+> whose *only* moving thing is an animation phase. There is no camera, no
+> avatar and no physics, so the observable is not a proxy for progress -- the
+> phase index selects which resident HDMA table or CHR block the PPU reads,
+> and the picture advances exactly when the word does. Neither takes a `gate`,
+> because neither numerator is paceable by the drive: after one Start to leave
+> the title the pad is idle for the whole window. Each declares a guard on the
+> one input that could stop the thing being measured instead -- `ES_HZ_FLAT`
+> for the flat control, `US_STILLED` for the drift latch -- so a window
+> spanning a flattened or stilled rail is refused rather than averaged.
+
 **28 of the 37 rails now compose `region` + `tick_scale` and run at measured
 speed parity on PAL** — every playable game in the tree. The measured band
 across the registry's observables is **0.994–1.027** against an uncompensated

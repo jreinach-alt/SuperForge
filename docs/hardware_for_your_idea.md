@@ -240,8 +240,8 @@ The 16-bit era's usual answer was to ship the NTSC game unchanged and let PAL
 play it at 83.2% speed. This kit's answer is that a game declares its
 per-frame rates against a **tick**, and the tick is scaled to whichever
 console the cart wakes up on: `engine/features/region` +
-`engine/features/tick_scale`, opt-in, composed by 32 of the 39 games — the 30
-measured so far hold a real-time band of 0.994–1.027 against that 0.832
+`engine/features/tick_scale`, opt-in, composed by 32 of the 39 games and all 32
+measured at a real-time band of 0.994–1.027 against that 0.832
 (`docs/98_region_fleet_landing.md`). The compensation costs 0.15% of a PAL
 frame (`docs/96_region_timebase_tooling.md` §0). What it does **not** buy is
 the taller PAL picture: the active area is 224 lines in both regions here, so

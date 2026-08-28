@@ -1830,6 +1830,68 @@ RAILS = {
                      "measure captures."),
         ],
     ),
+    # ------------------------------------------------------------- SCREEN FX
+    # The two rails with no camera, no avatar and no physics. Everything a
+    # viewer sees change is an ANIMATION PHASE selecting which resident table
+    # or block the PPU reads, so the phase counter is not a proxy for progress
+    # here -- it IS the progress. The picture advances exactly when the word
+    # does and by exactly as much, which is the strongest form the "measure a
+    # game-visible thing" rule can take.
+    #
+    # NEITHER TAKES A GATE, and the reason is the one the gate exists for.
+    # A gate is needed where the DRIVE SCRIPT can pace the numerator -- a jump
+    # that lands at the script's cadence reads parity while the rail runs 17%
+    # slow. Nothing here is driven: after one Start to leave the title the pad
+    # is idle for the whole window and the counter free-runs off the rail's own
+    # tick. What each rail declares instead is a GUARD on the one input that
+    # could stop the thing being measured, so a window that spans a flattened
+    # or stilled rail is refused rather than averaged.
+    #
+    # START IS HELD FOR 0.3 s, NOT TAPPED, and that is safe because both
+    # scenes read ES_INP_PRESS -- an edge. A hold cannot re-fire, which matters
+    # on these two: Start is also the way OUT of the effect scene, so a
+    # level-triggered read would bounce straight back to the title.
+    "heathaze": dict(
+        rom="build/heathaze.sfc", map="build/hz/symbol_map.json",
+        scene="desert",
+        klass="animating",
+        script=[(0.0, {}), (1.2, {"start": True}), (1.5, {})],
+        warmup_s=4.0, window_s=12.0,
+        guard=[("ES_HZ_FLAT", 2, 0)],
+        observables=[
+            dict(name="warp_phase", kind="distance", unit="phases",
+                 mem="wram", fields=[("ES_HZ_PHASE", 0, 1, 64)],
+                 why="the phase index IS the picture on this rail. "
+                     "`hz_nmi_commit` writes it straight into the warp "
+                     "channel's A1T high byte (haze.asm), so it selects which "
+                     "of the 64 resident HDMA tables the PPU reads for the "
+                     "whole band -- the ground boils by exactly this word and "
+                     "stops when it stops. The modulus is 64 rather than 256: "
+                     "`hz_advance` masks with HZ_PHASES-1, so a byte-width "
+                     "unwrap would read the loop close as a 63-phase jump."),
+        ],
+    ),
+    "lakeside": dict(
+        rom="build/lakeside.sfc", map="build/lks/symbol_map.json",
+        scene="lake",
+        klass="animating",
+        script=[(0.0, {}), (1.2, {"start": True}), (1.5, {})],
+        warmup_s=4.0, window_s=12.0,
+        guard=[("US_STILLED", 2, 0)],
+        observables=[
+            dict(name="surface_drift", kind="distance", unit="world px",
+                 mem="wram", fields=[("ES_WAT_SCROLL", 0, 2, 65536)],
+                 why="`water`'s VBlank commit writes BG2HOFS from this word "
+                     "every armed frame (water.asm), so it is the scroll "
+                     "position the PPU renders the surface at -- world pixels "
+                     "per second here IS the speed the water slides across "
+                     "the bed. It is also what indexes the surf phase, so the "
+                     "waterline's advance and retreat are carried by the same "
+                     "number. Free-running: `wat_advance` accumulates the "
+                     "caller's TS_STEP output and nothing masks it, so the "
+                     "modulus is the 16-bit wrap."),
+        ],
+    ),
 }
 
 
