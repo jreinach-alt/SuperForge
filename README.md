@@ -246,7 +246,7 @@ of the melt — one can be forty pixels up while the other has not moved.
 
 ---
 
-The other 29 games are in `game/` — among them `microzero`, the smallest
+The other 28 games are in `game/` — among them `microzero`, the smallest
 complete game and the gate the whole architecture was bet on: title → a
 single-track time-trial race → results → title, one 524,288-byte ROM, globals
 surviving the scene edges and scene bytes reused across them. The `gates:` block
@@ -374,9 +374,9 @@ and a proof does not.
 
 ```
 allocator/   the declarative allocator + the collision and no-literals gates
-engine/      the 65816 engine — features/ (166 dirs), toy/ (the smallest thing
+engine/      the 65816 engine — features/ (170 dirs), toy/ (the smallest thing
              the allocator can prove) and toy_bad/ (its infeasible twin)
-game/        39 games — a game.toml, its scenes, and the game's own state.toml
+game/        40 games — a game.toml, its scenes, and the game's own state.toml
 tests/       pytest, driving ROMs on the cycle-accurate emulator
 tools/       setup, the linters, asset generators, the render/capture scripts
 vendor/      vendored and self-contained: the emulator harness, fonts, ROM

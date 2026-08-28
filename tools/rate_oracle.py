@@ -1871,6 +1871,34 @@ RAILS = {
                      "unwrap would read the loop close as a 63-phase jump."),
         ],
     ),
+    # `smelter` is the third of this shape, and the one that shows why the
+    # shape is worth having a name for. Its phase does not index an HDMA table
+    # or a CHR block -- it indexes which 32-word row of BG3's tilemap the
+    # VBlank transfer moves, and the PPU reads that row as one scroll offset
+    # per 8-pixel column. So the observable is one step further from the
+    # picture than `heathaze`'s and exactly as tight: the row IS every
+    # column's position, and every column stops when the word stops.
+    "smelter": dict(
+        rom="build/smelter.sfc", map="build/smt/symbol_map.json",
+        scene="works",
+        klass="animating",
+        script=[(0.0, {}), (1.2, {"start": True}), (1.5, {})],
+        warmup_s=4.0, window_s=12.0,
+        guard=[("ES_SMT_FLATSEL", 2, 0)],
+        observables=[
+            dict(name="column_phase", kind="distance", unit="phases",
+                 mem="wram", fields=[("ES_SMT_PHASE", 0, 1, 64)],
+                 why="the phase index selects which of the 65 resident rows "
+                     "`smt_nmi_row` moves into BG3's V row every armed "
+                     "VBlank (smt_opt.asm), and the PPU reads that row as one "
+                     "vertical scroll offset per 8-pixel column -- so this "
+                     "word is every plate's height and every jet's at once, "
+                     "and the picture advances exactly when it does. The "
+                     "modulus is 64 rather than 256 for `heathaze`'s reason: "
+                     "`smt_advance` masks with SMT_PHASES-1, so a byte-width "
+                     "unwrap would read the loop close as a 63-phase jump."),
+        ],
+    ),
     "lakeside": dict(
         rom="build/lakeside.sfc", map="build/lks/symbol_map.json",
         scene="lake",
