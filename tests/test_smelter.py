@@ -1243,15 +1243,24 @@ def test_the_jump_leaves_the_metal_and_the_metal_catches_him_again(tmp_path):
                            _under(im, pal, kn_x, cam),
                            None if box is None else box[2]))
 
-    # HE REACHES THE TOP OF THE PICTURE: either no pixel of him is left in it,
-    # or his drawn content is CLIPPED by row 0 — which is the same statement
-    # about his Y and the only one the geometry supports. The spawn slot
-    # travels 56 px here, so an apex from its high point clips the top edge
-    # rather than clearing it; asserting he vanishes entirely would be
-    # asserting the old course's amplitude, not the jump.
-    assert any(feet is None or top == 0 for feet, _, top in frames), \
-        f"he never reaches the top of the picture — the jump is not a jump: " \
-        f"{frames}"
+    # HE RISES A WHOLE APEX ABOVE THE METAL, and that is the claim — not that
+    # he leaves the picture, which this case asserted twice and which the
+    # geometry invalidated twice. An apex is v^2/2g and both numbers are tuned
+    # against the SLOT PITCH, so how close the top of the arc comes to the top
+    # of the SCREEN is an accident of where the spawn plate happens to be
+    # sitting. Twice now a tuning pass has moved it: the first version wanted
+    # him to vanish entirely, the second wanted his art clipped by row 0, and
+    # both were asserting an old amplitude rather than the jump.
+    #
+    # The negative-Y half of the 9.7 unit is NOT lost with it. That defect bit
+    # at the OTHER end — row 232, on the way out of the world — and
+    # test_walking_off_the_span_drops_him_and_the_world_gives_him_back is where
+    # it is covered, which is also the case the plant names.
+    rise = [under - feet for feet, under, _t in frames
+            if feet is not None and under is not None]
+    assert rise and max(rise) >= 24, \
+        f"he never rises a full apex above the metal — the jump is not a " \
+        f"jump: {frames}"
     landed = [i for i, (feet, under, _t) in enumerate(frames)
               if feet is not None and under is not None and feet == under]
     # ...and then he is LEFT ALONE, so the descent finishes and the metal

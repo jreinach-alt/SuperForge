@@ -65,7 +65,8 @@
 # refusal is quoted verbatim in tests/test_smelter.py, off these same
 # features.
 globals = ["scene_mgr", "fade", "input", "text_dp", "font_rom",
-           "smt_bg", "smt_rom", "oam_sprites", "region", "tick_scale"]
+           "smt_bg", "smt_rom", "oam_sprites", "region", "tick_scale",
+           "mosaic"]
 
 # The title: the same world, flat, in mode 1 with a line of text over it.
 [[scene]]

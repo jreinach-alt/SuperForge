@@ -82,7 +82,18 @@ SMT_KN_GRAVITY = SMT_KN_ONE_PX / 4
 ; reaching the top one means waiting for it to come down. That is the mechanic
 ; the moving plates buy, and it is a consequence of these two numbers rather
 ; than of any code.
-SMT_KN_JUMP_VEL = 5 * SMT_KN_ONE_PX
+; MEASURED AGAINST THE SLOT PITCH, not chosen for feel. Flight is 2*v/g
+; frames and the run covers 2 px of each, so the horizontal reach is 4*v/g:
+; at v = 5 that is 80 px against a 64 px pitch, and a jump from anywhere on a
+; plate OVERSHOOTS THE NEXT ONE — traced on the binary, where the knight left
+; slot 0, sailed over slots 1 and 2 with his centre a pixel past each, and
+; landed in the melt having touched nothing. At v = 4 the reach is 64 px,
+; exactly the pitch, so a jump lands on the neighbour from the middle of the
+; plate and the margin is symmetric. The apex drops to 32 px with it, which
+; LEAVES THE MECHANIC INTACT: screen 3's slots travel 92-116 px, still well
+; past a jump, so the far side is still crossed by waiting rather than by
+; jumping higher.
+SMT_KN_JUMP_VEL = 4 * SMT_KN_ONE_PX
 SMT_KN_NEG_JUMP_VEL = (1 << 16) - SMT_KN_JUMP_VEL
 
 ; Terminal fall, 9.7 px per frame. Bounded by the landing window below: a fall
@@ -97,6 +108,13 @@ SMT_KN_MAX_FALL = 6 * SMT_KN_ONE_PX
 ; and the snap on landing is what keeps the overshoot invisible.
 SMT_KN_LAND_WIN = 12
 .assert SMT_KN_LAND_WIN >= (SMT_KN_MAX_FALL / SMT_KN_ONE_PX), error, "the fall is faster than the landing window is wide — the knight can pass through a plate in one frame"
+
+; $2106's low nibble names which layers the wipe pixelates. BG1 is the plates
+; and BG2 the melt and the wall; BG3 is the offset TABLE in this scene and is
+; not drawn at all, so it is deliberately absent — mosaicking a layer the PPU
+; reads as scroll data would be meaningless even if it were harmless.
+SMT_MOS_BG1 = 1 << 0
+SMT_MOS_BG2 = 1 << 1
 
 ; Below this screen row he has missed everything and comes back on plate 0.
 SMT_KN_KILL_Y = 232

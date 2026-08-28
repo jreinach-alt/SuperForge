@@ -197,10 +197,34 @@ tick:
 :   .a16
     .i16
     sta z:US_TSKG
+    ; ---- the knight, unless he is being dissolved -------------------------
+    ; HIS PHYSICS FREEZE FOR THE WIPE AND THE WORLD DOES NOT. The plates keep
+    ; their harmonics, the melt keeps churning and the wall keeps flowing —
+    ; dying is his event, not the foundry's, and a world that stopped with him
+    ; would read as the ROM hanging. What does stop is everything that would
+    ; move a corpse: the physics, the camera, and the OAM entry itself.
+    sep #$20
+    .a8
+    jsr mosaic_active
+    rep #$20
+    .a16
+    beq @alive
+    jsr oam_park_all                ; ...the wipe's OBJ rule, in the form this
+    bra @knight_done                ;   scene needs (mosaic's header: OBJ has
+@alive:                             ;   no hardware mosaic, so the consumer
+    .a16                            ;   hides it — TM bit or an OAM park)
+    .i16
     jsr smt_kn_tick
     jsr smt_kn_camera
     jsr smt_kn_draw
+@knight_done:
+    .a16
+    .i16
     ; ---- B: latch the flat control ----------------------------------------
+    ; ...and mosaic LAST of the brightness writers, per its contract. This
+    ; scene ticks no fade of its own, so there is nothing to gate — but the
+    ; ordering rule is cheap to honour and expensive to rediscover.
+    jsr mosaic_tick
     lda z:ES_INP_PRESS
     and #JOY_B
     beq @no_toggle

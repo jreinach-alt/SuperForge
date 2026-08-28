@@ -58,6 +58,11 @@ NMI:
 .include "oam_sprites.asm"          ; the OAM shadow's VBlank DMA — global, so
                                     ;   the title parks its sprites rather than
                                     ;   not having any
+.include "mosaic.asm"               ; the death wipe. GLOBAL: its DP state is
+                                    ;   zeroed at boot and its NMI commit runs in
+                                    ;   both scenes, so an idle mosaic writes $00
+                                    ;   to $2106 every frame rather than leaving
+                                    ;   power-on garbage there (rule 5)
 .include "tick_scale.asm"           ; TS_STEP: the macro works.asm's tick uses.
                                     ;   INCLUDED BEFORE THE SCENES, and it must
                                     ;   be — a ca65 macro has to be defined
@@ -214,6 +219,11 @@ smt_layer_bases:
 sm_nmi_hook:
     .a8
     .i16
+    jsr mosaic_nmi_commit           ; $2106 from the wipe's shadow, in BOTH
+                                    ;   scenes and UNCONDITIONALLY: an idle
+                                    ;   mosaic commits $00, which is how a
+                                    ;   register nobody else writes stops
+                                    ;   holding power-on garbage
     jsr oam_nmi_dma                 ; the OAM shadow, every armed VBlank, in
                                     ;   both scenes: the title's entries are
                                     ;   the parked ones and they still have to
@@ -241,6 +251,7 @@ MAIN:
     jsr sm_init
     jsr input_init
     jsr fade_init
+    jsr mosaic_init                 ; ...its own contract: [init] zero needs a routine
     jsr oam_park_all                ; every sprite off-screen before anything
                                     ;   draws — power-on OAM is random (rule 5)
     jsr region_init                 ; the console's own region line, once. It

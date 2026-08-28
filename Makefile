@@ -1366,7 +1366,8 @@ SMT_INC := -I $(SMT_MAP) -I $(VROM) -I $(SMT) -I $(BUILD)/assets \
            -I engine/features/fade -I engine/features/bg_text \
            -I engine/features/region -I engine/features/tick_scale \
            -I engine/features/smt_bg -I engine/features/smt_opt \
-           -I engine/features/smt_obj -I engine/features/oam_sprites
+           -I engine/features/smt_obj -I engine/features/oam_sprites \
+           -I engine/features/mosaic
 
 $(BUILD)/smelter.sfc: $(SMT_ASM) $(SMT)/smelter.inc \
 		$(SMT_MAP)/engine_state_globals.inc $(SMT_ASSETS) \

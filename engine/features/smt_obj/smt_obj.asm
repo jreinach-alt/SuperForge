@@ -341,14 +341,64 @@ smt_kn_tick:
     SMT_KN_TO_ROW
     cmp #SMT_KN_KILL_Y
     bcc :+
+    ; ---- he is out of the world: arm the wipe, do not teleport him --------
+    ; The respawn used to happen HERE, in one frame, which read as the knight
+    ; blinking from the bottom of the screen to the spawn with nothing in
+    ; between. It is now the mosaic's swap callback, fired at peak black, so
+    ; the fall, the dissolve, the move and the return are one legible event.
+    ;
+    ; ARMED ONCE. mosaic_arm is idempotent in the wrong direction — calling it
+    ; every frame would restart the OUT phase and the wipe would never reach
+    ; its swap — and he keeps falling while it runs, so the guard is the query
+    ; rather than a flag of our own.
+    sep #$20
+    .a8
+    jsr mosaic_active
+    bne @armed
+    lda #(SMT_MOS_BG1 | SMT_MOS_BG2) ; both drawn layers dissolve
+    ldx #.loword(smt_kn_respawn)
+    jsr mosaic_arm
+@armed:
+    .a8
+    .i16
+    rep #$20
+    .a16
+:   .a16
+    .i16
+    rts
+
+; --- smt_kn_respawn: the mosaic's swap callback, at peak black --------------
+; CONTRACT smt_kn_respawn
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   out:      the knight back on the spawn slot at its current height, the
+;             camera back at the world's left edge
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  called by mosaic_tick at the turn of the wipe, when the screen
+;             is black — which is the whole reason the move is invisible
+;   tail:     rts
+;
+; THE MOVE IS A TELEPORT AND IT IS SUPPOSED TO BE. What made the old one look
+; wrong was not the teleport, it was that the player could SEE it. At peak
+; black there is nothing to see, and the IN phase brings back a world already
+; arranged.
+smt_kn_respawn:
+    .a8
+    .i16
+    SF_ASSERT_WIDTH 8, 16, "smt_kn_respawn"
+    rep #$20
+    .a16
     lda #SMT_KN_SPAWN_PLATE
     sta z:ES_SMT_KN_PLATE
     lda #(SMT_PLAT_SPAWN_COL * 8)
     sta z:ES_SMT_KN_X
     stz z:ES_SMT_KN_VY
+    stz z:ES_SMT_CAM                ; ...and the camera with him, or the IN
+    stz z:ES_SMT_CAM_SHOWN          ;   phase opens on the wrong screen
     jsr smt_kn_ride
-:   .a16
-    .i16
+    jsr smt_kn_draw
+    sep #$20
+    .a8
     rts
 
 ; --- smt_kn_land: is he standing on a plate now? ---------------------------

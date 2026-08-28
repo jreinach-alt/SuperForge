@@ -122,10 +122,22 @@ SLOT_FREQ = (1, 2, 1, 3,      # screen 0 — the picture the rail always had
              2, 1, 3, 2,      # screen 1 — periods start to diverge
              3, 1, 2, 3,      # screen 2 — and the amplitudes open up
              1, 3, 2, 1)      # screen 3
-SLOT_AMP = (28, 34, 28, 34,
-            40, 34, 46, 40,
-            46, 52, 46, 52,
-            52, 46, 58, 40)
+# THE AMPLITUDES ARE THE DIFFICULTY CURVE, and they were measured against a
+# player rather than guessed. A jump's apex is 50 px; a slot that travels more
+# than that can be HIGH when you arrive, and then the only way across is to
+# wait for it — the mechanic the moving plates exist for. Screens 0-2 stay
+# inside the reach so a run can be crossed on rhythm alone; screen 3 opens up
+# past it, so the far side is where timing starts to matter and where a player
+# who is only jumping loses the knight. Measured by driving it: a
+# a run that waits for the target plate crosses 2.5 screens and dies on
+# screen 3. The bound on screens 0-2 is the APEX: two neighbours at amplitude a
+# can differ by up to 2a, and a jump only climbs 32 px, so a > 26 makes a
+# crossing depend on catching the pair in phase rather than on timing one jump.
+# Measured by driving it, not chosen: at 28-34 a waiting run died at x=434.
+SLOT_AMP = (22, 24, 22, 26,      # screen 0 — the picture the rail always had
+            24, 22, 26, 24,      # screen 1
+            26, 24, 22, 26,      # screen 2
+            52, 46, 58, 40)      # screen 3 — past the apex; wait or fall
 SLOT_OFF = (0.00, 0.25, 0.50, 0.10,
             0.60, 0.35, 0.85, 0.15,
             0.45, 0.70, 0.05, 0.55,
