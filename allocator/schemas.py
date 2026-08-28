@@ -812,6 +812,165 @@ class BlendClaim:
     prevent: str = "never"    # WINDOW_MODES -> CGWSEL b5-4
 
 
+# --------------------------------------------------------------------------
+# the video/offset vocabulary — the scene's BGMODE, and BG3 as an offset table
+# --------------------------------------------------------------------------
+#
+# Two claim classes over one write-only port (BGMODE $2105) and over one
+# hardware path no claim class could see at all: OFFSET-PER-TILE, where in
+# modes 2, 4 and 6 the BG3 tilemap stops being tiles and becomes a per-column
+# SCROLL OFFSET TABLE. BGMODE stays WHOLE in REGISTER_FOOTPRINT — it is
+# write-only and fails the single-blind-write test like every other port in
+# that table — and what is partitioned here is again the DECLARATION: a scene
+# declares its video mode, the allocator composes the byte, and every claim
+# whose legality DEPENDS on the mode can finally be checked against it.
+#
+# WHY THE MODE HAD TO BECOME DECLARABLE. Two capabilities were undeclarable
+# without it, both named in the capability map's offset-per-tile entry:
+# nothing said "BG3 is not a drawable layer in this scene", so a text feature
+# and an offset-per-tile feature both believed they owned BG3 with no
+# collision visible; and the mode restriction — offset-per-tile exists only in
+# modes 2/4/6 — was not expressible as a constraint at all. Both are
+# properties OF THE MODE, and the mode was a value nobody declared: BGMODE
+# appeared in 26 raw [[claims.reg]] footprints across this tree and its VALUE
+# lived only in ASM and in feature.toml comments.
+#
+# Encodings and layer sets re-derived from Mesen2 Core/SNES/SnesPpu.cpp in
+# this checkout, per the house rule that a register encoding comes from the
+# emulator source and not from a summary:
+#
+#   BGMODE       b2-0 mode, b3 mode-1 BG3 priority, b4-7 16x16 tiles for
+#                BG1..BG4                                        :1951-1959
+#   which layers a mode RENDERS   RenderMode0..RenderMode7, :781-859 — a mode
+#                calls RenderTilemap once per layer it draws, and a layer it
+#                never calls is not on screen in that mode AT ALL
+#   which modes FETCH offset words        FetchTileData, :277-390 — modes 2
+#                and 6 fetch an H word AND a V word per column (cases 2 and
+#                3); mode 4 fetches ONE word (case 2) whose bit 15 selects V
+#                over H; every other mode fetches neither
+#   the offset words come from BG3's OWN tilemap, indexed by BG3HOFS (the
+#                column, 8 px granular) and BG3VOFS (WHICH ROW is the H row);
+#                the V row is that row + 0x20 words, wrapping inside the map
+#                                        GetHorizontalOffsetByte /
+#                                        GetVerticalOffsetByte, :257-276
+#   bit 13 applies a column's offset to BG1, bit 14 to BG2      :154-167
+#   H: hScroll = (hScroll & 7) | (word & $3F8) — the LAYER keeps its own fine
+#                three bits, so a horizontal offset is 8-PIXEL granular and
+#                cannot express a sub-tile shear                 :157, :164
+#   V: vScroll = word & $3FF — the offset REPLACES the layer's scroll rather
+#                than adding to it                               :160, :167
+#
+# Two of those rows are load-bearing for the refusal set. The render tables
+# are why a screen designation of a layer the mode does not draw is a
+# declaration that lies rather than a harmless spare bit (the R5 shape, on
+# the mode axis). And the fetch schedule is why offset-per-tile outside modes
+# 2/4/6 is not "an effect that does not show" but a claim on a mechanism the
+# PPU never runs.
+
+# Which BG layers a BGMODE renders. OBJ is absent on purpose: sprites render
+# in every mode, so `obj` is never constrained by this table.
+#
+# Mode 7's row is BG1 alone, and it is the one approximation here: RenderMode7
+# also draws BG2 when EXTBG is enabled ($2133 bit 6, :856-858). EXTBG has no
+# model in this tree (docs/09's G5 — BG2's pixels ARE BG1's, split by bit 7,
+# which is an identity the claim classes cannot express), so a bg2 designation
+# under mode 7 WARNS rather than refusing. bg3/bg4 under mode 7 refuse: no
+# setting makes RenderMode7 draw them.
+MODE_LAYERS = {
+    0: ("bg1", "bg2", "bg3", "bg4"),
+    1: ("bg1", "bg2", "bg3"),
+    2: ("bg1", "bg2"),
+    3: ("bg1", "bg2"),
+    4: ("bg1", "bg2"),
+    5: ("bg1", "bg2"),
+    6: ("bg1",),
+    7: ("bg1",),
+}
+
+# ...and at what depth, which is what decides the ART BUDGET a mode costs.
+# Read off the same RenderMode bodies (the second template argument) and
+# cross-checked against FetchTileData's GetChrData bpp arguments.
+MODE_BPP = {
+    0: {"bg1": 2, "bg2": 2, "bg3": 2, "bg4": 2},
+    1: {"bg1": 4, "bg2": 4, "bg3": 2},
+    2: {"bg1": 4, "bg2": 4},
+    3: {"bg1": 8, "bg2": 4},
+    4: {"bg1": 8, "bg2": 2},
+    5: {"bg1": 4, "bg2": 2},
+    6: {"bg1": 4},
+    7: {"bg1": 8},
+}
+
+# The three modes whose FetchTileData reads offset words. Everything else in
+# this vocabulary follows from this tuple.
+OFFSET_MODES = (2, 4, 6)
+
+# Modes 2 and 6 fetch an H word and a V word per column, so a column can carry
+# both axes; mode 4 fetches one word and bit 15 picks the axis, so a column
+# carries one. `axis` says which the table declares.
+OFFSET_AXES = ("h", "v", "both")
+
+# The enable bits an offset word can set: bit 13 -> BG1, bit 14 -> BG2. No
+# other layer is reachable — SnesPpu.cpp:154 computes the bit from the layer
+# index and only indices 0 and 1 are ever passed while an offset is latched.
+OFFSET_LAYER_BITS = {"bg1": 0x2000, "bg2": 0x4000}
+
+# The offset word's fields, as the composition emits them.
+OFFSET_VALUE_MASK = 0x03FF      # V: vScroll = word & $3FF
+OFFSET_H_VALUE_MASK = 0x03F8    # H: ...and the layer keeps its own low 3 bits
+OFFSET_VSEL_BIT = 0x8000        # mode 4 only: this word is a V offset
+
+# The registers the offset path READS, and therefore the ports the
+# composition takes ownership of. Deliberately NOT BG34NBA: no CHR is fetched
+# for BG3 in an offset mode, so the offset path never reads a BG3 chr base and
+# claiming it would be a declaration that lies. The bg_text collision the
+# vocabulary exists to catch fires on BG3SC regardless.
+OFFSET_REGS = ("BG3SC", "BG3HOFS", "BG3VOFS")
+VIDEO_REGS = ("BGMODE",)
+
+
+@dataclass(frozen=True)
+class VideoClaim:
+    """The scene's VIDEO MODE — the fifteenth claim class.
+
+    BGMODE is a write-only byte with one owner per scene under the raw
+    vocabulary, which is correct and says nothing: the OWNER was declarable
+    and the MODE was not. Everything a mode decides — which layers exist, at
+    what depth, and whether the offset-per-tile path runs at all — was a fact
+    about the scene that lived in a comment.
+
+    ONE PER SCENE, and the scene is the unit because BGMODE is: a mid-frame
+    mode swap is a per-scanline HDMA rewrite, which keeps the raw claim shape
+    (`split_band` is that feature, and it is deliberately mode-agnostic).
+    """
+    name: str
+    mode: int                     # BGMODE b2-0
+    bg3_priority: bool = False    # b3 — read only by RenderMode1
+    tiles16: tuple[str, ...] = ()  # b4-7, one per BG layer
+
+
+@dataclass(frozen=True)
+class OffsetClaim:
+    """OFFSET-PER-TILE — BG3's tilemap as a per-column scroll table, and the
+    sixteenth claim class.
+
+    The claim is not "some VRAM holds offsets": it is that IN THIS SCENE BG3
+    IS NOT A LAYER. The table it points at is an ordinary
+    `[[claims.vram]] kind = "tilemap"` region — that part the claim classes
+    always covered — and what they could not say is the consequence, which is
+    that every other feature's belief that it can draw on BG3 is now false.
+
+    Ownership therefore moves to the thing contended: the BG3 fetch path. The
+    composition synthesizes ownership of BG3SC/BG3HOFS/BG3VOFS, so a feature
+    that draws on BG3 meets this one as an ordinary register intersection with
+    a message that names the mechanism, and a bg3 screen designation in the
+    same scene refuses in the composition.
+    """
+    name: str
+    axis: str                     # h | v | both  (OFFSET_AXES)
+    layers: tuple[str, ...]       # bg1 | bg2 — the enable bits it may set
+
+
 @dataclass(frozen=True)
 class SpcClaim:
     """Exclusive occupancy of the audio CPU's entire 64 KiB — the eleventh
@@ -972,12 +1131,16 @@ class FeatureDecl:
     # site that predates them.
     screen: tuple[ScreenClaim, ...] = ()
     blend: tuple[BlendClaim, ...] = ()
+    # ...and the video/offset vocabulary, defaulted for the same reason.
+    video: tuple[VideoClaim, ...] = ()
+    offset: tuple[OffsetClaim, ...] = ()
 
     def claim_names(self) -> set[str]:
         return {c.name for group in (self.vram, self.dp, self.wram, self.sram,
                                      self.cgram, self.oam, self.hdma,
                                      self.dma_init, self.rom, self.reg,
-                                     self.spc, self.screen, self.blend)
+                                     self.spc, self.screen, self.blend,
+                                     self.video, self.offset)
                 for c in group}
 
 
@@ -1076,7 +1239,8 @@ def load_feature(path: str | Path, substrate: Substrate) -> FeatureDecl:
             "cgram": (list, dict), "oam": (list, dict), "hdma": (list, dict),
             "rom": (list, dict), "dma": dict, "dma_init": (list, dict),
             "reg": (list, dict), "spc": (list, dict), "sram": (list, dict),
-            "screen": (list, dict), "blend": (list, dict)})
+            "screen": (list, dict), "blend": (list, dict),
+            "video": (list, dict), "offset": (list, dict)})
 
     vram = []
     for i, t in enumerate(_as_list_of_tables(claims.get("vram", []), where)):
@@ -1312,6 +1476,97 @@ def load_feature(path: str | Path, substrate: Substrate) -> FeatureDecl:
             half=bool(t.get("half", False)),
             clip=t.get("clip", "never"), prevent=t.get("prevent", "never")))
 
+    video = []
+    for i, t in enumerate(_as_list_of_tables(claims.get("video", []), where)):
+        w = f"{where} [[claims.video]] #{i}"
+        _table(t, w, {"mode": int},
+               {"name": str, "bg3_priority": bool, "tiles16": list})
+        if t["mode"] not in MODE_LAYERS:
+            raise SchemaError(
+                f"{w}: mode = {t['mode']!r} is not one of "
+                f"{sorted(MODE_LAYERS)}. BGMODE bits 0-2 hold the video "
+                f"mode and there are eight of them — a ninth is not a "
+                f"resource.")
+        t16 = tuple(t.get("tiles16", []))
+        if not all(isinstance(x, str) for x in t16):
+            raise SchemaError(f"{w}: tiles16 must be a list of layer names")
+        bad = [x for x in t16 if x not in ("bg1", "bg2", "bg3", "bg4")]
+        if bad:
+            raise SchemaError(
+                f"{w}: tiles16 names {bad}, not in ['bg1', 'bg2', 'bg3', "
+                f"'bg4']. BGMODE bits 4-7 carry one 16x16-tile select per BG "
+                f"layer and there is no bit for anything else — OBJ sizes "
+                f"come from OBSEL, not from here.")
+        if len(set(t16)) != len(t16):
+            raise SchemaError(
+                f"{w}: tiles16 names a layer twice ({list(t16)}) — each "
+                f"layer has ONE size bit in BGMODE, so a repeat cannot mean "
+                f"anything the single entry does not already say.")
+        video.append(VideoClaim(
+            name=t.get("name", f"{name}_video{i if i else ''}"),
+            mode=t["mode"], bg3_priority=bool(t.get("bg3_priority", False)),
+            tiles16=t16))
+    if len(video) > 1:
+        # A feature declaring two modes is refused HERE rather than in the
+        # composition, because it is a property of the declaration alone: no
+        # scene is needed to know that one feature cannot want two BGMODEs.
+        # (The two-features-in-one-scene case is O1, in the composition.)
+        raise SchemaError(
+            f"{where}: {len(video)} [[claims.video]] entries — a feature "
+            f"declares the video mode ONCE. BGMODE holds one mode for the "
+            f"whole scene; a second entry cannot mean 'and also', it can "
+            f"only disagree with the first.")
+
+    offset = []
+    for i, t in enumerate(_as_list_of_tables(claims.get("offset", []), where)):
+        w = f"{where} [[claims.offset]] #{i}"
+        _table(t, w, {"axis": str, "layers": list}, {"name": str})
+        if t["axis"] not in OFFSET_AXES:
+            raise SchemaError(
+                f"{w}: axis = '{t['axis']}' is not one of "
+                f"{list(OFFSET_AXES)}. An offset word displaces a column "
+                f"horizontally, vertically, or (in modes 2 and 6, which "
+                f"fetch a word for each) both — there is no third axis on a "
+                f"tilemap.")
+        layers = tuple(t["layers"])
+        if not all(isinstance(x, str) for x in layers):
+            raise SchemaError(f"{w}: layers must be a list of layer names")
+        if not layers:
+            # The R7 shape on this axis: a table that drives nothing. Refused
+            # at parse because no allocation is needed to know it — bits 13
+            # and 14 are the ONLY gates that apply an offset word to a layer,
+            # so with neither declared the table is authored, uploaded and
+            # read by the PPU to no effect whatever.
+            raise SchemaError(
+                f"{w}: `layers` is empty — an offset-per-tile claim of "
+                f"feature '{name}' declares BG3's tilemap to be a per-column "
+                f"scroll table, and bits 13 and 14 of a word are the only "
+                f"gates that apply it to a layer (13 -> BG1, 14 -> BG2). "
+                f"With neither, every column of the table is inert: the PPU "
+                f"reads the words and displaces nothing. Name at least one "
+                f"of ['bg1', 'bg2'], or drop the claim.")
+        bad = [x for x in layers if x not in OFFSET_LAYER_BITS]
+        if bad:
+            raise SchemaError(
+                f"{w}: layers names {bad}, not in "
+                f"{sorted(OFFSET_LAYER_BITS)}. An offset word reaches BG1 "
+                f"(bit 13) and BG2 (bit 14) and nothing else — BG3 is the "
+                f"table itself and BG4 does not exist in any mode that "
+                f"fetches one, so a name outside that pair has no bit.")
+        if len(set(layers)) != len(layers):
+            raise SchemaError(
+                f"{w}: layers names a layer twice ({list(layers)}) — each "
+                f"layer has ONE enable bit in an offset word.")
+        offset.append(OffsetClaim(
+            name=t.get("name", f"{name}_offset{i if i else ''}"),
+            axis=t["axis"], layers=layers))
+    if len(offset) > 1:
+        raise SchemaError(
+            f"{where}: {len(offset)} [[claims.offset]] entries — a feature "
+            f"declares the offset table ONCE. There is one BG3 fetch path "
+            f"per scene and one pair of rows it reads; a second entry "
+            f"describes a table the hardware will never look at.")
+
     spc = []
     for i, t in enumerate(_as_list_of_tables(claims.get("spc", []), where)):
         w = f"{where} [[claims.spc]] #{i}"
@@ -1397,12 +1652,14 @@ def load_feature(path: str | Path, substrate: Substrate) -> FeatureDecl:
                        vblank_bytes_per_frame=vblank_bpf,
                        vblank_transfers_per_frame=vblank_tpf,
                        init_zero=init_zero,
-                       screen=tuple(screen), blend=tuple(blend))
+                       screen=tuple(screen), blend=tuple(blend),
+                       video=tuple(video), offset=tuple(offset))
 
     names = [c.name for group in (decl.vram, decl.dp, decl.wram, decl.sram,
                                   decl.cgram, decl.oam, decl.hdma,
                                   decl.dma_init, decl.rom, decl.reg,
-                                  decl.spc, decl.screen, decl.blend)
+                                  decl.spc, decl.screen, decl.blend,
+                                  decl.video, decl.offset)
              for c in group]
     dupes = {n for n in names if names.count(n) > 1}
     if dupes:

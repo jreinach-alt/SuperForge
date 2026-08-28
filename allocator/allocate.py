@@ -35,7 +35,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from schemas import (BLEND_REGS, MATH_LAYERS, REGISTER_FOOTPRINT,  # noqa: E402
+from schemas import (BLEND_REGS, MATH_LAYERS, MODE_BPP, MODE_LAYERS,  # noqa: E402
+                     OFFSET_H_VALUE_MASK, OFFSET_LAYER_BITS, OFFSET_MODES,
+                     OFFSET_REGS, OFFSET_VALUE_MASK, OFFSET_VSEL_BIT,
+                     REGISTER_FOOTPRINT, VIDEO_REGS,
                      SCREEN_LAYERS, SCREEN_REGS, WINDOW_MODES,
                      BytesClaim, DmaInitClaim,
                      FeatureDecl, GameManifest, HdmaClaim, RegClaim,
@@ -99,6 +102,9 @@ class SceneMap:
     # synthesized ownership claim it implies ALSO sits in `regs`, which is
     # how it reaches check_reg_ownership, the report, and the symbol map.
     screen_blend: dict | None = None
+    # C6: ...and the scene's composed video mode + offset table
+    # (compose_video_offset's return, or None where neither is declared).
+    video_offset: dict | None = None
 
 
 @dataclass
@@ -239,28 +245,61 @@ def check_reg_ownership(reg: list[tuple], hdma: list[tuple],
             shared = _register_conflicts(a.registers, b.registers)
             if shared:
                 if _is_vocab_who(wa) != _is_vocab_who(wb):
-                    # R6 — vocabulary mixing. One side is the scene's
-                    # synthesized screen/blend composition; the other is a
-                    # raw [[claims.reg]] on a port the composition owns. The
-                    # refusal is this same intersection — the vocabulary is
-                    # just another claimant — but the FIX is different, so
-                    # the message is too.
+                    # R6 / O5 — vocabulary mixing. One side is a scene's
+                    # synthesized composition; the other is a raw
+                    # [[claims.reg]] on a port that composition owns. The
+                    # refusal is this same intersection — a vocabulary is
+                    # just another claimant — but the FIX differs per
+                    # vocabulary and, inside video/offset, per PORT, so the
+                    # message is chosen rather than shared.
                     (rc, rw) = (a, wa) if _is_vocab_who(wb) else (b, wb)
                     (vc, vw) = (b, wb) if _is_vocab_who(wb) else (a, wa)
+                    head = (f"REGISTER ownership contention in scene "
+                            f"'{scope}': {rc.name} ({rw}) claims {shared} as "
+                            f"a raw [[claims.reg]], but this scene also "
+                            f"composes the {_vocab_of(vw)} vocabulary over "
+                            f"the same port ({vc.name}, {vw}) — two "
+                            f"vocabularies, one write-only port. Every "
+                            f"writer of a write-only register supplies the "
+                            f"WHOLE byte, so the raw value and the composed "
+                            f"value cannot both hold.")
+                    if _vocab_of(vw) == VOCAB_WHO:
+                        raise AllocationError(
+                            head + " Move the raw claim into the "
+                            "vocabulary: a TM/TS designation becomes "
+                            "[[claims.screen]] (layer, on) on the feature "
+                            "that owns the layer; CGWSEL/CGADSUB "
+                            "programming becomes [[claims.blend]] (docs/99)")
+                    if [r for r in shared if r in OFFSET_REGS]:
+                        # THE BG3-AS-DATA REFUSAL. A feature that draws on
+                        # BG3 has met the scene's offset table. Nothing in
+                        # the register footprint could say this before: both
+                        # sides claim BG3SC and the collision read as an
+                        # ordinary double-owner, which names neither the
+                        # hazard nor the choice.
+                        raise AllocationError(
+                            head + f" And on {[r for r in shared if r in OFFSET_REGS]} "
+                            f"it is not a tie to break: BG3 IS THIS SCENE'S "
+                            f"OFFSET TABLE, not a drawable layer. In modes "
+                            f"{list(OFFSET_MODES)} the PPU reads BG3's map "
+                            f"entries as per-column scroll offsets and never "
+                            f"renders the layer (Mesen2 SnesPpu.cpp "
+                            f"RenderMode2/4/6 draw BG1/BG2 and OBJ only; the "
+                            f"words are fetched at :257-276), so a feature "
+                            f"that draws on BG3 and an offset-per-tile "
+                            f"feature cannot both hold this scene whatever "
+                            f"they agree about the registers. Draw "
+                            f"'{rc.name}' on a BG the mode renders, or put "
+                            f"the offset table in a scene of its own "
+                            f"(docs/100)")
                     raise AllocationError(
-                        f"REGISTER ownership contention in scene '{scope}': "
-                        f"{rc.name} ({rw}) claims {shared} as a raw "
-                        f"[[claims.reg]], but this scene also composes the "
-                        f"screen/blend vocabulary over the same port "
-                        f"({vc.name}, {vw}) — two vocabularies, one "
-                        f"write-only port. Every writer of a write-only "
-                        f"register supplies the WHOLE byte, so the raw "
-                        f"value and the composed value cannot both hold. "
-                        f"Move the raw claim into the vocabulary: a TM/TS "
-                        f"designation becomes [[claims.screen]] (layer, on) "
-                        f"on the feature that owns the layer; CGWSEL/"
-                        f"CGADSUB programming becomes [[claims.blend]] "
-                        f"(docs/99)")
+                        head + " Move the raw claim into the vocabulary: "
+                        "the scene's BGMODE becomes a [[claims.video]] "
+                        "claim (mode, and the bg3_priority / tiles16 bits "
+                        "with it) on the feature that defines the display "
+                        "shape. A per-scanline BGMODE rewrite is the one "
+                        "case that keeps the raw shape, in a scene that "
+                        "composes no [[claims.video]] claim (docs/100)")
                 raise AllocationError(
                     f"REGISTER ownership contention in scene '{scope}': "
                     f"{a.name} ({wa}) and {b.name} ({wb}) both write {shared} "
@@ -417,8 +456,17 @@ def _windowless_note(fld: str, mode: str, g) -> tuple[str, str]:
     return degen, ""
 
 
+def _vocab_of(who: str) -> str | None:
+    """Which composed vocabulary a synthesized claim's `who` belongs to, or
+    None for an ordinary feature. Two vocabularies now synthesize per-scene
+    ownership claims — screen/blend over TM/TS/CGWSEL/CGADSUB, video/offset
+    over BGMODE and BG3's fetch registers — and the register gate has to tell
+    them apart, because the MIGRATION a raw claimant is pointed at differs."""
+    return next((v for v in _VOCABS if who.startswith(v)), None)
+
+
 def _is_vocab_who(who: str) -> bool:
-    return who.startswith(VOCAB_WHO)
+    return _vocab_of(who) is not None
 
 
 def compose_screen_blend(screen: list[tuple], blend: list[tuple],
@@ -688,6 +736,292 @@ def compose_screen_blend(screen: list[tuple], blend: list[tuple],
             "warnings": warnings,
             "designations": len(screen), "blends": len(blend),
             "checks": checks}
+
+
+# --------------------------------------------------------------------------
+# the video/offset vocabulary — per-scene composition (C6)
+# --------------------------------------------------------------------------
+
+# The synthesized composed claim's consumer tag, and the second entry in
+# _VOCABS. check_reg_ownership keys its mixing diagnostics off these prefixes,
+# so a raw claim on a composed port refuses through the SAME reg-x-reg
+# intersection every raw pair goes through.
+MODE_WHO = "video/offset"
+
+_VOCABS = (VOCAB_WHO, MODE_WHO)
+
+# BGMODE bits 4-7: one 16x16-tile select per BG layer, in layer order.
+_TILES16_BIT = {"bg1": 0x10, "bg2": 0x20, "bg3": 0x40, "bg4": 0x80}
+
+
+def _mode_shape(mode: int) -> str:
+    """'bg1 4bpp + bg2 4bpp' — a mode's layer set with its depths, for the
+    refusal messages. Derived from MODE_BPP rather than written out, so a
+    message cannot drift from the table the checks decide on."""
+    return " + ".join(f"{lyr} {MODE_BPP[mode][lyr]}bpp"
+                      for lyr in MODE_LAYERS[mode])
+
+
+def compose_video_offset(video: list[tuple], offset: list[tuple],
+                         screen: list[tuple], scope: str) -> dict | None:
+    """Compose a scene's video-mode and offset-per-tile claims, or REFUSE.
+
+    `video`/`offset`/`screen` are [(claim, who)] over the globals+scene UNION,
+    the check_reg_ownership convention and for the same reason: a global mode
+    claim and a scene-scoped second one must still refuse.
+
+    Returns None when the scene carries neither claim; else the composed dict
+    — the BGMODE byte, the registers the synthesized ownership claim holds,
+    the offset table's emitted field constants, warnings for the allocation
+    report, and the refusal-check census.
+
+    O5's register arm is NOT here: it arises in check_reg_ownership, where a
+    feature that draws on BG3 meets this composition's synthesized claim as an
+    ordinary intersection. What is here is the arm no register can see — a
+    [[claims.screen]] designation of a layer the mode does not render.
+    """
+    if not video and not offset:
+        return None
+    checks = 0
+    warnings: list[str] = []
+
+    # O1 — one video mode, one owner. BGMODE is a write-only byte and the
+    # OWNERSHIP of it, not the value, is the resource: two features declaring
+    # the same mode still refuse, exactly as two RegClaims on one port do.
+    if len(video) >= 2:
+        checks += 1
+        (g, gwho) = video[0]
+        for c, who in video[1:]:
+            agree = " — even though they agree" if g.mode == c.mode else ""
+            raise AllocationError(
+                f"VIDEO MODE contention in scene '{scope}': {g.name} "
+                f"({gwho}) declares mode {g.mode} and {c.name} ({who}) "
+                f"declares mode {c.mode}{agree}. A scene has ONE video mode: "
+                f"BGMODE bits 0-2 hold it for the whole frame, and the "
+                f"ownership of that byte is the resource. One feature "
+                f"declares the scene's display shape; a second feature that "
+                f"needs a mode depends on the first. A mid-frame mode change "
+                f"is a per-scanline HDMA rewrite and keeps the raw "
+                f"[[claims.reg]] shape (docs/100)")
+
+    # O2 — one offset table, one owner. There is one BG3 fetch path.
+    if len(offset) >= 2:
+        checks += 1
+        (g, gwho) = offset[0]
+        c, who = offset[1]
+        raise AllocationError(
+            f"OFFSET-PER-TILE contention in scene '{scope}': {g.name} "
+            f"({gwho}) and {c.name} ({who}) both declare BG3's tilemap to be "
+            f"this scene's per-column offset table. There is one BG3 fetch "
+            f"path per scene, reading one pair of rows chosen by BG3VOFS "
+            f"(Mesen2 SnesPpu.cpp GetHorizontalOffsetByte / "
+            f"GetVerticalOffsetByte, :257-276), so the second table is one "
+            f"the hardware will never look at. One feature owns the table; a "
+            f"second feature that needs per-column displacement writes into "
+            f"that one")
+
+    mode = video[0][0].mode if video else None
+
+    if offset:
+        oc, owho = offset[0]
+        checks += 4                      # O3 + O4 + O6 + O7 live
+
+        # O3 — offset-per-tile needs a DECLARED mode. Without one the mode
+        # restriction cannot be proven at all, which is the hole this
+        # vocabulary exists to close: the claim would compose in silence in a
+        # scene whose BGMODE some raw claim writes to a value nobody declared.
+        if not video:
+            raise AllocationError(
+                f"OFFSET-PER-TILE in scene '{scope}': {oc.name} ({owho}) "
+                f"declares BG3's tilemap to be a per-column offset table, "
+                f"but no [[claims.video]] claim in this scene declares the "
+                f"video mode. Only modes 2, 4 and 6 fetch offset words "
+                f"(Mesen2 SnesPpu.cpp FetchTileData, :277-390) — in every "
+                f"other mode the table is authored, uploaded and never read "
+                f"— so the claim cannot be checked against a mode nobody "
+                f"declared. Add a [[claims.video]] claim naming this "
+                f"scene's mode (docs/100)")
+
+        # O4 — the mode restriction, and the whole reason the mode had to
+        # become a declaration. FetchTileData branches on BgMode and only
+        # three of its eight arms call the offset fetchers.
+        if mode not in OFFSET_MODES:
+            vc, vwho = video[0]
+            raise AllocationError(
+                f"OFFSET-PER-TILE contention in scene '{scope}': {oc.name} "
+                f"({owho}) declares BG3's tilemap to be a per-column offset "
+                f"table, but {vc.name} ({vwho}) declares mode {mode} "
+                f"({_mode_shape(mode)}). Offset-per-tile exists in modes "
+                f"{list(OFFSET_MODES)} ONLY: FetchTileData branches on the "
+                f"video mode and only those three arms call "
+                f"GetHorizontalOffsetByte (Mesen2 SnesPpu.cpp, :277-390), so "
+                f"under mode {mode} the PPU never reads a word of this "
+                f"table and every column stays where the layer's own scroll "
+                f"puts it. Declare mode 2 (bg1 4bpp + bg2 4bpp, an H word "
+                f"and a V word per column), 4 (bg1 8bpp + bg2 2bpp, one word "
+                f"whose bit 15 picks the axis) or 6 (bg1 4bpp, hi-res), or "
+                f"drop the offset claim")
+
+        # O7 — mode 4 carries ONE word per column and bit 15 selects its
+        # axis, so a column cannot be displaced on both.
+        if mode == 4 and oc.axis == "both":
+            raise AllocationError(
+                f"OFFSET-PER-TILE contention in scene '{scope}': {oc.name} "
+                f"({owho}) declares axis = \"both\" under mode 4. Mode 4 "
+                f"fetches ONE offset word per column and bit 15 of that word "
+                f"selects vertical over horizontal (Mesen2 SnesPpu.cpp "
+                f"FetchTileData case 2 under BgMode 4, and the bit-15 test "
+                f"at :156-161), so a column carries one axis or the other "
+                f"and never both. Modes 2 and 6 fetch a word for EACH axis "
+                f"and are where \"both\" is expressible; under mode 4 "
+                f"declare axis = \"h\" or \"v\" and choose per column at "
+                f"run time through bit 15")
+
+        # O6 — the driven layer must exist in the mode. An enable bit for a
+        # layer the mode never renders is the R5 shape: the bit sits set, the
+        # PPU applies the offset to a layer whose pixels no pass produces.
+        for lyr in oc.layers:
+            if lyr not in MODE_LAYERS[mode]:
+                vc, vwho = video[0]
+                raise AllocationError(
+                    f"OFFSET-PER-TILE contention in scene '{scope}': "
+                    f"{oc.name} ({owho}) drives {lyr} from the offset table, "
+                    f"but {vc.name} ({vwho}) declares mode {mode}, which "
+                    f"renders {_mode_shape(mode)}. Mode {mode} never calls "
+                    f"RenderTilemap for {lyr} (Mesen2 SnesPpu.cpp "
+                    f"RenderMode{mode}), so displacing it displaces a layer "
+                    f"no pass draws. Drop {lyr} from `layers`, or declare a "
+                    f"mode that renders it")
+
+        # O5, the designation arm — BG3 IS the table. The register arm of the
+        # same rule fires in check_reg_ownership against the synthesized
+        # claim below; this one catches the claimant that draws on BG3 by
+        # designating it rather than by writing its registers.
+        for c, who in screen:
+            if c.layer == "bg3":
+                raise AllocationError(
+                    f"OFFSET-PER-TILE contention in scene '{scope}': "
+                    f"{c.name} ({who}) designates bg3 -> {c.on}, but "
+                    f"{oc.name} ({owho}) declares BG3's tilemap to be this "
+                    f"scene's per-column OFFSET TABLE. In modes "
+                    f"{list(OFFSET_MODES)} BG3 IS NOT A DRAWABLE LAYER: the "
+                    f"PPU reads its map entries as scroll offsets and never "
+                    f"renders it (Mesen2 SnesPpu.cpp RenderMode2/4/6 draw "
+                    f"BG1/BG2 and OBJ only), so the TM/TS bit this "
+                    f"designation composes is inert and the 'tiles' it would "
+                    f"show are the offset words. One or the other holds this "
+                    f"scene: draw the layer on a BG the mode renders, or put "
+                    f"the offset table in a scene of its own (docs/100)")
+
+        # Hardware behaviour an author of this table has to design around —
+        # real, not refusable, and the reason it is a warning is that both
+        # facts are properties of a CORRECT declaration.
+        if oc.axis in ("h", "both"):
+            warnings.append(
+                f"offset {oc.name} ({owho}) declares a HORIZONTAL axis: a "
+                f"horizontal offset is 8-PIXEL granular. The hardware "
+                f"composes hScroll = (BGnHOFS & 7) | (word & $3F8) — the "
+                f"LAYER keeps its own fine three bits and the word's are "
+                f"dropped (Mesen2 SnesPpu.cpp:157, :164) — so a column "
+                f"cannot be sheared by less than a tile's width. A vertical "
+                f"offset has no such rule: vScroll = word & $3FF, to the "
+                f"pixel (:160, :167)")
+        warnings.append(
+            f"offset {oc.name} ({owho}): the offset word REPLACES the "
+            f"layer's scroll for that column rather than adding to it "
+            f"(vScroll = word & $3FF), and a column whose enable bit is "
+            f"clear falls back to the layer's own BGnVOFS/BGnHOFS — so the "
+            f"table holds absolute positions, not deltas")
+        undesignated = [lyr for lyr in oc.layers
+                        if lyr not in {c.layer for c, _ in screen}]
+        if undesignated:
+            warnings.append(
+                f"offset {oc.name} ({owho}) drives {undesignated}, which no "
+                f"[[claims.screen]] claim in this scene designates to a "
+                f"screen. Displacing a layer that is on neither screen "
+                f"displaces nothing visible — this is a warning rather than "
+                f"a refusal because the layer may be designated by a raw TM "
+                f"claim the vocabulary cannot attribute")
+
+    if video:
+        checks += 1                      # O8 live
+        vc, vwho = video[0]
+        # O8 — a designation the mode does not render. R5's rule on the mode
+        # axis: the enable bit is set and no pass ever produces a pixel for
+        # it. OBJ is exempt — sprites render in every mode.
+        for c, who in screen:
+            if c.layer == "obj" or c.layer in MODE_LAYERS[vc.mode]:
+                continue
+            if vc.mode == 7 and c.layer == "bg2":
+                warnings.append(
+                    f"{c.name} ({who}) designates bg2 -> {c.on} under mode "
+                    f"7, where BG2 exists ONLY with EXTBG enabled ($2133 "
+                    f"bit 6; Mesen2 SnesPpu.cpp RenderMode7, :856-858). "
+                    f"EXTBG has no model in this tree — BG2's pixels ARE "
+                    f"BG1's, split by bit 7, an identity the claim classes "
+                    f"cannot express (docs/09 G5) — so this composes and "
+                    f"warns rather than refusing. Without EXTBG the "
+                    f"designation is inert")
+                continue
+            raise AllocationError(
+                f"SCREEN designation contention in scene '{scope}': "
+                f"{c.name} ({who}) designates {c.layer} -> {c.on}, but "
+                f"{vc.name} ({vwho}) declares mode {vc.mode}, which renders "
+                f"{_mode_shape(vc.mode)}. Mode {vc.mode} never calls "
+                f"RenderTilemap for {c.layer} (Mesen2 SnesPpu.cpp "
+                f"RenderMode{vc.mode}), so the TM/TS enable bit this "
+                f"designation composes is INERT — set, and no pass ever "
+                f"produces a pixel through it. Designate a layer the mode "
+                f"renders, or declare a mode that renders {c.layer} "
+                f"(docs/100)")
+
+        if vc.bg3_priority and vc.mode != 1:
+            warnings.append(
+                f"{vc.name} ({vwho}) declares bg3_priority under mode "
+                f"{vc.mode}: BGMODE bit 3 is read by RenderMode1 alone "
+                f"(Mesen2 SnesPpu.cpp:799), so the bit holds and nothing "
+                f"consults it. That is a legal, expressible PPU state — it "
+                f"composes, and this says why it does nothing")
+        for lyr in vc.tiles16:
+            if lyr not in MODE_LAYERS[vc.mode]:
+                warnings.append(
+                    f"{vc.name} ({vwho}) declares 16x16 tiles for {lyr} "
+                    f"under mode {vc.mode}, which renders "
+                    f"{_mode_shape(vc.mode)}: the size bit holds and no "
+                    f"pass reads it, because {lyr} is not drawn in this mode")
+
+    # -- the composed values ------------------------------------------------
+    bgmode = None
+    if video:
+        vc, _ = video[0]
+        bgmode = vc.mode | (0x08 if vc.bg3_priority else 0)
+        for lyr in vc.tiles16:
+            bgmode |= _TILES16_BIT[lyr]
+
+    fields: dict[str, int] = {}
+    if offset:
+        oc, _ = offset[0]
+        for lyr in oc.layers:
+            fields[lyr.upper()] = OFFSET_LAYER_BITS[lyr]
+        if oc.axis in ("v", "both"):
+            fields["MASK"] = OFFSET_VALUE_MASK
+        if oc.axis in ("h", "both"):
+            fields["HMASK"] = OFFSET_H_VALUE_MASK
+        if mode == 4:
+            fields["VSEL"] = OFFSET_VSEL_BIT
+
+    regs = ((VIDEO_REGS if video else ())
+            + (OFFSET_REGS if offset else ()))
+    feats = sorted({who for _, who in [*video, *offset]})
+    return {"bgmode": bgmode, "fields": fields, "registers": regs,
+            "features": feats,
+            "mode": mode,
+            "axis": offset[0][0].axis if offset else None,
+            "layers": list(offset[0][0].layers) if offset else [],
+            "video": [(c, who) for c, who in video],
+            "offset": [(c, who) for c, who in offset],
+            "warnings": warnings,
+            "modes": len(video), "offsets": len(offset), "checks": checks}
 
 
 def check_blend_edges(edges, scenes, greg) -> tuple[list[str], int]:
@@ -1455,6 +1789,8 @@ def allocate(sub: Substrate, features: dict[str, FeatureDecl],
     g_init_zero: list[str] = []
     gscreen: list[tuple] = []
     gblend: list[tuple] = []
+    gvideo: list[tuple] = []
+    goffset: list[tuple] = []
     g_vram, g_dp, g_wram, g_cgram, g_oam, g_rom = [], [], [], [], [], []
     for f in global_feats:
         who = f"engine:{f.name}"
@@ -1469,6 +1805,8 @@ def allocate(sub: Substrate, features: dict[str, FeatureDecl],
         greg += [(c, who) for c in f.reg]
         gscreen += [(c, who) for c in f.screen]
         gblend += [(c, who) for c in f.blend]
+        gvideo += [(c, who) for c in f.video]
+        goffset += [(c, who) for c in f.offset]
         gvblank += f.vblank_bytes_per_frame
         gxfers += f.vblank_transfers_per_frame
         g_init_zero += list(f.init_zero)
@@ -1504,6 +1842,8 @@ def allocate(sub: Substrate, features: dict[str, FeatureDecl],
             [], [], [], [], [], [], []
         s_screen: list[tuple] = []
         s_blend: list[tuple] = []
+        s_video: list[tuple] = []
+        s_offset: list[tuple] = []
         sm.vblank_bytes = gvblank
         sm.vblank_transfers = gxfers
         for f in feats:
@@ -1519,6 +1859,8 @@ def allocate(sub: Substrate, features: dict[str, FeatureDecl],
             sm.regs += [(c, who) for c in f.reg]
             s_screen += [(c, who) for c in f.screen]
             s_blend += [(c, who) for c in f.blend]
+            s_video += [(c, who) for c in f.video]
+            s_offset += [(c, who) for c in f.offset]
             sm.vblank_bytes += f.vblank_bytes_per_frame
             sm.vblank_transfers += f.vblank_transfers_per_frame
             sm.init_zero += list(f.init_zero)
@@ -1540,6 +1882,27 @@ def allocate(sub: Substrate, features: dict[str, FeatureDecl],
                          registers=sm.screen_blend["registers"],
                          scene_writes=sm.screen_blend["registers"]),
                 f"{VOCAB_WHO} <- {', '.join(sm.screen_blend['features'])}"))
+
+        # C6: compose the video/offset vocabulary over the same union, then
+        # synthesize its per-scene ownership claim the same way. O5's
+        # register arm (a feature drawing on BG3 beside an offset table) and
+        # the raw-BGMODE mixing refusal both arise from the ordinary
+        # reg-x-reg intersection in check_reg_ownership below.
+        #
+        # ORDER: after screen/blend, because O8 reads the scene's screen
+        # claims and a scene whose designations are themselves contended
+        # should hear R1 first — the designation set O8 judges is not
+        # settled until R1 has passed.
+        sm.video_offset = compose_video_offset(
+            [*gvideo, *s_video], [*goffset, *s_offset],
+            [*gscreen, *s_screen], sc.id)
+        if sm.video_offset is not None:
+            sm.video_offset["checks"] += 1     # O5's register arm, via the union
+            sm.regs.append((
+                RegClaim(name="video_offset",
+                         registers=sm.video_offset["registers"],
+                         scene_writes=sm.video_offset["registers"]),
+                f"{MODE_WHO} <- {', '.join(sm.video_offset['features'])}"))
 
         def g_of(cls: str) -> list[tuple[str, int]]:
             """The globals already occupying this class — blame-list context."""
@@ -1754,6 +2117,22 @@ def verify(alloc: Allocation):
                         f"VERIFY: screen/blend '{k}' in scene '{sid}' does "
                         f"not re-compose from its own claims: stored "
                         f"{sb[k]!r}, recomposed {again[k]!r}")
+        # C6, the same discipline on the video/offset half. Same purity
+        # caveat, same reason for holding it anyway.
+        vo = sm.video_offset
+        if vo is not None:
+            try:
+                again = compose_video_offset(
+                    vo["video"], vo["offset"],
+                    (sm.screen_blend or {}).get("screen", []), sid)
+            except AllocationError as e:
+                raise AssertionError(f"VERIFY: {e}") from e
+            for k in ("bgmode", "fields", "registers", "warnings"):
+                if again[k] != vo[k]:
+                    raise AssertionError(
+                        f"VERIFY: video/offset '{k}' in scene '{sid}' does "
+                        f"not re-compose from its own claims: stored "
+                        f"{vo[k]!r}, recomposed {again[k]!r}")
     # C5 transition hygiene, mirrored over the same edges the solver read.
     e_warns, e_checked = check_blend_edges(
         [(src, dst) for src, dst, _b, _budget in alloc.edge_reloads],
@@ -1976,6 +2355,61 @@ def _screen_blend_lines(sid: str, sb: dict | None) -> list[str]:
     return lines
 
 
+def _video_offset_lines(sid: str, vo: dict | None) -> list[str]:
+    """The composed video mode, and the offset table's field constants.
+
+    Same rule as _screen_blend_lines, and the same reason: an encoding
+    narrated at the write site is a second, uncheckable copy of the claim.
+    A scene that declares a mode writes BGMODE from its symbol; a scene that
+    declares an offset table builds its words from these masks.
+
+    A SYMBOL IS PUBLISHED ONLY FOR WHAT THE COMPOSITION OWNS, per half. A
+    scene with an offset claim but no mode claim cannot exist (O3 refuses
+    it), but a mode claim alone is ordinary, and it emits no ES_OPT_*.
+
+    THE FIELD SET IS DERIVED FROM THE DECLARATION, not fixed: `layers`
+    decides which enable bits exist, `axis` decides which value mask, and
+    ES_OPT_<ID>_VSEL appears only under mode 4, the only mode whose word
+    carries an axis-select bit. A rail that builds a word with a bit its
+    claim did not declare has no symbol to build it from.
+    """
+    if vo is None:
+        return []
+    up = sid.upper()
+    lines = ["; ---- video/offset: the composed display mode ----",
+             ";   BGMODE from [[claims.video]]; the offset word's fields",
+             ";   from [[claims.offset]]. Scene code writes and builds from",
+             ";   these — never a narrated encoding."]
+    if vo["video"]:
+        vc, vwho = vo["video"][0]
+        bits = [f"mode {vc.mode} ({' + '.join(MODE_LAYERS[vc.mode])})"]
+        if vc.bg3_priority:
+            bits.append("bg3 priority")
+        if vc.tiles16:
+            bits.append("16x16: " + ",".join(vc.tiles16))
+        lines.append(f"ES_VID_{up}_BGMODE = ${vo['bgmode']:02X}"
+                     f"    ; {'; '.join(bits)} <- {vwho}")
+    if vo["offset"]:
+        oc, owho = vo["offset"][0]
+        lines.append(f";   offset table: axis={oc.axis} layers="
+                     f"{','.join(oc.layers)} <- {owho}")
+        notes = {
+            "BG1": "bit 13 — this column's offset drives BG1",
+            "BG2": "bit 14 — ...drives BG2",
+            "MASK": "the vertical offset field: vScroll = word & $3FF",
+            "HMASK": "...horizontal: the layer keeps its own low 3 bits",
+            "VSEL": "mode 4 bit 15 — this word is a V offset, not an H one",
+        }
+        for k, v in vo["fields"].items():
+            lines.append(f"ES_OPT_{up}_{k} = ${v:04X}    ; {notes[k]}")
+    else:
+        lines.append(f"; ES_OPT_{up}_* absent — no [[claims.offset]] in this "
+                     f"scene: BG3 is an ordinary layer here (or absent from "
+                     f"the mode), not a per-column table")
+    lines.append("")
+    return lines
+
+
 def _edge_lines(edge_styles) -> list[str]:
     """The declared transition style, as symbols the ASM resolves against.
 
@@ -2115,6 +2549,7 @@ def emit(alloc: Allocation, out_dir: str | Path) -> list[Path]:
         if sm.channels or sm.dma_inits:
             lines += _channel_lines(sm.channels, sm.dma_inits)
         lines += _screen_blend_lines(sid, sm.screen_blend)
+        lines += _video_offset_lines(sid, sm.video_offset)
         lines += _init_contract_lines(sm.init_zero, sm.placements,
                                       "on scene entry")
         p_inc = out_dir / f"engine_state_{sid}.inc"
@@ -2197,6 +2632,24 @@ def emit(alloc: Allocation, out_dir: str | Path) -> list[Path]:
                            f"source={c.source} math={','.join(c.math)} "
                            f"clip={c.clip} prevent={c.prevent}  {who}")
             for w in sb["warnings"]:
+                rep.append(f"    WARNING: {w}")
+        # C6: the composed video mode and offset table, on the same terms.
+        vo = sm.video_offset
+        if vo is not None:
+            head = (f"BGMODE=${vo['bgmode']:02X}"
+                    if vo["bgmode"] is not None else "BGMODE undeclared")
+            rep.append(f"  VIDEO/OFFSET {head} "
+                       f"(owns {','.join(vo['registers'])})")
+            for c, who in vo["video"]:
+                rep.append(f"    mode {c.mode} "
+                           f"({' + '.join(MODE_LAYERS[c.mode])})"
+                           f"{' bg3-priority' if c.bg3_priority else ''}"
+                           f"{' 16x16:' + ','.join(c.tiles16) if c.tiles16 else ''}"
+                           f"  {who}")
+            for c, who in vo["offset"]:
+                rep.append(f"    offset-per-tile axis={c.axis} "
+                           f"layers={','.join(c.layers)}  {who}")
+            for w in vo["warnings"]:
                 rep.append(f"    WARNING: {w}")
         arm_total = sub.vblank_arm_cost * max(sm.vblank_transfers - 1, 0)
         rep.append(f"  VBLANK-DMA {sm.vblank_bytes}"
@@ -2326,7 +2779,23 @@ def emit(alloc: Allocation, out_dir: str | Path) -> list[Path]:
                                  "registers": list(
                                      sm.screen_blend["registers"]),
                                  "features": sm.screen_blend["features"]}}
-                            if sm.screen_blend is not None else {})}
+                            if sm.screen_blend is not None else {}),
+                         # C6, same contract: the composed BGMODE, the
+                         # offset table's declared shape and the field
+                         # constants emitted for it, so a test can assert a
+                         # ROM's mode and its per-column words against the
+                         # DECLARATION rather than re-typing either.
+                         **({"video_offset": {
+                                 "bgmode": sm.video_offset["bgmode"],
+                                 "mode": sm.video_offset["mode"],
+                                 "offset_axis": sm.video_offset["axis"],
+                                 "offset_layers":
+                                     sm.video_offset["layers"],
+                                 "fields": sm.video_offset["fields"],
+                                 "registers": list(
+                                     sm.video_offset["registers"]),
+                                 "features": sm.video_offset["features"]}}
+                            if sm.video_offset is not None else {})}
                    for sid, sm in alloc.scenes.items()},
     }
     p_json = out_dir / "symbol_map.json"
@@ -2399,6 +2868,23 @@ def main(argv=None) -> int:
               f"{warns} warning(s) in the report")
     else:
         print("screen/blend: nothing composed (no vocabulary claims in "
+              "this composition)")
+    # ...and the video/offset half, reported on the same terms and for the
+    # same reason: a run that examined nothing must read as having examined
+    # nothing. Live checks per scene: O1 needs two mode claims, O2 two offset
+    # claims, O3/O4/O6/O7 an offset claim, O8 a mode claim, and O5's register
+    # arm the synthesized ownership claim in the scene's union.
+    vos = [sm.video_offset for sm in alloc.scenes.values()
+           if sm.video_offset is not None]
+    if vos:
+        print(f"video/offset: {sum(vo['modes'] for vo in vos)} mode claim(s), "
+              f"{sum(vo['offsets'] for vo in vos)} offset table(s) composed "
+              f"across {len(vos)} scene(s), "
+              f"{sum(vo['checks'] for vo in vos)} refusal check(s) evaluated, "
+              f"{sum(len(vo['warnings']) for vo in vos)} warning(s) in the "
+              f"report")
+    else:
+        print("video/offset: nothing composed (no video or offset claims in "
               "this composition)")
     return 0
 
