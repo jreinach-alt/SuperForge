@@ -585,6 +585,35 @@ def test_no_column_is_displaced_on_the_title(tmp_path):
     assert len({crust_y(im, pal, c) for c in range(COLS)}) == 1
 
 
+def test_the_title_returns_with_bg3_a_layer_again(tmp_path):
+    """THE HYGIENE CLAIM, as a pixel equality.
+
+    `works` leaves BG3SC pointing at a page of 32 scroll words. A successor
+    that drew text without re-pointing it would render those words AS GLYPHS
+    — 64 bytes of vertical scroll positions, displayed as tile ids, in the
+    font. The discharge is `bg_text`'s: all four of its BG3 registers are in
+    `scene_writes` and the title's enter writes all four.
+
+    Asserted as PIXEL-IDENTICAL to the title before the works ever ran, which
+    is the only form of the claim that cannot pass on a picture that is merely
+    plausible. This is `blend_off`'s and `hz_flat`'s rule applied to a whole
+    layer's identity rather than to a port's value.
+    """
+    def title_frame(name, run_the_works):
+        with Machine(str(ROM)) as m:
+            m.advance(TITLE)
+            if run_the_works:
+                m.advance(1, pad1=JOY_START)
+                m.advance(SETTLE)
+                m.advance(1, pad1=JOY_START)
+                m.advance(SETTLE)
+            p = tmp_path / name
+            m.screenshot(str(p))
+        return Image.open(p).convert("RGB").tobytes()
+
+    assert title_frame("first.png", False) == title_frame("back.png", True)
+
+
 # ==========================================================================
 # the refusals — against THIS TREE'S features, quoted verbatim
 # ==========================================================================

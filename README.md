@@ -229,9 +229,24 @@ already moving. Watch the sky and the ridge above the band — they do not move
 at all, which is what makes it read as heat rather than as a broken picture.
 
 
+### `smelter`
+
+![smelter — steel plates rising over molten metal, column by column](docs/img/gif_smelter.gif)
+
+A foundry floor, and every eight-pixel column of it scrolls on its own. Four
+steel plates hang over a cavern of molten metal and each rises and falls to its
+own beat, so no two are ever in step; between them the melt lifts straight out
+of its own surface in arches — a broad one where the gap is wide, a single
+lifted column where it is narrow, and one lone column of metal standing at the
+right-hand edge. Under the plates the melt is calm. Nothing here is a
+scanline effect and nothing here is animation frames: the whole picture is bent
+by a **third background layer the hardware reads as data instead of drawing**,
+one number per column, refreshed once a frame. Watch two neighbouring columns
+of the melt — one can be forty pixels up while the other has not moved.
+
 ---
 
-The other 28 games are in `game/` — among them `microzero`, the smallest
+The other 29 games are in `game/` — among them `microzero`, the smallest
 complete game and the gate the whole architecture was bet on: title → a
 single-track time-trial race → results → title, one 524,288-byte ROM, globals
 surviving the scene edges and scene bytes reused across them. The `gates:` block

@@ -32,13 +32,25 @@ narrower: **the two ends are ONE FRAME**, because each take is cut on the
 EFFECT'S OWN ANIMATION PERIOD. `heathaze`'s picture is a pure function of
 `ES_HZ_PHASE` and comes back to the frame it opened on 57 captures later, and
 again at 114; `lakeside`'s is a pure function of `ES_WAT_SCROLL` and comes back
-after 128. Both intervals were
+after 128; `smelter`'s is a pure function of `ES_SMT_PHASE` and comes back
+after 57. All three intervals were
 measured the same way rather than derived — drive the recorder's own 3-frame
 grid, compare decoded frames byte for byte, take the first index that repeats
 capture 0 — and both hold at the strongest available reading: **0 differing
 pixels of 61,184**, on the RAW captures before quantisation AND on the frames
-decoded back out of the written GIF. On these two the metric is agreeing with
+decoded back out of the written GIF. On these three the metric is agreeing with
 a picture, not with a palette.
+
+`smelter` adds one thing the other two did not have to state: **a return of the
+ANIMATION'S OWN COUNTER is not automatically a return of the picture.** Its
+phase advances 0.375 a frame through `TS_STEP`, which publishes whole units and
+carries the rest, so 57 captures is 64.125 phases — the loop plus an eighth the
+accumulator is still holding. Measured over 384 captures from its own anchor:
+the phase returns at 57, 114, 171 and 228, and the frames pixel-identical to
+the opening one are 57, 170, 227 and 284. The eighth tips a whole phase at
+irregular multiples, so 114 is one phase out and the others are not. The drive
+still closes on the PHASE — that is the ROM's own account of where the
+animation is — and which return it closes on is what the measurement decided.
 
 Those two used to reach 0.00 by returning to the TITLE, which was the same
 statement about a different edge: the composed state is per scene, so the title
@@ -74,6 +86,7 @@ tuning against the palette.
 | `racer` | a mark on the home straight — a flying lap comes back to it at the cap, and the grid is held until the clock puts both ends of the lap on one day-night keyframe | 2.48 | 3.0% | 92.8 | 92.7 | 448,539 |
 | `split_h_2p_demo` | the seeded camera pose — camera 1 back on heading 0, which on this build brings both cameras' positions and all four 8.8 fractions with it | 2.89 | 1.9% | 107.5 | 107.1 | 1,260,283 |
 | `lakeside` | **three surf cycles** — the take closes where the surface has drifted 384 px, the first whole number of the picture's own 128 px period to land on the 3-frame capture grid | 0.00 | 0.0% | 120.9 | 120.9 | 352,681 |
+| `smelter` | **one phase loop** — the take closes where `ES_SMT_PHASE` has come back to the value it opened on, 57 captures later, which is 64 phases and therefore ONE COMPLETE TURN of every plate's harmonic and every jet's at once. Nothing else is in it: the flat control was cut for `heathaze`'s reason | 0.00 | 0.0% | 51.6 | 51.6 | 203,614 |
 | `heathaze` | **two phase loops** — the take closes where `ES_HZ_PHASE` has come back twice to the value it opened on, 57 captures apart. Nothing else is in it: the flat control was cut because a second of frozen picture reads as the effect breaking, not as a control | 0.00 | 0.0% | 135.1 | 135.1 | 149,761 |
 
 ## Where the residuals come from
