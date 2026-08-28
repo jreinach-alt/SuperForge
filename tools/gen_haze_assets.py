@@ -474,6 +474,56 @@ def _perspective_u(y):
     return HZ_FALLOFF * math.log(1.0 + (y - HZ_PEAK_Y + HZ_FALLOFF) / HZ_FALLOFF)
 
 
+# =============================================================================
+# THE HORIZON STRIP MAY COMPRESS, NEVER STRETCH
+# =============================================================================
+# A per-scanline VOFS makes scanline y show source row y + d(y), so the
+# apparent VERTICAL SCALE at y is set by the DERIVATIVE: source rows advance by
+# 1 + d'(y) per screen row. d' > 0 compresses the picture there; d' < 0
+# stretches it; d' = -1 repeats a row outright.
+#
+# The bright strip at the horizon is eight source rows of the picture's
+# lightest colours, and wherever the wave is locally falling across it the
+# strip is drawn TALLER than it is. A shimmering horizon line reads as heat; a
+# horizon line that swells to twice its height reads as a bug, and it broke the
+# illusion badly enough to be the one defect left in the effect.
+#
+# THIS IS ALSO WHAT THE PHYSICS SAYS. An inferior mirage compresses the image
+# near the horizon and keeps compressing it — distant objects squash down and
+# sink INTO the mirage line, which is why the far end of a hot road appears to
+# end in water rather than in a stretched smear. The refraction there is
+# one-signed, not an oscillation. So the constraint is not a cheat applied to
+# make a picture behave; it is the behaviour the picture should have had.
+#
+# THE RISE HAS TO GO SOMEWHERE. Forcing d' >= 0 across the window raises d by
+# the sum of the slopes it clipped, and that offset would be a hard seam if it
+# simply stopped at the window's edge. It is tapered back to zero over the rows
+# BELOW, where stretching is exactly what the ground should do anyway.
+#
+# In band-line coordinates, the strip is screen y 111..118 (source rows
+# 110..117 through the -1 VOFS): map row 13's last two rows, which are the hot
+# colour, and map row 14's first six. The window is a little wider on each side
+# so an edge of the strip cannot sit on the boundary.
+HZ_PROTECT_LO = 8            # screen y 108
+HZ_PROTECT_HI = 22           # screen y 122
+HZ_TAPER_LINES = 14          # rows below over which the offset returns to zero
+
+
+def _protect_horizon(d):
+    """Clip every stretching slope inside the window; taper the rise below."""
+    out = list(d)
+    for i in range(HZ_PROTECT_LO + 1, HZ_PROTECT_HI + 1):
+        if out[i] < out[i - 1]:
+            out[i] = out[i - 1]              # no stretch: d' >= 0
+    rise = out[HZ_PROTECT_HI] - d[HZ_PROTECT_HI]
+    for k in range(1, HZ_TAPER_LINES + 1):
+        i = HZ_PROTECT_HI + k
+        if i >= len(out):
+            break
+        out[i] = d[i] + int(round(rise * (1.0 - k / (HZ_TAPER_LINES + 1))))
+    return out
+
+
 def displacement(line, phase):
     """Whole-pixel BG1VOFS offset for one band line in one phase."""
     u = _perspective_u(HZ_BAND_TOP + line)
@@ -489,13 +539,29 @@ def vofs_pair(value):
     return bytes((v & 0xFF, (v >> 8) & 0x03))
 
 
+def phase_column(phase):
+    """The whole band's displacement for one phase, horizon-protected.
+
+    The property is ASSERTED here rather than trusted: every slope inside the
+    window is non-negative, so the strip can only ever be drawn shorter than
+    it is, never taller.
+    """
+    d = _protect_horizon([displacement(l, phase) for l in range(HZ_BAND_LINES)])
+    for i in range(HZ_PROTECT_LO, HZ_PROTECT_HI):
+        assert d[i + 1] >= d[i], (
+            f"phase {phase}: band line {i}->{i+1} has slope "
+            f"{d[i+1] - d[i]}, which STRETCHES the horizon strip")
+    return d
+
+
 def warp_phase(phase):
     """One 256 B phase blob."""
+    d = phase_column(phase)
     out = bytearray()
     out += bytes((HZ_BAND_TOP,)) + vofs_pair(HZ_BASE_VOFS)      # head skip
     out += bytes((0x80 | HZ_BAND_LINES,))                       # repeat entry
     for line in range(HZ_BAND_LINES):
-        out += vofs_pair(HZ_BASE_VOFS + displacement(line, phase))
+        out += vofs_pair(HZ_BASE_VOFS + d[line])
     out += bytes((0x00,))                                       # terminator
     assert len(out) <= HZ_PHASE_STRIDE, f"phase {phase}: {len(out)} B overruns"
     return bytes(out) + bytes(HZ_PHASE_STRIDE - len(out))
@@ -676,6 +742,8 @@ HZ_PHASE_SHIFT   = {shift}      ; stride 256 -> a blob is (index << 8)
 HZ_BAND_TOP      = {band_top}   ; first distorted scanline
 HZ_BAND_LINES    = {band_lines} ; how many the repeat entry covers
 HZ_TILE_COUNT    = {tiles}
+HZ_PROTECT_LO    = {plo}    ; the horizon window: compression only
+HZ_PROTECT_HI    = {phi}
 """
 
 
@@ -700,7 +768,8 @@ def main(argv):
     (out / "hz_art.inc").write_text(ART_INC.format(
         phases=HZ_PHASES, flat=HZ_FLAT_INDEX, blobs=HZ_PHASES + 1,
         shift=8, band_top=HZ_BAND_TOP,
-        band_lines=HZ_BAND_LINES, tiles=len(HZ_TILES)))
+        band_lines=HZ_BAND_LINES, tiles=len(HZ_TILES),
+        plo=HZ_PROTECT_LO, phi=HZ_PROTECT_HI))
 
     print(f"hz_chr.bin   {len(chr_blob):6d} B  ({len(HZ_TILES)} tiles)")
     print(f"hz_map.bin     2048 B  (32x32 words)")

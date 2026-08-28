@@ -89,6 +89,11 @@ def _art():
 
 
 ART = _art()
+
+
+def _art_const(name):
+    """One GENERATED layout constant. Read, never retyped."""
+    return ART[name]
 STRIDE = 256
 PHASES = ART["HZ_PHASES"]
 FLAT_INDEX = ART["HZ_FLAT_INDEX"]
@@ -450,3 +455,84 @@ def test_the_title_returns_undisplaced():
         "the title is not what it was before the desert armed the warp "
         "channel — BG1HOFS came back with a displacement, which is exactly "
         "what composing `hz_flat` is for")
+
+
+# =============================================================================
+# the horizon strip may COMPRESS, never STRETCH
+# =============================================================================
+# A per-scanline VOFS sets the apparent vertical SCALE by its derivative:
+# source rows advance by 1 + d'(y) per screen row, so d' > 0 compresses and
+# d' < 0 stretches. The horizon strip is the picture's brightest band, and
+# where the wave fell across it the strip was drawn up to 5 rows tall against
+# a true height of 3 — a shimmering horizon reads as heat, a swelling one
+# reads as a bug.
+#
+# TWO CASES, AND THE SECOND IS THE ONE THAT MATTERS. The first asserts the
+# MECHANISM out of the ROM's own table; the second asserts what a person
+# actually sees. AGENTS.md's rule about spec-defined indirect evidence is the
+# reason both exist: a table with the right slopes is the implementation, and
+# an implementation can be right about the wrong invariant. What was asked for
+# is "that region only gets shorter", so that is asserted directly, in pixels,
+# against the flat control.
+
+HORIZON_LO, HORIZON_HI = _art_const("HZ_PROTECT_LO"), _art_const("HZ_PROTECT_HI")
+
+
+def test_no_phase_stretches_the_horizon_strip(warp):
+    """Every slope inside the protected window is non-negative, in the ROM."""
+    bad = []
+    for n in range(PHASES):
+        d = warp["v"][n]
+        for i in range(HORIZON_LO, HORIZON_HI):
+            if d[i + 1] < d[i]:
+                bad.append((n, i, d[i + 1] - d[i]))
+    assert not bad, (
+        f"{len(bad)} slope(s) inside the horizon window stretch the picture; "
+        f"first three: {bad[:3]} (phase, band line, slope). A negative slope "
+        f"there draws the strip TALLER than it is")
+
+
+def _hot_rows(shot, top, hot):
+    """Scanlines that are mostly the horizon's hot colour."""
+    return sum(1 for y in range(top + 95, top + 140)
+               if sum(1 for x in range(256) if shot[y][x] == hot) > 128)
+
+
+def test_the_horizon_strip_never_renders_taller_than_it_is():
+    """The user-visible invariant, in pixels, against the flat control.
+
+    THE CLAIM IS AN INEQUALITY, not an equality: the strip is allowed — and
+    meant — to compress, so a hazed frame may show FEWER hot rows than the
+    control. What it may never show is more. Driven across a spread of phases
+    rather than one, because the defect only appeared where the wave happened
+    to be falling.
+    """
+    with Machine(str(ROM)) as m:
+        _to_desert(m)
+        cg = m.read_bytes(MemoryType.SnesCgRam, 0, 32)
+        hazed = []
+        for _ in range(12):
+            hazed.append(_frame(m))
+            m.advance(9)
+        m.advance(1, pad1={"b": True})
+        m.advance(SHOW)
+        flat = _frame(m)
+
+    word = cg[12] | (cg[13] << 8)                  # palette index 6 = HAZE_LINE
+    hot = tuple(((word >> s) & 31) << 3 | ((word >> s) & 31) >> 2
+                for s in (0, 5, 10))
+    top = _picture_top(flat)
+    true_h = _hot_rows(flat, top, hot)
+    assert true_h >= 2, (
+        f"the flat control shows {true_h} hot row(s) — the strip is not being "
+        f"found, so this case would pass on nothing")
+
+    seen = [_hot_rows(f, top, hot) for f in hazed]
+    assert max(seen) <= true_h, (
+        f"the horizon strip renders up to {max(seen)} rows tall against a true "
+        f"height of {true_h}: heights {seen}. The protected window is letting "
+        f"a stretching slope through")
+    assert min(seen) < true_h, (
+        f"the strip never compresses at all ({seen}) — the window has been "
+        f"flattened rather than constrained, and the horizon has dropped out "
+        f"of the effect instead of only shrinking in it")
