@@ -36,11 +36,12 @@
 # different BG1VOFS per scanline through HDMA, at no CPU cost during active
 # display — so this rail draws the DISPLACEMENT instead of the distortion.
 #
-# ONE WRITE A FRAME. hz_rom holds 32 complete phases at a 256 B stride, so a
-# phase's address is HZ_WARP + (index << 8) and advancing the animation is a
-# single 8-bit store to the channel's A1T high byte. Rebuilding the table
-# instead is priced by platformer_bg at ~16 cycles an entry — ~1,700 CPU
-# cycles a frame over this band, out of the ~28-37k a whole frame gets.
+# ONE WRITE A CHANNEL, A FRAME. hz_rom holds 64 complete phases and a flat
+# control at a 256 B stride, so a phase's address is HZ_WARP + (index << 8)
+# and advancing the animation is a single 8-bit store to a channel's A1T high
+# byte — two stores a frame, one per axis. Rebuilding the table instead is
+# priced by platformer_bg at ~16 cycles an entry — ~2,000 CPU cycles a frame
+# over this 124-line band, per channel, out of the ~28-37k a whole frame gets.
 #
 # =============================================================================
 # TRANSITION HYGIENE, ON A REGISTER THAT IS NOT THE BLENDER
@@ -50,7 +51,7 @@
 # nothing carries it across an edge. BG1VOFS is in exactly the same position
 # here: `haze` drives it per scanline, so at the end of the scene the port
 # holds whatever the last scanline of the last armed frame left in it — up to
-# six pixels of arbitrary displacement. A successor that composes no BG1VOFS
+# four pixels of arbitrary displacement, measured off the shipped table. A successor that composes no BG1VOFS
 # claimant writes nothing and inherits it.
 #
 # So `title` composes `hz_flat`, whose whole content is that port's flat base,
@@ -83,8 +84,11 @@
 # displacement can only be recovered through a mask decoded out of VRAM — and
 # near the bottom of the band, where the glare was densest, that recovery is
 # not reliable enough to assert a per-row equality on. The test carried two
-# FLOORS instead: 62 decidable rows, 81% exact. With one layer it is 91
-# decidable rows, 98% exact, and every row accounted for individually.
+# FLOORS instead: 62 decidable rows, 81% exact. With one moving layer the
+# floors are deleted rather than left as dead tolerance: 130 decidable rows,
+# 121 of them showing exactly the byte the ROM holds for that scanline and
+# every one of the rest an immediately adjacent entry — a one-line ambiguity
+# about WHICH byte, never about the value.
 #
 # A second layer does not just cost VRAM and a channel. It costs the ability
 # to make an exact statement about the first one.

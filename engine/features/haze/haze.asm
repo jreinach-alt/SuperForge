@@ -9,8 +9,8 @@
 ;
 ; The alternative is rebuilding the table every frame. platformer_bg prices
 ; that shape at ~16 cycles an entry (platformer_bg.asm:386); over this rail's
-; 104-line band that is ~1,700 CPU cycles a frame out of the ~28-37k a whole
-; frame gets, spent re-deriving a picture that is already in ROM.
+; 124-line band that is ~2,000 CPU cycles a frame, per channel, out of the
+; ~28-37k a whole frame gets, spent re-deriving a picture already in ROM.
 ;
 ; WHAT IS NOT HERE: no haze TILES. The distortion is a table, not artwork —
 ; feature.toml and game.toml both say why at length. The art this bends is
@@ -28,7 +28,7 @@
 ; hook reaches the hardware on the same frame.
 HZ_SLOT = ES_SM_HDMA_LONG + ES_H_HZWARP_CH * 16
 
-; The 32 phases must not straddle a bank: HDMA increments A1T within a bank and
+; The 65 blobs must not straddle a bank: HDMA increments A1T within a bank and
 ; does not carry into A1B. The blob is one contiguous claim, so this is a
 ; property of where the allocator placed it, and it is asserted rather than
 ; assumed.

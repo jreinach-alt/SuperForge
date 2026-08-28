@@ -1,20 +1,21 @@
-# hz_rom — the heathaze rail's immutable blobs: a desert world, and 32 resident
-# phases of the displacement that bends it.
+# hz_rom — the heathaze rail's immutable blobs: a desert world, and 64 resident
+# phases of the displacement that bends it, on each of two axes.
 #
 # THE WARP BLOB IS THE BIGGEST THING HERE AND IT IS WHAT BUYS THE EFFECT.
 # The alternative to holding every phase resident is composing the band's
 # HDMA table at run time. platformer_bg prices that shape at ~16 cycles an
-# entry (platformer_bg.asm:386); over a 104-line band that is ~1,700 CPU
-# cycles a frame out of the ~28-37k a whole frame gets, every frame, forever.
-# Holding all 32 phases costs 8 KB of the one budget with room to spare and
-# reduces the per-frame work to choosing WHICH phase the channel reads.
-# `water`'s surf reached the same answer at 16 KB; this is that pattern at a
-# quarter the size.
+# entry (platformer_bg.asm:386); over this rail's 124-line band that is
+# ~2,000 CPU cycles a frame out of the ~28-37k a whole frame gets, every
+# frame, forever, and TWICE that with the horizontal term beside it. Holding
+# all 65 blobs costs 16,640 B of the one budget with room to spare and reduces
+# the per-frame work to choosing WHICH phase each channel reads. `water`'s
+# surf reached the same answer at 16,384 B; this is that pattern twice over,
+# once per axis.
 #
 # AND THE STRIDE IS WHY IT IS ONE WRITE. 256 B per phase means a phase's
 # address is HZ_WARP + (index << 8) — low byte always zero — so selecting a
 # phase is a single 8-bit store to the channel's A1T high byte. The slack
-# (213 B used of 256) is bought deliberately.
+# (253 B used of 256, measured off the shipped blob) is bought deliberately.
 name = "hz_rom"
 role = "feature"
 
@@ -44,11 +45,11 @@ bytes = 16640            # 65 x 256 B, matching the vertical table
 name = "hz_warp"
 bytes = 16640            # 65 x 256 B. Each blob is a complete HDMA table for
                          # the frame: a head-skip entry holding the base
-                         # scroll over lines 0..119, a repeat entry covering
-                         # the 104-line band one scanline at a time, and a
+                         # scroll over lines 0..99, a repeat entry covering
+                         # the 124-line band one scanline at a time, and a
                          # terminator.
                          #
-                         # SIXTY-FOUR PHASES AND ONE CONTROL. The 33rd blob is
+                         # SIXTY-FOUR PHASES AND ONE CONTROL. The 65th blob is
                          # the same table with every displacement zero — the
                          # "before distortion" half of the pair, from the same
                          # binary, differing from the live case in the TABLE

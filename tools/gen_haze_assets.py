@@ -8,7 +8,7 @@ TWO KINDS OF OUTPUT, and the second is the point of the rail.
                strip, and a desert floor with a road receding to it. Ordinary
                4bpp tiles, palette group 0.
 
-  the WARP     `hz_warp.bin` — 32 complete phases of a per-scanline BG1VOFS
+  the WARP     `hz_warp.bin` — 64 complete phases of a per-scanline BG1VOFS
                displacement, each 256 B, ready for an HDMA channel to read
                straight out of ROM.
 
@@ -33,11 +33,12 @@ whole layer for free — a different BG1HOFS per scanline, delivered by HDMA —
 so what this file draws is the DISPLACEMENT, once, in every phase it will ever
 need.
 
-WHY 32 RESIDENT PHASES RATHER THAN A REBUILD. platformer_bg prices a
+WHY 64 RESIDENT PHASES RATHER THAN A REBUILD. platformer_bg prices a
 per-scanline table fill at ~16 cycles an entry (platformer_bg.asm:386), which
-over this band is ~1,700 CPU cycles a frame out of ~28-37k. Holding every
-phase in ROM instead costs 8 KB of the one budget with room to spare and
-reduces the per-frame work to choosing which phase the channel reads. That is
+over this 124-line band is ~2,000 CPU cycles a frame, per channel, out of
+~28-37k. Holding every phase in ROM instead costs 16,640 B per axis of the
+one budget with room to spare and reduces the per-frame work to choosing which
+phase each channel reads. That is
 water's surf pattern (water/feature.toml, "the phases are all in ROM already,
 and what moves is which 512 of them the slots are showing"), and the stride is
 256 so choosing a phase is a single 8-bit write to the channel's A1T high
@@ -371,22 +372,22 @@ def map_words():
     return [HZ_T[cell(min(row, 27), col)]
             for row in range(HZ_ROWS) for col in range(HZ_COLS)]
 # =============================================================================
-# THE WARP TABLE — 32 phases of a per-scanline BG1VOFS displacement
+# THE WARP TABLE — 64 phases of a per-scanline BG1VOFS displacement
 # =============================================================================
 # ONE PHASE, byte for byte, as the HDMA channel walks it:
 #
 #   [top, lo, hi]        a NON-REPEAT entry: write the pair once at scanline 0
-#                        and idle for 119 more. The value is the scene's own
-#                        base scroll, so lines 0..119 — sky, ridge, horizon —
+#                        and idle for 99 more. The value is the scene's own
+#                        base scroll, so lines 0..99 — sky, ridge, horizon —
 #                        are exactly where the scene put them. This is the
 #                        head-skip a channel needs because HDMA always starts
 #                        at line 0, and it restates the seed rather than
 #                        inventing a value (shg_cam's seed claim is the same
 #                        shape from the other side).
-#   [$80|104]            REPEAT: a new 2-byte unit every scanline for 104
+#   [$80|124]            REPEAT: a new 2-byte unit every scanline for 124
 #                        lines, which is what makes the band per-scanline
 #                        rather than banded.
-#   [lo, hi] x 104       the displacement, one pair per scanline of the band.
+#   [lo, hi] x 124       the displacement, one pair per scanline of the band.
 #   [$00]                terminator.
 #
 # Mode 2 is one register written TWICE per transfer, which is exactly what a
@@ -395,8 +396,8 @@ def map_words():
 #
 # THE STRIDE IS 256 AND THAT IS A DESIGN CHOICE, not a rounding. A phase's
 # address is HZ_WARP + (phase << 8), so its low byte is always zero and
-# selecting a phase is ONE 8-bit write to the channel's A1T high byte. 213
-# bytes are used and 43 are slack; the slack buys the cheapest possible
+# selecting a phase is ONE 8-bit write to the channel's A1T high byte. 253
+# bytes are used and 3 are slack; the slack buys the cheapest possible
 # per-frame cost.
 # SIXTY-FOUR PHASES, AND THE COUNT IS HOW THIS RAIL GOES SLOWER.
 #
@@ -463,7 +464,7 @@ HZ_FALLOFF = 40.0
 HZ_RISE_LINES = HZ_PEAK_Y - HZ_BAND_TOP
 
 # Two components, so the shimmer does not read as one clean sine. The second
-# is shorter and travels at twice the rate; both wrap on the 32-phase loop
+# is shorter and travels at twice the rate; both wrap on the 64-phase loop
 # (p/32 and 2p/32 are both whole cycles at p = 32), so the animation closes.
 HZ_LAMBDA_1, HZ_LAMBDA_2 = 28.0, 11.0
 HZ_MIX_1, HZ_MIX_2 = 0.70, 0.30
@@ -645,7 +646,7 @@ def warp_table():
 # It would also not FIT. Mode 3 is 4 bytes a scanline, so a blob goes 253 to
 # 502 and the stride doubles to 512; 65 blobs is 33,280 B against a 32,768 B
 # bank window, and HDMA cannot cross a bank. Mode 3 would mean falling back to
-# 32 phases and undoing the smoothness the doubled count just bought.
+# 64 phases and undoing the smoothness the doubled count just bought.
 
 # A QUARTER of the vertical peak. "Slight" is the whole brief: the horizontal
 # term is there to break up the vertical one, and at 2 px it is felt more than

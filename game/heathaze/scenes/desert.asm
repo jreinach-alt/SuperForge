@@ -17,7 +17,7 @@
 ; after heat haze" pair, on one binary, in one scene, with nothing else
 ; different between them.
 ;
-; FLAT IS A TABLE, NOT A DISARM. hz_rom's 33rd blob is a complete HDMA table
+; FLAT IS A TABLE, NOT A DISARM. hz_rom's 65th blob is a complete HDMA table
 ; whose every displacement is zero, so the channel stays armed and identically
 ; configured in both states and exactly one variable moves. Disarming the
 ; channel would change two things at once, and a two-variable comparison
@@ -80,7 +80,7 @@ enter:
 ; TS_STEP IS EXPANDED ONCE, AT THE TOP, and its output is read by the one add
 ; that consumes it. The step is in WHOLE phases; the fraction it could not
 ; publish this frame is carried in the accumulator to the next, which is what
-; makes a PAL run advance the same shimmer through the same 32 phases in the
+; makes a PAL run advance the same shimmer through the same 64 phases in the
 ; same wall-clock time as an NTSC one.
 tick:
     .a16

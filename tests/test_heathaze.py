@@ -19,7 +19,7 @@ pixels. Nothing reads ES_HZ_PHASE to decide whether the picture is right — the
 phase is read only to know WHICH row of the oracle to join against, which is
 the map-as-subject/oracle distinction test_lakeside.py draws.
 
-THE CONTROL IS A TABLE, NOT A DISARM. B selects hz_rom's 33rd blob: the same
+THE CONTROL IS A TABLE, NOT A DISARM. B selects hz_rom's 65th blob: the same
 table with every displacement zero. The channel stays armed and identically
 configured, so exactly one variable moves between the two states and a
 difference between them is attributable to the table alone.
@@ -236,29 +236,6 @@ def _to_desert(m):
 # not a knob turned until the case passed.
 HDMA_LATCH_LINES = 1
 
-# WHY THIS CASE RESTS ON A FLOOR RATHER THAN ON EVERY ROW, and what that cost.
-#
-# In stage 1 BG1 was the only moving layer and the composite WAS a translation
-# of the control, so every decidable row could be asserted individually and
-# exactly. Stage 2 puts a second layer on the sub screen with its OWN channel
-# at its own phase: the frame is now two layers displaced by two amounts and
-# no single shift describes it. BG1's own displacement is still exactly what
-# the table says, but recovering it from the composite goes through a mask
-# decoded out of VRAM, and near the bottom of the band — where the shimmer is
-# densest — that recovery is not reliable enough to hang a per-row equality on.
-#
-# So the case asserts the FLOOR: of the rows where the measurement is possible
-# at all, at least EXACT_FLOOR of them show exactly the byte the ROM holds for
-# that scanline. Measured on the shipped binary at 67/74 (90%). This is a
-# weaker statement than stage 1's and the weakening is REAL — worth knowing
-# when choosing between the two stages, which is why it is written here rather
-# than smoothed over.
-#
-# THE STRONGER CLAIM ABOUT THE BLEND lives elsewhere and is not weakened:
-# test_every_band_pixel_is_a_legal_composite asserts membership over the whole
-# band, pixel by pixel, with no mask and no floor.
-#
-
 # ONE MOVING LAYER, SO THE COMPARISON IS EXACT AGAIN.
 #
 # This case carried two FLOORS while a second layer was on the sub screen:
@@ -272,10 +249,10 @@ HDMA_LATCH_LINES = 1
 # What remains is the one-scanline latch ambiguity, which is a question about
 # WHICH byte and never about the value: a row shows its own table entry or an
 # immediately adjacent one, and nothing else is accepted.
+# The rest sit inside their own line's neighbourhood — one entry either
+# side, which is the WIDTH OF THE AMBIGUITY and not a tolerance chosen to
+# pass.
 SCANLINE_LATCH_SLACK = 1
-SCANLINE_LATCH_SLACK = 1    # ...and the rest inside their own line's neighbourhood
-                            # — one entry either side, which is the width of the
-                            # ambiguity and not a tolerance chosen to pass
 
 
 # =============================================================================

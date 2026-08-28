@@ -9,8 +9,8 @@ JOY_B     = 1 << 15
 JOY_START = 1 << 12
 
 ; The shimmer's rate, in PHASES per frame, in the 8.8 unit TS_STEP takes.
-; $0060 is 0.375 phases/frame — the 32-phase loop closes in ~85 NTSC frames,
-; about 1.4 s, which is the cadence a heat shimmer actually has. Faster reads
+; $0060 is 0.375 phases/frame — the 64-phase loop closes in ~171 NTSC frames,
+; about 2.8 s, which is the cadence a heat shimmer actually has. Faster reads
 ; as vibration; slower stops reading as motion at all.
 ;
 ; ITS DIMENSION IS A VELOCITY, which is why one TS_STEP is the whole of the
@@ -20,20 +20,21 @@ JOY_START = 1 << 12
 ; There is no such number here.
 HZ_PHASE_BASE = $0060
 
-; HOW FAR AHEAD THE TURBULENT TERM RUNS, in phases of the 32-phase loop.
+; HOW FAR AHEAD THE TURBULENT TERM RUNS, in phases of the 64-phase loop.
 ;
-; THIS NUMBER IS THE EFFECT. Both HDMA channels read the same table; give them
-; the same phase and the glare rides the world like a decal stuck to it, which
-; reads as one flat layer wobbling. Give them different phases and the glare
-; slides ACROSS a surface that is itself moving — refraction, where the thing
-; doing the bending and the thing being bent do not travel together, which is
-; what the eye actually reads as hot air.
+; THIS NUMBER IS THE EFFECT. The two HDMA channels step the same phase counter;
+; give them the same phase and the horizontal term rides the vertical one like
+; a decal stuck to it, which reads as one flat layer wobbling. Give them
+; different phases and the sideways wobble slides ACROSS a surface that is
+; itself moving — refraction, where the thing doing the bending and the thing
+; being bent do not travel together, which is what the eye actually reads as
+; hot air.
 ;
-; 23 rather than 32: half a loop would put the two exactly out of phase and
-; the pair would beat symmetrically, which is its own kind of pattern. It is
+; 29 rather than 32: half a loop would put the two exactly out of phase and
+; the pair would beat symmetrically, which is its own kind of pattern. 29 is
 ; also coprime with 64, so the relative phase walks the WHOLE loop before
-; repeating — 22 would be the exact scaling of the 11 this carried at 32
-; phases, but 22 and 64 share a factor of two and would close after half.
+; repeating — an even lead would share a factor of two with 64 and close after
+; half of it.
 HZ_HORIZ_LEAD = 29
 
 ; BG3 2bpp tile attr: palette 7 (bg_text's claim pins CGRAM words 28..31),

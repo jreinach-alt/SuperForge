@@ -264,11 +264,11 @@ hz_strings:
 ; --- sm_nmi_hook: per-frame VBlank work -----------------------------------
 ; In: A8/I16, DB=0 (from sm_nmi_core). May clobber A/X/Y.
 ;
-; ONE ENTRY, AND IT IS ONE STORE. The world does not scroll, the text is
-; written once per scene under forced blank, and the warp table is already in
+; ONE ENTRY, AND IT IS TWO STORES. The world does not scroll, the text is
+; written once per scene under forced blank, and the warp tables are already in
 ; ROM — so the only thing that has to reach the hardware every frame is WHICH
-; of the 32 resident phases the channel reads. `hz_nmi_commit` writes the
-; channel's A1T high byte into scene_mgr's HDMA shadow, and sm_nmi_core MVNs
+; of the 64 resident phases each channel reads. `hz_nmi_commit` writes both
+; channels' A1T high bytes into scene_mgr's HDMA shadow, and sm_nmi_core MVNs
 ; that block to $4300 after this hook returns (scene_mgr.asm:407 then :415),
 ; so the write lands on the same frame.
 ;

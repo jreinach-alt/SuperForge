@@ -36,8 +36,8 @@
 # HZ_WARP + (index << 8) — low byte always zero — so advancing the animation
 # is ONE 8-bit store to the channel's A1T high byte in the VBlank hook. The
 # alternative, rebuilding the table per frame, is priced by platformer_bg at
-# ~16 cycles an entry (platformer_bg.asm:386): ~1,700 CPU cycles a frame over
-# this band, every frame, for a picture that is already in ROM.
+# ~16 cycles an entry (platformer_bg.asm:386): ~2,000 CPU cycles a frame over
+# this 124-line band, per channel, every frame, for a picture already in ROM.
 #
 # THE RAMP IS BAKED IN AND THE PHASES SCROLL THROUGH IT. Amplitude is a
 # function of SCREEN y — zero at the horizon, widest at the viewer's feet.
@@ -74,7 +74,7 @@ depends = ["hz_rom"]
 # source.
 #
 # `band` is the declared truth about WHERE the port is driven per scanline.
-# The table's leading non-repeat entry covers lines 0..119 by restating the
+# The table's leading non-repeat entry covers lines 0..99 by restating the
 # seed value, which is the head-skip an HDMA channel needs because HDMA always
 # begins at line 0 — it holds the base, it does not distort.
 [[claims.hdma]]
