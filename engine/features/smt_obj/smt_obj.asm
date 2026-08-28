@@ -91,6 +91,12 @@ SMT_KN_AIRBORNE = $FFFF
 smt_kn_plate_x:
     .word SMT_PLAT_0_COL * 8, SMT_PLAT_1_COL * 8
     .word SMT_PLAT_2_COL * 8, SMT_PLAT_3_COL * 8
+    .word SMT_PLAT_4_COL * 8, SMT_PLAT_5_COL * 8
+    .word SMT_PLAT_6_COL * 8, SMT_PLAT_7_COL * 8
+    .word SMT_PLAT_8_COL * 8, SMT_PLAT_9_COL * 8
+    .word SMT_PLAT_10_COL * 8, SMT_PLAT_11_COL * 8
+    .word SMT_PLAT_12_COL * 8, SMT_PLAT_13_COL * 8
+    .word SMT_PLAT_14_COL * 8, SMT_PLAT_15_COL * 8
 .segment "CODE"
 
 ; --- smt_kn_arm: CHR, palette, OBSEL, and the spawn (scene enter) -----------
@@ -247,9 +253,9 @@ smt_kn_tick:
     lda z:ES_SMT_KN_X
     clc
     adc z:US_TSKR
-    cmp #(SMT_SCREEN_W - SMT_KN_BOX + 1)
+    cmp #(SMT_WORLD_W - SMT_KN_BOX + 1)
     bcc :+
-    lda #(SMT_SCREEN_W - SMT_KN_BOX)    ; ...and at the right one
+    lda #(SMT_WORLD_W - SMT_KN_BOX)     ; ...and at the WORLD's right edge
 :   .a16
     .i16
     sta z:ES_SMT_KN_X
@@ -411,6 +417,48 @@ smt_kn_land:
     bcc @plate
     rts
 
+; --- smt_kn_camera: put the camera where the knight is ----------------------
+; CONTRACT smt_kn_camera
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       ES_SMT_KN_X — his world X
+;   out:      ES_SMT_CAM — the camera's world X, clamped to the world
+;   clobbers: A, N, Z, C
+;   assumes:  main thread, after smt_kn_tick and BEFORE smt_kn_draw, which
+;             subtracts it
+;   tail:     rts
+;
+; DEAD CENTRE, AND CLAMPED AT BOTH ENDS. No dead zone and no easing: this rail
+; is a demonstration before it is a game, and a camera that lags its subject
+; would put the knight at a different screen column every frame, which is
+; exactly the variable a per-column assertion does not want. Centred, he is at
+; a known screen x whenever the clamps are not active, and a test can say so.
+;
+; THE RIGHT CLAMP IS THE TABLE'S, NOT THE WORLD'S. The transfer reads world
+; columns cam+1 .. cam+32, so the camera stops at SMT_CAM_COL_MAX columns —
+; one short of the row's end. Past that the read head would run off the row and
+; the rightmost columns would be displaced by whatever byte followed it.
+smt_kn_camera:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "smt_kn_camera"
+    lda z:ES_SMT_KN_X
+    clc
+    adc #(SMT_KN_BOX / 2)           ; ...his centre
+    sec
+    sbc #(SMT_SCREEN_W / 2)
+    bpl :+
+    lda #0                          ; ...the world's left edge
+:   .a16
+    .i16
+    cmp #(SMT_CAM_COL_MAX * 8 + 1)
+    bcc :+
+    lda #(SMT_CAM_COL_MAX * 8)      ; ...and the TABLE's right edge
+:   .a16
+    .i16
+    sta z:ES_SMT_CAM
+    rts
+
 ; --- smt_kn_draw: stage the knight into the OAM shadow ----------------------
 ; CONTRACT smt_kn_draw
 ;   entry:    A16 I16 DB=0
@@ -515,8 +563,16 @@ smt_kn_draw:
     sta a:SMT_KN_OAM + 3
     rep #$20
     .a16
-    ; ---- position ---------------------------------------------------------
+    ; ---- position: WORLD to SCREEN ----------------------------------------
+    ; His X is a world coordinate now and the OAM entry wants a screen one, so
+    ; the camera is subtracted here and nowhere else. Everything upstream — the
+    ; physics, the plate spans, the respawn — stays in world space, which is
+    ; the only frame of reference in which "he is standing on THAT plate" is a
+    ; sentence about the level rather than about the display.
     lda z:ES_SMT_KN_X
+    sec
+    sbc z:ES_SMT_CAM
+    sta z:ES_SMT_SCRATCH            ; ...kept for the X9 bit below
     sep #$20
     .a8
     sta a:SMT_KN_OAM + 0
@@ -530,9 +586,14 @@ smt_kn_draw:
     rep #$20
     .a16
     ; ---- the hi byte: X9 derived, and the 32x32 size bit ------------------
-    lda z:ES_SMT_KN_X
+    ; DERIVED FROM THE SCREEN X, not the world one. The world is four screens
+    ; wide, so the world X's bit 8 means nothing to the PPU; what the hardware
+    ; wants is bit 8 of where the sprite sits on THIS screen — which is how a
+    ; knight walking off the left edge stays off it instead of reappearing on
+    ; the right.
+    lda z:ES_SMT_SCRATCH
     xba
-    and #1                          ; bit 8 of X -> this sprite's X9
+    and #1                          ; bit 8 of the SCREEN x -> this sprite's X9
     ora #SMT_KN_SIZE_LARGE
     sep #$20
     .a8

@@ -190,6 +190,22 @@ smt_nmi_row:
     .repeat ::SMT_PHASE_SHIFT
     asl a                           ; ...the row's offset, in blob bytes
     .endrepeat
+    sta z:ES_SMT_NMI_SCRATCH + 4    ; ...the ROW's base, kept for column 0
+    ; ---- WHERE IN THE ROW: the camera, and the one-column lead -------------
+    ; The row is WORLD-space, so scrolling is an addition here and nothing
+    ; else. The transfer wants world columns cam+1 .. cam+32, because the word
+    ; at BG3 map column j displaces SCREEN column j+1 — the lead, measured on
+    ; this binary and now paid at the read head instead of baked into the blob.
+    lda z:ES_SMT_CAM
+    sta z:ES_SMT_CAM_SHOWN          ; ...the camera THIS frame is drawn from
+    .repeat 3
+    lsr a                           ; ...to a whole column
+    .endrepeat
+    sta z:ES_SMT_NMI_SCRATCH + 2    ; the camera's own column, for below
+    inc a                           ; ...+1: the fetch lead, paid here at the
+    asl a                           ;   read head rather than baked in the blob
+    clc
+    adc z:ES_SMT_NMI_SCRATCH + 4
     clc
     adc #.loword(smt_col_bin)       ; the blob fits one 32 KB window, so this
     sta a:SMT_ROW_REGS + 2          ;   16-bit add cannot leave the bank
@@ -197,6 +213,71 @@ smt_nmi_row:
     .a8
     lda #(1 << ES_H_SMT_VROW_CH)
     sta a:$420B                     ; MDMAEN: fire
+    ; ---- the two H ports: the camera itself --------------------------------
+    ; Write-twice latches, low byte then high. The table quantises to 8 px and
+    ; these do not, which is the whole reason the pair works: the read head
+    ; steps one word as the camera crosses each 8-px boundary and the layers
+    ; carry the sub-column remainder, so the two never disagree.
+    lda z:ES_SMT_CAM
+    sta a:$210D                     ; BG1HOFS, low
+    sta a:$210F                     ; BG2HOFS, low
+    xba
+    sta a:$210D                     ; BG1HOFS, high
+    sta a:$210F                     ; BG2HOFS, high
+    xba
+    ; ---- SCREEN COLUMN 0, WHICH THE HARDWARE CANNOT DISPLACE ---------------
+    ; The offset latches are cleared at the start of each scanline's fetch, so
+    ; the leftmost column always shows its layer's own BGnVOFS. On a static
+    ; screen that is one column at the fallback and the rail simply asserted
+    ; it. Under scrolling it would be a permanently WRONG column travelling
+    ; along the left edge — so the fallback register is made to carry that
+    ; column's own value. The hardware limit is not worked around; the port it
+    ; falls back to is loaded with the right answer.
+    ;
+    ; The word is read from the SAME ROW the transfer just moved, at the
+    ; camera's own column — which is why the blob no longer bakes the lead in.
+    ; One column drives one layer, and the other layer is either transparent
+    ; there (BG1 over a gap) or calm by construction (the melt under a plate),
+    ; so the one word settles both.
+    rep #$20
+    .a16
+    lda z:ES_SMT_NMI_SCRATCH + 2
+    asl a
+    clc
+    adc z:ES_SMT_NMI_SCRATCH + 4
+    tax
+    lda f:smt_col_bin, x
+    sta z:ES_SMT_NMI_SCRATCH
+    and #ES_OPT_WORKS_BG1
+    beq @col0_gap
+    lda z:ES_SMT_NMI_SCRATCH
+    and #ES_OPT_WORKS_MASK
+    sep #$20
+    .a8
+    sta a:$210E                     ; BG1VOFS, low
+    xba
+    sta a:$210E                     ; BG1VOFS, high
+    rep #$20
+    .a16
+    lda #SMT_VOFS_BG2               ; ...and the melt is calm under a plate
+    bra @col0_bg2
+@col0_gap:
+    .a16
+    .i16
+    lda z:ES_SMT_NMI_SCRATCH
+    and #ES_OPT_WORKS_MASK
+@col0_bg2:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    sta a:$2110                     ; BG2VOFS, low
+    xba
+    sta a:$2110                     ; BG2VOFS, high
+    rep #$20
+    .a16
+    sep #$20
+    .a8
     ; fall through — the same channel, re-armed, for the melt's CHR
 
 ; --- smt_nmi_melt: the melt's CHR, every armed VBlank -----------------------
@@ -340,7 +421,16 @@ smt_plate_top:
 ; geometry restated once, here, because the ASM needs it as data rather than
 ; as an equate — smt_art.inc carries the equates the assertion below checks it
 ; against.
+; SIXTEEN SLOTS NOW, in WORLD columns: BG1's map repeats every 32, so the four
+; drawn groups are plate art in every screen and the world's level design is
+; which word each of these columns carries.
 smt_plate_col:
     .word SMT_PLAT_0_COL * 2, SMT_PLAT_1_COL * 2
     .word SMT_PLAT_2_COL * 2, SMT_PLAT_3_COL * 2
+    .word SMT_PLAT_4_COL * 2, SMT_PLAT_5_COL * 2
+    .word SMT_PLAT_6_COL * 2, SMT_PLAT_7_COL * 2
+    .word SMT_PLAT_8_COL * 2, SMT_PLAT_9_COL * 2
+    .word SMT_PLAT_10_COL * 2, SMT_PLAT_11_COL * 2
+    .word SMT_PLAT_12_COL * 2, SMT_PLAT_13_COL * 2
+    .word SMT_PLAT_14_COL * 2, SMT_PLAT_15_COL * 2
 .segment "CODE"

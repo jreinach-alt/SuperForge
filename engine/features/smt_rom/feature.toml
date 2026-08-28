@@ -123,7 +123,7 @@ bytes = 1024             # 8 frames x 4 tiles x 32 B. The four are CONTIGUOUS
 
 [[claims.rom]]
 name = "smt_col"
-bytes = 4160             # 65 x 64 B. Each blob is a complete BG3 V-offset row
+bytes = 16640            # 65 x 256 B. Each blob is a complete BG3 V-offset row
                          # for one frame: 32 words, each one column's absolute
                          # vertical scroll plus the enable bit naming the layer
                          # it drives (bit 13 = BG1, bit 14 = BG2).

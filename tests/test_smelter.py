@@ -106,10 +106,26 @@ CRUST_PX = _art("SMT_CRUST_TOP_PX")
 PLAT_PX = _art("SMT_PLAT_TOP_PX")
 PLAT_BASE = _art("SMT_PLAT_BASE")
 MELT_BASE = _art("SMT_MELT_BASE")
-PLATES = [(_art(f"SMT_PLAT_{i}_COL"), 4) for i in range(_art("SMT_PLAT_COUNT"))]
+PLAT_WIDTH = _art("SMT_PLAT_WIDTH")
+WORLD_COLS = _art("SMT_WORLD_COLS")     # the words in one row of the table
+CAM_COL_MAX = _art("SMT_CAM_COL_MAX")
+SCREENS = _art("SMT_SCREENS")
+# The world's sixteen plate SLOTS, in WORLD columns. BG1's map repeats every
+# 32, so the four drawn groups are plate art in every screen and the level's
+# design is which word each of these carries.
+PLATES = [(_art(f"SMT_PLAT_{i}_COL"), PLAT_WIDTH)
+          for i in range(_art("SMT_PLAT_COUNT"))]
 
 DP_PHASE = _sym("ES_SMT_PHASE")["start"]
 DP_FLAT = _sym("ES_SMT_FLATSEL")["start"]
+DP_CAM = _sym("ES_SMT_CAM")["start"]
+# THE CAMERA THE FRAME WAS DRAWN FROM, published by the NMI at the moment it
+# uses it. `ES_SMT_CAM` is one frame ahead — the main thread moves it after the
+# transfer fires — and at the world's left edge the clamp hides the difference,
+# so a module that read the live word would have been right at the spawn and
+# wrong everywhere else. Measured exactly that way before this existed: an
+# alignment that explained every column at cam=0 explained none at cam=8.
+DP_CAM_SHOWN = _sym("ES_SMT_CAM_SHOWN")["start"]
 VRAM_TABLE = _sym("ES_V_SMT_TAB")["start"]          # in WORDS
 CG_PLATE = _sym("ES_C_SMT_PPAL")["start"]
 CG_MELT = _sym("ES_C_SMT_MPAL")["start"]
@@ -149,25 +165,44 @@ BLOB = _blob()
 
 
 def row(idx):
-    """One 32-word offset row, indexed by SCREEN column.
+    """One world row of the table, indexed by WORLD column.
 
-    THE ONE-COLUMN LEAD IS UNDONE HERE, once. The PPU fetches a column's
-    tilemap data before it fetches that column's offset words, so the word
-    written at table index k displaces screen column k + 1 — measured on this
-    binary (test_the_offset_leads_its_column_by_one). Screen column 0 has no
-    word at all: the latches are cleared at the start of each scanline's fetch.
-    Everything below this line is in screen columns.
+    NO SHIFT IS APPLIED HERE ANY MORE, and that is a change worth reading. The
+    PPU fetches a column's tilemap data before its offset words, so the word at
+    BG3 map column j displaces SCREEN column j + 1 — but the table is now
+    WORLD-space and the transfer applies the lead at its READ HEAD, starting
+    from world column cam + 1. The two shifts cancel: screen column sc shows
+    world column cam + sc and is displaced by THAT column's word, with no
+    special case anywhere, including at sc = 0.
+
+    Which is the second change. Screen column 0 used to have no word at all —
+    the offset latches are cleared at the start of each scanline's fetch, so it
+    fell back to its layer's BGnVOFS. Under scrolling that would be a
+    permanently wrong column travelling along the left edge, so the NMI now
+    loads those fallback registers with that column's own word out of the same
+    row it just transferred. The hardware limit is unchanged; what changed is
+    that the port it falls back to carries the right answer.
     """
     b = BLOB[idx * ROW_BYTES:(idx + 1) * ROW_BYTES]
-    words = [b[2 * c] | (b[2 * c + 1] << 8) for c in range(COLS)]
-    return [None] + words[:COLS - 1]
+    return [b[2 * c] | (b[2 * c + 1] << 8) for c in range(WORLD_COLS)]
 
 
-def plate_of(col):
+def visible(r, cam):
+    """The 32 words that explain this frame's screen columns, at this camera."""
+    c0 = cam >> 3
+    return [r[c0 + sc] for sc in range(COLS)]
+
+
+def plate_of(wcol):
+    """Which WORLD plate slot owns this world column, or None."""
     for i, (first, width) in enumerate(PLATES):
-        if first <= col < first + width:
+        if first <= wcol < first + width:
             return i
     return None
+
+
+def screen_plate_of(sc, cam):
+    return plate_of((cam >> 3) + sc)
 
 
 # --- the picture, read against CGRAM as the ROM left it ---------------------
@@ -257,8 +292,10 @@ def where(map_px, word_value):
 
 @pytest.fixture(scope="module")
 def frame(tmp_path_factory):
-    """One settled frame of the works scene: the picture, the palette, and
-    the phase the row it was drawn from was chosen by."""
+    """One settled frame of the works scene: the picture, the palette, the
+    phase the row it was drawn from was chosen by, and the CAMERA — which is
+    the second coordinate every equality now needs, because a screen column
+    only names a world column once you know where the camera is."""
     out = tmp_path_factory.mktemp("smt")
     with Machine(str(ROM)) as m:
         m.advance(TITLE)
@@ -266,12 +303,13 @@ def frame(tmp_path_factory):
         m.advance(SETTLE)
         pal = _palette(m)
         phase = m.read_u16(W, DP_PHASE)
+        cam = m.read_u16(W, DP_CAM_SHOWN)
         p = out / "works.png"
         m.screenshot(str(p))
-    return Image.open(p).convert("RGB"), pal, phase
+    return Image.open(p).convert("RGB"), pal, phase, cam
 
 
-def _fit(im, pal, phase):
+def _fit(im, pal, phase, cam):
     """Which row of the blob the picture was drawn from, by exact match.
 
     The NMI commits a row and the main thread advances the phase afterwards,
@@ -283,11 +321,11 @@ def _fit(im, pal, phase):
     scored = []
     for lag in range(3):
         idx = (phase - lag) % PHASES
-        r = row(idx)
+        vis = visible(row(idx), cam)
         bad = 0
-        for c in range(1, COLS):
-            w = r[c]
-            if w is None or not (w & BIT_BG2):
+        for c in range(COLS):
+            w = vis[c]
+            if not (w & BIT_BG2):
                 continue
             y = crust_y(im, pal, c)
             if y is None or y != where(CRUST_PX, w & VALUE_MASK):
@@ -301,23 +339,33 @@ def _fit(im, pal, phase):
 # the mechanism, measured
 # ==========================================================================
 
-def test_the_offset_leads_its_column_by_one(frame):
-    """MEASURED, NOT ASSUMED. In mode 2 the PPU runs GetTilemapData for BG2
-    and BG1 BEFORE GetHorizontalOffsetByte/GetVerticalOffsetByte inside a
-    column's eight-cycle group, so the words fetched with column index g are
-    latched in time for column g+1. This asserts the shift is exactly one and
-    that no other shift explains the picture at all — the maximum is sharp,
-    which is what makes it a measurement rather than a fitted tolerance.
+def test_the_world_column_under_a_screen_column_is_the_one_that_moves_it(frame):
+    """MEASURED, NOT ASSUMED — and the thing being measured moved.
+
+    In mode 2 the PPU runs GetTilemapData for BG2 and BG1 BEFORE
+    GetHorizontalOffsetByte/GetVerticalOffsetByte inside a column's eight-cycle
+    group, so the words fetched with index g are latched in time for column
+    g+1. The table used to be screen-space with that lead baked into the blob;
+    it is world-space now and the DMA applies the lead at its READ HEAD, from
+    world column cam+1. The two cancel exactly, and the claim this asserts is
+    the resulting one: **screen column sc is displaced by the word for world
+    column cam + sc**, with no offset in either direction.
+
+    Sharp on both sides — a shift of +/-1 must NOT explain the picture — which
+    is what makes it a measurement of the read head's alignment rather than a
+    fitted tolerance. Get it wrong by one and every column is displaced by its
+    neighbour's word, which is a picture that still moves and still looks like
+    a foundry.
     """
-    im, pal, phase = frame
-    scored = _fit(im, pal, phase)
-    _, lag, idx = scored[0]
+    im, pal, phase, cam = frame
+    _, lag, idx = _fit(im, pal, phase, cam)[0]
     base = row(idx)
+    c0 = cam >> 3
     for shift in (-1, 0, 1):
         bad = 0
         for c in range(1, COLS - 1):
-            w = base[c + shift] if 0 <= c + shift < COLS else None
-            if w is None or not (w & BIT_BG2):
+            w = base[c0 + c + shift]
+            if not (w & BIT_BG2):
                 continue
             y = crust_y(im, pal, c)
             if y is None or y != where(CRUST_PX, w & VALUE_MASK):
@@ -326,25 +374,26 @@ def test_the_offset_leads_its_column_by_one(frame):
             assert bad == 0, "the aligned row does not explain the picture"
         else:
             assert bad > 0, (
-                f"a shift of {shift:+d} explains the picture too — the "
-                f"one-column lead is not being measured, it is being assumed")
+                f"a shift of {shift:+d} explains the picture too — the read "
+                f"head's alignment is not being measured, it is being assumed")
 
 
 def test_every_melt_column_stands_where_its_word_says(frame):
     """THE HEADLINE EQUALITY. Not "the melt moves": every gap column's crust
     line is at exactly `map row - word - 1`, against the word the ROM holds
     for that column in the row the picture was drawn from."""
-    im, pal, phase = frame
-    bad, lag, idx = _fit(im, pal, phase)[0]
+    im, pal, phase, cam = frame
+    bad, lag, idx = _fit(im, pal, phase, cam)[0]
     assert bad == 0, f"row {idx} (lag {lag}) leaves {bad} column(s) unexplained"
-    r = row(idx)
+    vis = visible(row(idx), cam)
     checked = 0
-    for c in range(1, COLS):
-        w = r[c]
-        if w is None or not (w & BIT_BG2):
+    for c in range(COLS):
+        w = vis[c]
+        if not (w & BIT_BG2):
             continue
         assert crust_y(im, pal, c) == where(CRUST_PX, w & VALUE_MASK), \
-            f"column {c}: crust is not where word ${w:04X} puts it"
+            f"screen column {c} (world {(cam >> 3) + c}): crust is not where " \
+            f"word ${w:04X} puts it"
         checked += 1
     assert checked >= 12, f"only {checked} melt columns were decidable"
 
@@ -353,19 +402,21 @@ def test_every_plate_column_stands_where_its_word_says(frame):
     """...and the same equality on the OTHER layer, driven by the OTHER
     enable bit out of the same 32 words. Two layers, one table, one value a
     column — the composition's whole shape, asserted on the picture."""
-    im, pal, phase = frame
-    _, _, idx = _fit(im, pal, phase)[0]
-    r = row(idx)
+    im, pal, phase, cam = frame
+    _, _, idx = _fit(im, pal, phase, cam)[0]
+    vis = visible(row(idx), cam)
     checked = 0
-    for c in range(1, COLS):
-        w = r[c]
-        if w is None or not (w & BIT_BG1):
+    for c in range(COLS):
+        w = vis[c]
+        if not (w & BIT_BG1):
             continue
         assert plate_y(im, pal, c) == where(PLAT_PX, w & VALUE_MASK), \
-            f"column {c}: the plate is not where word ${w:04X} puts it"
+            f"screen column {c} (world {(cam >> 3) + c}): the plate is not " \
+            f"where word ${w:04X} puts it"
         checked += 1
-    assert checked == sum(width for _, width in PLATES), \
-        f"{checked} plate columns decidable, {sum(w for _, w in PLATES)} drawn"
+    # However many plate columns the camera happens to be showing — which is
+    # the point of a world: what is on screen is a window, not the level.
+    assert checked >= PLAT_WIDTH, f"only {checked} plate column(s) on screen"
 
 
 def test_the_frame_geometry_is_the_one_this_module_assumes(frame):
@@ -378,8 +429,8 @@ def test_the_frame_geometry_is_the_one_this_module_assumes(frame):
     picture whose per-column heights vary and therefore constrain the fit far
     more tightly than a uniform one would.
     """
-    im, pal, phase = frame
-    _, _, idx = _fit(im, pal, phase)[0]
+    im, pal, phase, cam = frame
+    _, _, idx = _fit(im, pal, phase, cam)[0]
     r = row(idx)
     misses = []
     for cand in range(PICTURE_TOP - 3, PICTURE_TOP + 4):
@@ -407,7 +458,7 @@ def test_screen_column_zero_cannot_be_displaced(frame):
     leftmost column always shows its layer's own BGnVOFS. Here that is the
     melt's base — the value the works scene writes to BG2VOFS as the fallback
     a column with its bit clear falls back to."""
-    im, pal, _ = frame
+    im, pal, _, cam = frame
     assert crust_y(im, pal, 0) == where(CRUST_PX, MELT_BASE)
 
 
@@ -415,8 +466,8 @@ def test_the_row_bias_is_what_the_rail_says(frame):
     """The off-by-one in game/smelter/smelter.inc, checked against the
     PICTURE rather than against itself: with the bias removed, no column
     would land."""
-    im, pal, phase = frame
-    _, _, idx = _fit(im, pal, phase)[0]
+    im, pal, phase, cam = frame
+    _, _, idx = _fit(im, pal, phase, cam)[0]
     r = row(idx)
     for bias in (0, 2):
         wrong = sum(1 for c in range(1, COLS)
@@ -434,7 +485,7 @@ def test_adjacent_columns_hold_different_heights(frame):
     is three columns wide — so exactly one column lifts while both its
     neighbours hold still. This is the granularity claim: not a band, not a
     layer, one column."""
-    im, pal, _ = frame
+    im, pal, _, cam = frame
     heights = {c: crust_y(im, pal, c) for c in range(COLS)
                if plate_of(c) is None and crust_y(im, pal, c) is not None}
     pairs = [(a, b) for a in heights for b in heights
@@ -448,7 +499,7 @@ def test_the_plates_are_at_different_heights(frame):
     """Four plates on four harmonics: a viewer can watch one move while its
     neighbour does not. Asserted on the PICTURE — if the four ever shared a
     value the rail would look like one long shelf."""
-    im, pal, _ = frame
+    im, pal, _, cam = frame
     tops = []
     for first, width in PLATES:
         ys = {plate_y(im, pal, first + i) for i in range(width)}
@@ -461,8 +512,8 @@ def test_a_plate_is_rigid_across_its_own_columns(frame):
     """...and the converse, which is what makes it a PLATFORM rather than a
     ribbon: a plate's four columns carry ONE value, so its surface is flat
     even while the column beside it is 40 pixels away."""
-    im, pal, phase = frame
-    _, _, idx = _fit(im, pal, phase)[0]
+    im, pal, phase, cam = frame
+    _, _, idx = _fit(im, pal, phase, cam)[0]
     r = row(idx)
     for first, width in PLATES:
         vals = {r[first + i] & VALUE_MASK for i in range(width)}
@@ -1028,7 +1079,7 @@ def test_the_knight_is_the_sprite_the_oam_entry_describes(frame):
     is not compared here — the X does not move in this scene, and containment
     is what the case is about. The rows are the ride cases below.
     """
-    im, pal, _ = frame
+    im, pal, _, cam = frame
     with Machine(str(ROM)) as m:
         m.advance(TITLE)
         m.advance(1, pad1=JOY_START)
@@ -1057,8 +1108,8 @@ def test_the_knight_stands_on_the_word_the_rom_holds(frame):
     into VRAM. A rail that computed the collision separately would pass this on
     the frame it was tuned for and drift on every other one.
     """
-    im, pal, phase = frame
-    _, _, idx = _fit(im, pal, phase)[0]
+    im, pal, phase, cam = frame
+    _, _, idx = _fit(im, pal, phase, cam)[0]
     words = {row(idx)[c] & VALUE_MASK for c in _cols_of(_kn_x())}
     assert len(words) == 1, f"the knight straddles two heights: {words}"
     assert _feet(im, pal) == where(PLAT_PX, words.pop()), \
@@ -1211,7 +1262,7 @@ def test_the_knight_does_not_hide_the_edge_the_per_column_cases_read(frame):
     So: in the columns he occupies, the plate's top-edge row is still a plate
     pixel — asserted here, once, where the reason is written down.
     """
-    im, pal, _ = frame
+    im, pal, _, cam = frame
     feet = _feet(im, pal)
     for c in _cols_of(_kn_x()):
         px = im.getpixel((8 * c + 3, PICTURE_TOP + feet))[:3]

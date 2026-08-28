@@ -75,10 +75,6 @@ NMI:
 ; build failure instead of art read from the wrong address — which is exactly
 ; what happened when the knight's three blobs were appended in a reading order
 ; rather than in the packed one.
-smt_obj_bin:
-    .incbin "smt_obj.bin"
-.assert ^smt_obj_bin = ES_R_SMT_OBJ_BANK, error, "smt_obj bank drifted from allocator claim"
-.assert .loword(smt_obj_bin) = ES_R_SMT_OBJ_ADDR, error, "smt_obj addr drifted from allocator claim"
 smt_col_bin:
     .incbin "smt_col.bin"
 .assert ^smt_col_bin = ES_R_SMT_COL_BANK, error, "smt_col bank drifted from allocator claim"
@@ -88,14 +84,14 @@ smt_col_bin:
 ; same shape water's surf walker uses — so a blob straddling a boundary would
 ; have its later rows read out of the bank below.
 SF_ASSERT_NO_BANK_CROSS smt_col_bin, ES_R_SMT_COL_SIZE, "smt_col crosses a bank"
+smt_obj_bin:
+    .incbin "smt_obj.bin"
+.assert ^smt_obj_bin = ES_R_SMT_OBJ_BANK, error, "smt_obj bank drifted from allocator claim"
+.assert .loword(smt_obj_bin) = ES_R_SMT_OBJ_ADDR, error, "smt_obj addr drifted from allocator claim"
 smt_mmap_bin:
     .incbin "smt_mmap.bin"
 .assert ^smt_mmap_bin = ES_R_SMT_MMAP_BANK, error, "smt_mmap bank drifted from allocator claim"
 .assert .loword(smt_mmap_bin) = ES_R_SMT_MMAP_ADDR, error, "smt_mmap addr drifted from allocator claim"
-smt_pmap_bin:
-    .incbin "smt_pmap.bin"
-.assert ^smt_pmap_bin = ES_R_SMT_PMAP_BANK, error, "smt_pmap bank drifted from allocator claim"
-.assert .loword(smt_pmap_bin) = ES_R_SMT_PMAP_ADDR, error, "smt_pmap addr drifted from allocator claim"
 font_bin:
     .incbin "font_2bpp.bin"
 .assert ^font_bin = ES_R_FONT_BIN_BANK, error, "font_bin bank drifted from allocator claim"
@@ -131,6 +127,19 @@ smt_anim_bin:
     .incbin "smt_anim.bin"
 .assert ^smt_anim_bin = ES_R_SMT_ANIM_BANK, error, "smt_anim bank drifted from allocator claim"
 .assert .loword(smt_anim_bin) = ES_R_SMT_ANIM_ADDR, error, "smt_anim addr drifted from allocator claim"
+
+; BG1'S TILEMAP LIVES IN BANK 2, and the allocator put it there rather than
+; this file choosing: the world-space offset table is 16,640 B and the blobs
+; above no longer leave 4,096 contiguous bytes in bank 0. A tilemap cannot
+; straddle the LoROM seam ($00:FFFF -> $01:8000 is a discontinuity, not a
+; carry), so the packer moved the whole claim rather than splitting it. The
+; `.assert`s below are what turn a future repack into a build failure
+; instead of a tilemap read from the wrong bank.
+.segment "BANK2"
+smt_pmap_bin:
+    .incbin "smt_pmap.bin"
+.assert ^smt_pmap_bin = ES_R_SMT_PMAP_BANK, error, "smt_pmap bank drifted from allocator claim"
+.assert .loword(smt_pmap_bin) = ES_R_SMT_PMAP_ADDR, error, "smt_pmap addr drifted from allocator claim"
 .segment "CODE"
 
 ; --- the global feature runtimes (after the blobs their uploads read) ------

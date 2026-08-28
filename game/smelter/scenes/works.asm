@@ -95,6 +95,7 @@ enter:
 :   .a16
     .i16
     jsr smt_kn_arm                  ; the knight: CHR, palette, OBSEL, spawn
+    jsr smt_kn_camera
     jsr smt_kn_draw                 ; ...staged BEFORE the first NMI, so frame
                                     ;   0 commits a real entry rather than
                                     ;   whatever oam_park_all left
@@ -197,6 +198,7 @@ tick:
     .i16
     sta z:US_TSKG
     jsr smt_kn_tick
+    jsr smt_kn_camera
     jsr smt_kn_draw
     ; ---- B: latch the flat control ----------------------------------------
     lda z:ES_INP_PRESS

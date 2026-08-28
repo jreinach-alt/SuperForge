@@ -52,10 +52,40 @@ from PIL import Image
 # --------------------------------------------------------------------------
 # geometry — every number here is emitted into smt_art.inc, never restated
 # --------------------------------------------------------------------------
-COLS = 32                    # 256 px / 8: one offset word each
+COLS = 32                    # 256 px / 8: one offset word each, on SCREEN
+
+# --------------------------------------------------------------------------
+# THE WORLD, AND WHY IT COSTS NOTHING TO SCROLL
+# --------------------------------------------------------------------------
+# THE LEVEL IS THE OFFSET TABLE. The table is already one word per column per
+# frame; making it WORLD-space rather than screen-space is the whole of the
+# scrolling design. The DMA still moves 32 words into BG3's V row every VBlank
+# — the camera only moves where it READS FROM. Same 64 B, same one transfer,
+# same zero cycles during active display, and no tilemap streaming anywhere.
+#
+# BG1 AND BG2'S MAPS STAY 32 COLUMNS AND REPEAT EVERY 256 PX. The melt repeats
+# invisibly because it is uniform; the plates' ART repeats too, so a plate slot
+# exists at the same four column groups in every screen — and what varies
+# across the world is the WORD each column gets, which is where every plate's
+# height, period and phase live. A level designed in the table needs no new
+# claim, no new blob shape and no streaming engine.
+SCREENS = 4                  # ...so the world is 1,024 px wide
+WORLD_COLS = COLS * SCREENS  # 128 offset words a row
+
+# THE LEAD COSTS ONE COLUMN OF WORLD, and this is where it is paid. The DMA
+# reads WORLD columns cam+1 .. cam+32 (the one-column lead, below), so the
+# camera can reach cam = WORLD_COLS - COLS - 1 and no further without running
+# off the row's end. The last world column is therefore never displaced, and
+# the world is 8 px shorter than the arithmetic above suggests. Stated rather
+# than padded: a 129-word row would double the stride to keep it a power of two
+# and waste 16 KB to buy one column nobody stands on.
+CAM_COL_MAX = WORLD_COLS - COLS - 1
+WORLD_W = (CAM_COL_MAX + COLS) * 8
+
 PHASES = 64                  # the animation loop
-PHASE_SHIFT = 6              # stride 64 B -> a phase is (index << 6)
+PHASE_SHIFT = 8              # stride 256 B -> a phase is (index << 8)
 STRIDE = 1 << PHASE_SHIFT
+assert STRIDE == WORLD_COLS * 2, "the phase stride must be one whole world row"
 
 # BG1 — the plates. A 32x64 map (512 px tall) so no scroll value in range ever
 # wraps; the plate band is two rows, and its TOP is the edge everything is
@@ -69,12 +99,38 @@ PLAT_AMP = 40                            # ...so y travels 40..120
 # The GAPS between them are where the melt erupts, which is the same fact as
 # "a column drives one layer or the other" seen from the picture's side.
 PLATES = ((3, 4), (11, 4), (19, 4), (27, 4))
-# Each plate's own frequency and phase in the 64-frame loop. Integer
-# frequencies so every plate closes the loop; DIFFERENT ones so no two plates
-# ever settle into lockstep — the independence is meant to be watchable, and
-# two plates on one frequency read as one plate cut in half.
-PLATE_FREQ = (1, 2, 1, 3)
-PLATE_OFF = (0.00, 0.25, 0.50, 0.10)
+
+# --------------------------------------------------------------------------
+# THE COURSE — sixteen plate slots, and the level design lives here
+# --------------------------------------------------------------------------
+# BG1's map repeats every 32 columns, so the four groups above are plate ART in
+# every screen: sixteen slots across the world. Which of them a player can
+# actually use, and when, is entirely these three tuples — a level expressed as
+# per-slot motion rather than as geometry.
+#
+# THE JUMP IS THE DESIGN CONSTRAINT AND IT IS MEASURED, NOT GUESSED. Apex is
+# v^2/2g = 50 px over ~40 frames of flight, which at 2 px a frame carries 80 px
+# horizontally; slots are 64 px apart, so a NEIGHBOURING slot is always
+# reachable and the difficulty is never distance. It is HEIGHT: the slots span
+# 80 px of travel, more than a jump's apex, so a plate that is high when you
+# arrive has to be waited for. That is the mechanic the moving plates buy, and
+# the course is written to use it — screen 0 is gentle and in step, and the
+# amplitudes widen and the periods diverge as the world goes right.
+#
+# Slot 0 is the spawn and is deliberately the calmest thing in the level.
+SLOT_FREQ = (1, 2, 1, 3,      # screen 0 — the picture the rail always had
+             2, 1, 3, 2,      # screen 1 — periods start to diverge
+             3, 1, 2, 3,      # screen 2 — and the amplitudes open up
+             1, 3, 2, 1)      # screen 3
+SLOT_AMP = (28, 34, 28, 34,
+            40, 34, 46, 40,
+            46, 52, 46, 52,
+            52, 46, 58, 40)
+SLOT_OFF = (0.00, 0.25, 0.50, 0.10,
+            0.60, 0.35, 0.85, 0.15,
+            0.45, 0.70, 0.05, 0.55,
+            0.30, 0.80, 0.20, 0.65)
+assert len(SLOT_FREQ) == len(SLOT_AMP) == len(SLOT_OFF) == SCREENS * len(PLATES)
 
 # BG2 — the melt. Same map shape. Rows 0..31 are wall, row 32 is the crust,
 # 33..63 the body: the crust's top pixel is the measurable edge.
@@ -508,21 +564,28 @@ def melt_map():
 # --------------------------------------------------------------------------
 # the offset table — the rail's subject
 # --------------------------------------------------------------------------
-def plate_of(col):
-    """Which plate owns this column, or None. A column belongs to at most one:
-    that is what makes "the plate's columns share one value" a fact about the
-    table rather than an accident of how it was built."""
+def plate_of(wcol):
+    """Which of the world's sixteen plate SLOTS owns this world column, or None.
+
+    BG1's map is 32 columns wide and repeats every 256 px, so the four groups
+    in `PLATES` are plate art in every screen; the slot index is which screen
+    plus which group. A column belongs to at most one, which is what makes "a
+    plate's columns share one value" a fact about the table rather than an
+    accident of how it was built.
+    """
+    local, screen = wcol % COLS, wcol // COLS
     for i, (first, width) in enumerate(PLATES):
-        if first <= col < first + width:
-            return i
+        if first <= local < first + width:
+            return screen * len(PLATES) + i
     return None
 
 
 def gaps():
-    """The runs of columns that belong to no plate, left to right. These are
-    the melt's — one jet each."""
+    """The runs of world columns that belong to no plate, left to right. These
+    are the melt's — one jet each, and the runs at a screen boundary MERGE,
+    which is what keeps a jet from having a seam in it where two screens meet."""
     out, run = [], []
-    for c in range(COLS):
+    for c in range(WORLD_COLS):
         if plate_of(c) is None:
             run.append(c)
         elif run:
@@ -536,9 +599,9 @@ def gaps():
 GAPS = gaps()
 
 
-def plate_word(plate, phase):
-    f, off = PLATE_FREQ[plate], PLATE_OFF[plate]
-    v = PLAT_BASE + PLAT_AMP * math.sin(2 * math.pi * (f * phase / PHASES + off))
+def plate_word(slot, phase):
+    f, off, amp = SLOT_FREQ[slot], SLOT_OFF[slot], SLOT_AMP[slot]
+    v = PLAT_BASE + amp * math.sin(2 * math.pi * (f * phase / PHASES + off))
     return BIT_BG1 | (int(round(v)) & 0x3FF)
 
 
@@ -554,7 +617,12 @@ def melt_word(col, phase):
     else:
         t = (col - run[0]) / (len(run) - 1)
         shape = math.sin(math.pi * t)
-    drive = math.sin(2 * math.pi * (JET_FREQ[g] * phase / PHASES + JET_OFF[g]))
+    # THE JET TABLES ARE INDEXED MODULO THEIR OWN LENGTH, so a world four
+    # screens wide needs no more of them than one screen did — and because the
+    # gap runs are not all the same width, the same five parameters land on
+    # different arches each time and no two screens of melt look alike.
+    drive = math.sin(2 * math.pi * (JET_FREQ[g % len(JET_FREQ)] * phase / PHASES
+                                    + JET_OFF[g % len(JET_OFF)]))
     jet = MELT_AMP * shape * max(0.0, drive)
     # ...and a small travelling ripple under all of it, so no column is ever
     # exactly still. A clip that holds a frozen frame reads as the effect
@@ -600,13 +668,20 @@ def flat_word(col):
 # lives here, once, at the boundary where a screen column becomes a table
 # index.
 def col_table():
+    """The world's rows. Index k of a row is WORLD COLUMN k, with no shift
+    baked in — the one-column lead is applied by the DMA, which reads from
+    `cam + 1` (smt_opt.asm). That is a CHANGE from the screen-space table,
+    where the shift was baked here, and it is what makes the row usable for two
+    things at once: the 32 words the transfer moves, and the ONE word the
+    fallback registers need for the column the hardware cannot displace.
+    """
     out = bytearray()
     for phase in range(PHASES):
-        for col in range(COLS):
-            w = column_word((col + 1) % COLS, phase)
+        for col in range(WORLD_COLS):
+            w = column_word(col, phase)
             out += bytes((w & 0xFF, w >> 8))
-    for col in range(COLS):
-        w = flat_word((col + 1) % COLS)
+    for col in range(WORLD_COLS):
+        w = flat_word(col)
         out += bytes((w & 0xFF, w >> 8))
     return bytes(out)
 
@@ -861,7 +936,19 @@ ART_INC = """; smt_art.inc — GENERATED by tools/gen_smelter_assets.py. Do not 
 ; drawn at. Emitted rather than restated so the table, the walker that uploads
 ; it, the collision that reads it and the tests that assert on it cannot
 ; disagree about a single number.
-SMT_COLS          = {cols}     ; offset words per row (256 px / 8)
+SMT_COLS          = {cols}     ; offset words the TRANSFER moves (256 px / 8)
+
+; --- the world -------------------------------------------------------------
+; The table is WORLD-space: a row is one word per world column, and the camera
+; moves the DMA's read head rather than anything being rebuilt. So scrolling
+; costs the same 64 B and the same one transfer a static screen did.
+SMT_SCREENS       = {screens}      ; ...of 256 px
+SMT_WORLD_COLS    = {wcols}    ; words in a row
+SMT_WORLD_W       = {worldw}   ; the reachable world, in pixels
+SMT_CAM_COL_MAX   = {cammax}     ; the rightmost camera column: the DMA reads
+                             ;   cam+1 .. cam+32 (the one-column lead), so the
+                             ;   world's last column is never displaced and the
+                             ;   camera stops one short of it
 SMT_PHASES        = {phases}     ; the loop closes here
 SMT_FLAT_INDEX    = {flat}     ; the control row: same shape, base values
 SMT_ROW_COUNT     = {rows}     ; phases + the control
@@ -994,13 +1081,15 @@ def main(argv):
 
     (out / "smt_art.inc").write_text(ART_INC.format(
         cols=COLS, phases=PHASES, flat=PHASES, rows=PHASES + 1,
+        screens=SCREENS, wcols=WORLD_COLS, worldw=WORLD_W, cammax=CAM_COL_MAX,
         shift=PHASE_SHIFT, stride=STRIDE, tiles=len(tiles),
         prow=PLAT_MAP_ROW, ptop=PLAT_TOP_PX, pbase=PLAT_BASE, pamp=PLAT_AMP,
-        pcount=len(PLATES), pwidth=PLATES[0][1], vbg1=0,
+        pcount=len(SLOT_FREQ), pwidth=PLATES[0][1], vbg1=0,
         platcols="\n".join(
-            f"SMT_PLAT_{i}_COL     = {first}"
-            f"{' ' * (5 - len(str(first)))}; ...and it is {w} columns wide"
-            for i, (first, w) in enumerate(PLATES)),
+            f"SMT_PLAT_{i}_COL     = {(i // len(PLATES)) * COLS + PLATES[i % len(PLATES)][0]}"
+            f"{' ' * max(1, 5 - len(str((i // len(PLATES)) * COLS + PLATES[i % len(PLATES)][0])))}"
+            f"; slot {i}: screen {i // len(PLATES)}, group {i % len(PLATES)}"
+            for i in range(len(SLOT_FREQ))),
         crow=CRUST_MAP_ROW, ctop=CRUST_TOP_PX, mbase=MELT_BASE, mamp=MELT_AMP,
         vbg2=MELT_BASE,
         kbox=FRAME_BOX, kbot=kbottom, kslots=KNIGHT_SLOTS,

@@ -100,6 +100,36 @@ bytes = 2                # the accumulated animation phase, 8.8. The scene
                          # in its VBlank commit — lakeside's division between
                          # `water`'s scroll and the scene that drives it
 
+# The camera's world X, in pixels. It is smt_opt's because the TABLE is what it
+# indexes: the read head moves with it, the two H ports carry it, and screen
+# column 0's fallback is read at it. The knight follows it (smt_obj); nothing
+# else in the rail has an opinion about it.
+[[claims.dp]]
+name = "smt_cam"
+bytes = 2
+
+# THE NMI'S OWN SCRATCH, AND IT IS SEPARATE ON PURPOSE. `smt_scratch` below is
+# main-thread working space — `smt_plate_top` and the knight's draw hold
+# intermediates in it — and the NMI can preempt either of them mid-use. The
+# VBlank row walker now needs three words of its own (the row base, the camera
+# column, and the word it reads back for screen column 0), and borrowing the
+# main thread's would be a silent-corruption bug that only fired on the frames
+# where the interrupt landed between two instructions.
+[[claims.dp]]
+name = "smt_nmi_scratch"
+bytes = 6
+
+# THE CAMERA THE PICTURE WAS ACTUALLY DRAWN FROM, published by the NMI at the
+# moment it uses it. The main thread moves `smt_cam` AFTER the transfer has
+# fired, so the camera a reader sees is one frame ahead of the one on screen —
+# and at the world's left edge the clamp hides that, which is exactly the shape
+# of thing that gets discovered late. This is the same fix the wall's pairing
+# needed: JOIN ON WHAT DREW THE FRAME, not on the counter it came from. It is
+# read only by tests; the rail itself never looks at it.
+[[claims.dp]]
+name = "smt_cam_shown"
+bytes = 2
+
 [[claims.dp]]
 name = "smt_flatsel"
 bytes = 2                # 0 = the running table, 1 = the flat control row
@@ -136,3 +166,22 @@ bytes = 6                # THREE words of main-thread working space, at +0, +2
 name = "smt_fallback"
 registers = ["BG1VOFS", "BG2VOFS", "BG1HOFS", "BG2HOFS"]
 scene_writes = ["BG1VOFS", "BG2VOFS", "BG1HOFS", "BG2HOFS"]
+
+# ...AND THE OWNER CO-WRITES ALL FOUR, EVERY VBLANK, WHICH IS A SEPARATE
+# PERMISSION. The scene's enter establishes them; `smt_nmi_row` then rewrites
+# them per frame, because scrolling turned all four into live ports:
+#
+#   BG1HOFS / BG2HOFS  ARE the camera. The table quantises to 8 px and these
+#       do not, so the read head steps one word per 8-px boundary and these
+#       carry the remainder.
+#   BG1VOFS / BG2VOFS  are screen column 0's answer. The PPU clears the offset
+#       latches at the start of each scanline's fetch, so the leftmost column
+#       cannot be displaced and falls back to these — which under scrolling
+#       would be a permanently wrong column travelling along the left edge.
+#       The NMI loads them with that column's own value out of the same row it
+#       just transferred, so the hardware limit costs nothing.
+#
+# Declared rather than left to be inferred: the gate refused the build by name
+# until it was, which is the check working. `scene_writes` says who ELSE may
+# write; it does not say the owner stays out.
+scene_writes_shared = ["BG1VOFS", "BG2VOFS", "BG1HOFS", "BG2HOFS"]
