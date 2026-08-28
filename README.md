@@ -202,36 +202,32 @@ two of those numbers shared with claims that run in VBlank.
 
 ### `lakeside`
 
-![lakeside — a drifting surface half-added onto the world it covers](docs/img/gif_lakeside.gif)
+![lakeside — a lake you can see the bed through](docs/img/gif_lakeside.gif)
 
-A lakeshore with real water. BG2 carries a drifting surface designated to the
-**sub screen**, and the PPU's colour-math unit half-adds it onto the world:
-the bed of silt, pebbles and weed reads *through* the surface, pixel for
-pixel, and the test asserts that as an **equality** — `min((main + sub) >> 1,
-31)` per 5-bit channel — rather than a tolerance. The surf is the blend
-boundary moving: a wave running 26 px up the shore turns the sand it covers
-wet and hands it back at full intensity when the backwash draws down, because
-where the sub screen has no pixel the hardware substitutes the fixed colour
-and disables halving. Three features share the four colour-math ports without
-any of them claiming one, and returning to the title is pixel-identical to
-never having left.
+A lakeshore where the water is really water. The bed — silt, pebbles,
+sandbars, a shelf dropping into the deep — is drawn once, and the surface is a
+second layer the hardware blends over it as the screen is painted, so you are
+looking *through* the water at the bed rather than at a picture of what that
+would look like. Watch the shoreline: it drifts as a pixel edge rather than a
+row of tiles, and a wave running up the sand shades it wet, then gives it back
+dry as the backwash draws down. Nothing repaints a wet palette — the shading
+is just what the blend already does. The text stays readable because it is
+left out of the math.
 
 
 ### `heathaze`
 
-![heathaze — a mirage as a per-scanline displacement](docs/img/gif_heathaze.gif)
+![heathaze — a desert road with the air shimmering over it](docs/img/gif_heathaze.gif)
 
-A desert road with the ground boiling. HDMA rewrites **`BG1VOFS` per
-scanline**, so each line is drawn from a slightly different source row and the
-picture compresses and stretches vertically — the axis is the whole effect,
-since a per-scanline `BG1HOFS` only shears each row sideways and every source
-row still appears exactly once. A second channel adds a small horizontal term
-29 phases ahead, so the sideways wobble slides *across* a surface already
-moving. The warp is a table, not a tile: 65 complete HDMA tables per axis at a
-256-byte stride put an animation frame **one 8-bit store** from the channel's
-A1T high byte. B switches both channels to the flat one — same world, every
-displacement zero — and the title returns undisplaced, because a port a
-transfer drives needs the same per-scene off state the blender does.
+A desert road running to a mesa ridge, with the air shimmering over it. Every
+scanline below the horizon is drawn from a slightly different row of the
+world, so the ground squashes and stretches and the road, its dashes and the
+cacti all boil. The vertical axis is the whole trick: sliding rows sideways
+only shears the picture and never makes it swim. A gentler sideways wobble
+runs on top at its own pace, so the distortion slides across ground that is
+already moving. Watch the sky and the ridge above the band — they do not move
+at all, which is what makes it read as heat rather than as a broken picture.
+B flattens it mid-scene, same world, for the before-and-after.
 
 
 ---
