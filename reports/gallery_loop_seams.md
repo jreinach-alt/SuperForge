@@ -74,7 +74,7 @@ tuning against the palette.
 | `racer` | a mark on the home straight — a flying lap comes back to it at the cap, and the grid is held until the clock puts both ends of the lap on one day-night keyframe | 2.48 | 3.0% | 92.8 | 92.7 | 448,539 |
 | `split_h_2p_demo` | the seeded camera pose — camera 1 back on heading 0, which on this build brings both cameras' positions and all four 8.8 fractions with it | 2.89 | 1.9% | 107.5 | 107.1 | 1,260,283 |
 | `lakeside` | **three surf cycles** — the take closes where the surface has drifted 384 px, the first whole number of the picture's own 128 px period to land on the 3-frame capture grid | 0.00 | 0.0% | 120.9 | 120.9 | 352,681 |
-| `heathaze` | **two phase loops** — the take closes where `ES_HZ_PHASE` has come back twice to the value it opened on, 57 captures apart, with the flat control inside the second one | 0.00 | 0.0% | 135.1 | 135.1 | 128,962 |
+| `heathaze` | **two phase loops** — the take closes where `ES_HZ_PHASE` has come back twice to the value it opened on, 57 captures apart. Nothing else is in it: the flat control was cut because a second of frozen picture reads as the effect breaking, not as a control | 0.00 | 0.0% | 135.1 | 135.1 | 149,761 |
 
 ## Where the residuals come from
 

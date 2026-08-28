@@ -227,7 +227,6 @@ only shears the picture and never makes it swim. A gentler sideways wobble
 runs on top at its own pace, so the distortion slides across ground that is
 already moving. Watch the sky and the ridge above the band — they do not move
 at all, which is what makes it read as heat rather than as a broken picture.
-B flattens it mid-scene, same world, for the before-and-after.
 
 
 ---

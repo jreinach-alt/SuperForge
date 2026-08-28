@@ -1,4 +1,4 @@
-"""heathaze — the mirage and its control, cut on the shimmer's own period.
+"""heathaze — the mirage, cut on the shimmer's own period.
 
 THE TAKE IS THE EFFECT AND NOTHING ELSE. It opens on the desert already up and
 already at full brightness, and closes on the same frame of the same shimmer.
@@ -14,21 +14,24 @@ returned title PIXEL-IDENTICAL to the one before the warp ever armed, and
 claim, proved where transition claims are proved rather than by making a viewer
 sit through it on every loop.
 
-WHAT A VIEWER GETS, in order, all of it inside one scene:
+WHAT A VIEWER GETS is the shimmer and nothing else: below the horizon every
+scanline is drawn from a slightly different SOURCE ROW, so the ground
+compresses and stretches and the road, its dashes and the saguaro trunks boil,
+with a small horizontal term beside it, while the sky and the ridge above the
+band stay perfectly still.
 
-    the DESERT     below the horizon every scanline is drawn from a slightly
-                   different SOURCE ROW, so the ground compresses and stretches
-                   and the road, its dashes and the saguaro trunks boil, with a
-                   small horizontal term beside it; the sky and the ridge above
-                   the band perfectly still
-    the CONTROL    B, and both channels switch to blob 64, the 65th: a complete
-                   HDMA table whose every displacement is zero. One variable
-                   moves — the "before distortion / after heat haze" pair,
-                   live, from one binary
-    and BACK       B again — the shimmer RESUMES rather than restarting, which
-                   is what makes the toggle a control instead of a reset, and
-                   is also what lets the take close on a phase the flat beat
-                   never interrupted
+THE FLAT CONTROL IS NOT IN THE TAKE, AND THAT IS THE SECOND THING THIS CLIP
+GAVE UP TO BE A LOOP. B switches both channels to the 65th blob — a complete
+HDMA table whose every displacement is zero — and holding it for a second was
+the "before distortion / after heat haze" pair, live, from one binary. On a
+clip that loops forever it does not read as a control. It reads as a BREAK:
+one second in five and three quarters where the picture is frozen and the
+effect has apparently stopped working, which is what the owner saw. The pair
+is still made, where a pair belongs — `tools/shot_heathaze.py` renders the
+shimmer and the flat control side by side from the same binary, and
+`tests/test_heathaze.py::test_the_flat_table_leaves_every_band_row_undisplaced`
+asserts the control actually flattens every row of the band. A gallery clip is
+not the place to prove something a viewer has to sit still through.
 
 THE LOOP POINT IS THE PHASE COMING BACK ROUND, AND IT WAS MEASURED. The picture
 is a pure function of `ES_HZ_PHASE`: `hz_nmi_commit` points the vertical channel
@@ -55,16 +58,13 @@ fraction rather than taking the first settled capture it sees.
 THE SAME EIGHTH IS WHY THE CLIP IS NOT A LOOP OF A LOOP. Inside the take, seven
 captures in eight repeat exactly 57 later and the eighth sits one phase further
 on — invisible in boiling air, and nothing to do with the join, which is one
-specific pair of captures and measures 0 differing pixels of 61,184. It is also
-why the drive closes on the PHASE and not on the picture: at capture 57 the
-picture is the flat control, and only the phase underneath it says a period has
-gone by.
+specific pair of captures and measures 0 differing pixels of 61,184. The drive still
+closes on the PHASE rather than on the picture, because the phase is the ROM's
+own account of where the animation is and the picture is an inference from it.
 
-THE BEATS ARE IN CAPTURES because they are durations, not events: how long a
-viewer looks at the shimmer before the control interrupts it is a choice, and
-there is no byte in the ROM that has an opinion about it. The two ends are the
-opposite case and are read off the ROM — the take opens on a state and closes
-on the phase returning to the value it opened with, for the second time.
+THERE ARE NO BEATS LEFT TO CHOOSE. Both ends are read off the ROM — the take
+opens on a settled state with the carried fraction at zero, and closes on the
+phase returning to the value it opened with, for the second time.
 """
 import json
 from pathlib import Path
@@ -75,17 +75,13 @@ from vendor.mesen_runner import MemoryType
 ROOT = Path(__file__).resolve().parent.parent.parent
 
 ROM = "heathaze"
-CAPTURES = 200                  # a CEILING over the 16-capture lead-in and the
-                                #   115 the take keeps, not a schedule: the
-                                #   phase returning is what ends it.
+CAPTURES = 200                  # a CEILING over the lead-in and the 115 the
+                                #   take keeps, not a schedule: the phase
+                                #   returning is what ends it.
 
-# The beats, in captures of three emulated frames each — durations in the ROM's
-# own time rather than in the host's. They sum to PERIODS * 57, which is what
-# puts the closing shimmer back on the opening one.
-SHIMMER_A = 44                  # 2.20 s: long enough to read as boiling air
-FLAT      = 20                  # 1.00 s: the same picture, dead still
-SHIMMER_B = 50                  # 2.50 s: it resumes, and runs to the mark
-PERIODS   = 2                   # ...and 44 + 20 + 50 = 114 = 2 x 57
+PERIODS = 2                     # 114 captures, 5.70 s — two turns of the
+                                #   57-capture loop, which is what puts the
+                                #   closing picture back on the opening one
 
 W = MemoryType.SnesWorkRam
 _J = json.loads((ROOT / "build" / "hz" / "symbol_map.json").read_text())
@@ -134,9 +130,10 @@ class Drive:
     frames and not their screenshots. `done` closes the take on the capture
     whose phase has come back to the mark for the PERIODS'th time.
 
-    A press lasts ONE frame of the two the drive advances. `take_screenshot`
-    releases the pad for its own frame, so the toggle is edge-detected exactly
-    once per press and a held button could not be photographed at all.
+    The one press in the whole take is the Start that leaves the title, and it
+    lasts ONE frame of the two the drive advances — `take_screenshot` releases
+    the pad for its own frame, so the scene's edge-triggered read fires exactly
+    once and cannot bounce straight back out of the scene it just entered.
     """
 
     def __init__(self):
@@ -167,12 +164,7 @@ class Drive:
         if _u16(r, PHASE) == self.mark:
             self.periods += 1
             self.done = self.periods >= PERIODS
-        press = {}
-        if self.n == SHIMMER_A:
-            press = {"b": True}                         # -> flat
-        elif self.n == SHIMMER_A + FLAT:
-            press = {"b": True}                         # -> shimmer again
-        return self._step(r, **press)
+        return self._step(r)
 
 
 def make_drive():
