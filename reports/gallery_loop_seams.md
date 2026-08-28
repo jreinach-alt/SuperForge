@@ -25,6 +25,15 @@ colours the palette could afford, and stopped it hiding the sky. An earlier
 edition of this file claimed `racer`'s sky band contributed ZERO pixels to the
 seam; that was a palette result reported as a picture one, and it is withdrawn.
 
+**And 0.00 has two different causes here.** On `split_v_fight`,
+`boss_saucer` and `mode7_explore` it is a flat sky the shared palette has
+nothing to be short of. On `lakeside` and `heathaze` it is stronger and
+narrower: the take returns to the title, and the title after the effect scene
+is the SAME PICTURE as the title before it — `heathaze`'s pair measures 0
+differing pixels of 61,184 (`tools/shot_heathaze.py`, `title` vs
+`title_returned`). The seam is zero because the two ends are one frame, which
+is the per-scene disarm claim showing up in the gallery metric.
+
 Read a figure on a flat-sky rail (`split_v_fight`, `boss_saucer`,
 `mode7_explore`, all 0.00) as a statement about the join — and
 `split_h_2p_demo` reads that way too, for a different reason: its whole world
@@ -46,6 +55,8 @@ tuning against the palette.
 | `railshooter` | the rail's own period — `rs_path` repeats every 256 frames, and a 3-frame capture grid realigns at three of them | 2.51 | 2.1% | 90.3 | 90.3 | 876,805 |
 | `racer` | a mark on the home straight — a flying lap comes back to it at the cap, and the grid is held until the clock puts both ends of the lap on one day-night keyframe | 2.48 | 3.0% | 92.8 | 92.7 | 448,539 |
 | `split_h_2p_demo` | the seeded camera pose — camera 1 back on heading 0, which on this build brings both cameras' positions and all four 8.8 fractions with it | 2.89 | 1.9% | 107.5 | 107.1 | 1,260,283 |
+| `lakeside` | **the title returned to** — the take ends on the frame it opened with: the same world with the blender composed OFF, after a scene that armed one | 0.00 | 0.0% | 126.1 | 126.1 | 392,898 |
+| `heathaze` | **the title returned to** — the same beat, on a scroll port instead of the blender: `desert` hands `BG1VOFS` back and `hz_flat` writes it, so the last frame is the first one undisplaced | 0.00 | 0.0% | 138.0 | 138.0 | 180,605 |
 
 ## Where the residuals come from
 
