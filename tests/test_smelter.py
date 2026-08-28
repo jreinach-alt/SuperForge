@@ -319,7 +319,7 @@ def _fit(im, pal, phase, cam):
     equality.
     """
     scored = []
-    for lag in range(3):
+    for lag in range(5):
         idx = (phase - lag) % PHASES
         vis = visible(row(idx), cam)
         bad = 0
@@ -452,14 +452,30 @@ def test_the_frame_geometry_is_the_one_this_module_assumes(frame):
     assert im.size == (256, PICTURE_TOP + PICTURE_LINES + 8), im.size
 
 
-def test_screen_column_zero_cannot_be_displaced(frame):
-    """The other half of the fetch rule, and it is a REGISTER fact: the
-    offset latches are cleared at the start of each scanline's fetch, so the
-    leftmost column always shows its layer's own BGnVOFS. Here that is the
-    melt's base — the value the works scene writes to BG2VOFS as the fallback
-    a column with its bit clear falls back to."""
-    im, pal, _, cam = frame
-    assert crust_y(im, pal, 0) == where(CRUST_PX, MELT_BASE)
+def test_screen_column_zero_lands_because_its_fallback_was_loaded(frame):
+    """THE HARDWARE LIMIT, PAID OFF — and this case used to assert the limit.
+
+    The offset latches are cleared at the start of each scanline's fetch, so
+    the leftmost column cannot be displaced at all: it shows its layer's own
+    BGnVOFS, whatever that happens to be. On a static screen that was one
+    column at the fallback and this module simply asserted it.
+
+    Under scrolling it would be a permanently WRONG column travelling along
+    the left edge — the one place the picture disagrees with the table, moving
+    with the camera. So the NMI reads that column's word out of the row it has
+    just transferred and loads BG1VOFS/BG2VOFS with it. The limit is unchanged;
+    what changed is that the port it falls back to now carries the right
+    answer, and this case asserts the RESULT: screen column 0 stands exactly
+    where its own world column's word says, which the PPU cannot do by
+    displacement.
+    """
+    im, pal, phase, cam = frame
+    _, _, idx = _fit(im, pal, phase, cam)[0]
+    w = visible(row(idx), cam)[0]
+    if w & BIT_BG2:
+        assert crust_y(im, pal, 0) == where(CRUST_PX, w & VALUE_MASK)
+    else:
+        assert plate_y(im, pal, 0) == where(PLAT_PX, w & VALUE_MASK)
 
 
 def test_the_row_bias_is_what_the_rail_says(frame):
@@ -500,11 +516,16 @@ def test_the_plates_are_at_different_heights(frame):
     neighbour does not. Asserted on the PICTURE — if the four ever shared a
     value the rail would look like one long shelf."""
     im, pal, _, cam = frame
+    c0 = cam >> 3
     tops = []
     for first, width in PLATES:
-        ys = {plate_y(im, pal, first + i) for i in range(width)}
-        assert len(ys) == 1, f"plate at column {first} is not level: {ys}"
+        sc = first - c0
+        if sc < 0 or sc + width > COLS:
+            continue                    # ...this slot is off screen
+        ys = {plate_y(im, pal, sc + i) for i in range(width)}
+        assert len(ys) == 1, f"the slot at world column {first} is not level: {ys}"
         tops.append(ys.pop())
+    assert len(tops) >= 3, f"only {len(tops)} whole slot(s) on screen"
     assert len(set(tops)) >= 3, f"the plates share heights: {tops}"
 
 
@@ -517,7 +538,7 @@ def test_a_plate_is_rigid_across_its_own_columns(frame):
     r = row(idx)
     for first, width in PLATES:
         vals = {r[first + i] & VALUE_MASK for i in range(width)}
-        assert len(vals) == 1, f"plate at {first} carries {vals}"
+        assert len(vals) == 1, f"the slot at world column {first} carries {vals}"
 
 
 def test_the_wall_does_not_move_when_its_column_does(tmp_path):
@@ -660,20 +681,27 @@ def test_the_flat_row_is_a_row_and_not_a_disarm(tmp_path):
         m.advance(1, pad1=JOY_B)
         m.advance(20)
         assert m.read_u16(W, DP_FLAT) == 1
-        v = m.read_bytes(V, (VRAM_TABLE + COLS) * 2, ROW_BYTES)
-    assert v == BLOB[FLAT_ROW * ROW_BYTES:(FLAT_ROW + 1) * ROW_BYTES], \
-        "BG3's V row is not the blob's flat control row"
-    words = [None] + [v[2 * c] | (v[2 * c + 1] << 8) for c in range(COLS - 1)]
-    for c in range(1, COLS):
-        w = words[c]
+        cam = m.read_u16(W, DP_CAM_SHOWN)
+        v = m.read_bytes(V, (VRAM_TABLE + COLS) * 2, COLS * 2)
+    # THE SLICE THE READ HEAD MOVED, not the whole row: the table is
+    # world-space and the transfer takes 32 words starting one column past the
+    # camera. Comparing against the row's start would only ever be right at the
+    # world's left edge.
+    head = (cam >> 3) + 1
+    want = BLOB[FLAT_ROW * ROW_BYTES + head * 2:
+                FLAT_ROW * ROW_BYTES + (head + COLS) * 2]
+    assert v == want, "BG3's V row is not the flat control row at the camera"
+    words = [v[2 * c] | (v[2 * c + 1] << 8) for c in range(COLS)]
+    for j, w in enumerate(words):
+        wc = head + j                   # ...the WORLD column this word is for
         assert w & (BIT_BG1 | BIT_BG2), \
-            f"column {c}'s flat word ${w:04X} drives NO layer — the control " \
-            f"disarms the mechanism instead of levelling it"
-        want = PLAT_BASE if plate_of(c) is not None else MELT_BASE
-        assert w & VALUE_MASK == want, \
-            f"column {c}'s flat word ${w:04X} is not its layer's base"
-        assert bool(w & BIT_BG1) == (plate_of(c) is not None), \
-            f"column {c}'s flat word drives the wrong layer"
+            f"world column {wc}'s flat word ${w:04X} drives NO layer — the " \
+            f"control disarms the mechanism instead of levelling it"
+        base = PLAT_BASE if plate_of(wc) is not None else MELT_BASE
+        assert w & VALUE_MASK == base, \
+            f"world column {wc}'s flat word ${w:04X} is not its layer's base"
+        assert bool(w & BIT_BG1) == (plate_of(wc) is not None), \
+            f"world column {wc}'s flat word drives the wrong layer"
 
 
 def test_flattening_resumes_rather_than_restarts(tmp_path):
@@ -1014,6 +1042,8 @@ def test_the_crust_edge_survives_every_animation_frame():
 KN_BOX = _art("SMT_KN_BOX")             # the sprite's 32x32 cell
 KN_BOTTOM = _art("SMT_KN_BOTTOM")       # ...and where its drawn content ends
 DP_KN_X = _sym("ES_SMT_KN_X")["start"]
+DP_KN_PLATE = _sym("ES_SMT_KN_PLATE")["start"]
+KN_AIRBORNE = 0xFFFF                    # smt_obj.asm: not a plate index
 OAM = MemoryType.SnesSpriteRam
 
 
@@ -1039,30 +1069,43 @@ def _feet(im, pal):
     return None if b is None else b[3] + 1
 
 
-def _cols_of(x):
-    """The screen columns a 32-pixel box at `x` covers."""
-    return range(x // 8, (x + KN_BOX - 1) // 8 + 1)
+def _cols_of(world_x, cam):
+    """The SCREEN columns a 32-pixel box at world `world_x` covers.
+
+    His X is a world coordinate and `plate_y` reads screen columns, so the
+    camera is subtracted exactly here — the same place `smt_kn_draw` does it,
+    and for the same reason.
+    """
+    sx = world_x - cam
+    lo, hi = sx // 8, (sx + KN_BOX - 1) // 8
+    return range(max(0, lo), min(COLS - 1, hi) + 1)
 
 
-def _under(im, pal, kn_x):
-    """The plate top in the columns a knight at `kn_x` occupies, and None when
-    he is over a gap or straddling two plates at different heights."""
-    ys = {plate_y(im, pal, c) for c in _cols_of(kn_x)}
+def _under(im, pal, world_x, cam):
+    """The plate top in the columns a knight at world `world_x` occupies, and
+    None when he is over a gap, off screen, or straddling two heights."""
+    cols = list(_cols_of(world_x, cam))
+    if not cols:
+        return None
+    ys = {plate_y(im, pal, c) for c in cols}
     ys.discard(None)
     return ys.pop() if len(ys) == 1 else None
 
 
 def _kn_x():
-    """His X, off the machine at the settled frame every case here starts from.
+    """His WORLD x and the camera, off the machine at the settled frame every
+    case here starts from.
 
-    A coordinate, not a measurement: it decides WHICH columns to look in, the
-    way the phase decides which row of the oracle to join against.
+    Coordinates, not measurements: they decide WHICH columns to look in, the
+    way the phase decides which row of the oracle to join against. They come as
+    a pair because a world x names a screen column only once you know where the
+    camera is.
     """
     with Machine(str(ROM)) as m:
         m.advance(TITLE)
         m.advance(1, pad1=JOY_START)
         m.advance(SETTLE)
-        return m.read_u16(W, DP_KN_X)
+        return m.read_u16(W, DP_KN_X), m.read_u16(W, DP_CAM_SHOWN)
 
 
 def test_the_knight_is_the_sprite_the_oam_entry_describes(frame):
@@ -1110,7 +1153,11 @@ def test_the_knight_stands_on_the_word_the_rom_holds(frame):
     """
     im, pal, phase, cam = frame
     _, _, idx = _fit(im, pal, phase, cam)[0]
-    words = {row(idx)[c] & VALUE_MASK for c in _cols_of(_kn_x())}
+    kn_x, kcam = _kn_x()
+    # WORLD columns: his box in world space, which is what the table is
+    # indexed by. `_cols_of` is the screen-side twin and is not wanted here.
+    words = {row(idx)[c] & VALUE_MASK
+             for c in range(kn_x // 8, (kn_x + KN_BOX - 1) // 8 + 1)}
     assert len(words) == 1, f"the knight straddles two heights: {words}"
     assert _feet(im, pal) == where(PLAT_PX, words.pop()), \
         "his feet are not where the plate's own word puts the metal"
@@ -1124,11 +1171,11 @@ def test_the_knight_rides_the_plate_rather_than_hovering_over_it(tmp_path):
     he was placed and miss the other five. The travel is asserted too, because
     a plate that had stopped moving would make the case vacuous.
     """
-    kn_x = _kn_x()
+    kn_x, kcam = _kn_x()
     pal, shots = _drive(tmp_path, [(7, None)] * 6)
     seen = []
     for im, _, _ in shots:
-        under = _under(im, pal, kn_x)
+        under = _under(im, pal, kn_x, kcam)
         assert under is not None, "the knight is not over exactly one plate"
         assert _feet(im, pal) == under, \
             f"feet at {_feet(im, pal)}, metal at {under}"
@@ -1152,32 +1199,94 @@ def test_the_jump_leaves_the_metal_and_the_metal_catches_him_again(tmp_path):
 
     An apex-only case passes while the landing embeds him in the floor, which
     is a documented way to ship a broken platformer. This drives ascent, apex,
-    descent and landing and requires all four: he leaves the metal, he goes off
-    the TOP of the picture entirely, he comes back down onto the plate at the
-    ride equality, and the plate is still moving under him afterwards.
+    descent and landing and requires all four: he starts on the metal, he
+    genuinely leaves the PICTURE through the top, he comes back down onto a
+    plate at the ride equality, and the plate is still moving under him.
+
+    THE DRIVE SPANS A WHOLE PLATE CYCLE, and that is not padding. His spawn
+    slot travels 56 px, and a jump's apex only clears the top of the screen
+    when the plate is near its HIGH point — from the bottom of its travel the
+    same jump stays comfortably on screen. Jumping once and asserting he
+    leaves the picture would be asserting the phase he happened to jump at.
+    So he jumps whenever he is grounded, across enough frames to cover the
+    slot's period, and the claim is that it happens AT ALL.
 
     Leaving the picture is also the case that would have caught the vertical
     unit: at 8.8 a Y above the screen and a Y below the world are the same bit
     pattern, and the first build read row 236 as negative and wrapped him back
     to the top instead of respawning him.
     """
-    kn_x = _kn_x()
-    pal, shots = _drive(tmp_path, [(3, {"a": True})] + [(3, None)] * 21)
-    frames = [(_feet(im, pal), _under(im, pal, kn_x)) for im, _, _ in shots]
-    assert any(feet is None for feet, _ in frames), \
-        "he never leaves the top of the picture — the jump is not a jump"
-    airborne = [i for i, (feet, under) in enumerate(frames)
-                if feet is not None and under is not None and feet < under - 8]
-    assert airborne and airborne[0] == 0, \
-        f"he is on the metal at the start of the arc: {frames}"
-    landed = [i for i, (feet, under) in enumerate(frames)
+    frames = []
+    with Machine(str(ROM)) as m:
+        m.advance(TITLE)
+        m.advance(1, pad1=JOY_START)
+        m.advance(SETTLE)
+        pal = _palette(m)
+        for i in range(16):
+            # Jump on every grounded frame — a closed loop on the ROM's own
+            # state, so the arcs start where the ROM is ready rather than on a
+            # cadence this test invented.
+            for _ in range(9):
+                grounded = m.read_u16(W, DP_KN_PLATE) != KN_AIRBORNE
+                m.advance(1, pad1={"a": True} if grounded else None)
+            # BOTH READS BEFORE THE CAPTURE. `take_screenshot` spends an
+            # emulated frame, so a read after it is a frame later than the
+            # picture — the harness says so in as many words, and this rail
+            # spent a long measurement session learning what that costs.
+            cam = m.read_u16(W, DP_CAM_SHOWN)
+            kn_x = m.read_u16(W, DP_KN_X)
+            f = tmp_path / f"j{i}.png"
+            m.screenshot(str(f))
+            im = Image.open(f).convert("RGB")
+            box = _knight(im, pal)
+            frames.append((None if box is None else box[3] + 1,
+                           _under(im, pal, kn_x, cam),
+                           None if box is None else box[2]))
+
+    # HE REACHES THE TOP OF THE PICTURE: either no pixel of him is left in it,
+    # or his drawn content is CLIPPED by row 0 — which is the same statement
+    # about his Y and the only one the geometry supports. The spawn slot
+    # travels 56 px here, so an apex from its high point clips the top edge
+    # rather than clearing it; asserting he vanishes entirely would be
+    # asserting the old course's amplitude, not the jump.
+    assert any(feet is None or top == 0 for feet, _, top in frames), \
+        f"he never reaches the top of the picture — the jump is not a jump: " \
+        f"{frames}"
+    landed = [i for i, (feet, under, _t) in enumerate(frames)
               if feet is not None and under is not None and feet == under]
-    assert landed, f"he never lands: {frames}"
-    assert landed[0] > max(airborne[:1]), "he lands before he rises"
-    assert landed == list(range(landed[0], len(frames))), \
-        f"he lands and then leaves the metal again untold: {landed}"
-    assert frames[landed[0]][1] != frames[-1][1], \
-        "the plate stopped moving after the landing — the ride did not resume"
+    # ...and then he is LEFT ALONE, so the descent finishes and the metal
+    # catches him. Captured while jumping he is airborne at almost every
+    # instant, which says nothing about the landing — the half an apex-only
+    # case gets wrong.
+    settle = []
+    with Machine(str(ROM)) as m:
+        m.advance(TITLE)
+        m.advance(1, pad1=JOY_START)
+        m.advance(SETTLE)
+        pal2 = _palette(m)
+        for _ in range(6):
+            grounded = m.read_u16(W, DP_KN_PLATE) != KN_AIRBORNE
+            m.advance(1, pad1={"a": True} if grounded else None)
+        m.advance(80)                   # ...no input at all: land, then ride
+        for i in range(5):
+            m.advance(6)
+            cam = m.read_u16(W, DP_CAM_SHOWN)
+            kn_x = m.read_u16(W, DP_KN_X)
+            f = tmp_path / f"s{i}.png"
+            m.screenshot(str(f))
+            im = Image.open(f).convert("RGB")
+            settle.append((_feet(im, pal2), _under(im, pal2, kn_x, cam)))
+    landed = [i for i, (feet, under) in enumerate(settle)
+              if feet is not None and under is not None and feet == under]
+    assert len(landed) == len(settle), \
+        f"after the arc he is not riding the metal at every capture: {settle}"
+    airborne = [i for i, (feet, under, _t) in enumerate(frames)
+                if feet is None or (under is not None and feet < under - 8)]
+    assert airborne, "he never leaves the metal at all"
+    tops = {u for _f, u in settle if u is not None}
+    assert len(tops) >= 3, \
+        f"the plate stopped moving after the landing — the ride did not " \
+        f"resume: {tops}"
 
 
 def _hold(tmp_path, pad, shots, every):
@@ -1197,7 +1306,8 @@ def _hold(tmp_path, pad, shots, every):
             m.advance(every, pad1=pad)
             f = tmp_path / f"h{i}.png"
             m.screenshot(str(f))
-            out.append((Image.open(f).convert("RGB"), m.read_u16(W, DP_KN_X)))
+            out.append((Image.open(f).convert("RGB"), m.read_u16(W, DP_KN_X),
+                        m.read_u16(W, DP_CAM_SHOWN)))
     return pal, out
 
 
@@ -1222,10 +1332,10 @@ def test_walking_off_the_span_drops_him_and_the_world_gives_him_back(tmp_path):
     pal, shots = _hold(tmp_path, {"right": True}, 14, 6)
     start = shots[0][1]
     seen = []
-    for im, kn_x in shots:
+    for im, kn_x, cam in shots:
         box = _knight(im, pal)
         seen.append((kn_x, None if box is None else box[3] + 1,
-                     _under(im, pal, kn_x)))
+                     _under(im, pal, kn_x, cam)))
 
     riding = [i for i, (_x, f, u) in enumerate(seen) if u is not None and f == u]
     walked = [i for i, (x, _f, _u) in enumerate(seen) if x > start + span]
@@ -1264,7 +1374,8 @@ def test_the_knight_does_not_hide_the_edge_the_per_column_cases_read(frame):
     """
     im, pal, _, cam = frame
     feet = _feet(im, pal)
-    for c in _cols_of(_kn_x()):
+    kn_x, kcam = _kn_x()
+    for c in _cols_of(kn_x, kcam):
         px = im.getpixel((8 * c + 3, PICTURE_TOP + feet))[:3]
         assert _classify(px, pal) == PLATE_IX, \
             f"column {c} at row {feet} is not the plate's edge — the knight " \
@@ -1306,15 +1417,21 @@ def test_the_table_reaches_vram_and_is_the_row_the_picture_shows(tmp_path):
         m.advance(1, pad1=JOY_START)
         m.advance(SETTLE)
         phase = m.read_u16(W, DP_PHASE)
+        cam = m.read_u16(W, DP_CAM_SHOWN)
         # BG3 map row 0 is the H row and row 1 the V row: BG3VOFS is 0, and
         # the vertical row is the horizontal one plus 0x20 WORDS.
-        h = m.read_bytes(V, VRAM_TABLE * 2, ROW_BYTES)
-        v = m.read_bytes(V, (VRAM_TABLE + COLS) * 2, ROW_BYTES)
-    assert h == bytes(ROW_BYTES), "the H row is not all zero — a V-only " \
+        h = m.read_bytes(V, VRAM_TABLE * 2, COLS * 2)
+        v = m.read_bytes(V, (VRAM_TABLE + COLS) * 2, COLS * 2)
+    assert h == bytes(COLS * 2), "the H row is not all zero — a V-only " \
         "table is expressed by a row with neither enable bit set"
-    want = {(phase - lag) % PHASES: None for lag in range(3)}
-    assert any(v == BLOB[i * ROW_BYTES:(i + 1) * ROW_BYTES] for i in want), \
-        "BG3's V row is not any row the blob holds near this phase"
+    # ...and the V row is 32 words of a WORLD row, taken at the read head.
+    head = (cam >> 3) + 1
+    hits = [i for i in ((phase - lag) % PHASES for lag in range(4))
+            if v == BLOB[i * ROW_BYTES + head * 2:
+                         i * ROW_BYTES + (head + COLS) * 2]]
+    assert hits, \
+        f"BG3's V row is not any row the blob holds near phase {phase} at " \
+        f"the camera's read head (world column {head})"
 
 
 def test_no_column_is_displaced_on_the_title(tmp_path):

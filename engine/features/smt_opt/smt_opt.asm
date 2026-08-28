@@ -218,11 +218,37 @@ smt_nmi_row:
     ; these do not, which is the whole reason the pair works: the read head
     ; steps one word as the camera crosses each 8-px boundary and the layers
     ; carry the sub-column remainder, so the two never disagree.
-    lda z:ES_SMT_CAM
+    ;
+    ; THE LOAD IS A16 AND THAT IS THE WHOLE POINT OF THESE FOUR LINES. `xba`
+    ; swaps A with B, so the byte it hands the high write is only the camera's
+    ; high byte if the camera was loaded SIXTEEN BITS WIDE. Written in A8 this
+    ; reads the low byte alone and `xba` then serves whatever the previous
+    ; 16-bit operation happened to leave in B — here the DMA source address's
+    ; high byte, computed four instructions earlier, which changes with the
+    ; phase. BGnHOFS is 10 bits, so that lands in bits 8-9 and scrolls both
+    ; layers by a multiple of 256 px; the maps repeat every 256, so the picture
+    ; is IDENTICAL and nothing downstream can see it. A garbage write whose
+    ; damage is invisible is still a garbage write.
+    ;
+    ; WIDTH-RISK: entry A8. The rep/sep pair below is a forced narrowing, and
+    ; the accumulator is returned to A8 for the fall-through.
+    rep #$20
+    .a16
+    lda z:ES_SMT_CAM                ; ...both bytes, so B is the camera's high
+    sep #$20
+    .a8
+    ; EACH PORT'S PAIR IS WRITTEN CONSECUTIVELY, not interleaved. These are
+    ; write-twice latches and the two ports were being driven low, low, high,
+    ; high; keeping each register's two bytes adjacent costs nothing and
+    ; removes the question entirely. Not a claim about a shared latch — an
+    ; unnecessary interleave beside a bug that had just been found here is not
+    ; worth defending.
     sta a:$210D                     ; BG1HOFS, low
-    sta a:$210F                     ; BG2HOFS, low
     xba
     sta a:$210D                     ; BG1HOFS, high
+    xba
+    sta a:$210F                     ; BG2HOFS, low
+    xba
     sta a:$210F                     ; BG2HOFS, high
     xba
     ; ---- SCREEN COLUMN 0, WHICH THE HARDWARE CANNOT DISPLACE ---------------
