@@ -486,6 +486,45 @@ def test_the_flat_control_levels_every_column(tmp_path):
     assert crust == {where(CRUST_PX, MELT_BASE)}, crust
 
 
+def test_the_flat_row_is_a_row_and_not_a_disarm(tmp_path):
+    """THE CONTROL'S OWN CLAIM, read out of VRAM.
+
+    "Flat" has to mean the same mechanism carrying different values, or it is
+    not a control: if flattening also cleared the enable bits, running and
+    flat would differ in the values AND in whether the offset path applies to
+    anything, and a two-variable comparison cannot attribute what it shows.
+
+    A PICTURE CANNOT SEE THIS. A row of zeros levels every column too —
+    falling back to BG1VOFS/BG2VOFS lands on exactly the two base values the
+    flat row carries — so the flat frame is identical either way. The
+    falsification harness found this hole by planting exactly that
+    (`tools/plants/smelter.py::flat-row-clears-the-enable-bits`); this is the
+    assertion that closes it, and it reads the DESTINATION VRAM row rather
+    than the blob, so it also proves the flat row is the one that got there.
+    """
+    with Machine(str(ROM)) as m:
+        m.advance(TITLE)
+        m.advance(1, pad1=JOY_START)
+        m.advance(SETTLE)
+        m.advance(1, pad1=JOY_B)
+        m.advance(20)
+        assert m.read_u16(W, DP_FLAT) == 1
+        v = m.read_bytes(V, (VRAM_TABLE + COLS) * 2, ROW_BYTES)
+    assert v == BLOB[FLAT_ROW * ROW_BYTES:(FLAT_ROW + 1) * ROW_BYTES], \
+        "BG3's V row is not the blob's flat control row"
+    words = [None] + [v[2 * c] | (v[2 * c + 1] << 8) for c in range(COLS - 1)]
+    for c in range(1, COLS):
+        w = words[c]
+        assert w & (BIT_BG1 | BIT_BG2), \
+            f"column {c}'s flat word ${w:04X} drives NO layer — the control " \
+            f"disarms the mechanism instead of levelling it"
+        want = PLAT_BASE if plate_of(c) is not None else MELT_BASE
+        assert w & VALUE_MASK == want, \
+            f"column {c}'s flat word ${w:04X} is not its layer's base"
+        assert bool(w & BIT_BG1) == (plate_of(c) is not None), \
+            f"column {c}'s flat word drives the wrong layer"
+
+
 def test_flattening_resumes_rather_than_restarts(tmp_path):
     """The state cycle, and the reason the toggle is a control: the phase
     advances while the picture is flat, so un-flattening picks the animation

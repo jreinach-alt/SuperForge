@@ -21,12 +21,12 @@ The point of this file: triage "my idea" without archaeology.
 - **Doesn't fit** — the substrate refuses. Part 3 lists the refusals the
   allocator makes for you and the limits it deliberately does not model.
 
-All 39 games build to 524,288-byte ROMs and are gated in the `Makefile`'s
+All 40 games build to 524,288-byte ROMs and are gated in the `Makefile`'s
 `gates:` block (`make rail-registered` fails if one goes missing).
 
 ---
 
-## Part 1 — the library: 39 games, one line each
+## Part 1 — the library: 40 games, one line each
 
 ### Complete games (8)
 
@@ -68,11 +68,12 @@ All 39 games build to 524,288-byte ROMs and are gated in the `Makefile`'s
 | `split_h_2p_demo` | Two pads, two independent Mode 7 cameras, one world, one frame; ROM pose streaming; sprites placed via `m7_persp_project`. |
 | `split_h_irq_grad_demo` | Spends what the seam IRQ freed: two panning cameras, band 2's origin by IRQ, and a freed channel driving a per-scanline COLDATA gradient over the whole frame. |
 
-### The screen-effect line (2)
+### The screen-effect line (3)
 
 | game | what it is → what it uniquely proves |
 |---|---|
 | `lakeside` | Real water: a drifting BG2 surface designated to the SUB screen and half-added onto the world by the PPU's own colour-math unit. The blend is asserted as an **equality** — `min((main + sub) >> 1, 31)` per 5-bit channel against CGRAM-decoded pixels — not a tolerance. Debuts the `[[claims.screen]]` / `[[claims.blend]]` vocabulary and the one-blender refusal set (`docs/99`). |
+| `smelter` | Per-column vertical scroll for **zero HDMA channels**: in modes 2/4/6 the PPU reads BG3's tilemap as one scroll offset per 8-pixel column instead of as tiles, so the displacement rides the tilemap fetch a layer already pays for. Four plates on four harmonics over a melt that erupts column by column; one 64 B VBlank transfer a frame, and 32 independent columns cost what 1 would. Debuts the `[[claims.video]]` / `[[claims.offset]]` vocabulary and the mode-dependent refusal set (`docs/100`), and generalises the per-scene disarm rule from a port to a whole LAYER'S IDENTITY. |
 | `heathaze` | A mirage: BG1 displaced per scanline through `BG1VOFS`, so source rows are **duplicated and skipped** rather than sheared — the boiling a per-scanline `BG1HOFS` cannot produce — with a small `BG1HOFS` term beside it for turbulence. 65 baked phases at a 256 B stride put an animation frame one store from the channel's A1T high byte. Generalises the per-scene disarm rule from the blender to any HDMA-driven register. |
 
 ### Mechanics studies (10)
@@ -142,7 +143,9 @@ Capability → proving game(s) → feature(s). Features live under
 | **Day/night + gradients** | `racer` (COLDATA day-night cycle), `mode7_flight` (free-running clock + horizon fog), `mode7_chamber` (vignette), `split_h_irq_grad_demo` (per-scanline COLDATA); `rgb_gradient` composed by 6 games | `rgb_gradient`, `rc_grad`, `shg_grad`, `met_glow` |
 | **Colour math** — a layer designated to the SUB screen, blended onto the MAIN one by the PPU's own unit | `lakeside` — half-add asserted as an equality on decoded pixels (`tests/test_lakeside.py`), including the hardware's two edge behaviours: where the sub screen has no pixel the fixed colour substitutes and halving is DISABLED | `water` + `water_rom` + `lake_bg`; the vocabulary is `[[claims.screen]]` / `[[claims.blend]]` and the allocator holds one blender per scene — refusal set R1–R7, `docs/99` §5 |
 | **Per-scanline layer displacement** — the picture bent, not redrawn | `heathaze` — `BG1VOFS` per line duplicates and skips source rows (the vertical axis is the whole character; `BG1HOFS` only shears); a second channel adds a small horizontal term | `haze` + `hz_rom` + `hz_bg`; 65 baked phases at a 256 B stride, so advancing the animation is one 8-bit store to A1T high rather than a table rebuild |
-| **Per-scene disarm of a shared port** — the off state is a *composed feature*, not a convention | the blender: every rail composing `blend_off`; an HDMA-driven scroll port: `heathaze`'s `title` scene composing `hz_flat` | `blend_off`, `hz_flat` — Part 3 item 8 |
+| **Per-column layer displacement, for no channel** — offset-per-tile: a BG's tilemap read as scroll data | `smelter` — every gap column's crust line and every plate column's top edge asserted at exactly `map row - word - 1` against the word the ROM holds for that column, on BOTH layers out of ONE table (`tests/test_smelter.py`). Two hardware rules measured on the binary: a column's word displaces the column to its RIGHT, and screen column 0 cannot be displaced at all | `smt_opt` + `smt_rom` + `smt_bg`; the vocabulary is `[[claims.video]]` / `[[claims.offset]]` and the allocator holds one mode per scene and refuses the table outside modes 2/4/6 — refusal set O1–O8, `docs/100` §5 |
+| **The VIDEO MODE as a declaration** — which layers exist, at what depth, and whether offset-per-tile runs | `smelter` (mode 1 and mode 2 across one edge, on identical art) | `[[claims.video]]` composes BGMODE; a screen designation of a layer the mode never renders is refused as inert (O8), which is R5's rule on the mode axis |
+| **Per-scene disarm of a shared port** — the off state is a *composed feature*, not a convention | the blender: every rail composing `blend_off`; an HDMA-driven scroll port: `heathaze`'s `title` scene composing `hz_flat`; a whole LAYER'S IDENTITY: `smelter`'s `title` re-pointing BG3SC away from a page of scroll words | `blend_off`, `hz_flat`, `bg_text`'s BG3 `scene_writes` — Part 3 item 8 |
 | **Camera regimes** | `scroller` (free scroll), `camera_follow` (follow + world clamp), `scroll_run` (clamp + page seam), `platformer`/`platformer_stream` (side-view), `racer` (steerable kart), `mode7_flight` (flight), `m7_oshoot` (rotate-to-face), the split line (two at once) | per-rail; the split `*_cam` features |
 | **Region parity** — the same ROM at the same REAL-TIME speed on NTSC and PAL, opt-in per rail | 32 of the 39 compose it — every playable rail, plus both screen-effect rails — and all 32 are measured, at a band of **0.994–1.027** against the **0.832** an uncompensated rail reads (`docs/98` §1). The other 7 decline in their own `game.toml`: all determinism trials whose frame-indexed sweeps are the thing under test. NTSC is pixel-identical against every pre-change image | `region` (reads the console's region line once at boot, publishes `ES_RGN_PAL`) + `tick_scale` (the `TS_STEP` macro; no claims of its own, `depends = ["region"]`). Part 3 item 7 is what a consumer still has to decide |
 
@@ -317,6 +320,19 @@ feature cover both cases — where a transfer claims the port the CPU write must
 be declared a `seed` the transfer overrides, and a seed with nothing overriding
 it is itself refused (`allocate.check_reg_ownership`, checks 2 and 3), so the
 port belongs to whichever feature answers for it *in that scene*.
+
+`smelter` takes the same rule one step further, off a port entirely. Its
+`works` scene is mode 2, where BG3's tilemap is **not a tilemap** — the PPU
+reads its entries as per-column scroll offsets and never draws the layer — so
+what the scene hands its successor is a BG3SC pointing at a page of scroll
+words. A successor that drew text on BG3 without re-pointing it would render 64
+bytes of vertical scroll positions AS GLYPHS. So the general form is not "any
+register a transfer drives": it is **anything a scene establishes and its
+successor does not re-establish**, up to and including what a layer MEANS.
+Here the discharge is `bg_text`'s — all four of its BG3 registers are in
+`scene_writes` and the title's enter writes all four — and
+`tests/test_smelter.py::test_the_title_returns_with_bg3_a_layer_again` asserts
+the returned title pixel-identical to the one before the works ever ran.
 
 ### Reading order for a new composition
 

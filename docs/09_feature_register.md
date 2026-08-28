@@ -8,10 +8,11 @@
 **What this is.** The join between what SuperForge must eventually *support*
 (19 rails' worth of demand) and what
 it currently *supplies* (20 `engine/features/*` dirs at delivery — the generated
-census below tracks the live count; **fourteen** claim classes in
+census below tracks the live count; **sixteen** claim classes in
 `allocator/schemas.py` — `claims.reg` landed 2026-07-30, `claims.spc` with C1,
 `claims.sram` with C2, `claims.screen`/`claims.blend` with C5 — the
-composed color-math vocabulary, docs/99). Before this file, the
+composed color-math vocabulary, docs/99 — and `claims.video`/`claims.offset`
+with C6, the composed video mode and BG3-as-a-scroll-table, docs/100). Before this file, the
 two halves existed and nothing connected them, so "does this demanded feature
 need a claim class that doesn't exist?" had no answer you could look up. It has
 now been asked twice and answered twice — both times the answer was yes (§2),
