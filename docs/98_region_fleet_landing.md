@@ -26,6 +26,31 @@
 > | `heathaze` | `warp_phase` (phases) | 22.506 | 22.503 | **0.99989** |
 > | `lakeside` | `surface_drift` (world px) | 60.099 | 60.175 | **1.00127** |
 >
+> **AMENDED 2026-08-28, again.** A third rail of the same shape has landed --
+> `smelter`, the offset-per-tile rail -- and it composes `region` +
+> `tick_scale` too. Measured and in the registry, so the live counts are
+> **33 of 40 composing** and no deferrals:
+>
+> | rail | observable | NTSC/s | PAL/s | ratio |
+> |---|---|---:|---:|---:|
+> | `smelter` | `column_phase` (phases) | 22.506 | 22.503 | **0.99989** |
+>
+> **The same ratio as `heathaze`, to five places, and that is a result rather
+> than a coincidence.** Both advance a 64-phase loop at the same
+> `TS_STEP`-scaled 0.375 phases a frame, and both publish only whole units, so
+> the two rails are the same arithmetic wearing different pictures — which is
+> what a shared scaler is supposed to look like from the outside. The band is
+> unchanged.
+>
+> What `smelter` adds to the shape is one step of indirection: `heathaze`'s
+> phase selects a resident HDMA table and `lakeside`'s a CHR block, while this
+> one selects which 32-word row a VBlank transfer moves into BG3's tilemap, and
+> the PPU reads that row as one vertical scroll offset per 8-pixel column. So
+> the observable is further from the picture than either and no looser: the row
+> IS every plate's height and every jet's at once. Its guard is
+> `ES_SMT_FLATSEL`, the flat control -- the same reason `heathaze` guards
+> `ES_HZ_FLAT`.
+
 > Both sit inside the band this section reports, so **the band is unchanged**
 > at 0.994-1.027. What these two add is a shape the sweep did not have: a rail
 > whose *only* moving thing is an animation phase. There is no camera, no
