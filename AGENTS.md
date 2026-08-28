@@ -598,7 +598,7 @@ The full rule is CLAUDE.md #2. What it means in practice here:
   caller's file. Note the adoption order — `sf_asm.inc` is included once per
   ROM from the rail's `main.asm`, so a macro cannot carry an assertion until
   every rail that expands it includes the header. That include is now on all
-  37 rails, which is what let `TS_STEP` take its own assertion: its 73
+  39 rails, which is what let `TS_STEP` take its own assertion: its 73
   expansion sites across `engine/features/**` and `game/**` are now each
   checked by the assembler in the expanding file, and a wrong arrival stops
   the build naming the expansion line rather than the macro's definition.

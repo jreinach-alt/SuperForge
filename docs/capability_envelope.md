@@ -21,12 +21,12 @@ The point of this file: triage "my idea" without archaeology.
 - **Doesn't fit** — the substrate refuses. Part 3 lists the refusals the
   allocator makes for you and the limits it deliberately does not model.
 
-All 37 games build to 524,288-byte ROMs and are gated in the `Makefile`'s
+All 39 games build to 524,288-byte ROMs and are gated in the `Makefile`'s
 `gates:` block (`make rail-registered` fails if one goes missing).
 
 ---
 
-## Part 1 — the library: 37 games, one line each
+## Part 1 — the library: 39 games, one line each
 
 ### Complete games (8)
 
@@ -67,6 +67,13 @@ All 37 games build to 524,288-byte ROMs and are gated in the `Makefile`'s
 | `split_h_persp3_demo` | The same rail at three bands: the band count lives in a WRAM table's entry list, not the declaration — the pair of rails is the evidence. |
 | `split_h_2p_demo` | Two pads, two independent Mode 7 cameras, one world, one frame; ROM pose streaming; sprites placed via `m7_persp_project`. |
 | `split_h_irq_grad_demo` | Spends what the seam IRQ freed: two panning cameras, band 2's origin by IRQ, and a freed channel driving a per-scanline COLDATA gradient over the whole frame. |
+
+### The screen-effect line (2)
+
+| game | what it is → what it uniquely proves |
+|---|---|
+| `lakeside` | Real water: a drifting BG2 surface designated to the SUB screen and half-added onto the world by the PPU's own colour-math unit. The blend is asserted as an **equality** — `min((main + sub) >> 1, 31)` per 5-bit channel against CGRAM-decoded pixels — not a tolerance. Debuts the `[[claims.screen]]` / `[[claims.blend]]` vocabulary and the one-blender refusal set (`docs/99`). |
+| `heathaze` | A mirage: BG1 displaced per scanline through `BG1VOFS`, so source rows are **duplicated and skipped** rather than sheared — the boiling a per-scanline `BG1HOFS` cannot produce — with a small `BG1HOFS` term beside it for turbulence. 65 baked phases at a 256 B stride put an animation frame one store from the channel's A1T high byte. Generalises the per-scene disarm rule from the blender to any HDMA-driven register. |
 
 ### Mechanics studies (10)
 
@@ -133,8 +140,11 @@ Capability → proving game(s) → feature(s). Features live under
 | **Battery saves** | `rpg` (CRC-gated payload; test power-cycles and checks SRAM bytes *and* restored screen), `room` (visit count survives power-off), `platformer` (continue) | `save` (2×32 B slots, CRC-16, reject semantics — geometry "a choice, not a law") |
 | **Transitions** | fades everywhere (`scene_mgr` phases); mosaic wipes: `mode7_explore`, `rpg`; freeze/capture/restore: `meteor_event` | `fade`, `mosaic`, scene edges |
 | **Day/night + gradients** | `racer` (COLDATA day-night cycle), `mode7_flight` (free-running clock + horizon fog), `mode7_chamber` (vignette), `split_h_irq_grad_demo` (per-scanline COLDATA); `rgb_gradient` composed by 6 games | `rgb_gradient`, `rc_grad`, `shg_grad`, `met_glow` |
+| **Colour math** — a layer designated to the SUB screen, blended onto the MAIN one by the PPU's own unit | `lakeside` — half-add asserted as an equality on decoded pixels (`tests/test_lakeside.py`), including the hardware's two edge behaviours: where the sub screen has no pixel the fixed colour substitutes and halving is DISABLED | `water` + `water_rom` + `lake_bg`; the vocabulary is `[[claims.screen]]` / `[[claims.blend]]` and the allocator holds one blender per scene — refusal set R1–R7, `docs/99` §5 |
+| **Per-scanline layer displacement** — the picture bent, not redrawn | `heathaze` — `BG1VOFS` per line duplicates and skips source rows (the vertical axis is the whole character; `BG1HOFS` only shears); a second channel adds a small horizontal term | `haze` + `hz_rom` + `hz_bg`; 65 baked phases at a 256 B stride, so advancing the animation is one 8-bit store to A1T high rather than a table rebuild |
+| **Per-scene disarm of a shared port** — the off state is a *composed feature*, not a convention | the blender: every rail composing `blend_off`; an HDMA-driven scroll port: `heathaze`'s `title` scene composing `hz_flat` | `blend_off`, `hz_flat` — Part 3 item 8 |
 | **Camera regimes** | `scroller` (free scroll), `camera_follow` (follow + world clamp), `scroll_run` (clamp + page seam), `platformer`/`platformer_stream` (side-view), `racer` (steerable kart), `mode7_flight` (flight), `m7_oshoot` (rotate-to-face), the split line (two at once) | per-rail; the split `*_cam` features |
-| **Region parity** — the same ROM at the same REAL-TIME speed on NTSC and PAL, opt-in per rail | 30 of the 37 compose it — every playable rail — at a measured band of **0.994–1.027** against the **0.832** an uncompensated rail reads (`docs/98` §1). The other 7 decline in their own `game.toml`: all determinism trials whose frame-indexed sweeps are the thing under test. NTSC is pixel-identical against every pre-change image | `region` (reads the console's region line once at boot, publishes `ES_RGN_PAL`) + `tick_scale` (the `TS_STEP` macro; no claims of its own, `depends = ["region"]`). Part 3 item 7 is what a consumer still has to decide |
+| **Region parity** — the same ROM at the same REAL-TIME speed on NTSC and PAL, opt-in per rail | 32 of the 39 compose it — every playable rail, plus both screen-effect rails — and the 30 measured in `docs/98` hold a band of **0.994–1.027** against the **0.832** an uncompensated rail reads (`docs/98` §1). The other 7 decline in their own `game.toml`: all determinism trials whose frame-indexed sweeps are the thing under test. NTSC is pixel-identical against every pre-change image | `region` (reads the console's region line once at boot, publishes `ES_RGN_PAL`) + `tick_scale` (the `TS_STEP` macro; no claims of its own, `depends = ["region"]`). Part 3 item 7 is what a consumer still has to decide |
 
 ---
 
@@ -290,6 +300,23 @@ worked two-rate case, one pair for the run and one for gravity); `tick_scale`
 claims nothing itself, and its `depends = ["region"]` makes the allocator
 auto-include the flag, so listing only `tick_scale` in `globals` builds the
 same bytes as listing both.
+
+**8. A port a TRANSFER drives needs a per-scene OFF state, and that off state
+is a composed feature.** `blend_off` exists because the composed blend state is
+per scene and nothing carries it across an edge: a successor composing no blend
+claimant writes nothing and inherits whatever CGWSEL/CGADSUB the predecessor
+left. That was read as a colour-math fact. It is not. `heathaze` shows the same
+hole on a scroll port — `haze` drives `BG1VOFS` per scanline, so at the end of
+the scene the port holds whatever the last scanline of the last armed frame put
+in it, up to six pixels of arbitrary displacement, and the next scene inherits
+that. So `title` composes `hz_flat`, whose whole content is that port's flat
+base, exactly as it composes `blend_off` for the blender. The rule is general:
+**any register a transfer drives needs a claimant in every scene that must not
+show its residue**, and the allocator will not infer one for you. Nor can one
+feature cover both cases — where a transfer claims the port the CPU write must
+be declared a `seed` the transfer overrides, and a seed with nothing overriding
+it is itself refused (`allocate.check_reg_ownership`, checks 2 and 3), so the
+port belongs to whichever feature answers for it *in that scene*.
 
 ### Reading order for a new composition
 

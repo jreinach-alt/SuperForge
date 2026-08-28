@@ -193,5 +193,12 @@ writing your first test.
 - **Provenance** — what in this tree is not ours, and how that was established → [`docs/92`](docs/92_provenance_audit.md)
 - **Region speed** — the rate oracle, the frame-assumption lint (`make tick-check`), and a prototype timebase measured at 0.99919 parity → [`docs/96`](docs/96_region_timebase_tooling.md)
 - **Region support** — the region flag, the two header corrections, and the timebase promoted to a composable feature (R0 landed) → [`docs/97`](docs/97_region_r0_landing.md)
-- **Region parity across the tree** — the 30 rails of 37 that compose `region` + `tick_scale`, the measured 0.994–1.027 band, the 7 rails exempt by design, and the two one-time deferrals converted by the paths it named → [`docs/98`](docs/98_region_fleet_landing.md)
-- **Color-math composition** — the screen/blend vocabulary (`claims.screen` / `claims.blend`), the one-blender refusal set R1–R7 and the line between refusing and warning, the `ES_SCR_*` emission (a symbol only for a port the composition OWNS — ownership is per half), the per-scene state and what that means at a transition edge, coexistence with raw claims, and the stated limits → [`docs/99`](docs/99_color_math_composition.md)
+- **Region parity across the tree** — the 30 rails measured of the 37 then in
+  the tree, the 0.994–1.027 band, the 7 rails exempt by design, and the two
+  one-time deferrals converted by the paths it named → [`docs/98`](docs/98_region_fleet_landing.md).
+  The census has since moved to **32 of 39**: `lakeside` and `heathaze` compose
+  `region` + `tick_scale` and are not yet in that sweep
+- **Color-math composition** — the screen/blend vocabulary (`claims.screen` / `claims.blend`), the one-blender refusal set R1–R7 and the line between refusing and warning, the `ES_SCR_*` emission (a symbol only for a port the composition OWNS — ownership is per half), the per-scene state and what that means at a transition edge, coexistence with raw claims, and the stated limits → [`docs/99`](docs/99_color_math_composition.md).
+  Exercised by two rails: `lakeside` (the blend itself, asserted as an equality)
+  and `heathaze` (the same per-scene disarm rule, on an HDMA-driven scroll port
+  rather than on the blender)

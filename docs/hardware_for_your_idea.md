@@ -141,6 +141,28 @@ that change. The proven idiom of all of it is light *added* over dark —
 dusks, fog, dawn — and it is close to free at runtime, because the PPU does
 the per-line work.
 
+The third instrument is the **colour-math unit**, which is really a second,
+private screen. Designate a layer to the SUB screen and the PPU adds it into
+the MAIN one per pixel, optionally halved. `game/lakeside` puts a drifting
+water surface there and the lake bed reads *through* it —
+`min((main + sub) >> 1, 31)` per five-bit channel — with the hardware's own
+edge case doing the work at the shoreline: where the sub screen has no pixel
+the fixed colour substitutes and the halving is disabled, so dry land arrives
+at full intensity. There is exactly one blender for the whole screen, which is
+why designation and blend are **declared** (`[[claims.screen]]` /
+`[[claims.blend]]`) and two features that both want it are refused by name at
+build time rather than found by debugging
+(`docs/99_color_math_composition.md`).
+
+And the picture can be **bent** rather than repainted. A scroll register
+rewritten per scanline by HDMA displaces a layer line by line for no CPU
+during display: `game/heathaze` runs a mirage that way. The axis is the whole
+character of it — a per-scanline `BGnHOFS` only shears each row sideways and
+every source row still appears exactly once, while a per-scanline `BGnVOFS`
+makes scanline N draw source row N+d(N), so rows are duplicated and skipped
+and the ground boils. The warp is a table, not artwork: 65 baked phases at a
+256-byte stride put an animation frame one 8-bit store away.
+
 ## You want music
 
 The audio system is its own computer: a separate sound CPU with 64 KiB of
@@ -218,8 +240,8 @@ The 16-bit era's usual answer was to ship the NTSC game unchanged and let PAL
 play it at 83.2% speed. This kit's answer is that a game declares its
 per-frame rates against a **tick**, and the tick is scaled to whichever
 console the cart wakes up on: `engine/features/region` +
-`engine/features/tick_scale`, opt-in, composed by 28 of the 37 games and
-measured at a real-time band of 0.994–1.027 against that 0.832
+`engine/features/tick_scale`, opt-in, composed by 32 of the 39 games — the 30
+measured so far hold a real-time band of 0.994–1.027 against that 0.832
 (`docs/98_region_fleet_landing.md`). The compensation costs 0.15% of a PAL
 frame (`docs/96_region_timebase_tooling.md` §0). What it does **not** buy is
 the taller PAL picture: the active area is 224 lines in both regions here, so

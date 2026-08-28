@@ -15,7 +15,7 @@ hardware at a hard 60 fps, with ~28–37k CPU cycles per frame to spend.
 *`mode7_flight` ("SKY RUNNER") — the d-pad turns, B throttles, L/R climb and
 dive, and altitude drives the perspective scale.*
 
-`game/` holds **38 complete games** built this way. Each one composes declared
+`game/` holds **39 complete games** built this way. Each one composes declared
 features, builds to a 524,288-byte ROM, and ships tests that boot that ROM on a
 cycle-accurate emulator and read the rendered output back.
 
@@ -72,9 +72,10 @@ frame ratio, carrying the fraction between frames. Everything downstream keeps
 saying "move one step" — what a step *is* becomes a property of the timebase.
 The same ROM then covers the same distance per **second** on both machines.
 
-It is opt-in, per game. **31 of the 38 games compose it** — every playable one
-— and they measure a real-time parity band of **0.994–1.027**, against the
-**0.832** an uncompensated game reads. The other seven decline in their own
+It is opt-in, per game. **32 of the 39 games compose it** — every playable one,
+plus both screen-effect rails — and the 30 measured so far hold a real-time
+parity band of **0.994–1.027**, against the **0.832** an uncompensated game
+reads. The other seven decline in their own
 `game.toml`: all are determinism trials whose frame-indexed sweeps are the
 thing under test. NTSC does not move — the picture is pixel-identical against
 every pre-change image, per game.
@@ -83,7 +84,7 @@ the two one-time deferrals with the addenda that converted them.
 
 ## The showcase
 
-Ten of the library's games, and what each one proves. Every clip is recorded
+Eleven of the library's games, and what each one proves. Every clip is recorded
 from the committed ROM at full gameplay speed, one GIF second to one gameplay
 second, and cut so it rejoins itself — the loop points and their measured seams
 are in [`reports/gallery_loop_seams.md`](reports/gallery_loop_seams.md).
@@ -262,6 +263,66 @@ half: the composed state is per scene and nothing carries it across an edge, so
 the title composes the blender's off state and returning from the lake is
 pixel-identical to never having left.
 
+### `heathaze`
+
+![heathaze — a mirage as a per-scanline displacement](docs/img/gif_heathaze.gif)
+
+| | | |
+|---|---|---|
+| ![the world with the warp flat](docs/img/hz_01_title.png) | ![the same world boiling](docs/img/hz_02_desert.png) | ![the title returned to](docs/img/hz_03_returned.png) |
+| the world, `BG1VOFS` flat | the same world through moving air | and back — 0 pixels of 61,184 differ |
+
+| | |
+|---|---|
+| ![the shimmer switched off](docs/img/hz_04_flat.png) | ![the shimmer running](docs/img/hz_05_shimmer.png) |
+| B: the shimmer off, mid-scene | and on — one variable moved |
+
+A desert road running to a mesa ridge, with **the ground boiling**. Below the
+horizon every scanline of BG1 is drawn from a slightly different SOURCE ROW:
+HDMA rewrites `BG1VOFS` per line, so rows are duplicated and skipped and the
+picture compresses and stretches vertically. **The axis is the whole effect.**
+A per-scanline `BG1HOFS` only shears each row sideways and every source row
+still appears exactly once; only a per-scanline `BG1VOFS` squashes them, and
+that squashing is what the eye reads as heat. A second channel adds a small
+horizontal term beside it — four pixels of vertical displacement at most and
+two of horizontal, measured off the shipped tables — running a fixed 29 phases
+ahead so the sideways wobble slides *across* a surface that is itself moving,
+which is what refraction looks like. The displacement peaks at the horizon,
+where a sightline has travelled through the most hot air, and decays toward the
+viewer; the sky and the ridge above the band do not move at all, which is what
+makes it read as heat rather than as a broken picture.
+
+**The warp is a table, not a tile.** The intuitive way to draw heat haze is to
+author pre-warped copies of the affected art. That doubles the tile budget,
+distorts only what was drawn in advance, and cannot follow the art it distorts.
+Here the ROM holds 65 complete HDMA tables per axis — 64 phases and a
+zero-displacement control — at a 256-byte stride, so a phase's address is
+`HZ_WARP + (index << 8)` and advancing the animation is **one 8-bit store** to
+a channel's A1T high byte: two stores a frame, one per axis. Rebuilding the
+table instead is priced at ~16 cycles an entry, about 2,000 CPU cycles a frame
+over this 124-line band, per channel, out of the ~28–37k a whole frame gets.
+
+**B is a control, not a feature.** It switches both channels to the 65th blob:
+the same table with every displacement zero, so the channels stay armed and
+identically configured and exactly one variable moves. Shimmer against flat
+measures 8,105 differing pixels, every one inside the band's own rows. The
+horizon strip is the one place the effect is allowed only one direction — a
+stretching slope there thickened the bright line at the ridge and broke the
+illusion, so the generator clips those slopes to zero and tapers the
+accumulated rise below, asserted per phase and again on the rendered strip's
+height. Every band row is checked against the byte the ROM holds for its
+scanline: 121 of 130 decidable rows show exactly that byte and every one of the
+rest shows an immediately adjacent entry, which is a one-line ambiguity about
+*which* byte and never about the value.
+
+The last frame is the transition half, and it is the rail's second finding.
+`BG1VOFS` is a port a *transfer* drives, so at the end of the scene it holds
+whatever the last scanline of the last armed frame put in it. `title` composes
+`hz_flat` — whose whole content is that port's flat base — for exactly the
+reason every rail composes `blend_off` for the blender. An HDMA-driven register
+needs the same per-scene disarm discipline colour math does; colour math was
+just the first port anyone noticed it on.
+
 ---
 
 The other 28 games are in `game/` — among them `microzero`, the smallest
@@ -376,7 +437,7 @@ These are rules the tree is held to by a gate, not intentions.
 
 An allocator that refuses bad compositions is only worth something if good
 compositions are plentiful, varied and hard. So the bar this engine is held to
-is a library of finished games rather than a feature checklist. All 38 declare
+is a library of finished games rather than a feature checklist. All 39 declare
 their features in a `game.toml`, take every address from the allocator, build to
 a byte-exact ROM, and are verified by booting that ROM and reading what the PPU
 actually produced.
@@ -392,9 +453,9 @@ and a proof does not.
 
 ```
 allocator/   the declarative allocator + the collision and no-literals gates
-engine/      the 65816 engine — features/ (162 dirs), toy/ (the smallest thing
+engine/      the 65816 engine — features/ (166 dirs), toy/ (the smallest thing
              the allocator can prove) and toy_bad/ (its infeasible twin)
-game/        38 games — a game.toml, its scenes, and the game's own state.toml
+game/        39 games — a game.toml, its scenes, and the game's own state.toml
 tests/       pytest, driving ROMs on the cycle-accurate emulator
 tools/       setup, the linters, asset generators, the render/capture scripts
 vendor/      vendored and self-contained: the emulator harness, fonts, ROM

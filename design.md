@@ -37,7 +37,7 @@ address map, or refusing with names.**
 Features declare their claims in a `feature.toml` (155 dirs under
 `engine/features/`); a game declares its composition — global features,
 per-scene features, transition edges — in a `game.toml` and its variables in a
-`state.toml` (37 games under `game/`); the machine itself is declared in
+`state.toml` (39 games under `game/`); the machine itself is declared in
 `allocator/substrate.toml`, every budget either taken exactly from the hardware
 reference or *measured on the cycle-accurate emulator and pinned*, never
 estimated.
@@ -231,7 +231,7 @@ anything but your own bug (`CLAUDE.md` rules 6–7).
 
 An allocator that refuses bad compositions is only worth something if good
 compositions are plentiful, varied and hard. So the bar this engine is held to
-is **37 finished games** (`game/`), not a feature checklist: each declares its
+is **39 finished games** (`game/`), not a feature checklist: each declares its
 composition in a `game.toml`, takes every address from the allocator, builds to
 a byte-exact 524,288-byte ROM, and is verified by booting that ROM and reading
 what the PPU actually produced. The `Makefile`'s `gates:` block is the working

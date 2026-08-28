@@ -102,6 +102,8 @@ generator as a prerequisite so an edited generator regenerates.
 | `seam_irq_trial` · `split_h_irq_grad_demo` | reuse `gen_split_h_2p_assets`' blobs |
 | `split_h_persp_demo` | `gen_split_h_persp_assets` — oracle-gated by `vendor/art/split_h_persp/` |
 | `split_h_matrix_demo` · `split_h_persp3_demo` | `gen_split_h_matrix_assets` |
+| `lakeside` | `gen_lakeside_assets` — the lake bed, the drifting surface, and the four-phase highlight loop |
+| `heathaze` | `gen_haze_assets` — the desert world *and* the two warp tables: 65 phases × 124 lines of `BG1VOFS` displacement at a 256 B stride, plus the `BG1HOFS` turbulence beside it |
 
 **Shared generators**, consumed across rails rather than owned by one:
 `gen_font` and `gen_vwf_font` (text, everywhere text is drawn);
