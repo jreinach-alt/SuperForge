@@ -37,21 +37,28 @@ equal phase is an identical frame whatever the accumulator behind it holds.
 Driving the recorder's own 3-frame grid over 240 captures and comparing decoded
 frames byte for byte: 64 distinct pictures, and captures 57, 114, 171 and 228
 are pixel-identical to capture 0. **57 captures — 171 emulated frames, 2.85 s —
-is the period**, and this take holds two of them plus the capture it closes on:
-115 frames, 5.75 s at 1:1, opening and closing on one picture.
+is the interval at which the opening picture returns**, and this take holds two
+of them plus the capture it closes on: 115 frames, 5.75 s at 1:1, opening and
+closing on one picture.
 
 THE ANCHOR IS THE CARRIED FRACTION AT ZERO, and that is not decoration. The
 shimmer advances `HZ_PHASE_BASE` = 0.375 phases a frame through `TS_STEP`, which
 publishes whole phases and carries the rest, so a capture is 1.125 phases and 57
 of them are 64.125 — the whole 64-phase loop, plus an eighth of a phase the
-accumulator is still holding. Open on a capture whose carried fraction reads
-zero and that eighth only reaches a whole phase after eight periods, so the
-first four multiples of 57 all close exactly (all four measured above). Open
-anywhere else and the loop can close once and then drift: measured from a
-capture whose fraction read 96/256, the return at 57 was pixel-identical and the
-one at 114 was a phase out. So the drive waits for the fraction rather than
-taking the first settled capture it sees — the same rule the other beats
-follow, applied to the beat the loop is actually made of.
+accumulator is still holding. Where the anchor leaves that eighth decides how
+many multiples of 57 close exactly: from this one it takes FIVE periods to reach
+a whole phase, so the first four all close (all four measured above), and from a
+capture whose fraction read 96/256 it takes two — measured, the return at 57 was
+pixel-identical and the one at 114 was a phase out. So the drive waits for the
+fraction rather than taking the first settled capture it sees.
+
+THE SAME EIGHTH IS WHY THE CLIP IS NOT A LOOP OF A LOOP. Inside the take, seven
+captures in eight repeat exactly 57 later and the eighth sits one phase further
+on — invisible in boiling air, and nothing to do with the join, which is one
+specific pair of captures and measures 0 differing pixels of 61,184. It is also
+why the drive closes on the PHASE and not on the picture: at capture 57 the
+picture is the flat control, and only the phase underneath it says a period has
+gone by.
 
 THE BEATS ARE IN CAPTURES because they are durations, not events: how long a
 viewer looks at the shimmer before the control interrupts it is a choice, and

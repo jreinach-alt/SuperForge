@@ -30,8 +30,9 @@ seam; that was a palette result reported as a picture one, and it is withdrawn.
 nothing to be short of. On `lakeside` and `heathaze` it is stronger and
 narrower: **the two ends are ONE FRAME**, because each take is cut on the
 EFFECT'S OWN ANIMATION PERIOD. `heathaze`'s picture is a pure function of
-`ES_HZ_PHASE` and comes back round after 57 captures; `lakeside`'s is a pure
-function of `ES_WAT_SCROLL` and comes back after 128. Both periods were
+`ES_HZ_PHASE` and comes back to the frame it opened on 57 captures later, and
+again at 114; `lakeside`'s is a pure function of `ES_WAT_SCROLL` and comes back
+after 128. Both intervals were
 measured the same way rather than derived — drive the recorder's own 3-frame
 grid, compare decoded frames byte for byte, take the first index that repeats
 capture 0 — and both hold at the strongest available reading: **0 differing
