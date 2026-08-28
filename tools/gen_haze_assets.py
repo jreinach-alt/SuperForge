@@ -283,12 +283,36 @@ def road_half_width(row):
     return 2 + (row - GROUND_TOP) * 5 // (27 - GROUND_TOP)
 
 
-CACTI = [(4, 20, 23), (27, 18, 22), (11, 24, 26)]
+# (column, first row, last row). The road WIDENS toward the viewer, so a
+# column that is clear of it at one row is not necessarily clear at the next —
+# which is how the third of these came to be planted in the asphalt. The
+# assertion below is the guard; these are placed against it rather than by eye.
+CACTI = [(4, 20, 23), (27, 18, 22), (24, 24, 26)]
 
 
 def sky_cell(row):
     return ("sky_0", "sky_0", "sky_0", "sky_01", "sky_01", "sky_1", "sky_1",
             "sky_12", "sky_2", "sky_23")[row]
+
+
+def _assert_cacti_are_off_the_road():
+    """No saguaro may stand on the road, at any of its rows.
+
+    Cheap to state and impossible to see reliably: the road's half-width is
+    COMPUTED per row and grows toward the viewer, so a placement that reads as
+    clearly roadside at its top row can be in the middle of the carriageway
+    three rows down. One of these shipped that way.
+    """
+    for col, r0, r1 in CACTI:
+        for row in range(r0, r1 + 1):
+            hw = road_half_width(row)
+            lo, hi = ROAD_MID - hw, ROAD_MID + hw
+            assert not (lo <= col <= hi), (
+                f"cactus at column {col} stands on the road at row {row}: the "
+                f"road spans columns {lo}..{hi} there")
+
+
+_assert_cacti_are_off_the_road()
 
 
 def floor_cell(row, col):
