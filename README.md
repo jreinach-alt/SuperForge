@@ -204,124 +204,35 @@ two of those numbers shared with claims that run in VBlank.
 
 ![lakeside — a drifting surface half-added onto the world it covers](docs/img/gif_lakeside.gif)
 
-| | | |
-|---|---|---|
-| ![the lake bed dry](docs/img/lks_01_title.png) | ![the same bed under water](docs/img/lks_02_lake.png) | ![back to dry](docs/img/lks_03_returned.png) |
-| the world, blender off | the same world through a sub-screen layer | and back, byte-identical to the first |
+A lakeshore with real water. BG2 carries a drifting surface designated to the
+**sub screen**, and the PPU's colour-math unit half-adds it onto the world:
+the bed of silt, pebbles and weed reads *through* the surface, pixel for
+pixel, and the test asserts that as an **equality** — `min((main + sub) >> 1,
+31)` per 5-bit channel — rather than a tolerance. The surf is the blend
+boundary moving: a wave running 26 px up the shore turns the sand it covers
+wet and hands it back at full intensity when the backwash draws down, because
+where the sub screen has no pixel the hardware substitutes the fixed colour
+and disables halving. Three features share the four colour-math ports without
+any of them claiming one, and returning to the title is pixel-identical to
+never having left.
 
-| | |
-|---|---|
-| ![the wave drawn back](docs/img/lks_04_dry.png) | ![the wave run up](docs/img/lks_05_wet.png) |
-| the wave drawn back — dry sand | the wave run up — the same sand, wet |
-
-A lakeshore with **real water**: BG2 carries a drifting surface designated to
-the SUB screen, and the PPU's colour-math unit half-adds it onto the main
-screen. The left frame is the world with the blender off — a meandering
-waterline over a bed of silt, pebbles, sandbars and weed, dropping off a jagged
-shelf into open water. The middle frame is that same bed seen through the
-surface, pixel for pixel: `min((main + sub) >> 1, 31)` per 5-bit channel,
-asserted as an **equality** rather than a tolerance. The terrain still reads
-through the blend because the palette is spread wide enough to survive being
-halved, and the surface's own top edge is transparent above a meandering line —
-so the water's edge is a *pixel* boundary that drifts, not a row of tiles.
-Where the sub screen has no pixel the main one arrives at full intensity,
-because the hardware substitutes the fixed colour and disables halving there.
-Sparse opaque highlights twinkle on the deep water through a four-phase loop
-indexed by how far the surface has drifted — so it is region-correct for free
-and holds still exactly when the drift is stilled. The text stays legible over
-the water because BG3 is left out of the math.
-
-**And the surf is the blend boundary moving.** Because BG2 is the sub screen,
-the water's own top edge is where the colour math starts: a wave that runs 26 px
-up the shore turns the sand it covers into `(sand + water) >> 1` — darker,
-cooler, wet — and gives it back at full intensity when the backwash draws down.
-The bottom pair is that pixel for pixel. Nothing repaints a "wet" palette; the
-PPU does the shading for free, and the test asserts both halves as equalities
-over the 5,632 pixels the surface's own VRAM says are covered when the wave is
-in and bare when it is out. The wave is not a sine either — the swash climbs at
-1.300 px/frame and the backwash draws down at 0.456, measured off the picture,
-because a symmetric oscillation reads as a pulsing band rather than as water.
-It costs one 512-byte VBlank transfer: every phase of the cycle is resident in
-ROM, and what moves is which of them the band's display slots are showing.
-
-Fifty composited values are on screen at once, which is what the proof had to
-grow to match: every pixel of the water is asserted to be a member of a legal
-set computed from both palettes read off CGRAM at test time, the number of
-unblended pixels in each row is counted against the surface's own transparency
-read out of VRAM, and the whole region is compared pixel for pixel against the
-composite its two decoded layers imply. The palette pays for it at author time —
-adding the beach as a main operand made two of its colours collide once halved,
-and one of them moved a step so a test could still tell wet rock from submerged
-rock.
-
-What it demonstrates is a composition, not an effect. Three features share the
-four write-only colour-math ports without any of them claiming one: one
-designates the world and the text layer, one designates the water and declares
-the blend, and `bg_text` — which claims BG3's layout registers and deliberately
-not `TM` — composes completely untouched. The third frame is the transition
-half: the composed state is per scene and nothing carries it across an edge, so
-the title composes the blender's off state and returning from the lake is
-pixel-identical to never having left.
 
 ### `heathaze`
 
 ![heathaze — a mirage as a per-scanline displacement](docs/img/gif_heathaze.gif)
 
-| | | |
-|---|---|---|
-| ![the world with the warp flat](docs/img/hz_01_title.png) | ![the same world boiling](docs/img/hz_02_desert.png) | ![the title returned to](docs/img/hz_03_returned.png) |
-| the world, `BG1VOFS` flat | the same world through moving air | and back — 0 pixels of 61,184 differ |
+A desert road with the ground boiling. HDMA rewrites **`BG1VOFS` per
+scanline**, so each line is drawn from a slightly different source row and the
+picture compresses and stretches vertically — the axis is the whole effect,
+since a per-scanline `BG1HOFS` only shears each row sideways and every source
+row still appears exactly once. A second channel adds a small horizontal term
+29 phases ahead, so the sideways wobble slides *across* a surface already
+moving. The warp is a table, not a tile: 65 complete HDMA tables per axis at a
+256-byte stride put an animation frame **one 8-bit store** from the channel's
+A1T high byte. B switches both channels to the flat one — same world, every
+displacement zero — and the title returns undisplaced, because a port a
+transfer drives needs the same per-scene off state the blender does.
 
-| | |
-|---|---|
-| ![the shimmer switched off](docs/img/hz_04_flat.png) | ![the shimmer running](docs/img/hz_05_shimmer.png) |
-| B: the shimmer off, mid-scene | and on — one variable moved |
-
-A desert road running to a mesa ridge, with **the ground boiling**. Below the
-horizon every scanline of BG1 is drawn from a slightly different SOURCE ROW:
-HDMA rewrites `BG1VOFS` per line, so rows are duplicated and skipped and the
-picture compresses and stretches vertically. **The axis is the whole effect.**
-A per-scanline `BG1HOFS` only shears each row sideways and every source row
-still appears exactly once; only a per-scanline `BG1VOFS` squashes them, and
-that squashing is what the eye reads as heat. A second channel adds a small
-horizontal term beside it — four pixels of vertical displacement at most and
-two of horizontal, measured off the shipped tables — running a fixed 29 phases
-ahead so the sideways wobble slides *across* a surface that is itself moving,
-which is what refraction looks like. The displacement peaks at the horizon,
-where a sightline has travelled through the most hot air, and decays toward the
-viewer; the sky and the ridge above the band do not move at all, which is what
-makes it read as heat rather than as a broken picture.
-
-**The warp is a table, not a tile.** The intuitive way to draw heat haze is to
-author pre-warped copies of the affected art. That doubles the tile budget,
-distorts only what was drawn in advance, and cannot follow the art it distorts.
-Here the ROM holds 65 complete HDMA tables per axis — 64 phases and a
-zero-displacement control — at a 256-byte stride, so a phase's address is
-`HZ_WARP + (index << 8)` and advancing the animation is **one 8-bit store** to
-a channel's A1T high byte: two stores a frame, one per axis. Rebuilding the
-table instead is priced at ~16 cycles an entry, about 2,000 CPU cycles a frame
-over this 124-line band, per channel, out of the ~28–37k a whole frame gets.
-
-**B is a control, not a feature.** It switches both channels to the 65th blob:
-the same table with every displacement zero, so the channels stay armed and
-identically configured and exactly one variable moves. Shimmer against flat
-measures 8,105 differing pixels, every one inside the band's own rows. The
-horizon strip is the one place the effect is allowed only one direction — a
-stretching slope there thickened the bright line at the ridge and broke the
-illusion, so the generator clips those slopes to zero and tapers the
-accumulated rise below, asserted per phase and again on the rendered strip's
-height. Every band row is checked against the byte the ROM holds for its
-scanline: 121 of 130 decidable rows show exactly that byte and every one of the
-rest shows an immediately adjacent entry, which is a one-line ambiguity about
-*which* byte and never about the value.
-
-The last frame is the transition half, and it is the rail's second finding.
-`BG1VOFS` is a port a *transfer* drives, so at the end of the scene it holds
-whatever the last scanline of the last armed frame put in it. `title` composes
-`hz_flat` — whose whole content is that port's flat base — for exactly the
-reason every rail composes `blend_off` for the blender. An HDMA-driven register
-needs the same per-scene disarm discipline colour math does; colour math was
-just the first port anyone noticed it on.
 
 ---
 
