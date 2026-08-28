@@ -352,6 +352,57 @@ existed nowhere on disk — the artifact could only ever say `measure FAILED`.
 `${PIPESTATUS[0]}` carries the exit code through the pipe, because `tee` always
 succeeds and the naive form reads every red step as green.
 
+### A fault the table calls `defect` and cannot yet name (2026-08-28)
+
+Recorded here because the diagnosis cost a turn and the artifact alone does not
+carry it.
+
+`bare-check` went RED twice — on `025f63d` and again on `61546a6`, a whole
+doc-pass apart — with the same single failure out of 2,236 passing:
+
+```
+tests/test_split_h_2p_sprites.py::test_every_marker_stands_on_the_world_texel_it_is_drawn_over
+machine.MachineError: RunFramesSync(1) failed: no ROM running
+  red: on gw1 #19 — after: test_wait_primitives.py, test_room_window.py, test_shmup.py
+```
+
+`no ROM running` is `_RC_NAMES[-1]` in `vendor/machine.py` — the NATIVE core
+reporting no ROM loaded. It is **not** the Python-side supersede path, which
+raises its own message ("this Machine was superseded by a later load"), and the
+handle still owned the core. The fixture's own `Machine(ROM).advance(90)` had
+already SUCCEEDED, so the ROM was loaded and then went away before the test's
+first `advance(1)`.
+
+**What was measured, so a second sighting need not measure it again:**
+
+| run | result |
+|---|---|
+| the single test, alone | passes |
+| its whole module, alone | 18/18 |
+| its exact neighbour set, under this gate's own `-n 2 --dist loadfile` | 76/76 |
+| the full suite | fails, at the same slot, on two different commits |
+
+So it needs the FULL suite — nineteen module boots deep on one worker with the
+other busy throughout — and neither the module nor the two-worker configuration
+reproduces it. That the slot is identical across commits is not the coincidence
+it looks like: `--dist loadfile` assigns deterministically, so a repeated slot
+is what a THRESHOLD looks like (state accumulated over many boots, or sustained
+concurrent core use) rather than what a race looks like — a race would wander.
+
+**Uncorrelated with the tree.** The branch that was red touched none of the
+rail, its test, `vendor/machine.py` or `vendor/mesen_runner.py`, the ROM is
+byte-identical, and the failure never reached an assertion.
+
+**Deliberately NOT added to `LIVENESS_GUARDS`.** The classifier calls this
+`defect`, which is correct by its own rule — the fragment is not one of the
+wall-clock guards. Adding it would be the wrong repair: rc `-1` can equally
+mean a genuine load failure, so a table that swallowed it would make a real red
+read as noise, which is the failure this section exists to prevent. Better that
+the reading is conservative and occasionally wrong out loud than permissive and
+silently wrong.
+
+**Not root-caused.** What is established is what it is not.
+
 ## See also
 
 - `tools/harness_faults.py` — the fault classifier and its guard table;
