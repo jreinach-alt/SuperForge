@@ -79,8 +79,23 @@ Three rows are load-bearing for the refusal set. The render table is why a
 screen designation of a layer the mode does not draw is a declaration that
 lies rather than a spare bit. The fetch schedule is why offset-per-tile outside
 modes 2/4/6 is not "an effect that does not show" but a claim on a mechanism
-the PPU never runs. And the mode-4 row is why `axis = "both"` is expressible
-in modes 2 and 6 and not in 4.
+the PPU never runs. And the **bpp columns** are what a CHR claim's depth is
+checked against (§5, O9): a 4bpp tile is 32 bytes and an 8bpp tile is 64, the
+PPU fetches at the MODE's depth whatever the claim reserved, and until mode 4
+every composed mode rendered its layers at the depth the art happened to be.
+
+**`axis = "both"` under mode 4 was refused, and that was wrong.** The refusal
+reasoned about a COLUMN — a mode-4 column carries one axis, which is true —
+and then rejected a claim about the TABLE. Bit 15 is per WORD, so a mode-4
+table can drive one column vertically and its neighbour horizontally, and that
+mixing is the only thing mode 4 does which mode 2 cannot. It also made the
+truth undeclarable rather than merely unusual: `axis` selects which value mask
+is published and the two mask differently (`$3FF` against `$3F8`), so a mixed
+table declaring `"v"` got `MASK` and no `HMASK` and had no symbol to build half
+its words from. `both` is legal in all three offset modes now and means "this
+table uses both axes"; what differs by mode is where the choice lives, and the
+composition warns at that boundary because the same declaration means "both
+axes per column" one mode over.
 
 **Two things about offset-per-tile were measured on a shipped binary rather
 than read**, because reading a fetch order is not the same as watching it:
@@ -202,6 +217,39 @@ names the claiming features and the hardware mechanism it protects.
   offset claim**. R5's rule on the mode axis, and the same sentence: the TM/TS
   enable bit is set and no pass ever produces a pixel through it. OBJ is exempt
   — sprites render in every mode.
+- **O9 — a CHR claim's DEPTH against the depth its mode renders that layer
+  at.** A `kind = "chr"` claim may name the BG `layers` its tiles are fetched
+  for; when it does, `tile_bytes` must equal `MODE_BPP[mode][layer] * 8`. A
+  4bpp tile is 32 bytes and an 8bpp tile is 64, and **the PPU fetches at the
+  MODE's depth whatever the claim reserved** — so mode 4 (bg1 8bpp) beside a
+  32-byte BG1 claim is not a tight fit, it is every tile made of half of one
+  tile and half of the next, with the back half of the set never reached.
+  Naming a layer the mode does not render refuses too, on O6's grounds one
+  claim class over: tiles uploaded for a layer no pass fetches.
+
+  **The OBJ arm holds without a video claim at all.** A sprite's depth is not
+  a property of the mode — `SnesPpu.cpp:770` fetches sprite pixels through
+  `GetTilePixelColor<4>` with the depth written into the template argument —
+  so OBJ is 4bpp in all eight modes and a 16- or 64-byte OBJ claim is wrong in
+  every one of them. `layers` and `obj = true` are mutually exclusive for the
+  same reason: OBJ is not a layer whose depth a mode decides.
+
+  **Why nothing found this before.** `MODE_BPP` was imported by the allocator
+  for exactly one purpose — building the "(bg1 4bpp + bg2 4bpp)" text inside
+  refusal MESSAGES — and was never checked against anything; `tile_bytes` was
+  validated as one of 16/32/64 and stopped there. It stayed invisible because
+  until mode 4 every composed mode rendered its layers at the depth the art
+  happened to be. **The same claim is wrong one mode over**, which is what
+  makes this a join rather than a field validation.
+
+  **`layers` is OPTIONAL and the check says what it did not reach.** A scene
+  that declares a mode and carries a sized BG CHR claim without it gets a
+  warning naming the claim — the ratchet's first rung, the shape the width
+  lint's routine contracts were adopted through. A claim sized in `words`
+  rather than `tiles` declares no depth at all and is invisible here: `words`
+  is the escape hatch for a claim whose shape is a hardware WINDOW rather than
+  a tile count (a whole OBJ name table, the Mode 7 region), and that is a
+  stated limit rather than an oversight.
 
 Beside them, a raw `[[claims.reg]]` on BGMODE in a scene that composes a video
 claim refuses with the docs/99 R6 message on this port: two vocabularies, one

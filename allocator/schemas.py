@@ -572,6 +572,29 @@ class VramClaim:
     # narrated bits are zero. The first 32x64 map found it — and found it as
     # a picture made entirely of the map's first 32 rows.
     shape: str = "32x32"
+    # chr only: WHICH BG LAYERS these tiles are fetched for, so the claim's
+    # depth can be checked against the depth the scene's declared video mode
+    # renders that layer at. A 4bpp tile is 32 bytes and an 8bpp tile is 64,
+    # and the PPU reads whatever the mode says regardless of what the claim
+    # reserved — so mode 4 (bg1 8bpp) beside a 32-byte BG1 claim is every tile
+    # made of half of one tile and half of the next.
+    #
+    # WHY IT EXISTS AT ALL: MODE_BPP was imported by the allocator for exactly
+    # one purpose, building the "(bg1 4bpp + bg2 4bpp)" text inside refusal
+    # MESSAGES, and was never checked against anything. `tile_bytes` was
+    # validated as one of 16/32/64 and stopped there. Nothing in the tree could
+    # find that, because until mode 4 every composed mode rendered its layers
+    # at the depth the art happened to be.
+    #
+    # OPTIONAL, and a scene that composes a video claim WARNS about every chr
+    # claim that leaves it out — the first rung of a ratchet, the shape the
+    # width lint's routine contracts were adopted through.
+    layers: tuple[str, ...] = ()
+    # chr only, and only when the claim was sized in `tiles`: the declared
+    # bytes per 8x8 tile, which IS the depth (16/32/64 = 2/4/8bpp). None for a
+    # claim sized in `words`, whose shape is a hardware window rather than a
+    # tile count and which therefore declares no depth to check.
+    tile_bytes: int | None = None
 
 
 @dataclass(frozen=True)
@@ -780,6 +803,12 @@ class RegClaim:
 
 SCREEN_LAYERS = {"bg1": 0, "bg2": 1, "bg3": 2, "bg4": 3, "obj": 4}
 MATH_LAYERS = {**SCREEN_LAYERS, "backdrop": 5}
+# The layers a kind="chr" claim can be fetched FOR. Not SCREEN_LAYERS: obj is
+# absent on purpose, because a sprite's depth is not a property of the mode —
+# SnesPpu.cpp:770 fetches sprite pixels through GetTilePixelColor<4> with the
+# depth written into the template argument, so OBJ is 4bpp in all eight modes
+# and an OBJ claim declares `obj = true` rather than a layer.
+BG_CHR_LAYERS = frozenset(("bg1", "bg2", "bg3", "bg4"))
 SCREEN_ON = ("main", "sub", "both")
 BLEND_OPS = ("add", "sub")              # CGADSUB b7: sub = 1
 BLEND_SOURCES = ("sub", "fixed")        # CGWSEL b1: sub = 1
@@ -932,7 +961,10 @@ OFFSET_MODES = (2, 4, 6)
 
 # Modes 2 and 6 fetch an H word and a V word per column, so a column can carry
 # both axes; mode 4 fetches one word and bit 15 picks the axis, so a column
-# carries one. `axis` says which the table declares.
+# carries one and the TABLE can still carry both. `axis` says which the table
+# declares, and "both" therefore means "two axes per column" in modes 2 and 6
+# and "two axes across the table, one per column" in mode 4 — the composition
+# warns at that boundary rather than refusing it (O7).
 OFFSET_AXES = ("h", "v", "both")
 
 # The enable bits an offset word can set: bit 13 -> BG1, bit 14 -> BG2. No
@@ -1270,9 +1302,10 @@ def load_feature(path: str | Path, substrate: Substrate) -> FeatureDecl:
     vram = []
     for i, t in enumerate(_as_list_of_tables(claims.get("vram", []), where)):
         w = f"{where} [[claims.vram]] #{i}"
+        tbytes = None
         _table(t, w, {"kind": str}, {"name": str, "words": int, "tiles": int,
                                      "tile_bytes": int, "obj": bool, "at": int,
-                                     "shape": str})
+                                     "shape": str, "layers": list})
         kind = t["kind"]
         if kind not in VRAM_KINDS:
             raise SchemaError(f"{w}: kind '{kind}' not in {VRAM_KINDS}")
@@ -1289,6 +1322,7 @@ def load_feature(path: str | Path, substrate: Substrate) -> FeatureDecl:
             if tb not in (16, 32, 64):
                 raise SchemaError(f"{w}: tile_bytes must be 16, 32 or 64")
             words = t["tiles"] * tb // 2
+            tbytes = tb
         else:
             raise SchemaError(f"{w}: give words= or tiles= (except kind=mode7)")
         if words <= 0:
@@ -1314,9 +1348,32 @@ def load_feature(path: str | Path, substrate: Substrate) -> FeatureDecl:
                 f"one fact stated twice — and a disagreement between them "
                 f"means the register would address rows the claim does not "
                 f"reserve, or the claim would reserve rows no fetch reads.")
+        lyrs = tuple(t.get("layers", ()))
+        if lyrs and kind != "chr":
+            raise SchemaError(
+                f"{w}: `layers` is a CHR property — it names the BG layers "
+                f"these TILES are fetched for, so the claim's depth can be "
+                f"checked against the depth the scene's video mode renders "
+                f"them at. A kind = \"{kind}\" claim has no depth.")
+        for lyr in lyrs:
+            if lyr not in BG_CHR_LAYERS:
+                raise SchemaError(
+                    f"{w}: layers = '{lyr}' is not one of "
+                    f"{sorted(BG_CHR_LAYERS)}. "
+                    f"OBJ is not among them: sprites are 4bpp in every mode "
+                    f"(Mesen2 SnesPpu.cpp:770 fetches them through "
+                    f"GetTilePixelColor<4> with the depth fixed), so an OBJ "
+                    f"claim's depth is checked without naming a layer — "
+                    f"declare obj = true instead.")
+        if lyrs and t.get("obj"):
+            raise SchemaError(
+                f"{w}: a claim cannot be both obj = true and hold BG layers. "
+                f"OBJ tiles and BG tiles come from different fetches at "
+                f"different depths.")
         vram.append(VramClaim(name=t.get("name", f"{name}_{kind}{i if i else ''}"),
                               kind=kind, words=words, obj=t.get("obj", False),
-                              at=t.get("at"), shape=shape))
+                              at=t.get("at"), shape=shape, layers=lyrs,
+                              tile_bytes=tbytes))
 
     def bytes_claims(key: str, dma_source_allowed: bool) -> list[BytesClaim]:
         out = []

@@ -59,6 +59,13 @@ mode = 1
 [[claims.vram]]
 name = "smt_chr"
 kind = "chr"
+layers = ["bg1", "bg2"]  # WHICH LAYERS THESE TILES ARE FETCHED FOR, so O9 can
+                         # join the depth below to the depth the scene's mode
+                         # renders them at. Both scenes agree it is 4bpp: mode
+                         # 1 on the title and mode 2 in the works. One claim
+                         # can serve both only because those modes render BG1
+                         # and BG2 at the SAME depth — mode 4 is 8bpp + 2bpp
+                         # and would need two.
 tiles = 15
 tile_bytes = 32          # 4bpp — BG1 and BG2 both, in mode 1 and mode 2 alike
                          #

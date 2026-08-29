@@ -766,6 +766,98 @@ def _mode_shape(mode: int) -> str:
                       for lyr in MODE_LAYERS[mode])
 
 
+def check_chr_depth(video: list[tuple], vram: list[tuple],
+                    scope: str) -> tuple[int, list[str]]:
+    """A CHR claim's DEPTH against the depth its mode renders that layer at.
+
+    O9. A 4bpp tile is 32 bytes and an 8bpp tile is 64, and the PPU reads
+    whatever the MODE says regardless of what the claim reserved — so mode 4
+    (bg1 8bpp) beside a 32-byte BG1 claim is not a tight fit, it is every tile
+    made of half of one tile and half of the next, with the second half of the
+    set never reached. Nothing in this tree could find that before, because
+    `MODE_BPP` was imported for exactly one purpose — building the "(bg1 4bpp
+    + bg2 4bpp)" text inside refusal MESSAGES — and was never checked against
+    anything. `tile_bytes` was validated as one of 16/32/64 and stopped there.
+
+    THE OBJ ARM IS MODE-INDEPENDENT and holds without a video claim at all:
+    SnesPpu.cpp:770 fetches sprite pixels through GetTilePixelColor<4> with
+    the depth written into the template argument, so OBJ is 4bpp in all eight
+    modes and a 16- or 64-byte OBJ claim is wrong in every one of them.
+
+    THE RATCHET. `layers` is optional, so this cannot refuse what it cannot
+    see; a scene that declares a mode and carries a sized BG CHR claim without
+    it gets a WARNING naming the claim. That is the first rung, and the same
+    shape the width lint's routine contracts were adopted through — a check
+    that starts by counting what it is not reaching.
+
+    A claim sized in `words` rather than `tiles` has no declared depth at all
+    and is invisible here. That is a stated limit, not an oversight: `words`
+    is the escape hatch for a claim whose shape is a hardware window rather
+    than a tile count (a whole OBJ name table, the Mode 7 region).
+
+    Returns (checks_run, warnings); raises AllocationError on a disagreement.
+    """
+    checks = 0
+    warnings: list[str] = []
+    mode = video[0][0].mode if video else None
+    for c, who in vram:
+        if c.kind != "chr" or c.tile_bytes is None:
+            continue
+        if c.obj:
+            checks += 1
+            if c.tile_bytes != 32:
+                raise AllocationError(
+                    f"CHR DEPTH contention in scene '{scope}': {c.name} "
+                    f"({who}) declares obj = true and tile_bytes = "
+                    f"{c.tile_bytes}, which is {c.tile_bytes // 8}bpp. OBJ is "
+                    f"4bpp in EVERY video mode — SnesPpu.cpp:770 fetches "
+                    f"sprite pixels through GetTilePixelColor<4> with the "
+                    f"depth in the template argument, so no mode changes it — "
+                    f"and a sprite tile is 32 bytes. Declare tile_bytes = 32, "
+                    f"or size the claim in `words` if it is a whole name "
+                    f"table rather than a tile count")
+            continue
+        if mode is None:
+            continue                     # no mode declared: nothing to check
+        if not c.layers:
+            warnings.append(
+                f"chr {c.name} ({who}) is {c.tile_bytes // 8}bpp and names no "
+                f"`layers`, so its depth is NOT checked against mode {mode} "
+                f"({_mode_shape(mode)}). The PPU reads a tile at the depth "
+                f"the MODE says and the claim only reserves the space — "
+                f"declare layers = [...] and the two are joined")
+            continue
+        for lyr in c.layers:
+            checks += 1
+            if lyr not in MODE_LAYERS[mode]:
+                vc, vwho = video[0]
+                raise AllocationError(
+                    f"CHR DEPTH contention in scene '{scope}': {c.name} "
+                    f"({who}) holds tiles for {lyr}, but {vc.name} ({vwho}) "
+                    f"declares mode {mode}, which renders "
+                    f"{_mode_shape(mode)}. Mode {mode} never calls "
+                    f"RenderTilemap for {lyr} (Mesen2 SnesPpu.cpp "
+                    f"RenderMode{mode}), so these tiles are uploaded and "
+                    f"never fetched. Drop {lyr} from `layers`, or declare a "
+                    f"mode that renders it")
+            want = MODE_BPP[mode][lyr] * 8
+            if c.tile_bytes != want:
+                vc, vwho = video[0]
+                raise AllocationError(
+                    f"CHR DEPTH contention in scene '{scope}': {c.name} "
+                    f"({who}) holds {lyr} tiles at tile_bytes = "
+                    f"{c.tile_bytes} ({c.tile_bytes // 8}bpp), but {vc.name} "
+                    f"({vwho}) declares mode {mode}, which renders "
+                    f"{_mode_shape(mode)} — {lyr} at {MODE_BPP[mode][lyr]}bpp, "
+                    f"{want} bytes a tile. The PPU fetches at the MODE's "
+                    f"depth and the claim only reserves the space, so this "
+                    f"composition draws every tile from "
+                    f"{'half of one tile and half of the next' if want > c.tile_bytes else 'the first half of each pair'}"
+                    f". Declare tile_bytes = {want}, or a mode that renders "
+                    f"{lyr} at {c.tile_bytes // 8}bpp")
+    return checks, warnings
+
+
 def compose_video_offset(video: list[tuple], offset: list[tuple],
                          screen: list[tuple], scope: str) -> dict | None:
     """Compose a scene's video-mode and offset-per-tile claims, or REFUSE.
@@ -866,20 +958,36 @@ def compose_video_offset(video: list[tuple], offset: list[tuple],
                 f"whose bit 15 picks the axis) or 6 (bg1 4bpp, hi-res), or "
                 f"drop the offset claim")
 
-        # O7 — mode 4 carries ONE word per column and bit 15 selects its
-        # axis, so a column cannot be displaced on both.
+        # O7 — `both` means a different thing under mode 4, and it used to be
+        # REFUSED there. That was wrong, and wrong in a way worth keeping the
+        # shape of: the refusal reasoned about a COLUMN ("a column carries one
+        # axis or the other and never both" — true) and then rejected a claim
+        # about the TABLE. Bit 15 is per WORD, so a mode-4 table genuinely can
+        # drive column 3 vertically and column 4 horizontally, and that mixing
+        # is the one thing mode 4 does which mode 2 cannot. The refusal's own
+        # remedy text said so — "choose per column at run time through bit 15"
+        # — while the emission it forced could not deliver it: `axis` selects
+        # WHICH VALUE MASK is published, so a table declaring "v" gets MASK and
+        # no HMASK, and the two axes mask differently ($3FF against $3F8).
+        # Declaring the truth was the one thing an author could not do.
+        #
+        # So `both` is legal in all three offset modes and means "this table
+        # uses both axes". What DIFFERS by mode is where the choice lives, and
+        # that is worth saying out loud, because the same word changes meaning
+        # under a rail that migrates between them.
         if mode == 4 and oc.axis == "both":
-            raise AllocationError(
-                f"OFFSET-PER-TILE contention in scene '{scope}': {oc.name} "
-                f"({owho}) declares axis = \"both\" under mode 4. Mode 4 "
-                f"fetches ONE offset word per column and bit 15 of that word "
-                f"selects vertical over horizontal (Mesen2 SnesPpu.cpp "
-                f"FetchTileData case 2 under BgMode 4, and the bit-15 test "
-                f"at :156-161), so a column carries one axis or the other "
-                f"and never both. Modes 2 and 6 fetch a word for EACH axis "
-                f"and are where \"both\" is expressible; under mode 4 "
-                f"declare axis = \"h\" or \"v\" and choose per column at "
-                f"run time through bit 15")
+            warnings.append(
+                f"offset {oc.name} ({owho}) declares axis = \"both\" under "
+                f"mode 4, where that means something different from modes 2 "
+                f"and 6. Mode 4 fetches ONE word per column and bit 15 picks "
+                f"its axis (Mesen2 SnesPpu.cpp FetchTileData case 2 under "
+                f"BgMode 4, and the bit-15 test at :156-161), so the TABLE "
+                f"carries both axes and each COLUMN carries one — set "
+                f"ES_OPT_<ID>_VSEL on a word to make it vertical. Modes 2 and "
+                f"6 fetch a word for EACH axis, so there \"both\" means a "
+                f"column can be displaced on both at once. A table moved "
+                f"between those modes keeps its declaration and changes its "
+                f"meaning")
 
         # O6 — the driven layer must exist in the mode. An enable bit for a
         # layer the mode never renders is the R5 shape: the bit sits set, the
@@ -1943,6 +2051,37 @@ def allocate(sub: Substrate, features: dict[str, FeatureDecl],
                             [*ghdma, *hdma_claims],
                             [*gdma_init, *sm.dma_inits], sc.id)
 
+        # O9 — the CHR depth join. Separate from compose_video_offset because
+        # it reads a different claim class and holds in one arm (OBJ) with no
+        # video claim at all; folded into the same census and report so an
+        # author sees one video/offset section rather than two.
+        #
+        # AFTER check_reg_ownership, AND THAT ORDER IS LOAD-BEARING. Both
+        # refuse `bg_text` composed into an offset-mode scene, and they say
+        # different things about it. O9 says "these BG3 tiles are uploaded and
+        # never fetched", which is true and is the shallower half; the register
+        # arm says BG3 IS THIS SCENE'S OFFSET TABLE and names the two features
+        # contending for BG3SC, which is the hazard and the choice. An author
+        # who hears O9 first fixes it by dropping `layers` — silencing a check
+        # instead of moving the feature. Composed first, this ran first and
+        # took that refusal's place; it is here so the better message wins,
+        # and O9 still fires wherever no register collision exists.
+        chr_checks, chr_warn = check_chr_depth(
+            [*gvideo, *s_video], [*g_vram, *s_vram], sc.id)
+        if chr_checks or chr_warn:
+            if sm.video_offset is None:
+                sm.video_offset = {"bgmode": None, "fields": {}, "registers": (),
+                                   "features": [], "mode": None, "axis": None,
+                                   "layers": [], "video": [], "offset": [],
+                                   "warnings": [], "modes": 0, "offsets": 0,
+                                   "checks": 0, "chr_only": True}
+            sm.video_offset["checks"] += chr_checks
+            sm.video_offset["warnings"] += chr_warn
+            # ...and the claims it read, so VERIFY can re-run it the way it
+            # re-runs the composition itself. A check whose inputs the stored
+            # dict does not carry is a check the checker cannot reproduce.
+            sm.video_offset["chr_vram"] = [*g_vram, *s_vram]
+
         # F9 multi-queue model: every queued transfer beyond the first pays
         # the measured arm cost in byte-equivalents (0 until pinned).
         arm_total = sub.vblank_arm_cost * max(sm.vblank_transfers - 1, 0)
@@ -2131,8 +2270,18 @@ def verify(alloc: Allocation):
                 again = compose_video_offset(
                     vo["video"], vo["offset"],
                     (sm.screen_blend or {}).get("screen", []), sid)
+                # O9 re-run over the same claims, and appended in the same
+                # order the solver appended them — the chr check contributes
+                # to this scene's warnings, so a verify that skipped it would
+                # report a drift on every scene that has one.
+                _cc, cw = check_chr_depth(vo["video"], vo.get("chr_vram", []),
+                                          sid)
             except AllocationError as e:
                 raise AssertionError(f"VERIFY: {e}") from e
+            if again is None:                    # chr-only: no mode, no table
+                again = {"bgmode": None, "fields": {}, "registers": (),
+                         "warnings": []}
+            again["warnings"] = [*again["warnings"], *cw]
             for k in ("bgmode", "fields", "registers", "warnings"):
                 if again[k] != vo[k]:
                     raise AssertionError(

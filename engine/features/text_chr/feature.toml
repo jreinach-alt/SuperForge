@@ -33,5 +33,11 @@ role = "companion"
 [[claims.vram]]
 name = "text_chr"
 kind = "chr"
+layers = ["bg3"]         # the text layer, and O9 joins the depth below to the
+                         # depth whichever mode the scene declares renders BG3
+                         # at. Mode 1 is the only one that renders it at 2bpp
+                         # AND draws it — in modes 2, 4 and 6 BG3 is the
+                         # offset table, and this claim beside one of those is
+                         # the composition the vocabulary exists to refuse.
 tiles = 110              # 96 fixed-width glyphs + 14 VWF strips
 tile_bytes = 16          # 2bpp

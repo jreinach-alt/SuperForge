@@ -238,24 +238,48 @@ def test_o6_a_driven_layer_the_mode_does_not_render(tmp_path):
     assert "displaces a layer no pass draws" in msg
 
 
-def test_o7_mode_4_carries_one_axis_per_column(tmp_path):
+def test_o7_mode_4_mixes_axes_per_column_and_says_so(tmp_path):
+    """`both` UNDER MODE 4 IS LEGAL, and this case is the one that changed.
+
+    It used to assert a refusal. The refusal reasoned about a COLUMN — "a
+    column carries one axis and never both", which is true — and then rejected
+    a claim about the TABLE. Bit 15 is per WORD, so a mode-4 table can drive
+    one column vertically and its neighbour horizontally, and that mixing is
+    the only thing mode 4 does which mode 2 cannot.
+
+    It also made the truth undeclarable rather than merely unusual: `axis`
+    picks which value mask is published, and the two axes mask differently
+    ($3FF against $3F8), so a mixed table declaring "v" got MASK and no HMASK
+    and had no symbol to build half its words from.
+
+    So: accepted, all three constants emitted, and warned — because the same
+    declaration means "both axes per column" one mode over.
+    """
     f = features(tmp_path,
-                 m='[[claims.video]]\nmode = 4\n',
+                 m='[[claims.video]]\nmode = 4\n' + LAYERS,
                  t='[[claims.offset]]\naxis = "both"\nlayers = ["bg1"]\n')
-    msg = _refuse(tmp_path, f, "m", "t")
-    assert 'axis = "both" under mode 4' in msg
-    assert "bit 15" in msg
-    assert "Modes 2 and 6 fetch a word for EACH axis" in msg
+    a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m", "t"))
+    assert a.scenes["s"].video_offset["axis"] == "both"
+    inc, _ = _emit(tmp_path, f, "m", "t")
+    assert "ES_OPT_S_MASK = $03FF" in inc      # the V value field
+    assert "ES_OPT_S_HMASK = $03F8" in inc     # ...and the H one
+    assert "ES_OPT_S_VSEL = $8000" in inc      # ...and the bit that picks
+    w = " ".join(a.scenes["s"].video_offset["warnings"])
+    assert "means something different from modes 2" in w
+    assert "the TABLE carries both axes and each COLUMN carries one" in w
 
 
-def test_o7_does_not_fire_under_mode_2(tmp_path):
-    """The negative arm: `both` is exactly what modes 2 and 6 are for. A
-    refusal that fired everywhere would prove nothing about mode 4."""
+def test_o7_both_under_mode_2_is_the_other_meaning(tmp_path):
+    """The neighbouring arm, and the reason the warning exists: modes 2 and 6
+    fetch a word for EACH axis, so `both` there is a column displaced on both
+    at once. Same declaration, different hardware, no warning."""
     f = features(tmp_path,
                  m='[[claims.video]]\nmode = 2\n' + LAYERS,
                  t='[[claims.offset]]\naxis = "both"\nlayers = ["bg1"]\n')
     a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m", "t"))
     assert a.scenes["s"].video_offset["axis"] == "both"
+    w = " ".join(a.scenes["s"].video_offset["warnings"])
+    assert "means something different" not in w
 
 
 @pytest.mark.parametrize("mode,layer", [(2, "bg3"), (2, "bg4"), (3, "bg3"),
@@ -379,6 +403,163 @@ def test_mode_4_emits_the_axis_select_bit(tmp_path):
     inc, _ = _emit(tmp_path, f, "m", "t")
     assert "ES_OPT_S_VSEL = $8000" in inc
     assert "ES_OPT_S_HMASK = $03F8" in inc
+
+
+# -- O9: a CHR claim's DEPTH against the depth its mode renders it at -------
+
+CHR8 = ('[[claims.vram]]\nname = "deep"\nkind = "chr"\n'
+        'layers = ["bg1"]\ntiles = 4\ntile_bytes = 64\n')
+
+
+def test_o9_a_4bpp_claim_under_a_mode_that_renders_it_8bpp(tmp_path):
+    """THE GAP MODE 4 EXISTS TO FIND, and nothing in the tree could before.
+
+    `MODE_BPP` was imported by the allocator for exactly one purpose —
+    building the "(bg1 4bpp + bg2 4bpp)" text inside refusal MESSAGES — and
+    was never checked against anything; `tile_bytes` was validated as one of
+    16/32/64 and stopped there. So mode 4 (bg1 8bpp) beside a 32-byte BG1 CHR
+    claim composed GREEN, while the PPU fetched 64 bytes a tile: every tile
+    half of one and half of the next, and the back half of the set never
+    reached. It stayed invisible because until mode 4 every composed mode
+    rendered its layers at the depth the art happened to be.
+    """
+    f = features(tmp_path,
+                 m='[[claims.video]]\nmode = 4\n' + LAYERS,
+                 c='[[claims.vram]]\nname = "shallow"\nkind = "chr"\n'
+                   'layers = ["bg1"]\ntiles = 4\ntile_bytes = 32\n')
+    msg = _refuse(tmp_path, f, "m", "c")
+    assert "CHR DEPTH contention" in msg
+    assert "tile_bytes = 32 (4bpp)" in msg
+    assert "bg1 at 8bpp, 64 bytes a tile" in msg
+    assert "half of one tile and half of the next" in msg
+
+
+def test_o9_accepts_the_depth_the_mode_actually_renders(tmp_path):
+    """The negative arm. A refusal that fired on the right composition too
+    would say nothing about depth — it would say the check runs."""
+    f = features(tmp_path, m='[[claims.video]]\nmode = 4\n' + LAYERS, c=CHR8)
+    a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m", "c"))
+    assert a.scenes["s"].video_offset["checks"] >= 1
+
+
+def test_o9_the_same_claim_is_wrong_one_mode_over(tmp_path):
+    """THE DEPTH IS A PROPERTY OF THE MODE, NOT OF THE CLAIM, which is the
+    whole reason this is a join and not a field validation. The 8bpp claim
+    that mode 4 requires is the one mode 2 refuses."""
+    f = features(tmp_path, m='[[claims.video]]\nmode = 2\n' + LAYERS, c=CHR8)
+    msg = _refuse(tmp_path, f, "m", "c")
+    assert "tile_bytes = 64 (8bpp)" in msg
+    assert "bg1 at 4bpp, 32 bytes a tile" in msg
+
+
+def test_o9_chr_for_a_layer_the_mode_never_draws(tmp_path):
+    """The O6 shape, one claim class over: tiles uploaded for a layer no pass
+    fetches. Mode 6 renders BG1 alone."""
+    f = features(tmp_path,
+                 m='[[claims.video]]\nmode = 6\n'
+                   '[[claims.screen]]\nlayer = "bg1"\non = "main"\n',
+                 c='[[claims.vram]]\nname = "orphan"\nkind = "chr"\n'
+                   'layers = ["bg2"]\ntiles = 4\ntile_bytes = 32\n')
+    msg = _refuse(tmp_path, f, "m", "c")
+    assert "holds tiles for bg2" in msg
+    assert "never calls RenderTilemap for bg2" in msg
+
+
+def test_o9_obj_is_4bpp_in_every_mode_and_needs_no_mode(tmp_path):
+    """THE ONE ARM THAT HOLDS WITHOUT A VIDEO CLAIM AT ALL. A sprite's depth
+    is not a property of the mode: SnesPpu.cpp:770 fetches sprite pixels
+    through GetTilePixelColor<4> with the depth written into the template
+    argument, so a 64-byte OBJ tile is wrong in all eight modes and there is
+    no mode to check it against."""
+    f = features(tmp_path,
+                 c='[[claims.vram]]\nname = "sprites"\nkind = "chr"\n'
+                   'obj = true\ntiles = 4\ntile_bytes = 64\n')
+    msg = _refuse(tmp_path, f, "c")
+    assert "OBJ is 4bpp in EVERY video mode" in msg
+    assert "GetTilePixelColor<4>" in msg
+
+
+def test_o9_warns_about_the_claims_it_cannot_reach(tmp_path):
+    """THE RATCHET'S FIRST RUNG. `layers` is optional, so this check cannot
+    refuse what it cannot see — and a check that silently reaches nothing is
+    the failure mode the width lint's contract pass was built to avoid. A
+    scene that declares a mode and carries a sized BG CHR claim without
+    `layers` is NAMED in the report."""
+    f = features(tmp_path,
+                 m='[[claims.video]]\nmode = 2\n' + LAYERS,
+                 c='[[claims.vram]]\nname = "unjoined"\nkind = "chr"\n'
+                   'tiles = 4\ntile_bytes = 32\n')
+    a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m", "c"))
+    w = " ".join(a.scenes["s"].video_offset["warnings"])
+    assert "chr unjoined" in w and "names no `layers`" in w
+    assert "is NOT checked against mode 2" in w
+
+
+def test_o9_yields_to_the_register_arm_when_both_would_fire(tmp_path):
+    """ORDER AS MESSAGE QUALITY, pinned — because a reshuffle would silently
+    swap a good refusal for a worse one and every case would stay green.
+
+    A text feature composed into an offset-mode scene trips both: O9 sees CHR
+    for a layer mode 2 does not render, and the register arm sees two features
+    contending for BG3SC. O9's sentence is the shallower half — an author who
+    hears it first fixes it by dropping `layers`, which silences a check
+    instead of moving the feature. The register arm names BG3 as the scene's
+    offset table and names both claimants, which is the hazard AND the choice.
+
+    So the chr check runs after check_reg_ownership, and this asserts which
+    one an author actually hears.
+    """
+    f = features(tmp_path,
+                 m='[[claims.video]]\nmode = 2\n'
+                   '[[claims.offset]]\naxis = "v"\nlayers = ["bg1"]\n' + LAYERS,
+                 t='[[claims.vram]]\nname = "glyphs"\nkind = "chr"\n'
+                   'layers = ["bg3"]\ntiles = 8\ntile_bytes = 16\n'
+                   '[[claims.reg]]\nname = "text_bg3"\nregisters = ["BG3SC"]\n')
+    msg = _refuse(tmp_path, f, "m", "t")
+    assert "REGISTER ownership contention" in msg
+    assert "BG3 IS THIS SCENE'S OFFSET TABLE" in msg
+    assert "CHR DEPTH contention" not in msg
+
+
+def test_o9_still_fires_where_no_register_collision_exists(tmp_path):
+    """The other half of the ordering: yielding is not disarming. The same CHR
+    claim without the BG3SC claim beside it has nothing else to catch it."""
+    f = features(tmp_path,
+                 m='[[claims.video]]\nmode = 2\n'
+                   '[[claims.offset]]\naxis = "v"\nlayers = ["bg1"]\n' + LAYERS,
+                 t='[[claims.vram]]\nname = "glyphs"\nkind = "chr"\n'
+                   'layers = ["bg3"]\ntiles = 8\ntile_bytes = 16\n')
+    msg = _refuse(tmp_path, f, "m", "t")
+    assert "CHR DEPTH contention" in msg
+    assert "holds tiles for bg3" in msg
+
+
+def test_o9_a_words_sized_claim_declares_no_depth(tmp_path):
+    """A STATED LIMIT, not an oversight. `words` is the escape hatch for a
+    claim whose shape is a hardware WINDOW rather than a tile count — a whole
+    OBJ name table, the Mode 7 region — and such a claim declares no bytes per
+    tile for this check to read. It is neither refused nor warned about."""
+    f = features(tmp_path,
+                 m='[[claims.video]]\nmode = 4\n' + LAYERS,
+                 c='[[claims.vram]]\nname = "window"\nkind = "chr"\n'
+                   'obj = true\nwords = 0x1000\n')
+    a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m", "c"))
+    w = " ".join(a.scenes["s"].video_offset["warnings"])
+    assert "window" not in w
+
+
+def test_o9_layers_is_a_chr_property(tmp_path):
+    with pytest.raises(SchemaError, match="`layers` is a CHR property"):
+        feature(tmp_path, "bad",
+                '[[claims.vram]]\nname = "m"\nkind = "tilemap"\n'
+                'words = 0x400\nlayers = ["bg1"]\n')
+
+
+def test_o9_obj_is_not_a_layer_a_chr_claim_can_name(tmp_path):
+    with pytest.raises(SchemaError, match="OBJ is not among them"):
+        feature(tmp_path, "bad",
+                '[[claims.vram]]\nname = "c"\nkind = "chr"\n'
+                'tiles = 4\nlayers = ["obj"]\n')
 
 
 # -- warnings: real hardware behaviour, not refusals ------------------------
