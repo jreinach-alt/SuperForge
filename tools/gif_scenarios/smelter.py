@@ -1,34 +1,53 @@
-"""smelter — the foundry floor, cut on the column table's own period.
+"""smelter — a run across the foundry floor, and the melt taking him.
 
-STATUS, 2026-08-29: THE PERFORMANCE DRIVE BELOW IS WRITTEN AND MEASURED, AND
-THE RECORDER CANNOT SHOOT IT YET. It is committed unwired — `make_drive` still
-returns it, so recording this rail produces an incomplete take — because the
-finding is worth keeping and the fix is a decision about SHARED tooling.
+THE TAKE IS A PERFORMANCE, not a turn of the animation. The knight crosses two
+and a half screens by jumping plates that are moving under him, then stops being
+careful, walks off, and the world takes him — and the mosaic dissolves the whole
+thing and puts him back at the start. What it shows is the rail as a GAME, and
+the effect is still all of it: every plate he lands on is a word in the offset
+table, and the collision that catches him reads the same word the picture is
+drawn from.
 
-THE MEASUREMENT. `record_clip`'s own contract is STEP = EVERY - SHOT_FRAMES,
-and `take_screenshot` spends its frame with BOTH PADS RELEASED. So one frame in
-four is a frame the knight is not being driven through. His run is 2 px/frame
-and the jump's reach is 4v/g = 64 px, exactly the slot pitch — at three
-quarters of the input the reach falls to ~48 px and he cannot make ANY jump.
-Replayed in the recorder's exact cadence: ten deaths, never leaves the `cross`
-stage, 1,380 emulated frames. At full input the same drive crosses cleanly —
-2.5 screens by frame 384, into the melt at 446, respawned at 480.
+It replaced a 2.9 s loop of the effect alone. That take is still the right shape
+for an effect and the wrong one for a rail that scrolls and can be lost.
 
-This is not tuning. The physics the drive sees while being recorded are not the
-physics of the game, and no amount of threshold work reaches across that.
+THE DRIVE PLAYS, IT DOES NOT REPLAY. Every beat is decided from the ROM's own
+state and the ROM's own table, so a change to the course or the physics moves
+the performance with it instead of leaving a fixed plan pressing buttons at the
+wrong moments. Three beats, each ending on a fact rather than a count: cross
+until past CROSS_TO, then hold right and stop jumping, then hands off while the
+wipe runs.
 
-THE FIX IS ONE CHANGE IN THE SHARED RECORDER — let the capture frame carry the
-drive's pad instead of releasing it — and its blast radius is why it has not
-been made here: every clip in the tree is shot through that path, so every one
-would need re-recording to stay byte-identical, and the landing gate derives
-its expected-image set from them.
+WHAT IT COST TO MAKE THIS RECORDABLE, because the number that fixed it is not
+where anyone would look. The capture spends a frame of its own with BOTH PADS
+RELEASED, so while recording, one frame in three is a frame the knight is not
+driven through. That costs HORIZONTAL TRAVEL and nothing else — the jump is a
+fixed impulse on the press EDGE, so the arc and the apex are untouched. Measured
+on one jump from the spawn: 60 px of reach at full input, 42 px while recording,
+and a jump from the plate's left edge needs the whole 60 to arrive. The first
+recorded take was ten deaths long and never crossed a single gap.
 
-AND A SIZE CONSTRAINT SITS BEHIND IT INDEPENDENTLY. A 2.5-screen run plus the
-fall and the wipe is ~12 s, and a SCROLLING take that long measured 2,339,461 B
-against the 2,097,152 B budget. Even with the pad fix the take needs trimming —
-roughly two screens rather than two and a half, or a faster run.
+The fix is WALK_IN, below: take off from deeper into the plate, which spends
+plate he is standing on anyway and gives the two reaches a window they share.
+The game is unchanged and every other clip in the tree is untouched — the
+alternative was changing the shared recorder so a capture carries the drive's
+pad, which every clip is shot through.
 
-What ships today is still the loop take described below.
+THE FLAT CONTROL IS STILL NOT IN THE TAKE. B swaps the transfer to the blob's
+flat row and holding it is the "before / after" pair, live, from one binary — on
+a clip that loops it reads as a BREAK rather than as a control
+(reports/gallery_loop_seams.md). The pair is made where a pair belongs:
+`tools/shot_smelter.py` renders the running and flat frames side by side, and
+`tests/test_smelter.py::test_the_flat_control_levels_every_column` asserts it.
+
+THE SEAM IS NO LONGER ZERO AND CANNOT BE. The old take closed on the phase
+coming back round, so its ends were pixel-identical and the loop was invisible.
+A run has somewhere to be: it opens on the spawn at full brightness and closes
+on the spawn at full brightness, one death later, with the plates at a different
+point in their harmonics. Measured on the written file: mad 11.66/255, 25.8% of
+pixels past 16, ends at luma 51.9 / 51.7. The brightness matches; what differs
+is where the plates are. That is a loop of a PERFORMANCE, and it is the honest
+number for one.
 
 
 THE TAKE IS THE EFFECT AND NOTHING ELSE. It opens on the works scene already up
@@ -151,12 +170,46 @@ CROSS_TO = 640                  # 2.5 screens, and then he stops being careful
 #     he clears it at apex height, then has to FALL the difference, and drifts
 #     past the plate's 32 px while doing it. Traced on the binary: he flew over
 #     a whole slot and died beyond the next one.
-JUMP_UP, JUMP_DOWN = 32, 16
+# TUNED AT THE RECORDER'S CADENCE, which is the only one the take is shot in.
+# The pair was first set against the full-input reach of 60 px and left three
+# deaths in the run; at the recorded reach of 42 the landing lands differently
+# and the window wants re-measuring rather than re-reasoning. Swept: (32,16)
+# reached 1.45 screens, (32,24) 1.96, (32,32) 2.20, and (24,24) 2.70 with a
+# single death — the one at the end, which is the point of the take.
+JUMP_UP, JUMP_DOWN = 24, 24
 
 # ...and the flight is ~32 frames at 0.375 phases a frame, so the target has
 # moved about this far by the time he arrives. A player leads the plate; so
 # does this.
-JUMP_LEAD = 8
+JUMP_LEAD = 6
+
+# HOW FAR ONTO THE PLATE HE WALKS BEFORE TAKING OFF, and this is the number that
+# makes the take recordable at all.
+#
+# The capture spends a frame of its own with BOTH PADS RELEASED (mesen_runner's
+# take_screenshot; STEP = EVERY - SHOT_FRAMES), so while recording, one frame in
+# three is a frame he is not being driven through. That costs HORIZONTAL travel
+# and nothing else — the jump is a fixed impulse on the press EDGE, so releasing
+# A mid-flight cannot change the arc, and the height is untouched. Measured, one
+# jump from the spawn:
+#
+#   full input        reach 60 px over 29 frames  -> lands on slot 1
+#   recorder cadence  reach 42 px over 29 frames  -> lands on NOTHING
+#
+# A jump from the plate's left edge needs the whole 60 to arrive, so at 42 he
+# falls short of every slot and the take was ten deaths long. Taking off from
+# deeper in spends plate he is standing on anyway, and the two reaches then
+# share a window — measured at both cadences:
+#
+#   walk-in  0 px   full lands, recorder FALLS
+#   walk-in  8 px   both land
+#   walk-in 12 px   both land
+#   walk-in 15 px   both walk off the edge first (the plate test is on his
+#                   CENTRE, so 16 is already off)
+#
+# So the fix is here, in the performance, and not in the physics or the
+# recorder: the game is unchanged and every other clip in the tree is untouched.
+WALK_IN = 10
 
 _ART = {}
 for _line in (ROOT / "build" / "assets" / "smt_art.inc").read_text().splitlines():
@@ -276,12 +329,8 @@ class Drive:
                                             #    waiting: it walks him off the
                                             #    edge, which is how every early
                                             #    version of this drive died
-        if _u16(r, KN_X) < SLOT_COL[slot] * 8:
-            return pad                      # ...he lands as far as 16 px short
-                                            #    of the plate's left edge (the
-                                            #    plate test is on his CENTRE);
-                                            #    walking those in buys the whole
-                                            #    landing margin
+        if _u16(r, KN_X) - SLOT_COL[slot] * 8 < WALK_IN:
+            return pad                      # ...walk further onto it first
         pad["a"] = True
         return pad
 
