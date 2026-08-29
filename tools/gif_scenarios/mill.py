@@ -64,8 +64,8 @@ CAPTURES = 160                  # a CEILING over the lead-in and the take, not
 # closes, at the bottom of the world, with the machines at a different point in
 # their stroke than they opened on. That is a loop of a MOVE, and the measured
 # seam is the honest number for one.
-CAM_BOTTOM_HOLD = 8             # captures held at each end, so the reversal
-                                #   reads as a stop rather than as a bounce
+CAR_TOP = 400                   # SMIL_CAR_TOP — where the ride ends
+TAIL = 10                       # ...and how long the empty shaft is held after
 
 W = MemoryType.SnesWorkRam
 _J = json.loads((ROOT / "build" / "mil" / "symbol_map.json").read_text())
@@ -83,6 +83,7 @@ FADE = _dp("ES_FADE_CTL")
 # smelter's `smt_cam_shown` lesson: join on what drew the frame.
 SHOWN = _dp("ES_MIL_SHOWN")
 CAM = _dp("ES_MIL_CAM")
+CAR = _dp("ES_MIL_CAR")
 ACC = _dp("US_TSC_ACC", "hall")
 
 CAM_MAX = 224                   # SMIL_CAM_MAX, and it is asserted below rather
@@ -109,22 +110,22 @@ def _at_rest(r):
 class Drive:
     """One capture per call, each advancing STEP frames.
 
-    `started` stays falsy through the boot and the fade-in ramp, so all of that
-    is dropped lead-in — the recorder pays those frames and not their
-    screenshots. The anchor also waits for the timebase accumulator to be back
-    at zero, so the take opens at a repeatable point INSIDE a phase and not
-    merely at a repeatable phase: TS_STEP publishes whole units and carries the
-    remainder, so equal phase with unequal carry is a frame that will diverge.
+    THE TAKE IS THE RIDE, and it is a cutscene: it opens on the forge floor,
+    the car climbs, the camera follows it until the world runs out, and then
+    the car keeps going and leaves through the top. NO INPUT ANYWHERE — the
+    scene drives itself, which is what a cutscene is.
 
-    NO PRESS ANYWHERE. This rail has one scene, boots into it, and the only
-    input it reads is the flat control the take deliberately leaves out.
+    IT DOES NOT LOOP AND CANNOT. Every other clip in this gallery closes on the
+    state it opened in; this one opens at the bottom of a shaft and ends with
+    the lift gone. The seam is reported like any other and it is large, because
+    the honest number for a sequence that goes somewhere is a large one
+    (reports/gallery_loop_seams.md draws that line).
     """
 
     def __init__(self):
         self.started = False
         self.done = False
-        self.phase = "up"       # up -> hold -> down -> done
-        self.hold = 0
+        self.after = 0
         self.n = 0
 
     def __call__(self, r, i):
@@ -134,22 +135,10 @@ class Drive:
                 self.started = True
                 self.n = 0
             return r.frame_step(STEP)
-
-        cam = _u16(r, CAM)
-        if self.phase == "up":
-            if cam == 0:
-                self.phase, self.hold = "hold", 0
-                return r.frame_step(STEP)
-            return r.frame_step(STEP, up=True)
-        if self.phase == "hold":
-            self.hold += 1
-            if self.hold >= CAM_BOTTOM_HOLD:
-                self.phase = "down"
-            return r.frame_step(STEP)
-        if cam >= CAM_MAX:
-            self.done = True
-            return r.frame_step(STEP)
-        return r.frame_step(STEP, down=True)
+        if _u16(r, CAR) >= CAR_TOP:
+            self.after += 1
+            self.done = self.after >= TAIL
+        return r.frame_step(STEP)
 
 
 def make_drive():

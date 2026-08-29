@@ -186,6 +186,20 @@ mil_stage_row:
     .i16
     txy
     lda [ES_MIL_NMI_SCRATCH], y     ; the ROM row's word for this column
+    cpx #(SMIL_CAR_COL * 2)         ; ...the ELEVATOR's four columns?
+    bcc @not_car
+    cpx #((SMIL_CAR_COL + SMIL_SHAFT_COLS) * 2)
+    bcs @not_car
+    and #(ES_OPT_HALL_BG1 | ES_OPT_HALL_BG2 | ES_OPT_HALL_VSEL)
+    ora z:ES_MIL_CAR                ; THE CAR IS DRIVEN BY THE SCENE, not by
+                                    ;   the phase: a cutscene is a performance.
+                                    ;   The ROM row still supplies its ENABLE
+                                    ;   and AXIS bits, so the flat control row
+                                    ;   still flattens it and the column is
+                                    ;   declared in one place.
+@not_car:
+    .a16
+    .i16
     bit #ES_OPT_HALL_VSEL           ; ...vertical?
     beq @store                      ; no: a belt phase, not the camera's business
     sta z:ES_MIL_NMI_SCRATCH + 4

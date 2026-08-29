@@ -38,3 +38,12 @@ bytes = 4096
 [[claims.rom]]
 name = "mil_pal"
 bytes = 208              # BG1's 96-word ramp set, then BG2's two groups
+
+# ---- the rider ------------------------------------------------------------
+[[claims.rom]]
+name = "mil_obj"
+bytes = 2048             # 2 cells x 16 tiles x 32 B, padded to one grid group
+
+[[claims.rom]]
+name = "mil_obj_pal"
+bytes = 32               # 16 words: OBJ palette 0

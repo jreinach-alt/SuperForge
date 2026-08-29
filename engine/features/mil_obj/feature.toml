@@ -1,0 +1,93 @@
+# mil_obj — the rider, and the one thing offset-per-tile cannot do.
+#
+# =============================================================================
+# WHY A SPRITE AT ALL, ON A RAIL WHOSE SUBJECT IS BACKGROUND COLUMNS
+# =============================================================================
+# Because the car is a BG1 column and the man in it is not. A displaced column
+# moves WHOLE and on an 8-pixel grid; a figure has to be positioned to the
+# pixel, has to sit at a different height from the column he is inside, and has
+# to be OCCLUDED BY IT. None of that is a thing a scroll offset can express.
+#
+# =============================================================================
+# THE OCCLUSION IS FREE, AND IT IS A PROPERTY OF MODE 4'S PRIORITY ORDER
+# =============================================================================
+# Mode 4 renders (SnesPpu.cpp RenderMode4, :824):
+#     BG2 lo(1) · OBJ0(2) · BG1 lo(3) · OBJ1(4)
+#     BG2 hi(5) · OBJ2(6) · BG1 hi(7) · OBJ3(8)
+# ...and a sprite is drawn only where the pixel already there has a LOWER
+# priority: `(_mainScreenFlags[x] & 0x0F) < spritePrio` (:958).
+#
+# So an OBJ at priority 0 scores 2, which LOSES to BG1's normal 3 and BEATS
+# BG2's 1. The car's art is opaque everywhere except a hole cut where its glass
+# is; the rider is drawn through the hole and nowhere else. No window register,
+# no mask, no per-scanline work, and the occlusion follows the car up the shaft
+# because it IS the car.
+name = "mil_obj"
+role = "consumer"
+depends = ["oam_sprites", "mil_rom"]
+
+# ---- the rider's CHR ------------------------------------------------------
+# One 64-tile grid group: two 32x32 cells of the vendored knight (docs/92
+# §5.1), 16 tiles each. The base must be expressible in OBSEL's 8K-word field,
+# which the ASM asserts against the emitted symbol rather than assuming.
+[[claims.vram]]
+name = "mil_obj_chr"
+kind = "chr"
+obj = true
+words = 0x1000          # OBJ IS 4bpp IN EVERY MODE — mode 4's 8bpp belongs to
+                        # bg1 alone (SnesPpu.cpp:770: GetTilePixelColor<4>,
+                        # with the depth in the template argument, for every
+                        # mode's sprites). One whole OBJ name table: OBSEL's
+                        # base field steps in 8K WORDS, so a smaller claim
+                        # would not buy a smaller footprint — the allocator's
+                        # chr alignment is what makes the base expressible at
+                        # all, and the ASM asserts it rather than assuming.
+
+# ---- and its palette ------------------------------------------------------
+# OBJ palettes live at CGRAM 128 + palette*16 (SnesPpu.cpp:960) and nowhere
+# else. That is the reason mil_bg's 8bpp BG1 ramp set stops at 127: an 8bpp
+# layer indexes CGRAM directly, so the two would collide on every index above
+# 127 the moment this feature exists. It did not exist and the budget was cut
+# for it anyway; this is the claim that spends it.
+[[claims.cgram]]
+name = "mil_obj_pal"
+words = 16
+at = 128
+
+[[claims.oam]]
+name = "mil_rider"
+sprites = 1
+at = 0                   # ...and it must start a hi-table byte, because the
+                         # size bit for a 32x32 sprite lives there — the ASM
+                         # asserts the alignment
+
+# ---- state ----------------------------------------------------------------
+[[claims.dp]]
+name = "mil_car"
+bytes = 2                # the car's own displacement up the shaft, in pixels.
+                         # NOT a phase: the scene drives it, because a cutscene
+                         # is a performance and not a turn of an animation.
+
+[[claims.dp]]
+name = "mil_rider_y"
+bytes = 2                # ...and the screen row the rider was last staged at,
+                         # published so a test can join the sprite to the car
+                         # WITHOUT recomputing the arithmetic under test
+
+# ---- the boot upload ------------------------------------------------------
+[[claims.dma_init]]
+name = "mil_obj_up"
+channel = 1
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+# C4: OBSEL $2101, written once at scene enter by this feature.
+[[claims.reg]]
+name = "mil_obsel"
+registers = ["OBSEL"]
+
+# The rider is a designation of its own: OBJ has to reach the main screen or
+# the priority argument above is about a layer nobody draws.
+[[claims.screen]]
+layer = "obj"
+on = "main"

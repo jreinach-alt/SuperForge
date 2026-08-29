@@ -242,9 +242,23 @@ FLOOR = 28                    # the forge floor's first map row: the lower
                               #   screen is rows 28..55, the shaft house above
 CAP_ROW = FLOOR + 13          # the ram's top map row: the ram's top map row
 HEAD_ROWS = 6                 # ...and the kit's ram is 48 px, six tiles tall
-STROKE = (72, 56)             # per station — two machines, two throws
-PERIOD = (1, 2)               # ...and the twin strokes twice a loop
-STATION_PHASE = (0, 40)       # ...out of step with each other
+STROKE = (72, 0)              # station 0 is the drop hammer; station 1 is the
+PERIOD = (1, 1)               #   ELEVATOR and its column is not driven by the
+STATION_PHASE = (0, 0)        #   phase at all — the scene drives it
+
+ELEVATOR = 1                  # ...which station's shaft carries the car
+CAR_ROW = CAP_ROW             # the car's map row, same as a ram's
+CAR_H = HEAD_ROWS * 8         # ...and its height
+WINDOW = (5, 8, 22, 30)       # x0, y0, w, h of the glass, inside the car.
+                              #   THE HOLE IS THE EFFECT: BG1 is transparent
+                              #   here and opaque everywhere else on the car,
+                              #   and an OBJ at priority 0 loses to BG1's
+                              #   normal priority (SnesPpu.cpp:958 —
+                              #   `_mainScreenFlags[x] & 0x0F` must be LESS
+                              #   than the sprite's, and mode 4 gives BG1
+                              #   3 against OBJ0's 2). So the rider is drawn
+                              #   only where this rectangle is, with no mask
+                              #   register and no per-scanline work
 
 # THE BELT'S RATE, in units of the H field. It is 8-PIXEL granular — the layer
 # keeps its own low three bits — so only multiples of 8 do anything.
@@ -431,9 +445,40 @@ def shaft_groups(st):
     rod one column wide and one two columns wide, half a turn apart, inside a
     single station. Nothing in the table knows they belong to one machine —
     they are simply three adjacent words, and two of them agree."""
-    if st == 1:
-        return ((0, 2, PHASES // 2), (2, 2, 0))
     return ((0, SHAFT_COLS, 0),)
+
+
+def car_pixels(wcols):
+    """The elevator car: a riveted box with a hole cut in it.
+
+    THE HOLE IS THE WHOLE MECHANISM. BG1 is transparent inside WINDOW and
+    opaque everywhere else on the car; the rider is an OBJ at priority 0, which
+    in mode 4 loses to BG1's normal priority and beats BG2's. So he is drawn
+    exactly where the glass is and nowhere else — the car occludes him without
+    a window register, a mask, or a single per-scanline cycle.
+    """
+    w, h = wcols * 8, CAR_H
+    buf = [[0] * w for _ in range(h)]
+    for y in range(h):
+        for x in range(w):
+            edge = x < 2 or x >= w - 2 or y < 3 or y >= h - 3
+            band = y in (3, 4, h - 5, h - 4)
+            # FLAT PANELS, no dither. A 1-index checker on a 32 px box reads
+            # as noise at this size and fights the one thing the car exists to
+            # frame; the shell gets its form from the bands and the rivets.
+            buf[y][x] = Wm(1) if edge else (Br(6) if band else
+                                            Wm(9 if 4 <= x < w - 4 else 6))
+    for y in range(3, h - 3, 9):                 # rivet courses on the shell
+        for x in range(3, w - 3, 6):
+            buf[y][x] = Br(9)
+    wx, wy, ww, wh = WINDOW
+    for y in range(wy, wy + wh):                 # the frame around the glass...
+        for x in range(wx, wx + ww):
+            buf[y][x] = Br(4)
+    for y in range(wy + 2, wy + wh - 2):         # ...and the glass itself: a
+        for x in range(wx + 2, wx + ww - 2):     #   HOLE, so the rider shows
+            buf[y][x] = 0
+    return buf
 
 
 def head_pixels(st, wcols):
@@ -445,9 +490,10 @@ def head_pixels(st, wcols):
     three. The TWIN takes the kit's support post, twice, at 16 px: two rods of
     the same machine, half a turn apart, and the table does not know they are
     one machine — they are simply adjacent words, two of which agree."""
+    if st == ELEVATOR:
+        return car_pixels(wcols)
     w, h = wcols * 8, HEAD_ROWS * 8
-    src = kit("ram" if st == 0 else "post", (w, h))
-    return [list(r) for r in src]
+    return [list(r) for r in kit("ram", (w, h))]
 
 
 # --- the static columns: the pier, the legs, the deck and the channel -------
@@ -650,10 +696,20 @@ def paint_bg1():
                 buf[y][sx + x] = prof[x]
         for k0, wc, _ in shaft_groups(st):
             head = head_pixels(st, wc)
+            # THE CAR REPLACES ITS BOX; THE RAM IS KEYED INTO IT. A ram is a
+            # shape running inside a guide and the rails must show around it,
+            # so a transparent pixel there means "leave the shaft". The CAR is
+            # a box that fills its shaft, and its transparent pixels are the
+            # GLASS — they have to CLEAR what is behind them, because what is
+            # behind them is the guide rails and BG1 at normal priority beats
+            # an OBJ at priority 0. Painted with the ram's rule, the rider was
+            # occluded by the rails showing through his own window: visible as
+            # a four-pixel sliver where the rails happened to be transparent.
+            opaque_box = (st == ELEVATOR)
             for y in range(HEAD_ROWS * 8):
                 for x in range(wc * 8):
                     v = head[y][x]
-                    if v:                        # the ram's art is keyed, and
+                    if v or opaque_box:
                         buf[CAP_ROW * 8 + y][sx + k0 * 8 + x] = v
         paint_upright(buf, s * 8, st, 0)                  # the near upright
         paint_upright(buf, (s + 1 + SHAFT_COLS) * 8, st, 1)   # ...and the far
@@ -756,6 +812,87 @@ def tread_tile(k):
             rows.append([3 if ((x + y + k * 3) % BELT_PHASES) < 3 else 1
                          for x in range(8)])
     return rows
+
+
+# --------------------------------------------------------------------------
+# THE RIDER — one OBJ, traced from the vendored camelot pack
+# --------------------------------------------------------------------------
+# `vendor/art/camelot/arthurPendragon_.png`, CC0 (analogStudios_ / Kevin's
+# Mom's House), the same source and the same two idle cells `smelter` uses.
+# Reused rather than authored because the kit ships no figure and this tree
+# already has one whose provenance is traced in docs/92 §5.1.
+#
+# TWO CELLS, NOT ONE. He is standing in a lift, so the animation is a breath —
+# and the pack's idle row gives it for 512 B. TICK: ok -- the two cells are
+# indexed by the rail's PHASE, which the scaler already expressed against the
+# declared tick. Nothing here counts hardware frames.
+CAMELOT = ROOT / "vendor" / "art" / "camelot"
+RIDER_CELLS = [(0, 0), (0, 2)]          # (row, col) on the pack's 8x8 grid
+RIDER_BOX = 32                          # the pack's cell IS the OBJ box
+RIDER_SLOTS = 4                         # ...padded to one whole grid group
+
+
+def _rider_cells():
+    from PIL import Image
+    sheet = Image.open(CAMELOT / "arthurPendragon_.png").convert("RGBA")
+    out = []
+    for row, col in RIDER_CELLS:
+        # NO CROP AND NO RE-CENTRING: the pack's cell already measures exactly
+        # the OBJ box, and re-centring a frame that is already exact pushes the
+        # art down and moves the feet off the number everything else is written
+        # against (vendor/art/camelot/README.md).
+        c = sheet.crop((col * RIDER_BOX, row * RIDER_BOX,
+                        (col + 1) * RIDER_BOX, (row + 1) * RIDER_BOX))
+        assert c.size == (RIDER_BOX, RIDER_BOX)
+        out.append(c)
+    return out
+
+
+def rider_sheet():
+    """(CHR blob, 16 palette words). ONE palette over both cells, from the
+    union of their opaque colours — the pack measures Arthur at 8, so this is
+    a lossless conversion and not a quantisation."""
+    cells = _rider_cells()
+    allc = set()
+    for c in cells:
+        px = c.load()
+        for y in range(RIDER_BOX):
+            for x in range(RIDER_BOX):
+                r, g, b, a = px[x, y]
+                if a > 127:
+                    allc.add((r >> 3, g >> 3, b >> 3))
+    assert len(allc) <= 15, f"rider needs {len(allc)} colours, 4bpp has 15"
+    order = sorted(allc, key=lambda c: 2 * c[0] + 5 * c[1] + c[2])
+    c2i = {c: i + 1 for i, c in enumerate(order)}
+    words = [rgb(0, 0, 0)] + [rgb(*c) for c in order]
+    words += [rgb(0, 0, 0)] * (16 - len(words))
+
+    blob = bytearray(RIDER_SLOTS * 16 * 32)      # 16 tiles a 32x32 cell
+    for slot, cell in enumerate(cells):
+        px = cell.load()
+        for ty in range(4):
+            for tx in range(4):
+                # THE 16x16/32x32 OBJ TILE ORDER IS A GRID, NOT A RUN: the PPU
+                # reads row r of a cell at tile base + r*16, so a 32x32 cell
+                # occupies four rows of four in a 16-tile-wide name table.
+                ti = slot * 4 + ty * 16 + tx
+                for y in range(8):
+                    rowpx = []
+                    for x in range(8):
+                        r, g, b, a = px[tx * 8 + x, ty * 8 + y]
+                        rowpx.append(c2i[(r >> 3, g >> 3, b >> 3)] if a > 127 else 0)
+                    lo = hi = lo2 = hi2 = 0
+                    for x in range(8):
+                        v = rowpx[x]
+                        lo |= (v & 1) << (7 - x)
+                        hi |= ((v >> 1) & 1) << (7 - x)
+                        lo2 |= ((v >> 2) & 1) << (7 - x)
+                        hi2 |= ((v >> 3) & 1) << (7 - x)
+                    blob[ti * 32 + y * 2] = lo
+                    blob[ti * 32 + y * 2 + 1] = hi
+                    blob[ti * 32 + 16 + y * 2] = lo2
+                    blob[ti * 32 + 16 + y * 2 + 1] = hi2
+    return bytes(blob), words
 
 
 # --------------------------------------------------------------------------
@@ -970,6 +1107,9 @@ def main():
     # the second by a distance from the first reads a sign it does not choose.
     (OUT / "mil_pal.bin").write_bytes(pal_bytes(PAL_BG1) + pal_bytes(PAL_BG2))
     (OUT / "mil_row.bin").write_bytes(row_table())
+    rchr, rpal = rider_sheet()
+    (OUT / "mil_obj.bin").write_bytes(rchr)
+    (OUT / "mil_obj_pal.bin").write_bytes(pal_bytes(rpal))
 
     inc = f"""; mil_art.inc — GENERATED by tools/gen_mill_assets.py. Do not edit.
 ; The machine hall's geometry, so the ASM and the tests read ONE copy of it.
@@ -993,6 +1133,17 @@ SMIL_WORLD_H      = {WORLD_H}    ; the world is two screens tall...
 SMIL_CAM_MAX      = {CAM_MAX}    ; ...so the camera climbs this far
 SMIL_FLOOR        = {FLOOR}     ; the forge floor's first map row
 SMIL_CAP_ROW      = {CAP_ROW}     ; the head's map row
+SMIL_ELEVATOR     = {ELEVATOR}      ; ...which station's shaft carries the car
+SMIL_CAR_COL      = {STATION_AT[ELEVATOR] + 1}     ; its first SCREEN column
+SMIL_CAR_ROW      = {CAR_ROW}     ; the car's map row
+SMIL_CAR_H        = {CAR_H}     ; ...and its height in pixels
+SMIL_WIN_X        = {WINDOW[0]}      ; the glass, inside the car
+SMIL_WIN_Y        = {WINDOW[1]}
+SMIL_WIN_W        = {WINDOW[2]}
+SMIL_WIN_H        = {WINDOW[3]}
+SMIL_RIDER_BOX    = {RIDER_BOX}     ; the OBJ box: OBSEL's 32x32 size pair
+SMIL_RIDER_SLOTS  = {RIDER_SLOTS}      ; ...one whole 64-tile grid group
+SMIL_RIDER_FRAMES = {len(RIDER_CELLS)}
 SMIL_BELT_ROW     = {BELT_ROW}
 SMIL_BELT_PHASES  = {BELT_PHASES}
 SMIL_TILES1       = {len(tiles1)}
@@ -1013,7 +1164,8 @@ SMIL_BG2_REST     = 0
           f"chr2 {len(chr2)} B ({len(tiles2)}/{CHR2_TILES} x 2bpp), "
           f"pal {2 * (len(PAL_BG1) + len(PAL_BG2))} B "
           f"({len(PAL_BG1)} BG1 + {len(PAL_BG2)} BG2), "
-          f"row table {PHASES}+1 x {ROW_BYTES} B")
+          f"row table {PHASES}+1 x {ROW_BYTES} B, "
+          f"rider {len(rchr)} B ({len(RIDER_CELLS)} cells)")
 
 
 if __name__ == "__main__":

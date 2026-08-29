@@ -39,7 +39,10 @@ enter:
     sta z:ES_MIL_CAM                ;   bottom of a two-screen world
     stz z:US_TSC
     stz z:US_TSC_ACC
+    stz z:ES_MIL_CAR
+    stz z:ES_MIL_RIDER_Y
     jsr mil_arm_bg                  ; CHR, maps, palettes, BG1SC/BG2SC/BG12NBA
+    jsr mil_obj_arm                 ; the rider's CHR, palette and OBSEL
     jsr mil_arm_scroll              ; the four fallback ports, at rest
     ; ---- BG3 BECOMES THE TABLE, and this write is the SCENE'S -------------
     ; BG3SC/BG3HOFS/BG3VOFS are not mil_opt's to claim: the offset composition
@@ -103,48 +106,46 @@ tick:
     ; animation's position alone, so un-flattening resumes rather than restarts.
     lda z:US_TSC
     jsr mil_advance
-    ; ---- the camera climbs the shaft ---------------------------------------
-    ; UP and DOWN move it; the clamps are the world's own ends. This is the
-    ; whole reason the staging routine exists: an offset word REPLACES its
-    ; column's scroll, so the camera has to be inside every vertical word or
-    ; the machines stay nailed to the screen while the hall slides past them.
+    ; ---- THE RIDE, and it is one number --------------------------------
+    ; The car climbs; the camera follows it until the world runs out, and then
+    ; the car keeps going and leaves through the top. Both fall out of the same
+    ; quantity, so nothing has to be kept in step with anything:
+    ;     cam = CAM_MAX - car, clamped at 0
+    ;     the car's screen row = CAR_ROW*8 - cam - car
+    ; While the camera can follow, those cancel and the car HOLDS STILL with the
+    ; shaft sliding past it — which is what riding a lift looks like, and it is
+    ; the one column on screen whose word is not changing while every other
+    ; column's is.
+    lda z:ES_MIL_PHASE              ; ...a beat on the floor before it moves
+    cmp #SMIL_CAR_WAIT
+    bcc @hold
     lda z:ES_INP_CUR
-    and #JOY_UP
-    beq @no_up
-    lda z:ES_MIL_CAM
-    beq @no_up
+    and #JOY_B
+    bne @hold
+    lda z:ES_MIL_CAR
+    cmp #SMIL_CAR_TOP
+    bcs @hold
+    clc
+    adc #SMIL_CAR_STEP
+    sta z:ES_MIL_CAR
+@hold:
+    .a16
+    .i16
+    lda #SMIL_CAM_MAX               ; ...and the camera follows it up
     sec
-    sbc #SMIL_CAM_STEP
+    sbc z:ES_MIL_CAR
     bpl :+
     lda #0
 :   .a16
     .i16
     sta z:ES_MIL_CAM
-@no_up:
-    .a16
-    .i16
-    lda z:ES_INP_CUR
-    and #JOY_DOWN
-    beq @no_down
-    lda z:ES_MIL_CAM
-    clc
-    adc #SMIL_CAM_STEP
-    cmp #SMIL_CAM_MAX
-    bcc :+
-    lda #SMIL_CAM_MAX
-:   .a16
-    .i16
-    sta z:ES_MIL_CAM
-@no_down:
-    .a16
-    .i16
-    ; ---- B: the flat control ----------------------------------------------
-    lda z:ES_INP_PRESS
-    and #JOY_B
-    beq @no_toggle
-    lda z:ES_MIL_FLATSEL
-    eor #1
-    sta z:ES_MIL_FLATSEL
+    jsr mil_rider_stage
+    ; ---- the camera climbs the shaft ---------------------------------------
+    ; UP and DOWN move it; the clamps are the world's own ends. This is the
+    ; whole reason the staging routine exists: an offset word REPLACES its
+    ; column's scroll, so the camera has to be inside every vertical word or
+    ; the machines stay nailed to the screen while the hall slides past them.
+    ; ---- B holds the ride, so a still can be taken anywhere in it ---------
 @no_toggle:
     .a16
     .i16

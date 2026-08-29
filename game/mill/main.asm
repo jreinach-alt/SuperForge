@@ -73,6 +73,10 @@ NMI:
 .include "fade.asm"
 .include "input.asm"
 .include "region.asm"               ; $213F bit 4 -> ES_RGN_PAL, once at boot
+.include "oam_sprites.asm"          ; the OAM shadow's VBlank DMA — the rider
+                                    ;   is one entry in it and the other 127
+                                    ;   are parked, which still has to REACH
+                                    ;   the hardware every frame
 .include "tick_scale.asm"           ; TS_STEP: the macro hall.asm's tick uses.
                                     ;   INCLUDED BEFORE THE SCENE, and it must
                                     ;   be — a ca65 macro has to be defined
@@ -101,6 +105,10 @@ mil_map1_bin:
     .incbin "mil_map1.bin"
 .assert ^mil_map1_bin = ES_R_MIL_MAP1_BANK, error, "mil_map1 bank drifted from allocator claim"
 .assert .loword(mil_map1_bin) = ES_R_MIL_MAP1_ADDR, error, "mil_map1 addr drifted from allocator claim"
+mil_obj_bin:
+    .incbin "mil_obj.bin"
+.assert ^mil_obj_bin = ES_R_MIL_OBJ_BANK, error, "mil_obj bank drifted from allocator claim"
+.assert .loword(mil_obj_bin) = ES_R_MIL_OBJ_ADDR, error, "mil_obj addr drifted from allocator claim"
 mil_chr2_bin:
     .incbin "mil_chr2.bin"
 .assert ^mil_chr2_bin = ES_R_MIL_CHR2_BANK, error, "mil_chr2 bank drifted from allocator claim"
@@ -109,14 +117,10 @@ mil_pal_bin:
     .incbin "mil_pal.bin"
 .assert ^mil_pal_bin = ES_R_MIL_PAL_BANK, error, "mil_pal bank drifted from allocator claim"
 .assert .loword(mil_pal_bin) = ES_R_MIL_PAL_ADDR, error, "mil_pal addr drifted from allocator claim"
-
-; BG2'S TILEMAP LIVES IN BANK 2, and the allocator put it there rather than
-; this file choosing: at 32x64 the two maps are 4,096 B each and the blobs
-; above no longer leave that contiguous in window 1. A tilemap cannot straddle
-; the LoROM seam ($00:FFFF -> $01:8000 is a discontinuity, not a carry), so the
-; packer moved the whole claim rather than splitting it. The `.assert`s are
-; what turn a future repack into a build failure instead of a tilemap read from
-; the wrong bank — which is how this one announced itself.
+mil_obj_pal_bin:
+    .incbin "mil_obj_pal.bin"
+.assert ^mil_obj_pal_bin = ES_R_MIL_OBJ_PAL_BANK, error, "mil_obj_pal bank drifted from allocator claim"
+.assert .loword(mil_obj_pal_bin) = ES_R_MIL_OBJ_PAL_ADDR, error, "mil_obj_pal addr drifted from allocator claim"
 .segment "BANK2"
 mil_map2_bin:
     .incbin "mil_map2.bin"
@@ -129,6 +133,8 @@ mil_map2_bin:
 ; inside scenes/hall.asm's `.scope` where its symbols resolve (haze's shape,
 ; and smelter's).
 .include "mil_bg.asm"
+.include "mil_obj.asm"              ; the rider — global, because this rail has
+                                    ;   one scene and he is in it
 
 ; --- the scene -------------------------------------------------------------
 .include "scenes/hall.asm"
@@ -148,7 +154,8 @@ mil_map2_bin:
 sm_nmi_hook:
     .a8
     .i16
-    jsr hall::mil_nmi_row
+    jsr oam_nmi_dma                 ; the OAM shadow, every armed VBlank
+    jsr hall::mil_nmi_row           ; the phase -> BG3's offset row, 64 B
     rts
 
 ; --- scene dispatch tables (manifest order: hall=0) ------------------------
@@ -165,6 +172,8 @@ MAIN:
     jsr sm_init
     jsr input_init
     jsr fade_init
+    jsr oam_park_all                ; every sprite off-screen before anything
+                                    ;   draws — power-on OAM is random (rule 5)
     jsr region_init                 ; the console's own region line, once. It
                                     ;   is game-lifetime state: a console does
                                     ;   not change region between scenes.
