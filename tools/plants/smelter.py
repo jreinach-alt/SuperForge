@@ -101,6 +101,7 @@ GEN = SUPERFORGE / "tools" / "gen_smelter_assets.py"
 OPT = SUPERFORGE / "engine" / "features" / "smt_opt" / "feature.toml"
 OPT_ASM = SUPERFORGE / "engine" / "features" / "smt_opt" / "smt_opt.asm"
 GAME = SUPERFORGE / "game" / "smelter" / "game.toml"
+WORKS = SUPERFORGE / "game" / "smelter" / "scenes" / "works.asm"
 OBJ = SUPERFORGE / "engine" / "features" / "smt_obj" / "smt_obj.asm"
 INC = SUPERFORGE / "game" / "smelter" / "smelter.inc"
 ROM = SUPERFORGE / "build" / "smelter.sfc"
@@ -487,6 +488,74 @@ mode = 1                 # PLANT: a mode with no offset path""",
               "defect that no correctness assertion in this module could have "
               "seen, which is why the case it names measures the run widths "
               "against the number the .inc emits rather than against taste."),
+
+    Plant(id="the-splash-never-fires",
+          file=WORKS,
+          old="""    jsr smt_kn_splash""",
+          new="""    ; PLANT: the entry he vacated stays parked""",
+          artifact=ROM,
+          build=["smelter"],
+          tests=[
+              T + "test_the_splash_on_screen_is_the_frame_the_rom_holds",
+              T + "test_the_splash_burns_out_and_the_melt_keeps_holding",
+          ],
+          why="the one call that stages it, gone — and NOTHING ELSE CHANGES. "
+              "He still goes under at the melt's own surface, the hold still "
+              "runs its three seconds, the wipe still comes, he still returns "
+              "on the spawn plate: every case about the death stays green, "
+              "because the death is not what breaks. What breaks is that the "
+              "melt no longer answers, and the three seconds it holds him have "
+              "nothing in them. A missing effect leaves a picture that is "
+              "still correct in every measurable way, which is why it needs a "
+              "case whose whole subject is that something is THERE."),
+
+    Plant(id="the-splash-outlives-the-hold",
+          file=GEN,
+          old="""SPLASH_SHIFT = 2                # frame = (elapsed >> SHIFT), in PHASE units,""",
+          new="""SPLASH_SHIFT = 4                # PLANT: four times as long as the hold""",
+          artifact=ROM,
+          build=["smelter"],
+          tests=[
+              T + "test_the_splash_burns_out_and_the_melt_keeps_holding",
+          ],
+          why="the burst stretched past the hold that contains it. SMT_SPLASH_"
+              "LIFE is FRAMES << SHIFT, so two more bits of shift makes it 96 "
+              "phase units against the hold's 67 — the splash is still in the "
+              "air when the mosaic takes the screen, and the frames crawl. "
+              "THE PICTURE IS PLAUSIBLE: a slow splash is a splash, and the "
+              "first frame looks identical. The case this names measures the "
+              "burst's length against the ratio of two constants in the rail's "
+              "own .inc files, so it fails on the LENGTH rather than on a "
+              "number somebody typed twice — and it also catches the shape of "
+              "this defect that a viewer would notice first, which is that the "
+              "last capture still has splash pixels in it."),
+
+    Plant(id="the-splash-ignores-the-surface",
+          file=OBJ,
+          old="""    jsr smt_melt_top                ; A = the crust line, this frame
+    sec
+    sbc #SMT_SPLASH_BASE_Y""",
+          new="""    jsr smt_melt_top                ; A = the crust line, this frame
+    lda #(SMT_CRUST_TOP_PX - SMT_VOFS_BG2 - SMT_ROW_BIAS)  ; PLANT: the base
+    sec
+    sbc #SMT_SPLASH_BASE_Y""",
+          artifact=ROM,
+          build=["smelter"],
+          tests=[
+              T + "test_the_splash_on_screen_is_the_frame_the_rom_holds",
+          ],
+          why="the splash pinned to the lake's RESTING level instead of the "
+              "crust line in his own column. It is the same defect class as "
+              "`ride-reads-a-fixed-height` on the plates, one surface along: "
+              "the melt is a moving thing read out of the offset table, and a "
+              "splash that ignores the table floats above or sinks below the "
+              "jet it is supposed to be coming out of. It is RIGHT roughly a "
+              "fifth of the time, because the jet passes its own base twice a "
+              "cycle, so a case that sampled one frame could pass it. The one "
+              "this names does not sample a frame: it requires every pixel of "
+              "the cell to match the tile at the OAM entry's OWN coordinates, "
+              "so a splash drawn at the wrong row disagrees with the picture "
+              "underneath it wherever the two differ."),
 ]
 
 

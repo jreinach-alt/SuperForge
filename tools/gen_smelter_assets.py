@@ -967,6 +967,9 @@ def content_top(rows):
 # free the frame the splash needs it, and the splash simply clears the size bit
 # to draw 16x16 where he was 32x32.
 SPLASH_BOX = 16
+# TICK: ok -- an ANIMATION frame count the accumulated PHASE indexes, exactly
+#   as MELT_ANIM_FRAMES above. `smt_kn_splash` computes (elapsed >> SHIFT) out
+#   of a hold spent in US_TSC and counts no hardware frames.
 SPLASH_FRAMES = 6
 SPLASH_SHIFT = 2                # frame = (elapsed >> SHIFT), in PHASE units,
                                 #   so 6 frames span 24 of them — a shade over
@@ -1247,6 +1250,7 @@ SMT_KN_BOX        = {kbox}     ; the pack's cell AND the OBJ box: no crop, no
                              ;   re-centre -- see the generator
 ; --- the splash (the same sheet's free slots) ------------------------------
 SMT_SPLASH_BOX    = {sbox}     ; 16x16: one OAM entry with the size bit CLEAR
+; TICK: ok -- an ANIMATION frame count the PHASE indexes, not a frame counter.
 SMT_SPLASH_FRAMES = {sframes}
 SMT_SPLASH_SHIFT  = {sshift}      ; frame = elapsed >> SHIFT, in PHASE units
 SMT_SPLASH_LIFE   = {slife}     ; ...so the burst spans this many of them

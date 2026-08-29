@@ -1258,17 +1258,104 @@ DP_KN_PLATE = _sym("ES_SMT_KN_PLATE")["start"]
 KN_AIRBORNE = 0xFFFF                    # smt_obj.asm: not a plate index
 OAM = MemoryType.SnesSpriteRam
 
+# --- the splash: the melt's answer, in his own OAM entry -------------------
+DP_KN_SINK = _sym("ES_SMT_KN_SINK")["start"]
+SPLASH_BOX = _art("SMT_SPLASH_BOX")
+SPLASH_FRAMES = _art("SMT_SPLASH_FRAMES")
+SPLASH_SHIFT = _art("SMT_SPLASH_SHIFT")
+SPLASH_LIFE = _art("SMT_SPLASH_LIFE")
+SPLASH_TILE0 = _art("SMT_SPLASH_TILE0")
+SPLASH_STEP = _art("SMT_SPLASH_STEP")
+V_OBJ_CHR = _sym("ES_V_SMT_OBJ_CHR")["start"]
+CG_OBJ_PAL = _sym("ES_C_SMT_OBJ_PAL")["start"]
+OBJ_GRID = 16                   # tiles across the OBJ name table's grid
 
-def _knight(im, pal):
+
+def _obj_tile(m, tile):
+    """One 4bpp OBJ tile out of VRAM, as an 8x8 grid of palette INDICES.
+
+    Read from the hardware, never from the blob: the point of the case below is
+    that what is on the screen is the tile the OAM entry names, so every link
+    in that chain has to come off the machine.
+    """
+    d = m.read_bytes(V, (V_OBJ_CHR + tile * 16) * 2, 32)
+    out = []
+    for y in range(8):
+        p0, p1, p2, p3 = d[y * 2], d[y * 2 + 1], d[16 + y * 2], d[16 + y * 2 + 1]
+        out.append([((p0 >> (7 - x)) & 1) | (((p1 >> (7 - x)) & 1) << 1)
+                    | (((p2 >> (7 - x)) & 1) << 2) | (((p3 >> (7 - x)) & 1) << 3)
+                    for x in range(8)])
+    return out
+
+
+def _obj_cell(m, base):
+    """The 16x16 an OAM entry draws from base tile `base`, as indices.
+
+    The PPU reads a 16x16 sprite as {N, N+1, N+16, N+17} — the second row is
+    a whole grid row away, not two tiles along — which is exactly why the
+    splash's frames are laid out as 2x2 blocks stepping along ONE row.
+    """
+    tl, tr = _obj_tile(m, base), _obj_tile(m, base + 1)
+    bl, br = _obj_tile(m, base + OBJ_GRID), _obj_tile(m, base + OBJ_GRID + 1)
+    return ([a + b for a, b in zip(tl, tr)] + [a + b for a, b in zip(bl, br)])
+
+
+def _obj_pal(m):
+    raw = m.read_bytes(C, CG_OBJ_PAL * 2, 32)
+    return [_cg(raw, i) for i in range(16)]
+
+
+def _splash_pal_ix(m):
+    """Which palette entries the SPLASH draws in — decoded from its own tiles.
+
+    Not typed here and not taken from the generator: the splash's six frames
+    are read out of VRAM and the indices they use ARE the answer, so moving a
+    colour moves this with it.
+    """
+    ix = set()
+    for f in range(SPLASH_FRAMES):
+        for line in _obj_cell(m, SPLASH_TILE0 + f * SPLASH_STEP):
+            ix |= {i for i in line if i}
+    return {OBJ_IX0 + i for i in ix}
+
+
+def _under_the_melt(m):
+    """Drive right until he is under, and return the machine there.
+
+    ES_SMT_KN_SINK is read as a COORDINATE — where in the state cycle we are —
+    the way `_kn_x` reads his position and `_fit` reads the phase. Every
+    assertion below is on the rendered frame.
+    """
+    for _ in range(240):
+        if m.read_u16(W, DP_KN_SINK):
+            return True
+        m.advance(1, pad1={"right": True})
+    return False
+
+
+def _knight(im, pal, skip=()):
     """The bounding box of the knight's OWN pixels, in screen coordinates.
 
     Returns (x0, x1, y0, y1), or None if he is not in the picture at all —
-    which is a real state, not a failure: a jump carries him off the top edge.
+    which is a real state, not a failure: a jump carries him off the top edge,
+    and the melt takes him under.
+
+    `skip` IS LOAD-BEARING AND IS THE SPLASH. He and it are both OBJ out of one
+    16-colour group — the splash runs from the entry he vacates — so "is he in
+    the picture" cannot be "is there an OBJ pixel" once the splash exists. Pass
+    `_splash_pal_ix(m)` and the three cases that ask whether he is GONE get an
+    answer about him.
+
+    It went unnoticed for a while, because `_cg` expanded 5-bit channels
+    wrongly and the splash's pixels were resolving to the melt's colours by
+    nearest match — the right answer for the wrong reason. Fixing `_cg` made
+    them resolve to OBJ, exactly, and three cases went red at once.
     """
     xs, ys = [], []
     for y in range(PICTURE_TOP, im.size[1]):
         for x in range(im.size[0]):
-            if _classify(im.getpixel((x, y))[:3], pal) >= OBJ_IX0:
+            ix = _classify(im.getpixel((x, y))[:3], pal)
+            if ix >= OBJ_IX0 and ix not in skip:
                 xs.append(x)
                 ys.append(y - PICTURE_TOP)
     return (min(xs), max(xs), min(ys), max(ys)) if xs else None
@@ -1586,6 +1673,7 @@ def test_walking_off_the_span_drops_him_and_the_world_gives_him_back(tmp_path):
         m.advance(1, pad1=JOY_START)
         m.advance(SETTLE)
         pal = _palette(m)
+        skip = _splash_pal_ix(m)
         every, gone = 2, False
         for k in range(60):
             kn_x = m.read_u16(W, DP_KN_X)
@@ -1595,7 +1683,7 @@ def test_walking_off_the_span_drops_him_and_the_world_gives_him_back(tmp_path):
             im = Image.open(p).convert("RGB")
             if start is None:
                 start = kn_x
-            box = _knight(im, pal)
+            box = _knight(im, pal, skip)
             u = _under(im, pal, kn_x, cam)
             if u is not None:
                 last_u = u
@@ -1669,6 +1757,7 @@ def test_he_sinks_into_the_lava_and_leaves_only_once_he_is_under(tmp_path):
         m.advance(1, pad1=JOY_START)
         m.advance(SETTLE)
         pal = _palette(m)
+        skip = _splash_pal_ix(m)
         for k in range(30):
             kn_x = m.read_u16(W, DP_KN_X)
             phase = m.read_u16(W, DP_PHASE)
@@ -1676,7 +1765,7 @@ def test_he_sinks_into_the_lava_and_leaves_only_once_he_is_under(tmp_path):
             p = tmp_path / f"sink{k}.png"
             m.screenshot(str(p))
             im = Image.open(p).convert("RGB")
-            box = _knight(im, pal)
+            box = _knight(im, pal, skip)
             if box is None:
                 gone_at = k
                 break
@@ -1739,6 +1828,7 @@ def test_the_melt_holds_him_under_before_it_wipes(tmp_path):
         m.advance(1, pad1=JOY_START)
         m.advance(SETTLE)
         pal = _palette(m)
+        skip = _splash_pal_ix(m)
         for k in range(48):
             phase = m.read_u16(W, DP_PHASE)
             cam = m.read_u16(W, DP_CAM_SHOWN)
@@ -1746,7 +1836,7 @@ def test_the_melt_holds_him_under_before_it_wipes(tmp_path):
             p = tmp_path / f"hold{k}.png"
             m.screenshot(str(p))
             im = Image.open(p).convert("RGB")
-            here = _knight(im, pal)
+            here = _knight(im, pal, skip)
             bad, _lag, idx = _fit(im, pal, phase, cam)[0]
             caps.append((k, here is not None, bad))
             if gone_at is not None:
@@ -1774,6 +1864,167 @@ def test_the_melt_holds_him_under_before_it_wipes(tmp_path):
     assert len(set(rows_seen)) > 1, (
         "one row of the blob explains every frame of the hold — the plates "
         "stopped, so the hold froze the world instead of only the knight")
+
+
+def test_the_splash_on_screen_is_the_frame_the_rom_holds(tmp_path):
+    """THE WHOLE CHAIN, JOINED — OAM to VRAM to CGRAM to pixels.
+
+    The melt answers him going in with a splash, and it costs no claim: it runs
+    out of the knight's OWN OAM entry, taken the frame he vacates it, with the
+    size bit cleared so the same entry that drew a 32x32 knight draws a 16x16
+    burst. Which means "is the splash right" is a question about four things
+    agreeing, and this reads all four off the machine:
+
+      the OAM entry     says where it is, which tile it starts at, and that
+                        the size bit is CLEAR
+      VRAM              holds that tile and its three neighbours, decoded to
+                        palette indices here rather than trusted
+      CGRAM             says what colour each index is
+      the SCREENSHOT    must show exactly that, pixel for pixel
+
+    Both directions, which is what makes it a join and not a sighting: every
+    pixel the tile says is a splash index must BE that index's colour on
+    screen, and every pixel it says is transparent must NOT be a splash colour.
+    A frame that drew the wrong tile, at the wrong place, from a stale palette,
+    or at 32x32, fails on one of the two.
+
+    THE COMPARISON IS EXACT, and it can only be exact because `_cg` expands a
+    5-bit channel the way the hardware does. It did not: with `v * 255 // 31`
+    every index-17 pixel came out one short of the truth, and a splash that was
+    rendering perfectly measured as barely rendering at all. Nearest-match
+    classification never noticed, because one unit is far inside every margin
+    in this module. See `_cg`.
+    """
+    with Machine(str(ROM)) as m:
+        m.advance(TITLE)
+        m.advance(1, pad1=JOY_START)
+        m.advance(SETTLE)
+        assert _under_the_melt(m), "he never went into the melt"
+        # ---- and put him over a JET, not over a plate column ---------------
+        # Where he actually drowns, his centre is a plate column — and a plate
+        # column's melt is at the base by design (docs/100 §12.1), so the
+        # surface there is a CONSTANT and this case would be asserting an
+        # equality with no content. It passed a planted defect that pinned the
+        # splash to the base for exactly that reason.
+        #
+        # His X is written, and nothing else: `smt_kn_splash` reads it fresh
+        # every frame, so this moves the splash into a gap column whose melt is
+        # a jet and therefore moving. The assertion below still reads the OAM
+        # entry off the machine against the ROM's own word.
+        gap = next(c for c in range(COLS) if plate_of(c) is None and c > COLS // 2)
+        m.write_bytes(W, DP_KN_X, (gap * 8 + 4 - KN_BOX // 2).to_bytes(2, "little"))
+        m.advance(SPLASH_STEP << SPLASH_SHIFT)      # ...past the first frame
+        pal = _obj_pal(m)
+        cgpal = _palette(m)
+        oam = m.read_bytes(OAM, 0, 4)
+        hi = m.read_bytes(OAM, 512, 1)[0]
+        cell = _obj_cell(m, oam[2])
+        kn_x = m.read_u16(W, DP_KN_X)
+        phase = m.read_u16(W, DP_PHASE)
+        cam = m.read_u16(W, DP_CAM_SHOWN)
+        p = tmp_path / "splash.png"
+        m.screenshot(str(p))
+    im = Image.open(p).convert("RGB")
+
+    # ---- WHERE IT IS: on the melt's surface in his own column --------------
+    # Without this the case is blind to a splash pinned at a fixed height: the
+    # cell would still agree with the picture at its own coordinates, wherever
+    # those were. The melt is a moving thing read out of the offset table, so
+    # the same join the plates get applies here — the row the ROM's word puts
+    # the crust on, against the row the OAM entry actually staged.
+    _bad, _lag, idx = _fit(im, cgpal, phase, cam)[0]
+    w = row(idx)[(kn_x + KN_BOX // 2) >> 3]
+    surface = (where(CRUST_PX, w & VALUE_MASK) if w & BIT_BG2
+               else where(CRUST_PX, _art("SMT_VOFS_BG2")))
+    assert surface != where(CRUST_PX, _art("SMT_VOFS_BG2")), (
+        f"the sampled column's melt is at its base, so this equality has no "
+        f"content — pick a column whose jet is off its rest")
+    assert oam[1] + _art("SMT_SPLASH_BASE_Y") == surface, (
+        f"the splash's surface row is {oam[1] + _art('SMT_SPLASH_BASE_Y')} and "
+        f"the melt's crust in his column is at {surface} — it is not coming "
+        f"out of the lava, it is floating over it")
+
+    assert hi & 0b10 == 0, \
+        "the size bit is set — the splash is being drawn 32x32, as the knight"
+    lo = SPLASH_TILE0
+    hi_tile = SPLASH_TILE0 + (SPLASH_FRAMES - 1) * SPLASH_STEP
+    assert lo <= oam[2] <= hi_tile and (oam[2] - lo) % SPLASH_STEP == 0, (
+        f"tile {oam[2]} is not one of the splash's frames "
+        f"({lo}..{hi_tile} step {SPLASH_STEP})")
+
+    drawn = {i for row in cell for i in row if i}
+    assert drawn, f"the tile the OAM entry names is empty: tile {oam[2]}"
+    splash_cols = {pal[i] for i in drawn}
+    checked = 0
+    for cy in range(SPLASH_BOX):
+        for cx in range(SPLASH_BOX):
+            x, y = oam[0] + cx, oam[1] + PICTURE_TOP + cy
+            if not (0 <= x < im.size[0] and 0 <= y < im.size[1]):
+                continue
+            px = im.getpixel((x, y))[:3]
+            ix = cell[cy][cx]
+            if ix:
+                assert px == pal[ix], (
+                    f"cell ({cx},{cy}) holds index {ix} = {pal[ix]} and the "
+                    f"screen shows {px}")
+                checked += 1
+            else:
+                assert px not in splash_cols, (
+                    f"cell ({cx},{cy}) is transparent and the screen shows "
+                    f"{px}, a colour only the splash draws")
+    assert checked >= 5, f"only {checked} splash pixels — the frame is empty"
+
+
+def test_the_splash_burns_out_and_the_melt_keeps_holding(tmp_path):
+    """THE BURST IS SHORTER THAN THE HOLD, and both lengths are read.
+
+    A splash that ran the whole three seconds would be a light left on; one
+    that outlived the hold would still be in the air when the wipe took the
+    screen. So: it is there when he goes under, it is gone well before the
+    mosaic starts, and the gap between them is the melt holding him with
+    nothing thrown.
+
+    The length is DERIVED — `SMT_SPLASH_LIFE` is spent in the same scaled phase
+    step as the hold, so the expected number of emulated frames comes out of
+    the rail's own two .inc files and not out of a number typed here.
+
+    Splash pixels are found by EXACT colour, from CGRAM. They cannot be found
+    by nearest match: the ramp is lava, so it resolves to the melt's own tones,
+    and the brightest resolves to the plates'. That is a deliberate consequence
+    of the splash being made of the stuff it lands in (docs/100), and it is why
+    this reads CGRAM instead of `_classify`.
+    """
+    every = 4
+    expect = SPLASH_LIFE * 256 / _rail("SMT_PHASE_BASE")
+    seen = []
+    with Machine(str(ROM)) as m:
+        m.advance(TITLE)
+        m.advance(1, pad1=JOY_START)
+        m.advance(SETTLE)
+        assert _under_the_melt(m), "he never went into the melt"
+        pal = _obj_pal(m)
+        want = {pal[i] for i in range(16)} - {pal[0]}
+        for k in range(28):
+            p = tmp_path / f"burn{k}.png"
+            m.screenshot(str(p))
+            im = Image.open(p).convert("RGB")
+            n = sum(1 for y in range(PICTURE_TOP, im.size[1])
+                    for x in range(im.size[0])
+                    if im.getpixel((x, y))[:3] in want)
+            seen.append(n)
+            m.advance(every - 1, pad1={"right": True})
+
+    lit = [i for i, n in enumerate(seen) if n]
+    assert lit and lit[0] <= 1, \
+        f"nothing was thrown when he went under: {seen}"
+    burned = (lit[-1] + 1) * every
+    assert abs(burned - expect) <= 3 * every, (
+        f"the splash lasted about {burned} frames and the rail's own constants "
+        f"say {expect:.0f}")
+    assert seen[-1] == 0, \
+        f"the splash is still burning at the end of the run: {seen}"
+    assert max(seen) >= 15, \
+        f"the burst never grew past {max(seen)} pixels — it is a dot, not a splash"
 
 
 def test_the_fall_dissolves_the_picture_before_it_gives_him_back(tmp_path):
