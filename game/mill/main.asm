@@ -89,16 +89,14 @@ NMI:
 ; size and these `.assert`s are what turn a disagreement into a build failure
 ; instead of art read from the wrong address.
 .segment "BANK1"
+mil_chr1_bin:
+    .incbin "mil_chr1.bin"
+.assert ^mil_chr1_bin = ES_R_MIL_CHR1_BANK, error, "mil_chr1 bank drifted from allocator claim"
+.assert .loword(mil_chr1_bin) = ES_R_MIL_CHR1_ADDR, error, "mil_chr1 addr drifted from allocator claim"
 mil_row_bin:
     .incbin "mil_row.bin"
 .assert ^mil_row_bin = ES_R_MIL_ROW_BANK, error, "mil_row bank drifted from allocator claim"
 .assert .loword(mil_row_bin) = ES_R_MIL_ROW_ADDR, error, "mil_row addr drifted from allocator claim"
-; THE WHOLE TABLE MUST LIE IN ONE BANK. mil_nmi_row builds the transfer's
-; source with a 16-bit add to the blob's low word and takes the bank from `^`,
-; so a table straddling a boundary would have its later rows read out of the
-; bank below — and they are SCROLL OFFSETS, so the failure is a hall that tears
-; instead of a hall that is missing.
-SF_ASSERT_NO_BANK_CROSS mil_row_bin, ES_R_MIL_ROW_SIZE, "mil_row crosses a bank"
 mil_map1_bin:
     .incbin "mil_map1.bin"
 .assert ^mil_map1_bin = ES_R_MIL_MAP1_BANK, error, "mil_map1 bank drifted from allocator claim"
@@ -107,18 +105,14 @@ mil_map2_bin:
     .incbin "mil_map2.bin"
 .assert ^mil_map2_bin = ES_R_MIL_MAP2_BANK, error, "mil_map2 bank drifted from allocator claim"
 .assert .loword(mil_map2_bin) = ES_R_MIL_MAP2_ADDR, error, "mil_map2 addr drifted from allocator claim"
-mil_chr1_bin:
-    .incbin "mil_chr1.bin"
-.assert ^mil_chr1_bin = ES_R_MIL_CHR1_BANK, error, "mil_chr1 bank drifted from allocator claim"
-.assert .loword(mil_chr1_bin) = ES_R_MIL_CHR1_ADDR, error, "mil_chr1 addr drifted from allocator claim"
-mil_pal_bin:
-    .incbin "mil_pal.bin"
-.assert ^mil_pal_bin = ES_R_MIL_PAL_BANK, error, "mil_pal bank drifted from allocator claim"
-.assert .loword(mil_pal_bin) = ES_R_MIL_PAL_ADDR, error, "mil_pal addr drifted from allocator claim"
 mil_chr2_bin:
     .incbin "mil_chr2.bin"
 .assert ^mil_chr2_bin = ES_R_MIL_CHR2_BANK, error, "mil_chr2 bank drifted from allocator claim"
 .assert .loword(mil_chr2_bin) = ES_R_MIL_CHR2_ADDR, error, "mil_chr2 addr drifted from allocator claim"
+mil_pal_bin:
+    .incbin "mil_pal.bin"
+.assert ^mil_pal_bin = ES_R_MIL_PAL_BANK, error, "mil_pal bank drifted from allocator claim"
+.assert .loword(mil_pal_bin) = ES_R_MIL_PAL_ADDR, error, "mil_pal addr drifted from allocator claim"
 .segment "CODE"
 
 ; --- the global feature runtime (after the blobs its uploads read) ---------

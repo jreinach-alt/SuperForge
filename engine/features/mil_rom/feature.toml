@@ -12,16 +12,16 @@ role = "blob"
 # bit 15 of each picks whether it displaces vertically or horizontally.
 [[claims.rom]]
 name = "mil_row"
-bytes = 4160             # 64 phases + the flat control, x 32 words
+bytes = 8256             # 128 phases + the flat control, x 32 words
 
 [[claims.rom]]
 name = "mil_chr1"
-bytes = 384              # 6 tiles x 64 B. EIGHT bpp: a tile is 64 bytes, not
+bytes = 12288            # 192 tiles x 64 B. EIGHT bpp: a tile is 64 bytes, not
                          # 32, which is the whole reason O9 exists
 
 [[claims.rom]]
 name = "mil_chr2"
-bytes = 80               # 5 tiles x 16 B. TWO bpp, on the same screen
+bytes = 1024             # 64 tiles x 16 B. TWO bpp, on the same screen
 
 [[claims.rom]]
 name = "mil_map1"
@@ -37,4 +37,4 @@ bytes = 2048
 # packer decides. smt_pal.bin is one blob for the same reason.
 [[claims.rom]]
 name = "mil_pal"
-bytes = 136              # BG1's 64-word ramp set, then BG2's four
+bytes = 208              # BG1's 96-word ramp set, then BG2's two groups

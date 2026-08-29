@@ -21,14 +21,14 @@ depends = ["mil_rom"]
 name = "mil_chr1"
 kind = "chr"
 layers = ["bg1"]
-tiles = 6
+tiles = 192
 tile_bytes = 64
 
 [[claims.vram]]
 name = "mil_chr2"
 kind = "chr"
 layers = ["bg2"]
-tiles = 5
+tiles = 64
 tile_bytes = 16
 
 # ---- the maps -------------------------------------------------------------
@@ -53,12 +53,12 @@ shape = "32x32"
 # 32 because of it, which is a fact about the DEPTHS and not about the art.
 [[claims.cgram]]
 name = "mil_pal2"
-words = 4
+words = 8
 at = 0
 
 [[claims.cgram]]
 name = "mil_pal1"
-words = 64
+words = 96
 at = 32
 
 # ---- the layers on screen -------------------------------------------------
