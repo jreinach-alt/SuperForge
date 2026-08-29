@@ -32,17 +32,22 @@ tiles = 64
 tile_bytes = 16
 
 # ---- the maps -------------------------------------------------------------
+# 32x64, TWICE AS TALL AS A SCREEN. The world the camera climbs is 448 px and
+# the map is 512, so a shaft column's V displacement has somewhere to wrap into
+# that is never shown undisplaced. `shape` is what makes BGnSC's two size bits
+# expressible — a 0x800-word claim is 32x64 or 64x32 and the register encodes
+# which (docs/100).
 [[claims.vram]]
 name = "mil_map1"
 kind = "tilemap"
-words = 0x400
-shape = "32x32"
+words = 0x800
+shape = "32x64"
 
 [[claims.vram]]
 name = "mil_map2"
 kind = "tilemap"
-words = 0x400
-shape = "32x32"
+words = 0x800
+shape = "32x64"
 
 # ---- palettes -------------------------------------------------------------
 # BG2 IS PINNED TO THE FIRST 32 WORDS and BG1 is not pinned at all: a 2bpp

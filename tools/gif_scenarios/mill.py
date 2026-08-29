@@ -52,7 +52,20 @@ CAPTURES = 160                  # a CEILING over the lead-in and the take, not
                                 #   a schedule: the phase returning is what
                                 #   ends it.
 
-PERIODS = 1                     # one complete turn of the row table
+# THE TAKE IS A CLIMB, not a turn of the animation. The world is two screens
+# tall and the camera goes up it and back, because the question the clip has to
+# answer is what a PER-COLUMN table does while the whole picture scrolls —
+# every column driven by a word, and every column that is not, keeping step.
+#
+# THE SEAM CANNOT BE ZERO HERE AND THE ARITHMETIC SAYS WHY. The picture is a
+# function of two things now, the phase and the camera, and their periods share
+# no factor: the camera's round trip is 2 * SMIL_CAM_MAX / SMIL_CAM_STEP frames
+# and the phase's is SMIL_PHASES / 0.375. The take closes where the CAMERA
+# closes, at the bottom of the world, with the machines at a different point in
+# their stroke than they opened on. That is a loop of a MOVE, and the measured
+# seam is the honest number for one.
+CAM_BOTTOM_HOLD = 8             # captures held at each end, so the reversal
+                                #   reads as a stop rather than as a bounce
 
 W = MemoryType.SnesWorkRam
 _J = json.loads((ROOT / "build" / "mil" / "symbol_map.json").read_text())
@@ -69,7 +82,11 @@ FADE = _dp("ES_FADE_CTL")
 # advance next. `mil_nmi_row` publishes it at the moment it uses it, which is
 # smelter's `smt_cam_shown` lesson: join on what drew the frame.
 SHOWN = _dp("ES_MIL_SHOWN")
+CAM = _dp("ES_MIL_CAM")
 ACC = _dp("US_TSC_ACC", "hall")
+
+CAM_MAX = 224                   # SMIL_CAM_MAX, and it is asserted below rather
+                                #   than trusted: the generator owns it
 
 HALL = 0                        # the only scene, and the boot scene
 SM_RUN = 0                      # scene_mgr's phase machine: 0 is "running"
@@ -106,8 +123,8 @@ class Drive:
     def __init__(self):
         self.started = False
         self.done = False
-        self.mark = None        # the phase the take opened on
-        self.periods = 0
+        self.phase = "up"       # up -> hold -> down -> done
+        self.hold = 0
         self.n = 0
 
     def __call__(self, r, i):
@@ -115,14 +132,24 @@ class Drive:
         if not self.started:
             if _at_rest(r) and _u16(r, ACC) == 0:
                 self.started = True
-                self.mark = _u16(r, SHOWN)
                 self.n = 0
             return r.frame_step(STEP)
 
-        if _u16(r, SHOWN) == self.mark:
-            self.periods += 1
-            self.done = self.periods >= PERIODS
-        return r.frame_step(STEP)
+        cam = _u16(r, CAM)
+        if self.phase == "up":
+            if cam == 0:
+                self.phase, self.hold = "hold", 0
+                return r.frame_step(STEP)
+            return r.frame_step(STEP, up=True)
+        if self.phase == "hold":
+            self.hold += 1
+            if self.hold >= CAM_BOTTOM_HOLD:
+                self.phase = "down"
+            return r.frame_step(STEP)
+        if cam >= CAM_MAX:
+            self.done = True
+            return r.frame_step(STEP)
+        return r.frame_step(STEP, down=True)
 
 
 def make_drive():

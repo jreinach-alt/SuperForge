@@ -56,6 +56,16 @@ channels = 1
 vblank_bytes_per_frame = 64
 vblank_transfers_per_frame = 1
 
+# THE ROW IS NOW STAGED IN WRAM, not transferred straight out of ROM. The
+# camera has to be folded into every vertical word, so the VBlank walker reads
+# the ROM row, adds the camera to the words whose axis bit is set, and DMAs the
+# result. 32 words of CPU work a frame buys a scrolling world; the alternative
+# is a table indexed by BOTH phase and camera, which is the same picture at
+# CAM_MAX times the ROM.
+[[claims.wram]]
+name = "mil_stage"
+bytes = 64
+
 # ---- the fallback ports ---------------------------------------------------
 # NOT THE CAMERA — the FALLBACK. A column whose word does not carry a layer's
 # enable bit shows that layer at its own BGnVOFS/BGnHOFS, so on this rail BG1's
@@ -93,11 +103,27 @@ bytes = 2                # the phase the picture was actually drawn from,
                          # test must join on what drew the frame and not on the
                          # counter it came from. Read only by tests
 
+# THE CAMERA'S WORLD Y, in pixels, 0..SMIL_CAM_MAX. It is mil_opt's because
+# the TABLE is what it enters: an offset word REPLACES a layer's scroll for its
+# column rather than adding to it (vScroll = word & $3FF), so in a scrolling
+# world every VERTICAL word must already carry the camera. Nothing else in the
+# rail has an opinion about it.
+[[claims.dp]]
+name = "mil_cam"
+bytes = 2
+
+# ...and the camera the PICTURE was drawn from, published by the NMI at the
+# moment it uses it. smt_cam_shown's lesson: join on what drew the frame, not
+# on the counter the main thread will advance after the transfer fired.
+[[claims.dp]]
+name = "mil_cam_shown"
+bytes = 2
+
 [[claims.dp]]
 name = "mil_flatsel"
 bytes = 2                # 0 = the running row, 1 = the flat control row
 
 [[claims.dp]]
 name = "mil_nmi_scratch"
-bytes = 4                # the VBlank walker's own, because the NMI can preempt
+bytes = 8                # the VBlank walker's own, because the NMI can preempt
                          # the main thread mid-use of anything it shares

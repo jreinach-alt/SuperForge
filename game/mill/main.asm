@@ -101,10 +101,6 @@ mil_map1_bin:
     .incbin "mil_map1.bin"
 .assert ^mil_map1_bin = ES_R_MIL_MAP1_BANK, error, "mil_map1 bank drifted from allocator claim"
 .assert .loword(mil_map1_bin) = ES_R_MIL_MAP1_ADDR, error, "mil_map1 addr drifted from allocator claim"
-mil_map2_bin:
-    .incbin "mil_map2.bin"
-.assert ^mil_map2_bin = ES_R_MIL_MAP2_BANK, error, "mil_map2 bank drifted from allocator claim"
-.assert .loword(mil_map2_bin) = ES_R_MIL_MAP2_ADDR, error, "mil_map2 addr drifted from allocator claim"
 mil_chr2_bin:
     .incbin "mil_chr2.bin"
 .assert ^mil_chr2_bin = ES_R_MIL_CHR2_BANK, error, "mil_chr2 bank drifted from allocator claim"
@@ -113,6 +109,19 @@ mil_pal_bin:
     .incbin "mil_pal.bin"
 .assert ^mil_pal_bin = ES_R_MIL_PAL_BANK, error, "mil_pal bank drifted from allocator claim"
 .assert .loword(mil_pal_bin) = ES_R_MIL_PAL_ADDR, error, "mil_pal addr drifted from allocator claim"
+
+; BG2'S TILEMAP LIVES IN BANK 2, and the allocator put it there rather than
+; this file choosing: at 32x64 the two maps are 4,096 B each and the blobs
+; above no longer leave that contiguous in window 1. A tilemap cannot straddle
+; the LoROM seam ($00:FFFF -> $01:8000 is a discontinuity, not a carry), so the
+; packer moved the whole claim rather than splitting it. The `.assert`s are
+; what turn a future repack into a build failure instead of a tilemap read from
+; the wrong bank — which is how this one announced itself.
+.segment "BANK2"
+mil_map2_bin:
+    .incbin "mil_map2.bin"
+.assert ^mil_map2_bin = ES_R_MIL_MAP2_BANK, error, "mil_map2 bank drifted from allocator claim"
+.assert .loword(mil_map2_bin) = ES_R_MIL_MAP2_ADDR, error, "mil_map2 addr drifted from allocator claim"
 .segment "CODE"
 
 ; --- the global feature runtime (after the blobs its uploads read) ---------

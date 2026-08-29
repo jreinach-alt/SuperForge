@@ -25,11 +25,11 @@ bytes = 1024             # 64 tiles x 16 B. TWO bpp, on the same screen
 
 [[claims.rom]]
 name = "mil_map1"
-bytes = 2048             # 32x32 words
+bytes = 4096             # 32x64 words
 
 [[claims.rom]]
 name = "mil_map2"
-bytes = 2048
+bytes = 4096
 
 # ONE BLOB, TWO GROUPS, SMIL_PAL2_OFF between them. Two claims would be two
 # blobs the packer orders by SIZE, and an uploader that reached the second by a

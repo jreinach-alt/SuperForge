@@ -34,6 +34,9 @@ enter:
     stz z:ES_MIL_PHASE
     stz z:ES_MIL_SHOWN
     stz z:ES_MIL_FLATSEL
+    stz z:ES_MIL_CAM_SHOWN
+    lda #SMIL_CAM_MAX               ; the camera opens at the FORGE FLOOR, the
+    sta z:ES_MIL_CAM                ;   bottom of a two-screen world
     stz z:US_TSC
     stz z:US_TSC_ACC
     jsr mil_arm_bg                  ; CHR, maps, palettes, BG1SC/BG2SC/BG12NBA
@@ -100,6 +103,41 @@ tick:
     ; animation's position alone, so un-flattening resumes rather than restarts.
     lda z:US_TSC
     jsr mil_advance
+    ; ---- the camera climbs the shaft ---------------------------------------
+    ; UP and DOWN move it; the clamps are the world's own ends. This is the
+    ; whole reason the staging routine exists: an offset word REPLACES its
+    ; column's scroll, so the camera has to be inside every vertical word or
+    ; the machines stay nailed to the screen while the hall slides past them.
+    lda z:ES_INP_CUR
+    and #JOY_UP
+    beq @no_up
+    lda z:ES_MIL_CAM
+    beq @no_up
+    sec
+    sbc #SMIL_CAM_STEP
+    bpl :+
+    lda #0
+:   .a16
+    .i16
+    sta z:ES_MIL_CAM
+@no_up:
+    .a16
+    .i16
+    lda z:ES_INP_CUR
+    and #JOY_DOWN
+    beq @no_down
+    lda z:ES_MIL_CAM
+    clc
+    adc #SMIL_CAM_STEP
+    cmp #SMIL_CAM_MAX
+    bcc :+
+    lda #SMIL_CAM_MAX
+:   .a16
+    .i16
+    sta z:ES_MIL_CAM
+@no_down:
+    .a16
+    .i16
     ; ---- B: the flat control ----------------------------------------------
     lda z:ES_INP_PRESS
     and #JOY_B

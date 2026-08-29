@@ -49,8 +49,9 @@ mil_nmi_row:
     sta a:MIL_ROW_REGS + 0
     lda #ES_H_MIL_VROW_BBAD
     sta a:MIL_ROW_REGS + 1
-    lda #^mil_row_bin
-    sta a:MIL_ROW_REGS + 4
+    lda #^ES_MIL_STAGE_LONG
+    sta a:MIL_ROW_REGS + 4          ; the source is WRAM now, not ROM: the
+                                    ;   camera has to be folded in first
     rep #$20
     .a16
     ; ---- WHICH ROW OF BG3'S MAP. Mode 4 reads the row BG3VOFS selects, and
@@ -79,11 +80,131 @@ mil_nmi_row:
     .endrepeat                      ;   count as a constant at parse time
     clc
     adc #.loword(mil_row_bin)       ; the blob fits one 32 KB window, so this
-    sta a:MIL_ROW_REGS + 2          ;   16-bit add cannot leave the bank
+    sta z:ES_MIL_NMI_SCRATCH        ;   16-bit add cannot leave the bank
+    sep #$20
+    .a8
+    lda #^mil_row_bin
+    sta z:ES_MIL_NMI_SCRATCH + 2    ; ...and the bank, for the long read
+    rep #$20
+    .a16
+    lda #.loword(ES_MIL_STAGE_LONG)
+    sta a:MIL_ROW_REGS + 2          ; A1T: the STAGED row, not the ROM row
+    jsr mil_stage_row
+    jsr mil_commit_vofs             ; ...and the fallback both layers use
     sep #$20
     .a8
     lda #(1 << ES_H_MIL_VROW_CH)
     sta a:$420B                     ; MDMAEN: fire
+    rts
+
+; --- mil_commit_vofs: the two V fallbacks, every armed VBlank ---------------
+; CONTRACT mil_commit_vofs
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      BG1VOFS and BG2VOFS set to the camera
+;   clobbers: A, N, Z
+;   assumes:  VBlank
+;   tail:     rts
+;
+; THIS IS WHERE EVERY UNDRIVEN COLUMN GETS ITS VERTICAL POSITION, and it is a
+; per-frame port now rather than an enter-time one. A column whose word does not
+; carry a layer's enable bit shows that layer at its own BGnVOFS — and on this
+; rail that is most of the screen: the pier, both stations' conveyor bays and
+; the whole tail run take BG1 from here, and every shaft and upright column
+; takes BG2 from here. Left at their enter values they would hold still while
+; the driven columns climbed, which is the same defect as the staging routine's
+; and the opposite half of it.
+;
+; WIDTH-RISK: the loads are A16 so `xba` serves the high byte of a 10-bit
+; write-twice latch. The A8 form of this shipped on smelter and the damage was
+; invisible only because both its maps repeated every 256 px.
+mil_commit_vofs:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_commit_vofs"
+    lda z:ES_MIL_CAM
+    sep #$20
+    .a8
+    sta a:$210E                     ; BG1VOFS, low
+    xba
+    sta a:$210E                     ; ...high
+    rep #$20
+    .a16
+    lda z:ES_MIL_CAM
+    sep #$20
+    .a8
+    sta a:$2110                     ; BG2VOFS, low
+    xba
+    sta a:$2110
+    rep #$20
+    .a16
+    rts
+
+; --- mil_stage_row: the ROM row + the camera, into WRAM --------------------
+; CONTRACT mil_stage_row
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       ES_MIL_NMI_SCRATCH+0..2 — the ROM row's 24-bit address
+;   out:      SMIL_COLS words at ES_MIL_STAGE_LONG, each VERTICAL word carrying
+;             the camera, and ES_MIL_CAM_SHOWN published with the camera they
+;             were built from
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  VBlank, called only from mil_nmi_row
+;   tail:     rts
+;
+; AN OFFSET WORD REPLACES A LAYER'S SCROLL, IT DOES NOT ADD TO IT — the
+; hardware computes vScroll = word & $3FF for that column (SnesPpu.cpp:160) and
+; discards BGnVOFS entirely. So a column the table drives does NOT follow the
+; camera unless the camera is IN the word, and a rail that scrolled without
+; this would show its machines nailed to the screen while the hall moved past
+; them. It is the vertical twin of smelter's world-space table: there the READ
+; HEAD moved with a horizontal camera, here the VALUES move with a vertical one.
+;
+; ONLY THE VERTICAL WORDS GET IT. A horizontal word's value is a belt phase and
+; has nothing to say about where the camera is; the columns it drives take
+; their vertical position from BG2VOFS like any undriven column. The axis bit
+; picks who gets the add, and it is the same bit the PPU will read.
+;
+; BOTH ENDS ARE LONG-ADDRESSED. The row is in ROM (bank from `^`, carried in
+; the scratch) and the staging buffer is in WRAM above $2000, which under LoROM
+; is ROM in bank 0 — `sta a:` there writes to the cartridge and reads back what
+; was always there. The repo has paid for that one twice; ES_MIL_STAGE_LONG is
+; the allocator's 24-bit form and exists to make it unspellable.
+;
+; WIDTH-RISK: A16 throughout. The add is 16-bit and the mask puts it back
+; inside the ten value bits — a carry into bit 10 sets no enable bit but does
+; silently halve the offset the PPU reads.
+mil_stage_row:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_stage_row"
+    lda z:ES_MIL_CAM
+    sta z:ES_MIL_CAM_SHOWN          ; ...the camera THIS frame is drawn from
+    ldx #0
+@word:
+    .a16
+    .i16
+    txy
+    lda [ES_MIL_NMI_SCRATCH], y     ; the ROM row's word for this column
+    bit #ES_OPT_HALL_VSEL           ; ...vertical?
+    beq @store                      ; no: a belt phase, not the camera's business
+    sta z:ES_MIL_NMI_SCRATCH + 4
+    and #ES_OPT_HALL_MASK
+    clc
+    adc z:ES_MIL_CAM
+    and #ES_OPT_HALL_MASK           ; ...back inside the ten value bits
+    sta z:ES_MIL_NMI_SCRATCH + 6
+    lda z:ES_MIL_NMI_SCRATCH + 4
+    and #(ES_OPT_HALL_BG1 | ES_OPT_HALL_BG2 | ES_OPT_HALL_VSEL)
+    ora z:ES_MIL_NMI_SCRATCH + 6
+@store:
+    .a16
+    .i16
+    sta f:ES_MIL_STAGE_LONG, x
+    inx
+    inx
+    cpx #SMIL_ROW_BYTES
+    bcc @word
     rts
 
 ; --- mil_arm_scroll: the four fallback ports, once at enter -----------------
@@ -118,7 +239,7 @@ mil_arm_scroll:
     .a16
     .i16
     SF_ASSERT_WIDTH 16, 16, "mil_arm_scroll"
-    lda #SMIL_BG1_REST
+    lda z:ES_MIL_CAM
     sep #$20
     .a8
     sta a:$210E                     ; BG1VOFS, low
@@ -126,7 +247,7 @@ mil_arm_scroll:
     sta a:$210E                     ; BG1VOFS, high
     rep #$20
     .a16
-    lda #SMIL_BG2_REST
+    lda z:ES_MIL_CAM
     sep #$20
     .a8
     sta a:$2110                     ; BG2VOFS, low

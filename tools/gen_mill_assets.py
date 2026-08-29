@@ -186,9 +186,15 @@ BG2_G_WALL, BG2_G_BELT = 0, 1
 # geometry — and the column plan is the whole design
 # --------------------------------------------------------------------------
 COLS = 32                     # a 32-tile map row: the table's width and BG's
-ROWS = 32                     # ...and its height. 256 px: a V displacement
-                              #   WRAPS in it, which is what lets a shaft run
-                              #   the full height with no seam to slide
+ROWS = 64                     # ...and its height. 512 px, a 32x64 tilemap:
+                              #   the world is TWO SCREENS TALL and the camera
+                              #   climbs it. A V displacement wraps in the map,
+                              #   which is what lets a shaft run the full
+                              #   height with no seam to slide
+WORLD_H = 448                 # ...of which this much is drawn: two 224-line
+                              #   screens. The 64 rows past it are the shaft
+                              #   columns' wrap and are never shown undisplaced
+CAM_MAX = WORLD_H - 224       # the camera's travel, in pixels
 PHASES = 128                  # the loop closes here
 PHASE_SHIFT = 6               # a row is 32 words = 64 B -> index << 6
 ROW_BYTES = COLS * 2
@@ -232,7 +238,9 @@ TAIL_AT = 25                  # ...then a conveyor run out to the right edge
 
 # THE STROKE, in pixels of vertical displacement. A head drawn at map row
 # CAP_ROW appears at screen row CAP_ROW*8 - v.
-CAP_ROW = 13                  # 104 px down the map: the ram's top map row
+FLOOR = 28                    # the forge floor's first map row: the lower
+                              #   screen is rows 28..55, the shaft house above
+CAP_ROW = FLOOR + 13          # the ram's top map row: the ram's top map row
 HEAD_ROWS = 6                 # ...and the kit's ram is 48 px, six tiles tall
 STROKE = (72, 56)             # per station — two machines, two throws
 PERIOD = (1, 2)               # ...and the twin strokes twice a loop
@@ -242,15 +250,15 @@ STATION_PHASE = (0, 40)       # ...out of step with each other
 # keeps its own low three bits — so only multiples of 8 do anything.
 BELT_STEP = 4
 BELT_DIR = (1, -1, 1, -1)
-GANTRY_ROW = 2                # the overhead girder, on BG2 so it can cross
-BELT_ROW = 20                 # the conveyor's map row
+GANTRY_ROW = FLOOR + 2                # the overhead girder, on BG2 so it can cross
+BELT_ROW = FLOOR + 20                 # the conveyor's map row
 BELT_PHASES = 8               # EIGHT, not four: at four the belt has only four
                               #   distinct appearances in a whole turn of the
                               #   table (measured), and that reads as a
                               #   flicker rather than as travel
 
-DECK_ROW = 23                 # the floor deck: y 184..199
-MELT_ROW = 25                 # ...and the channel under it, y 200..223 — the
+DECK_ROW = FLOOR + 23                 # the floor deck: y 184..199
+MELT_ROW = FLOOR + 25                 # ...and the channel under it, y 200..223 — the
                               #   last three rows the 224-line picture shows
 
 # THE CHR PAGES ARE A FIXED SIZE, PADDED. A claim must be FILLED by its
@@ -387,7 +395,8 @@ def Wm(k): return IX_WARM + max(0, min(N_WARM - 1, int(k)))
 def Ml(k): return IX_MOLTEN + max(0, min(N_MOLTEN - 1, int(k)))
 def Br(k): return IX_BRASS + max(0, min(N_BRASS - 1, int(k)))
 
-PX = COLS * 8                                   # 256 x 256, the whole map
+PX = COLS * 8                                   # 256 px wide
+PXH = ROWS * 8                                  # ...and 512 tall, the whole map
 
 
 def _cyl(w, lo, hi, centre=0.32):
@@ -447,13 +456,13 @@ def head_pixels(st, wcols):
 # its fallback), so the art is free: horizontal courses, bolt rows, hazard
 # bands, a lit deck edge — every shape the shafts are forbidden.
 def paint_pier(buf):
-    for y in range(PX):
+    for y in range(PXH):
         for x in range(8):
             course = (y % 24) < 2
             lit = x == 7
             v = 3 if course else 7 + ((x * 5 + (y // 24) * 3) % 5)
             buf[y][x] = Wm(13 if lit else v)
-    for y in range(72, 104):                     # a furnace hatch in the wall
+    for y in range(FLOOR * 8 + 72, FLOOR * 8 + 104):   # a furnace hatch
         for x in range(1, 7):
             edge = y in (72, 73, 102, 103) or x in (1, 6)
             buf[y][x] = Br(9) if edge else Ml(6 + 20 * (1 - (y - 74) / 28))
@@ -600,20 +609,44 @@ def paint_deck_and_melt(buf, cx, w):
             buf[y][x] = Wm(3 + ((x // 4 + y) % 2))
         for y in range(m0 - 3, m0):              # the lip catching the glow
             buf[y][x] = Ml(24 + (y - m0 + 3) * 3)
-        for y in range(m0, PX):                  # the channel, uplighting all
+        for y in range(m0, PXH):                 # the channel, uplighting all
             d = min(1.0, (y - m0) / 40)
             n = ((x * 7 + (y // 2) * 5) % 13) / 13
             buf[y][x] = Ml(min(N_MOLTEN - 1, 9 + 20 * (1 - d) + 6 * n))
 
 
+def paint_shaft_house(buf, cx, w):
+    """The UPPER screen: what a rider sees on the way up.
+
+    The shaft columns need nothing — they are row-uniform over the whole 512 px
+    map by construction, so the guide rails simply continue. Everything else up
+    here is static art in columns the table holds at rest or does not drive at
+    all: landing platforms with lit edges, a run of plant, and the hoist beams
+    the cars hang from. It is the second screen the camera climbs into, and it
+    exists to show that a per-column table and a vertical camera compose."""
+    for lvl, ry in enumerate((3, 13, 22)):
+        y0 = ry * 8
+        for x in range(cx, cx + w):               # a landing platform
+            for y in range(y0, y0 + 6):
+                r = y - y0
+                buf[y][x] = Wm(14 if r < 2 else (3 if r > 3 else 8))
+            for y in range(y0 + 6, y0 + 10):      # ...and its shadowed soffit
+                buf[y][x] = Wm(2 + ((x // 5 + y) % 2))
+        for x in range(cx, cx + w, 24):           # hangers up to the beam above
+            for k in range(3):
+                for y in range(max(0, y0 - 18), y0):
+                    if x + k < cx + w:
+                        buf[y][x + k] = Wm(4 + (3 if k == 1 else 0))
+
+
 def paint_bg1():
-    buf = [[0] * PX for _ in range(PX)]
+    buf = [[0] * PX for _ in range(PXH)]
     paint_pier(buf)
     for st, (s, w) in enumerate(zip(STATION_AT, STATION_W)):
         prof = shaft_profile(st)
         sx = (s + 1) * 8
         for x in range(len(prof)):               # THE SHAFTS: one index per x,
-            for y in range(PX):                  #   every row identical
+            for y in range(PXH):                 #   every row identical
                 buf[y][sx + x] = prof[x]
         for k0, wc, _ in shaft_groups(st):
             head = head_pixels(st, wc)
@@ -633,6 +666,10 @@ def paint_bg1():
         paint_deck_and_melt(buf, (s + 1 + SHAFT_COLS) * 8, 8)
         paint_deck_and_melt(buf, bx, bw)
     paint_deck_and_melt(buf, 0, 8)
+    # ---- the upper screen, in every column the table does not drive ---------
+    for st, (sc, w) in enumerate(zip(STATION_AT, STATION_W)):
+        paint_shaft_house(buf, (sc + BELT_AT) * 8, (w - BELT_AT) * 8)
+    paint_shaft_house(buf, TAIL_AT * 8, (COLS - TAIL_AT) * 8)
     paint_overhead(buf, TAIL_AT * 8, (COLS - TAIL_AT) * 8)
     paint_belt_front(buf, TAIL_AT * 8, (COLS - TAIL_AT) * 8)
     paint_deck_and_melt(buf, TAIL_AT * 8, (COLS - TAIL_AT) * 8)
@@ -788,7 +825,7 @@ def assert_shaft_invariance(buf):
     head = range(CAP_ROW * 8, CAP_ROW * 8 + HEAD_ROWS * 8)
     for st, s in enumerate(STATION_AT):
         for x in range((s + 1) * 8, (s + 1 + SHAFT_COLS) * 8):
-            seen = {buf[y][x] for y in range(PX) if y not in head}
+            seen = {buf[y][x] for y in range(PXH) if y not in head}
             assert len(seen) == 1, (
                 f"station {st} shaft x={x} has {len(seen)} distinct values "
                 f"outside the head band — a V-displaced column must be "
@@ -880,7 +917,19 @@ def main():
 
     # BG2: one tile per MAP ROW (the H-invariance contract), plus the tread
     # phases, which are the one thing along a row that may differ.
-    tiles2 = [wall_row(r) for r in range(ROWS)]
+    # ONE TILE PER MAP ROW — but DEDUPED. Most of a 64-row wall is the same
+    # flat row, and a page with 64 copies of it in was 74 tiles for a 64-tile
+    # budget. The map keeps a per-row index into the deduped set, which is the
+    # same shape the BG1 cut uses.
+    wall_ix, tiles2 = [], []
+    seen = {}
+    for r in range(ROWS):
+        t = wall_row(r)
+        k = tuple(tuple(row) for row in t)
+        if k not in seen:
+            seen[k] = len(tiles2)
+            tiles2.append(t)
+        wall_ix.append(seen[k])
     gant = len(tiles2)
     tiles2 += [gantry_row(0), gantry_row(1)]
     tread0 = len(tiles2)
@@ -907,7 +956,7 @@ def main():
                 elif BELT_ROW <= r < BELT_ROW + 2:
                     t, g = tread0 + (c % BELT_PHASES), BG2_G_BELT
                 else:
-                    t, g = r, BG2_G_WALL
+                    t, g = wall_ix[r], BG2_G_WALL
                 w = t | (g << 10)
                 out += bytes((w & 0xFF, w >> 8))
         return bytes(out)
@@ -940,6 +989,9 @@ SMIL_PIER_COLS    = {PIER_COLS}      ; ...so screen column 0 gets no word at all
 SMIL_STATIONS     = {len(STATION_AT)}
 SMIL_BELT_AT      = {BELT_AT}
 SMIL_SHAFT_COLS   = {SHAFT_COLS}
+SMIL_WORLD_H      = {WORLD_H}    ; the world is two screens tall...
+SMIL_CAM_MAX      = {CAM_MAX}    ; ...so the camera climbs this far
+SMIL_FLOOR        = {FLOOR}     ; the forge floor's first map row
 SMIL_CAP_ROW      = {CAP_ROW}     ; the head's map row
 SMIL_BELT_ROW     = {BELT_ROW}
 SMIL_BELT_PHASES  = {BELT_PHASES}
