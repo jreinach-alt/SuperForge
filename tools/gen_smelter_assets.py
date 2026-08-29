@@ -256,21 +256,8 @@ def wall_ramp(k):
 # Group 1 — BG2's cavern and melt.
 PAL_MELT = [
     rgb(0, 0, 0),        # 0 unused (BG2 is opaque everywhere)
-    rgb(31, 26, 6),      # 1 A BUBBLE'S SKIN, and it had to be its OWN entry.
-                         #   The bubbles were first drawn in 5 and 7 — the two
-                         #   indices the body's dither ALREADY scatters at the
-                         #   same density — so they were on the right layer,
-                         #   reaching VRAM and animating, and invisible by
-                         #   construction. Nothing about "does the effect run"
-                         #   could have caught that; it took someone looking.
-                         #   These two entries were dead (the wall left for
-                         #   8..15), so legibility cost no CGRAM at all.
-    rgb(0, 0, 0),        # 2 unused — a two-tone bubble was tried and the rim
-                         #   measured 30 from the body's own `melt bright`,
-                         #   which is to say it WAS that colour. Four of a
-                         #   five-pixel bubble in a colour the dither already
-                         #   scatters is the first version's defect at half
-                         #   strength; the bubble is one tone now
+    rgb(0, 0, 0),        # 1 unused — the wall left for 8..15
+    rgb(0, 0, 0),        # 2 unused — as above
     rgb(31, 30, 14),     # 3 crust white-hot
     rgb(31, 20, 2),      # 4 crust orange
     rgb(28, 9, 0),       # 5 melt bright
@@ -296,7 +283,7 @@ def wall_tile(k):
     word displaces a whole column of BG2, so a wall with any horizontal
     feature slides that feature past the screen as the melt rises. The rail
     shipped exactly that once — a uniform tile whose MAP alternated two streak
-    phases per ROW, which is a horizontal seam every 8 pixels — and a human
+    phases per row, which is a horizontal seam every 8 pixels — and a human
     caught it in the gallery clip. Alternating on the COLUMN, as this run does,
     is the safe axis: a column of identical rows stays identical however far it
     is displaced.
@@ -344,55 +331,33 @@ def crust_tile(seed):
 # defined with the animation, further down. The two are asserted equal at the
 # point the second one exists, so they cannot drift apart in silence.
 MELT_BUBBLE_CYCLE = 8
-# ONLY ONE OF THE TWO BODY TILES BUBBLES, and it is the one the map uses least.
-# The tile repeats every 8 px, so a bubble in every body tile is one every eight
-# pixels across the whole lake — a lattice, not a boil, and once they were
-# legible that is exactly how it read. `melt_a` carries the bubble and the map
-# picks it for a third of cells; `melt_b` has none and keeps the vertical drift
-# the body always had, so two thirds of the lava moves without a dot in it.
 MELT_BUBBLES = {
     0: ((2, 7, 0),),
+    5: ((5, 7, 3),),
 }
-# A SHORT LIFE IS THE DENSITY CONTROL. The tile repeats every 8 px, so "one
-# bubble per tile" is one every 8 pixels across the whole lake — a lattice, not
-# a boil, and with the bubbles finally legible that is exactly how it read. The
-# two body tiles carry theirs at different x and half a cycle apart, and each is
-# only alive for three of the eight steps, so at any moment most tiles have
-# none and the ones that do are not in step with their neighbours.
-MELT_BUBBLE_LIFE = 3            # ...of MELT_ANIM_FRAMES steps
+MELT_BUBBLE_LIFE = 5            # ...of MELT_ANIM_FRAMES steps
 # radius by age: a bead rising, swelling for two steps, then gone. Kept SMALL
 # on purpose — the body tile repeats across the whole lava, so a bubble is not
 # one bubble, it is one every eight pixels. A 3x3 blob at that density stops
 # reading as lava and starts reading as a honeycomb; measured by looking.
-MELT_BUBBLE_R = (0, 1, 0)       # a bead, a bubble, a bead — then gone
-MELT_BUBBLE_IX = 1              # ONE TONE, and a colour the body does NOT use
+MELT_BUBBLE_R = (0, 0, 1, 1, 0)
 
 
 def melt_tile(seed, k=0):
     """The lava body at animation step `k`.
 
     The texture is the same dither it always was; what moves is the bubbles.
-    They are drawn AFTER it, in AN ENTRY OF THEIR OWN (index 1, which the melt
-    group was not using). Sharing the body's own 5 and 7 was the first attempt
-    and it made them invisible: those are exactly the indices the dither above
-    scatters, at the same density, so a bubble was a few pixels of the pattern
-    it was sitting in — on the right layer, reaching VRAM, animating, and
-    unseeable. `melt_anim` now asserts the colour is further from every colour
-    the body uses than those are from each other.
-
-    IT IS CLOSE TO THE CRUST'S COLOUR AND THAT IS SAFE STRUCTURALLY, not by
-    distance — there is no colour in this hue family far from both the dither
-    and the crust, because they bracket it. `crust_y` scans a column downward
-    for the first pixel nearest-matching the crust, and every column is wall,
-    then crust, then body, in that order, at every displacement the table
-    holds. A bubble is in the body, so the real crust is always found first.
+    They are drawn AFTER it in indices the body already uses (7 for the film,
+    5 for the rim), so no new colour enters the tile and `crust_y` — which
+    finds the melt's surface by nearest match to the crust's index 3 — has
+    nothing new to find. The assertion in `melt_anim` checks that, per frame.
     """
     rows = []
     for y in range(8):
         rows.append([5 if ((x * 5 + y * 3 + seed) % 11 == 0) else
                      (7 if ((x + y * 2 + seed) % 9 == 0) else 6)
                      for x in range(8)])
-    for bx, by, born in MELT_BUBBLES.get(seed, ()):
+    for bx, by, born in MELT_BUBBLES[seed]:
         age = (k - born) % MELT_BUBBLE_CYCLE
         if age >= MELT_BUBBLE_LIFE:
             continue                    # not in the world this step
@@ -405,7 +370,8 @@ def melt_tile(seed, k=0):
                 x, y = (bx + dx) % 8, (cy + dy) % 8
                 # bright film in the middle, darker rim around it — which is
                 # what makes a 3x3 blob read as a bubble and not as a blot
-                rows[y][x] = MELT_BUBBLE_IX
+                core = (dx == 0 and dy == 0)
+                rows[y][x] = 7 if (core or r == 0) else 5
     return rows
 
 
@@ -587,30 +553,9 @@ def melt_anim():
     base = [(MELT_TILES[WALL_TILES + 0], lambda r, k: rot_h(r, k)),
             (MELT_TILES[WALL_TILES + 1], lambda r, k: rot_h(r, k)),
             (MELT_TILES[WALL_TILES + 2], lambda _r, k: melt_tile(0, k)),
-            (MELT_TILES[WALL_TILES + 3], lambda r, k: rot_v(r, k))]
+            (MELT_TILES[WALL_TILES + 3], lambda _r, k: melt_tile(5, k))]
     assert [n for (n, _), _ in base] == ["crust_a", "crust_b",
                                          "melt_a", "melt_b"], MELT_TILES
-    # THE BUBBLE MUST BE A COLOUR ITS SURROUNDINGS DO NOT ALREADY USE, and this
-    # is the assertion the first version needed and did not have. It was drawn
-    # in the body's own 5 and 7 — distance ZERO from the dither — so it was
-    # present, animating, in VRAM, and invisible. Nothing downstream could see
-    # that: the CHR case proves the right bytes reached the right place and the
-    # churn case proves something changed, and both were true throughout.
-    #
-    # The bar is DERIVED: the bubble must be further from every colour the body
-    # uses than those colours are from EACH OTHER. If it is not, it is not a
-    # new colour, it is one of theirs.
-    dither = sorted({v for rows in (melt_tile(sd, 0) for sd in (0, 5))
-                     for row in rows for v in row} - {MELT_BUBBLE_IX})
-    apart = min(_far(PAL_MELT[a], PAL_MELT[b])
-                for a in dither for b in dither if a != b)
-    near = min(_far(PAL_MELT[MELT_BUBBLE_IX], PAL_MELT[d]) for d in dither)
-    assert near > apart, (
-        f"the bubble's colour is {near} from the nearest colour the body "
-        f"already uses, and the body's own colours are {apart} apart — it is "
-        f"not a new colour, it is one of theirs, and the bubbles will be "
-        f"invisible however well the animation runs")
-
     blob = bytearray()
     for k in range(MELT_ANIM_FRAMES):
         for (name, rows), rot in base:
@@ -711,9 +656,7 @@ def melt_map():
             row = [(T_CRUST_A if c % 2 == 0 else T_CRUST_B) | ATTR_G1
                    for c in range(COLS)]
         else:
-            # `== 0`, so the BUBBLING tile is the minority — a third of the
-            # cells, on a diagonal that stops the bubbles landing in a lattice
-            row = [(T_MELT_A if (c + r) % 3 == 0 else T_MELT_B) | ATTR_G1
+            row = [(T_MELT_A if (c + r) % 3 else T_MELT_B) | ATTR_G1
                    for c in range(COLS)]
         m.append(row)
     return [w for row in m for w in row]

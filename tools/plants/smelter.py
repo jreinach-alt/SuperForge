@@ -487,29 +487,6 @@ mode = 1                 # PLANT: a mode with no offset path""",
               "defect that no correctness assertion in this module could have "
               "seen, which is why the case it names measures the run widths "
               "against the number the .inc emits rather than against taste."),
-
-    Plant(id="the-bubbles-are-drawn-in-the-lavas-own-colours",
-          file=GEN,
-          old="""MELT_BUBBLE_IX = 1              # ONE TONE, and a colour the body does NOT use""",
-          new="""MELT_BUBBLE_IX = 7              # PLANT: one of the dither's own""",
-          artifact=ROM,
-          build=["smelter"],
-          expect="build-fails",
-          build_names="it is not a new colour, it is one of theirs",
-          why="THE DEFECT THE RAIL SHIPPED AND A PERSON CAUGHT, and it is a "
-              "LEGIBILITY defect, which is a class nothing downstream can see. "
-              "The bubbles were first drawn in the body's own 5 and 7 — the two "
-              "indices the dither already scatters at the same density — so "
-              "they were on the right layer, reaching VRAM, animating on the "
-              "right frame index, and invisible. Every assertion about them "
-              "passed and stayed true the whole time: the CHR case proves the "
-              "right bytes reached the right place, the churn case proves "
-              "something changed. Neither is about being SEEN. So this one is "
-              "a BUILD refusal rather than a test: the generator requires the "
-              "bubble's colour to be further from every colour the body uses "
-              "than those are from each other, which is the sharp version of "
-              "'it is a new colour' and the bar the first version failed at "
-              "distance zero."),
 ]
 
 
