@@ -21,7 +21,7 @@ depends = ["mil_rom"]
 name = "mil_chr1"
 kind = "chr"
 layers = ["bg1"]
-tiles = 5
+tiles = 6
 tile_bytes = 64
 
 [[claims.vram]]

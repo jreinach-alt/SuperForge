@@ -52,6 +52,38 @@ ROWS = 32                     # ...and its height. 256 px, so no scroll wraps
 BAY = 8                       # one machine bay: 4 piston columns, 4 belt
 PISTON_COLS = 4               # ...of the bay, on the left
 PHASES = 64                   # the loop closes here
+
+# =========================================================================
+# THE ONE-COLUMN FETCH LEAD, AND THE PILLAR THAT PAYS FOR IT
+# =========================================================================
+# THE OFFSET WORDS ARE FETCHED AFTER A COLUMN'S TILEMAP DATA, so the word at
+# BG3 map column j displaces SCREEN column j+1. Smelter measured this and pays
+# it at the READ HEAD, because its table is world-space and scrolls; this
+# table is screen-space and does not, so it is baked in here — one place, and
+# LEAD is emitted so the ASM and the tests read the same number.
+#
+# THE RAIL SHIPPED WITHOUT IT and a human saw it before any test did. The
+# symptom is exactly what an off-by-one in a per-column table looks like and
+# nothing like a scroll bug: every group of columns had its FIRST member
+# driven by the previous group's word, so the leftmost column of each piston
+# bay held still while the three beside it pumped, and the first column of
+# each belt was handed a piston's word and stopped running. Four static
+# columns in a picture whose whole subject is that columns move.
+#
+# AND SCREEN COLUMN 0 CANNOT BE DISPLACED AT ALL — the PPU clears the offset
+# latches at the start of each scanline's fetch (SnesPpu.cpp:284-287), so
+# there is no word that reaches it. That is not a thing to pay off, it is a
+# thing to DRAW: a machine that never moves is a defect, a WALL that never
+# moves is the room. So screen column 0 is the hall's left buttress, opaque on
+# BG1 and static by design, and the machinery starts at column 1.
+#
+# The cost is stated rather than hidden: 31 displaceable columns, so the
+# rightmost bay's belt is three columns instead of four and the hall runs off
+# the right-hand edge mid-bay. A hall that ended flush at both edges would be
+# a picture that had been arranged around the constraint instead of showing
+# it.
+LEAD = 1                      # word j displaces screen column j+LEAD
+PILLAR_COLS = 1               # ...so screen column 0 is drawn as the wall
 PHASE_SHIFT = 6               # a row is 32 words = 64 B -> index << 6
 ROW_BYTES = COLS * 2
 
@@ -172,12 +204,37 @@ def girder_tile():
     return rows
 
 
+def pillar_tile():
+    """The hall's left buttress — SCREEN COLUMN 0, the one no word reaches.
+
+    IT MUST NOT LOOK LIKE A MACHINE. A piston housing standing still beside
+    three that pump is the exact picture the missing lead produced, and a
+    viewer reads it as a broken piston rather than as a wall. So this is flat
+    masonry: no flutes, no round highlight, a dark course line every other row
+    and one bright edge on the right where the light from the hall catches it.
+
+    Its eight rows are NOT identical and they do not need to be — the
+    invariance a vertically displaced column owes is owed by columns that are
+    DISPLACED, and this one cannot be. That is worth stating rather than
+    leaving as an accident: the constraint follows the mechanism, so the one
+    column outside the mechanism is the one place the art is free.
+    """
+    rows = []
+    for y in range(8):
+        base = 5 if y % 4 in (0, 1) else 8
+        rows.append([BG1_IX0 + (18 if x == 7 else 2 if x == 0 else base)
+                     for x in range(8)])
+    return rows
+
+
 BG1_TILES = [("clear", [[0] * 8 for _ in range(8)]),
              ("shaft", shaft_tile()),
              ("cap_a", cap_tiles()[0]),
              ("cap_b", cap_tiles()[1]),
-             ("girder", girder_tile())]
-T1_CLEAR, T1_SHAFT, T1_CAP_A, T1_CAP_B, T1_GIRDER = range(len(BG1_TILES))
+             ("girder", girder_tile()),
+             ("pillar", pillar_tile())]
+T1_CLEAR, T1_SHAFT, T1_CAP_A, T1_CAP_B, T1_GIRDER, T1_PILLAR = \
+    range(len(BG1_TILES))
 
 
 # --------------------------------------------------------------------------
@@ -266,8 +323,18 @@ def pal_bytes(words):
 # --------------------------------------------------------------------------
 # the maps
 # --------------------------------------------------------------------------
+def is_pillar(col):
+    """Screen column 0: the one the PPU cannot displace, so it is the wall."""
+    return col < PILLAR_COLS
+
+
 def is_piston(col):
-    return (col % BAY) < PISTON_COLS
+    """SCREEN column -> is a piston bay's? The bays start past the pillar, so
+    every index here is a screen column and the LEAD is applied where the
+    table is built, never here. Keeping one coordinate system for the art and
+    converting once is what the off-by-one cost: two of them and the map and
+    the table disagree by a column with nothing to say so."""
+    return (not is_pillar(col)) and ((col - PILLAR_COLS) % BAY) < PISTON_COLS
 
 
 def map1():
@@ -276,7 +343,11 @@ def map1():
     out = bytearray()
     for r in range(ROWS):
         for c in range(COLS):
-            if is_piston(c):
+            if is_pillar(c):
+                t = T1_PILLAR           # opaque at every row: the wall, and
+                                        #   what hides BG2's own undisplaced
+                                        #   column 0 behind it
+            elif is_piston(c):
                 t = (T1_CAP_A if r == CAP_ROW else
                      T1_CAP_B if r == CAP_ROW + 1 else T1_SHAFT)
             else:
@@ -301,18 +372,26 @@ def map2():
 # --------------------------------------------------------------------------
 # the offset row — ONE word a column, and bit 15 picks its axis
 # --------------------------------------------------------------------------
+def bay_of(col):
+    return (col - PILLAR_COLS) // BAY
+
+
 def piston_v(col, phase):
     """A stroke: down slow, up slow, a quarter cycle apart per bay."""
     import math
-    t = (phase + (col // BAY) * BAY_PHASE) / PHASES
+    t = (phase + bay_of(col) * BAY_PHASE) / PHASES
     return int(round(STROKE * (1 - math.cos(2 * math.pi * t)) / 2))
 
 
 def belt_h(col, phase):
-    return (BELT_DIR[(col // BAY) % len(BELT_DIR)] * BELT_STEP * phase) & 0x3FF
+    return (BELT_DIR[bay_of(col) % len(BELT_DIR)] * BELT_STEP * phase) & 0x3FF
 
 
 def column_word(col, phase):
+    """The word for SCREEN column `col`. Where it is STORED is row_table's
+    business — that is the one place the lead is applied."""
+    if is_pillar(col):
+        return 0                        # unreachable: no word displaces it
     if is_piston(col):
         return BIT_BG1 | BIT_VSEL | (piston_v(col, phase) & V_MASK)
     return BIT_BG2 | (belt_h(col, phase) & H_MASK)
@@ -323,19 +402,27 @@ def flat_word(col):
     VALUE goes to rest — smelter's rule and heathaze's before it: a control
     that also disarms the mechanism cannot tell a broken table from a broken
     transfer, because both produce the same still picture."""
+    if is_pillar(col):
+        return 0
     if is_piston(col):
         return BIT_BG1 | BIT_VSEL | ((STROKE // 2) & V_MASK)
     return BIT_BG2 | 0
 
 
 def row_table():
+    """One row per phase, then the flat control — and THE LEAD IS APPLIED HERE
+    AND ONLY HERE. Index j holds the word for SCREEN COLUMN j + LEAD, because
+    that is the column the PPU will hand it to. The last LEAD entries would
+    address columns past the right edge; they are still written, because the
+    fetch reads a full row whatever is meant by it, and a row with a hole in
+    it is a row somebody has to remember is short."""
     out = bytearray()
     for phase in range(PHASES):
-        for col in range(COLS):
-            w = column_word(col, phase)
+        for j in range(COLS):
+            w = column_word(j + LEAD, phase) if j + LEAD < COLS else 0
             out += bytes((w & 0xFF, w >> 8))
-    for col in range(COLS):                      # ...and the flat control
-        w = flat_word(col)
+    for j in range(COLS):                        # ...and the flat control
+        w = flat_word(j + LEAD) if j + LEAD < COLS else 0
         out += bytes((w & 0xFF, w >> 8))
     return bytes(out)
 
@@ -364,6 +451,12 @@ SMIL_COLS         = {COLS}
 SMIL_ROWS         = {ROWS}
 SMIL_BAY          = {BAY}      ; a bay: this wide, piston half then belt half
 SMIL_PISTON_COLS  = {PISTON_COLS}
+SMIL_LEAD         = {LEAD}      ; the word at index j displaces SCREEN column
+                           ;   j+LEAD -- the offset words are fetched AFTER a
+                           ;   column's tilemap data. Baked into the blob
+SMIL_PILLAR_COLS  = {PILLAR_COLS}      ; ...so screen column 0 gets no word at all
+                           ;   and is drawn as the hall's wall, not as a
+                           ;   machine that never moves
 SMIL_PHASES       = {PHASES}     ; the loop closes here
 SMIL_FLAT_INDEX   = {PHASES}     ; ...and the control row sits past it
 SMIL_ROW_COUNT    = {PHASES + 1}     ; phases + the control

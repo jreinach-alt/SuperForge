@@ -1,10 +1,19 @@
 ; =============================================================================
 ; mill — mode 4's ONE offset word a column, and bit 15 picks its axis
 ; =============================================================================
-; A machine hall. Four bays; in each, a bank of pistons pumping vertically and
-; a pair of tread belts running sideways. Every one of them is driven by the
-; SAME 32-word row, uploaded once a frame, because in mode 4 the PPU fetches
-; one offset word per column and BIT 15 OF THAT WORD SELECTS ITS AXIS.
+; A machine hall. A buttress at the left wall, then four bays; in each, a bank
+; of pistons pumping vertically and a pair of tread belts running sideways.
+; Every one of them is driven by the SAME 32-word row, uploaded once a frame,
+; because in mode 4 the PPU fetches one offset word per column and BIT 15 OF
+; THAT WORD SELECTS ITS AXIS.
+;
+; THE OFFSET WORDS ARE FETCHED AFTER A COLUMN'S TILEMAP DATA, so the word at
+; index j displaces SCREEN column j+1 and screen column 0 takes no word at all.
+; Both halves of that are paid in the blob: the table stores every word a
+; column early, and column 0 is drawn as WALL rather than as a machine that
+; never moves. The rail shipped without either and it looked exactly like what
+; it was — the leftmost column of every bay standing still beside three that
+; ran. tools/gen_mill_assets.py's LEAD block is where it is paid.
 ;
 ; THAT IS THE HALF SMELTER CANNOT REACH. Modes 2 and 6 fetch a word for EACH
 ; axis inside a column's group, so a column is displaced on both and the axis

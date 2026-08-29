@@ -16,7 +16,7 @@ bytes = 4160             # 64 phases + the flat control, x 32 words
 
 [[claims.rom]]
 name = "mil_chr1"
-bytes = 320              # 5 tiles x 64 B. EIGHT bpp: a tile is 64 bytes, not
+bytes = 384              # 6 tiles x 64 B. EIGHT bpp: a tile is 64 bytes, not
                          # 32, which is the whole reason O9 exists
 
 [[claims.rom]]

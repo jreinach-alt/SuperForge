@@ -102,11 +102,13 @@ mil_nmi_row:
 ; the hall does not tear along a bay boundary.
 ;
 ; SCREEN COLUMN 0 CANNOT BE DISPLACED AT ALL — the offset latches are cleared
-; at the start of each scanline's fetch (SnesPpu.cpp:284-287) — so it shows
-; these too. Here that costs nothing visible: column 0 is a piston column and
-; the value below is the piston's rest, so the leftmost shaft simply never
-; pumps. Smelter had to pay this off at the read head because its column 0
-; carried a moving jet; a rail whose left edge is at rest does not.
+; at the start of each scanline's fetch (SnesPpu.cpp:284-287) — so whatever
+; these hold IS the leftmost column, and no word can reach it. This rail
+; answers that by DRAWING it rather than paying it off: column 0 is the hall's
+; left buttress, opaque on BG1, and a wall that does not move is the room. The
+; rail's first cut left a piston housing there instead and it read as a broken
+; machine, which it was — see the generator's LEAD block, and note that the
+; SAME fetch rule is the reason the words are stored a column early.
 ;
 ; WIDTH-RISK: the H ports are 10-bit write-twice latches and the LOAD IS A16.
 ; `xba` serves B, which holds the high byte only if the value was loaded

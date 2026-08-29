@@ -3,12 +3,20 @@
 # =============================================================================
 # WHAT YOU SEE
 # =============================================================================
-# Four bays of a machine hall. In the left half of each bay a piston pumps
-# vertically in its fluted housing; in the right half a tread belt runs
-# sideways behind a girder, two bays one way and two the other. Every one of
-# those motions is one word in a SINGLE 32-word row uploaded once a frame —
-# 64 bytes, no HDMA channel, no tilemap rewrite — and which axis a column moves
-# on is bit 15 of its own word.
+# The hall's left buttress, then four bays of machinery. In the left half of
+# each bay a piston pumps vertically in its fluted housing; in the right half a
+# tread belt runs sideways behind a girder, two bays one way and two the other.
+# Every one of those motions is one word in a SINGLE 32-word row uploaded once
+# a frame — 64 bytes, no HDMA channel, no tilemap rewrite — and which axis a
+# column moves on is bit 15 of its own word.
+#
+# THE BUTTRESS IS THE FETCH RULE, DRAWN. Offset words are fetched AFTER a
+# column's tilemap data, so the word at index j displaces SCREEN column j+1 and
+# screen column 0 can be displaced by nothing at all. A machine standing there
+# would read as broken — it did, in the rail's first cut — so column 0 is wall,
+# the machinery starts at column 1, and the same rule is why the words are
+# stored a column early. The cost is stated: 31 displaceable columns, so the
+# rightmost bay's belt is three wide and the hall runs off the edge mid-bay.
 #
 # B holds the flat control row: every column at rest, the mechanism still
 # running and still moving the same 64 bytes, so anything left moving is not
