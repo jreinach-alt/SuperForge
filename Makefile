@@ -24,7 +24,7 @@ LD65    := ld65
 	m7dg-assets m7_dungeon m7dg-labels m7dg-measure m7dg-measure-logic \
 	sh2-assets split_h_2p_demo sh2-variants sh2-labels sh2-measure bare-check \
 	m7x-assets mode7_explore pfs-assets platformer_stream scroller \
-	lakeside heathaze smelter \
+	lakeside heathaze smelter mill \
 	scroller-tb tb-measure tb-picture rate-oracle \
 	camera_follow maze jumper patrol sprite_game stomper scroll_run brawler \
 	split_h_matrix_demo split_h_persp3_demo \
@@ -1381,6 +1381,58 @@ $(BUILD)/smelter.sfc: $(SMT_ASM) $(SMT)/smelter.inc \
 	$(PY) tools/fix_checksum.py $@
 
 smelter: $(BUILD)/smelter.sfc
+# ---- mill: mode 4's ONE offset word a column, and bit 15 picks its axis --
+# A machine hall: pistons pumping vertically and tread belts running sideways,
+# every one of them driven by the SAME 32-word row. Modes 2 and 6 fetch a word
+# for each axis inside a column's group, so the axis is not a choice; mode 4
+# fetches one word and reads BIT 15. So this rail shows the half smelter
+# cannot: one row, two axes, for the same zero HDMA channels and the same 64 B
+# a frame.
+#
+# The two layers are also at DIFFERENT DEPTHS — mode 4 renders bg1 8bpp and
+# bg2 2bpp — so the CHR is two claims at 64 and 16 bytes a tile and the
+# allocator's O9 joins each to the mode.
+#
+# One scene, no TAD objects, so the link is one object (scroller's shape).
+MIL      := game/mill
+MIL_MAP  := $(BUILD)/mil
+MIL_ASM  := $(MIL)/main.asm $(wildcard $(MIL)/scenes/*.asm) \
+            $(wildcard engine/features/*/*.asm)
+
+# EVERY blob the generator emits, because a blob the recipe .incbin's and this
+# list omits is a stale artifact waiting to happen.
+MIL_ASSETS := $(BUILD)/assets/mil_chr1.bin $(BUILD)/assets/mil_chr2.bin \
+              $(BUILD)/assets/mil_map1.bin $(BUILD)/assets/mil_map2.bin \
+              $(BUILD)/assets/mil_pal.bin $(BUILD)/assets/mil_row.bin \
+              $(BUILD)/assets/mil_art.inc
+
+$(MIL_ASSETS): tools/gen_mill_assets.py | $(BUILD)
+	$(PY) tools/gen_mill_assets.py $(BUILD)/assets
+
+$(MIL_MAP)/engine_state_globals.inc $(MIL_MAP)/symbol_map.json: \
+		allocator/substrate.toml allocator/allocate.py allocator/schemas.py \
+		$(wildcard engine/features/*/feature.toml) $(MIL)/game.toml \
+		$(MIL)/state.toml | $(BUILD)
+	$(PY) allocator/allocate.py --game $(MIL) --features-dir engine/features \
+		--out $(MIL_MAP)
+
+MIL_INC := -I $(MIL_MAP) -I $(VROM) -I $(MIL) -I $(BUILD)/assets \
+           -I engine/features/scene_mgr -I engine/features/input \
+           -I engine/features/fade -I engine/features/region \
+           -I engine/features/tick_scale \
+           -I engine/features/mil_bg -I engine/features/mil_opt
+
+$(BUILD)/mill.sfc: $(MIL_ASM) $(MIL)/mill.inc \
+		$(MIL_MAP)/engine_state_globals.inc $(MIL_ASSETS) \
+		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
+		$(VROM)/lorom_512k.cfg | $(BUILD)
+	$(PY) allocator/no_literals.py --map $(MIL_MAP)/symbol_map.json $(MIL_ASM)
+	$(CA65) $(MIL_INC) --bin-include-dir $(BUILD)/assets \
+		-o $(BUILD)/mill.o $(MIL)/main.asm
+	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/mill.o
+	$(PY) tools/fix_checksum.py $@
+
+mill: $(BUILD)/mill.sfc
 # ---- maze: col_map against a hand-built map -------
 # A red player walks a grey walled room (border + two interior walls) with
 # the canonical per-axis move-check: tentative position, probe, keep the axis
@@ -2999,7 +3051,7 @@ gates: | $(BUILD)
 	run split_v_fight; run m7_dungeon; run split_h_2p_demo; \
 	run sh2-variants; \
 	run mode7_explore; run platformer_stream; run scroller; \
-	run lakeside; run heathaze; run smelter; \
+	run lakeside; run heathaze; run smelter; run mill; \
 	run camera_follow; run maze; run jumper; run patrol; \
 	run sprite_game; \
 	run stomper; \
@@ -3022,7 +3074,7 @@ gates: | $(BUILD)
 	cat $(BUILD)/gates_summary.txt; \
 	for rom in microzero room breaker shmup platformer split_v_fight m7_dungeon \
 	           split_h_2p_demo mode7_explore platformer_stream hud_game \
-	           scroller lakeside heathaze smelter camera_follow maze jumper patrol sprite_game \
+	           scroller lakeside heathaze smelter mill camera_follow maze jumper patrol sprite_game \
 	           stomper scroll_run brawler \
 	           split_h_matrix_demo split_h_persp3_demo split_v_demo \
 	           split_v_seamtrial split_h_demo split_h_persp_demo \
@@ -3197,7 +3249,7 @@ PYTEST_DIST := $(if $(strip $(XDIST)),-n $(strip $(XDIST)) --dist loadfile,)
 # tools/harness_faults.py then says which KIND of red it is (docs/44 section 8).
 test: toy microzero room probes breaker shmup platformer split_v_fight \
 	m7_dungeon split_h_2p_demo sh2-variants mode7_explore platformer_stream \
-	hud_game scroller lakeside heathaze smelter camera_follow maze jumper patrol sprite_game \
+	hud_game scroller lakeside heathaze smelter mill camera_follow maze jumper patrol sprite_game \
 	stomper \
 	scroll_run brawler split_h_matrix_demo split_h_persp3_demo \
 	split_v_demo svd-nowin split_v_seamtrial split_h_demo shd-autodemo \
@@ -3392,7 +3444,7 @@ falsify:
 MODULE  ?= tests/test_split_h_2p_sprites.py
 FALSIFY ?=
 determinism: split_h_2p_demo sh2-variants microzero hud_game scroller \
-	lakeside heathaze smelter \
+	lakeside heathaze smelter mill \
 	camera_follow maze jumper patrol sprite_game stomper scroll_run \
 	brawler split_v_fight split_h_matrix_demo split_h_persp3_demo \
 	split_v_demo svd-nowin split_v_seamtrial split_h_demo shd-autodemo \

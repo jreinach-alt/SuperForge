@@ -1,0 +1,19 @@
+# mill user state.
+#
+# ONE RATE, ONE PAIR. The phase advance is a velocity in phases per frame, so
+# it takes exactly one factor of the region ratio and one TS_STEP applies
+# exactly that. Nothing on this rail accelerates, so there is no r^2 arm and no
+# base-side pre-scale (game/jumper/state.toml is where that second case is
+# spelled).
+#
+# The accumulated PHASE is not here — it is `mil_opt`'s own dp claim
+# (ES_MIL_PHASE), because the routine that READS it is that feature's VBlank
+# commit. This scene WRITES it through `mil_advance`, which is the division
+# lakeside draws between `water`'s scroll and the scene that drives it.
+
+[scene.hall]
+tsc_acc = "u16@dp"       # TICK: ok -- the carried FRACTION of a scaled rate.
+                         # It exists to remove a frame coupling, not to hold
+                         # one, and it has no meaning in frames.
+tsc = "u16@dp"           # TICK: ok -- the OUTPUT of the scaler; already
+                         # expressed against the declared tick.

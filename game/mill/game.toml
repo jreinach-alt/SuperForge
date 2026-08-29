@@ -1,0 +1,62 @@
+# mill — the machine hall, in MODE 4, and the axis bit is the subject.
+#
+# =============================================================================
+# WHAT YOU SEE
+# =============================================================================
+# Four bays of a machine hall. In the left half of each bay a piston pumps
+# vertically in its fluted housing; in the right half a tread belt runs
+# sideways behind a girder, two bays one way and two the other. Every one of
+# those motions is one word in a SINGLE 32-word row uploaded once a frame —
+# 64 bytes, no HDMA channel, no tilemap rewrite — and which axis a column moves
+# on is bit 15 of its own word.
+#
+# B holds the flat control row: every column at rest, the mechanism still
+# running and still moving the same 64 bytes, so anything left moving is not
+# the table.
+#
+# =============================================================================
+# WHAT IT DEMONSTRATES THAT `smelter` CANNOT
+# =============================================================================
+# Smelter is mode 2, where the PPU fetches a word for EACH axis — so a column
+# can be displaced on both and the axis is not a choice. Mode 4 fetches ONE
+# word and bit 15 picks (SnesPpu.cpp FetchTileData case 2 under BgMode 4, and
+# the bit-15 test at :156-161). That makes a mixed table possible and it makes
+# it necessary: a mode-4 rail that used one axis would be smelter with a richer
+# BG1.
+#
+# TWO AXES, TWO LAYERS, AND THAT IS FORCED. A displaced column moves WHOLE, so
+# each axis imposes an invariance on the art it moves, and the two are
+# incompatible in one layer:
+#
+#   vertical    is PIXEL granular, so anything that must not appear to move
+#               has to be identical row to row — the piston SHAFT, which is
+#               smelter's wall rule exactly
+#   horizontal  is 8-PIXEL granular and shows the NEIGHBOURING TILE, so
+#               anything that must not appear to move has to be the SAME TILE
+#               across the map row, and what moves has to be a repeating
+#               texture whose PHASE the shift changes — the belt tread
+#
+# Put both in one layer and a shifted belt column samples a piston's head. So
+# BG1 carries the pistons and BG2 the belts, and the table's words carry the
+# ENABLE BITS as well as the axis bit: bit 13 for a piston column, bit 14 for a
+# belt column, bit 15 on the piston ones only.
+#
+# =============================================================================
+# AND IT IS THE FIRST 8BPP LAYER IN THE TREE
+# =============================================================================
+# Mode 4 renders bg1 at 8bpp and bg2 at 2bpp. Smelter's mode 2 renders both at
+# 4bpp, which is why ONE CHR claim serves both its layers; here that is
+# impossible and the two are 64 and 16 bytes a tile. Both name their `layers`,
+# so O9 joins each to the depth the declared mode renders it at — the check
+# that did not exist until this rail needed it, and the one that turns "mode 4
+# beside a 32-byte BG1 claim" from a green build into a refusal.
+#
+# 8BPP BUYS DEPTH, NOT SIZE: 64 bytes a tile against 4bpp's 32, so the budget
+# that bought smelter fifteen tiles buys about sixty here. The hall is a bay
+# repeated four times with a 24-step steel ramp and a 24-step brass one in it.
+globals = ["scene_mgr", "fade", "input", "region", "tick_scale", "blend_off",
+           "mil_bg", "mil_opt", "mil_rom"]
+
+[[scene]]
+id = "hall"
+features = []

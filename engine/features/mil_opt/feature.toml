@@ -1,0 +1,103 @@
+# mil_opt — mode 4's ONE offset word a column, and the bit that picks its axis.
+#
+# =============================================================================
+# WHAT THIS RAIL IS FOR
+# =============================================================================
+# Smelter proves offset-per-tile in mode 2, where a column gets a word for EACH
+# axis and the axis is therefore not a choice. This proves the half mode 2
+# cannot reach: mode 4 fetches ONE word per column and BIT 15 SELECTS ITS AXIS
+# (Mesen2 SnesPpu.cpp FetchTileData case 2 under BgMode 4, and the bit-15 test
+# at :156-161), so a single 32-word row pumps one bay vertically and runs the
+# next sideways.
+#
+# `axis = "both"` UNDER MODE 4 MEANS THAT, and it is a declaration this
+# vocabulary refused until this rail asked for it. The refusal reasoned about a
+# COLUMN — a mode-4 column carries one axis, which is true — and rejected a
+# claim about the TABLE. It is a warning now, because the same word means
+# "both axes per column" one mode over (docs/100 §5, O7).
+name = "mil_opt"
+role = "feature"
+depends = ["mil_rom"]
+
+[[claims.offset]]
+name = "mil_table"
+axis = "both"
+layers = ["bg1", "bg2"]
+
+# Mode 4: bg1 8bpp + bg2 2bpp. The depths are the reason the art is split into
+# two CHR claims at 64 and 16 bytes a tile (mil_bg), and O9 checks each of them
+# against this number.
+[[claims.video]]
+name = "mil_mode"
+mode = 4
+
+# BG3's map IS the table. Mode 4 reads ONE row of it — the row BG3VOFS selects,
+# through GetHorizontalOffsetByte — so 31 of the 32 rows this 1K-word claim
+# reserves are addressable and never read. That is what BG3SC's 1K granularity
+# costs and it is cheaper than any way of avoiding it.
+[[claims.vram]]
+name = "mil_tab"
+kind = "tilemap"
+words = 0x400
+
+# ---- getting the row in, every frame --------------------------------------
+# 32 words through the word port in VBlank, from the resident blob: 64 B, and
+# it is the whole per-frame cost of every column on screen moving on its own
+# axis.
+[[claims.hdma]]
+name = "mil_vrow"
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+band = "scene"
+phase = "vblank"
+channels = 1
+
+[claims.dma]
+vblank_bytes_per_frame = 64
+vblank_transfers_per_frame = 1
+
+# ---- the fallback ports ---------------------------------------------------
+# NOT THE CAMERA — the FALLBACK. A column whose word does not carry a layer's
+# enable bit shows that layer at its own BGnVOFS/BGnHOFS, so on this rail BG1's
+# ports are what every BELT column shows for BG1 and BG2's are what every
+# PISTON column shows for BG2. Screen column 0 is on top of that: the PPU
+# clears the offset latches at the start of each scanline's fetch
+# (SnesPpu.cpp:284-287), so the leftmost column cannot be displaced at all and
+# reads these too.
+#
+# THE OWNER WRITES THEM AND NOBODY ELSE DOES, which is why there is no
+# `scene_writes` here and smelter's equivalent needs two: smelter's title scene
+# is mode 1 and the ports there are the PICTURE'S POSITION, so a second feature
+# owns them in that scene. This rail has one scene and one meaning for them.
+#
+# BG3's own three ports are NOT here. The offset composition synthesizes
+# ownership of BG3SC/BG3HOFS/BG3VOFS and grants the SCENE'S enter code the
+# consent to write them; a raw claim on them beside the composition is O5's
+# register arm and would stop the build by name.
+[[claims.reg]]
+name = "mil_fallback"
+registers = ["BG1VOFS", "BG2VOFS", "BG1HOFS", "BG2HOFS"]
+
+# ---- state ----------------------------------------------------------------
+[[claims.dp]]
+name = "mil_phase"
+bytes = 2                # the accumulated animation phase. The scene ADVANCES
+                         # it through TS_STEP; this feature READS it in its
+                         # VBlank commit
+
+[[claims.dp]]
+name = "mil_shown"
+bytes = 2                # the phase the picture was actually drawn from,
+                         # published by the NMI at the moment it uses it —
+                         # smelter's `smt_cam_shown` lesson, which is that a
+                         # test must join on what drew the frame and not on the
+                         # counter it came from. Read only by tests
+
+[[claims.dp]]
+name = "mil_flatsel"
+bytes = 2                # 0 = the running row, 1 = the flat control row
+
+[[claims.dp]]
+name = "mil_nmi_scratch"
+bytes = 4                # the VBlank walker's own, because the NMI can preempt
+                         # the main thread mid-use of anything it shares

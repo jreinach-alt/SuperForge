@@ -54,7 +54,8 @@ from tools.gif_seam import seam  # noqa: E402
 # it — it just does not ship a clip, so --all does not write one nothing cites.
 RAILS = ("mode7_flight", "m7_oshoot", "split_v_fight",
          "mode7_explore", "meteor_event", "boss_saucer", "railshooter",
-         "racer", "split_h_2p_demo", "lakeside", "heathaze", "smelter")
+         "racer", "split_h_2p_demo", "lakeside", "heathaze", "smelter",
+         "mill")
 
 
 def _stats(path):

@@ -1,0 +1,40 @@
+# mil_rom — the machine hall's blobs, in ROM.
+#
+# Split from mil_bg for the reason every *_rom feature in this tree is split:
+# a ROM claim is placed by the packer and read by an .incbin whose address the
+# main file asserts, so the claim and the art belong together and the CODE that
+# uploads them does not.
+name = "mil_rom"
+role = "blob"
+
+# The offset row table: SMIL_PHASES rows of SMIL_COLS words. One word a column
+# — mode 4 fetches ONE (SnesPpu.cpp FetchTileData case 2 under BgMode 4) — and
+# bit 15 of each picks whether it displaces vertically or horizontally.
+[[claims.rom]]
+name = "mil_row"
+bytes = 4160             # 64 phases + the flat control, x 32 words
+
+[[claims.rom]]
+name = "mil_chr1"
+bytes = 320              # 5 tiles x 64 B. EIGHT bpp: a tile is 64 bytes, not
+                         # 32, which is the whole reason O9 exists
+
+[[claims.rom]]
+name = "mil_chr2"
+bytes = 80               # 5 tiles x 16 B. TWO bpp, on the same screen
+
+[[claims.rom]]
+name = "mil_map1"
+bytes = 2048             # 32x32 words
+
+[[claims.rom]]
+name = "mil_map2"
+bytes = 2048
+
+# ONE BLOB, TWO GROUPS, SMIL_PAL2_OFF between them. Two claims would be two
+# blobs the packer orders by SIZE, and an uploader that reached the second by a
+# distance from the first would be reading a signed offset whose sign the
+# packer decides. smt_pal.bin is one blob for the same reason.
+[[claims.rom]]
+name = "mil_pal"
+bytes = 136              # BG1's 64-word ramp set, then BG2's four

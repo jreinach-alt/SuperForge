@@ -1,0 +1,86 @@
+# mil_bg — the hall's two layers, at two DIFFERENT DEPTHS.
+#
+# =============================================================================
+# WHY THIS FEATURE IS THE SHAPE IT IS
+# =============================================================================
+# Mode 4 renders bg1 at 8bpp and bg2 at 2bpp. Smelter's mode 2 renders both at
+# 4bpp, which is why ONE `smt_chr` claim serves both its layers; here that is
+# impossible, and the two claims below are 64 and 16 bytes a tile. Both name
+# their `layers`, so O9 joins each depth to the depth the scene's declared
+# mode actually renders it at — the check that did not exist until this rail
+# needed it (docs/100 §5).
+name = "mil_bg"
+role = "feature"
+depends = ["mil_rom"]
+
+# ---- CHR ------------------------------------------------------------------
+# 8bpp: 64 B a tile, 32 VRAM words. The budget that bought smelter fifteen
+# 4bpp tiles buys about sixty here, so the hall is a BAY REPEATED four times
+# with sixty-four colours in it rather than sixty distinct things.
+[[claims.vram]]
+name = "mil_chr1"
+kind = "chr"
+layers = ["bg1"]
+tiles = 5
+tile_bytes = 64
+
+[[claims.vram]]
+name = "mil_chr2"
+kind = "chr"
+layers = ["bg2"]
+tiles = 5
+tile_bytes = 16
+
+# ---- the maps -------------------------------------------------------------
+[[claims.vram]]
+name = "mil_map1"
+kind = "tilemap"
+words = 0x400
+shape = "32x32"
+
+[[claims.vram]]
+name = "mil_map2"
+kind = "tilemap"
+words = 0x400
+shape = "32x32"
+
+# ---- palettes -------------------------------------------------------------
+# BG2 IS PINNED TO THE FIRST 32 WORDS and BG1 is not pinned at all: a 2bpp
+# tilemap entry's palette field picks one of eight groups of FOUR, so the whole
+# layer lives in CGRAM 0..31 whatever else is on screen, while an 8bpp layer
+# has no palette field and indexes CGRAM directly with the pixel value. So the
+# two would collide on every index BG1 used below 32 — and BG1's art starts at
+# 32 because of it, which is a fact about the DEPTHS and not about the art.
+[[claims.cgram]]
+name = "mil_pal2"
+words = 4
+at = 0
+
+[[claims.cgram]]
+name = "mil_pal1"
+words = 64
+at = 32
+
+# ---- the layers on screen -------------------------------------------------
+# BG1 in FRONT of BG2 at equal priority (SnesPpu.cpp RenderMode4 draws bg1's
+# passes before bg2's), which is what puts the pistons over the belts.
+[[claims.screen]]
+layer = "bg1"
+on = "main"
+
+[[claims.screen]]
+layer = "bg2"
+on = "main"
+
+# BG1SC/BG2SC and the CHR bases. BG3SC is NOT here: in an offset mode BG3 is
+# the table and the video/offset composition owns its three ports.
+[[claims.reg]]
+name = "mil_layers"
+registers = ["BG1SC", "BG2SC", "BG12NBA"]
+
+# The boot upload: CHR, maps and palettes, under forced blank at scene enter.
+[[claims.dma_init]]
+name = "mil_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
