@@ -907,6 +907,8 @@ ANIM_BYTES = _art("SMT_MELT_ANIM_BYTES")
 WALL_IX0 = _art("SMT_WALL_IX0")
 WALL_SHADES = _art("SMT_WALL_SHADES")
 WALL_FRAMES = _art("SMT_WALL_PAL_FRAMES")
+WALL_PX = _art("SMT_WALL_PX_PER_SHADE")     # ...pixels each shade covers
+WALL_PERIOD = _art("SMT_WALL_PERIOD")       # ...so the band's period is this
 WALL_SHIFT = _art("SMT_WALL_PAL_SHIFT")
 VRAM_CHR = _sym("ES_V_SMT_CHR")["start"]            # in WORDS
 
@@ -1040,17 +1042,25 @@ WALL_PAL = _wall_pal_blob()
 def test_the_wall_pattern_flows_one_way_across_the_screen(tmp_path):
     """THE PALETTE CYCLE, AND THE DIRECTION IT MOVES — read off the picture.
 
-    The wall carries NO pattern in its pixels: one tile, every row identical,
-    every column its own palette index. So what a viewer sees travelling is the
-    eight colours those indices hold, rotating. This is the case that says it
-    travels, that it travels ONE WAY, and that the way is left to right.
+    The wall carries NO pattern in its pixels: a run of four tiles, every row
+    identical, every FOUR pixel columns one palette index. So what a viewer
+    sees travelling is the eight colours those indices hold, rotating. This is
+    the case that says it travels, that it travels ONE WAY, and that the way is
+    left to right.
 
-    THE MEASUREMENT IS THE BRIGHT BAND'S COLUMN. Each step puts the ramp's peak
-    at one pixel column of the tile; the case finds it in the rendered frame and
-    requires the sequence of positions to advance by exactly +1 (mod 8) from one
-    step to the next. A cycle that jittered, reversed, or skipped would satisfy
-    "the wall changes" and fail this, which is the difference between animation
-    and a direction.
+    THE MEASUREMENT IS THE BRIGHT BAND'S SHADE. Each step puts the ramp's peak
+    on one of the eight shades; the case finds the brightest PIXEL across a
+    whole 32-px period in the rendered frame, converts it to the shade it
+    belongs to, and requires the sequence to advance by exactly +1 (mod 8) from
+    one step to the next. A cycle that jittered, reversed, or skipped would
+    satisfy "the wall changes" and fail this, which is the difference between
+    animation and a direction.
+
+    THE PIXELS-PER-SHADE IS READ, NOT ASSUMED. It was 1 — all eight shades in
+    one 8-px tile — and that period was too fine to read as flow at the cycle's
+    rate; widening it to 4 changed the picture and must not change this case's
+    meaning, which is what `SMT_WALL_PX_PER_SHADE` being read out of the
+    generated .inc buys.
 
     UNDER THE FLAT CONTROL, so nothing is displaced while it is measured: the
     columns stand still and the only thing moving in the wall band is colour.
@@ -1069,8 +1079,10 @@ def test_the_wall_pattern_flows_one_way_across_the_screen(tmp_path):
             f = tmp_path / f"f{i}.png"
             m.screenshot(str(f))
             im = Image.open(f).convert("RGB")
-            row = [im.getpixel((x, PICTURE_TOP + 20)) for x in range(WALL_SHADES)]
-            seen.append((cg, row.index(max(row, key=sum))))
+            band = [im.getpixel((x, PICTURE_TOP + 20))
+                    for x in range(WALL_PERIOD)]
+            peak_px = max(range(WALL_PERIOD), key=lambda x: sum(band[x]))
+            seen.append((cg, peak_px // WALL_PX))
 
     # The CGRAM the machine holds must be one of the ROM's steps, and the peak
     # in the PICTURE must be the peak in that step — the palette reached the
@@ -1086,7 +1098,7 @@ def test_the_wall_pattern_flows_one_way_across_the_screen(tmp_path):
             ((words[j] >> sh) & 31) for sh in (0, 5, 10)))
         assert bright == peak, \
             f"step {hits[0]}: the palette's brightest entry is {bright} and " \
-            f"the picture's brightest column is {peak}"
+            f"the picture's brightest shade is {peak}"
         steps.append(hits[0])
 
     assert len(set(steps)) >= 5, f"the cycle barely moved: {steps}"
@@ -1100,6 +1112,52 @@ def test_the_wall_pattern_flows_one_way_across_the_screen(tmp_path):
     for a, b in zip(peaks, peaks[1:]):
         assert (b - a) % WALL_SHADES in (0, 1), \
             f"the bright band jumped {a} -> {b} — it is not flowing one way"
+
+
+def test_the_wall_band_is_as_wide_as_the_rail_declares(frame):
+    """THE PICTURE AGAINST THE DECLARATION, because the case above now MEASURES
+    IN the declaration's unit.
+
+    `test_the_wall_pattern_flows_one_way_across_the_screen` converts the
+    brightest pixel to the shade it belongs to by dividing by
+    `SMT_WALL_PX_PER_SHADE`. That is only a measurement of the flow if the
+    emitted constant is TRUE OF THE ART — if the tiles were built at one pixel
+    a shade while the .inc still said four, the flow case would divide by the
+    wrong number, read a peak that is not there, and could pass or fail for
+    reasons that have nothing to do with the cycle.
+
+    So: on a wall row, across two full periods, the colour runs are exactly
+    `SMT_WALL_PX_PER_SHADE` wide and there are exactly `SMT_WALL_SHADES` of
+    them per `SMT_WALL_PERIOD`. Read off the rendered frame, against numbers
+    read out of the generated .inc — neither of them typed here.
+
+    This is also the case that says the band is wide enough to READ. The first
+    version put all eight shades in one 8-px tile and the travelling band was a
+    bright column every 8 pixels: technically a flow, visually a shimmer.
+    """
+    im, _pal, _phase, _cam = frame
+    y = PICTURE_TOP + 20
+    band = [im.getpixel((x, y))[:3] for x in range(2 * WALL_PERIOD)]
+
+    runs = []
+    for px in band:
+        if runs and runs[-1][0] == px:
+            runs[-1][1] += 1
+        else:
+            runs.append([px, 1])
+    # the first and last run may be clipped by the window
+    inner = runs[1:-1]
+    assert inner, f"the wall row at y={y} is one flat colour: {runs}"
+    assert all(n == WALL_PX for _c, n in inner), (
+        f"the wall's colour runs are {[n for _c, n in inner]} px wide and the "
+        f"rail declares SMT_WALL_PX_PER_SHADE = {WALL_PX}")
+    assert len(inner) >= 2 * WALL_SHADES - 2, (
+        f"only {len(inner)} runs across two periods of {WALL_PERIOD} px — the "
+        f"art's period is not the {WALL_PERIOD} px the .inc emits")
+    for x in range(WALL_PERIOD):
+        assert band[x] == band[x + WALL_PERIOD], (
+            f"the wall does not repeat at {WALL_PERIOD} px: pixel {x} and "
+            f"pixel {x + WALL_PERIOD} differ")
 
 
 def test_the_wall_cycle_cannot_impersonate_a_measured_edge():

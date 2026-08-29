@@ -223,10 +223,11 @@ PLANTS = [
 
     Plant(id="the-wall-stops-being-vertically-uniform",
           file=GEN,
-          old="""    row = [WALL_IX0 + x for x in range(8)]
+          old="""    row = [WALL_IX0 + ((k * 8 + x) // WALL_PX_PER_SHADE) % WALL_SHADES
+           for x in range(8)]
     return [list(row) for _ in range(8)]""",
-          new="""    return [[WALL_IX0 + ((x + y) % 8) for x in range(8)]  # PLANT
-            for y in range(8)]""",
+          new="""    return [[WALL_IX0 + ((k * 8 + x + y) // WALL_PX_PER_SHADE) % WALL_SHADES
+             for x in range(8)] for y in range(8)]   # PLANT: tilted""",
           artifact=ROM,
           build=["smelter"],
           tests=[
@@ -462,6 +463,53 @@ mode = 1                 # PLANT: a mode with no offset path""",
               "what expressing it in the scaled unit buys. The case this names "
               "derives the expected length from the rail's own constants, so "
               "it fails on the RATIO rather than on a number typed twice."),
+
+    Plant(id="the-wall-band-is-one-pixel-a-shade-again",
+          file=GEN,
+          old="""    row = [WALL_IX0 + ((k * 8 + x) // WALL_PX_PER_SHADE) % WALL_SHADES
+           for x in range(8)]""",
+          new="""    row = [WALL_IX0 + ((k * 8 + x) // 1) % WALL_SHADES   # PLANT
+           for x in range(8)]""",
+          artifact=ROM,
+          build=["smelter"],
+          tests=[
+              T + "test_the_wall_band_is_as_wide_as_the_rail_declares",
+          ],
+          why="THE ART AND ITS DECLARATION, pulled apart. The tiles go back to "
+              "one pixel a shade while the emitted SMT_WALL_PX_PER_SHADE still "
+              "says four — which matters beyond the look, because the FLOW case "
+              "divides the brightest pixel by that constant to name the shade "
+              "it belongs to. Diverge them and that case is measuring in a unit "
+              "the picture does not use, and its pass says nothing. The picture "
+              "under this plant is the wall the rail actually shipped: a "
+              "travelling band with an 8-px period, which is a legitimate "
+              "animation and reads as shimmer rather than as flow — a LOOK "
+              "defect that no correctness assertion in this module could have "
+              "seen, which is why the case it names measures the run widths "
+              "against the number the .inc emits rather than against taste."),
+
+    Plant(id="the-bubbles-are-drawn-in-the-lavas-own-colours",
+          file=GEN,
+          old="""MELT_BUBBLE_IX = 1              # ONE TONE, and a colour the body does NOT use""",
+          new="""MELT_BUBBLE_IX = 7              # PLANT: one of the dither's own""",
+          artifact=ROM,
+          build=["smelter"],
+          expect="build-fails",
+          build_names="it is not a new colour, it is one of theirs",
+          why="THE DEFECT THE RAIL SHIPPED AND A PERSON CAUGHT, and it is a "
+              "LEGIBILITY defect, which is a class nothing downstream can see. "
+              "The bubbles were first drawn in the body's own 5 and 7 — the two "
+              "indices the dither already scatters at the same density — so "
+              "they were on the right layer, reaching VRAM, animating on the "
+              "right frame index, and invisible. Every assertion about them "
+              "passed and stayed true the whole time: the CHR case proves the "
+              "right bytes reached the right place, the churn case proves "
+              "something changed. Neither is about being SEEN. So this one is "
+              "a BUILD refusal rather than a test: the generator requires the "
+              "bubble's colour to be further from every colour the body uses "
+              "than those are from each other, which is the sharp version of "
+              "'it is a new colour' and the bar the first version failed at "
+              "distance zero."),
 ]
 
 

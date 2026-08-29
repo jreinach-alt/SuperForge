@@ -221,7 +221,13 @@ PAL_PLATE = [
 # stay far apart in RGB as well, so a wall pixel can never be nearest-matched to
 # the crust's index.
 WALL_IX0 = 8                 # the wall's first palette index
-WALL_SHADES = 8              # ...and one per pixel column of its tile
+WALL_SHADES = 8              # ...and this many of them, spread over
+WALL_PX_PER_SHADE = 4        # ...this many pixels each, so the travelling
+                             #   band's spatial period is 32 px. It was 1
+                             #   px a shade — an 8-px period — and at ~11
+                             #   px/s that read as shimmer, not as flow
+WALL_PERIOD = WALL_SHADES * WALL_PX_PER_SHADE
+WALL_TILES = WALL_PERIOD // 8   # ...so the run is this many tiles long
 WALL_DARK = (3, 2, 5)        # the ramp's ends, in 5-bit BGR555 components
 WALL_LIGHT = (6, 5, 10)      # ...and the span is DELIBERATELY narrow: the
                              #   first pass ran to (9, 8, 14) and the wall
@@ -250,8 +256,21 @@ def wall_ramp(k):
 # Group 1 — BG2's cavern and melt.
 PAL_MELT = [
     rgb(0, 0, 0),        # 0 unused (BG2 is opaque everywhere)
-    rgb(0, 0, 0),        # 1 unused — the wall left for 8..15
-    rgb(0, 0, 0),        # 2 unused — as above
+    rgb(31, 26, 6),      # 1 A BUBBLE'S SKIN, and it had to be its OWN entry.
+                         #   The bubbles were first drawn in 5 and 7 — the two
+                         #   indices the body's dither ALREADY scatters at the
+                         #   same density — so they were on the right layer,
+                         #   reaching VRAM and animating, and invisible by
+                         #   construction. Nothing about "does the effect run"
+                         #   could have caught that; it took someone looking.
+                         #   These two entries were dead (the wall left for
+                         #   8..15), so legibility cost no CGRAM at all.
+    rgb(0, 0, 0),        # 2 unused — a two-tone bubble was tried and the rim
+                         #   measured 30 from the body's own `melt bright`,
+                         #   which is to say it WAS that colour. Four of a
+                         #   five-pixel bubble in a colour the dither already
+                         #   scatters is the first version's defect at half
+                         #   strength; the bubble is one tone now
     rgb(31, 30, 14),     # 3 crust white-hot
     rgb(31, 20, 2),      # 4 crust orange
     rgb(28, 9, 0),       # 5 melt bright
@@ -267,22 +286,33 @@ def solid(v):
     return [[v] * 8 for _ in range(8)]
 
 
-def wall_tile():
-    """The cavern wall: ONE tile, every row identical, every column its own
-    palette index. It carries no pattern — the pattern is in the palette, and
-    `wall_ramp` walks it sideways.
+def wall_tile(k):
+    """Tile `k` of the cavern wall's WALL_TILES-long run: every row identical,
+    every FOUR pixel columns one palette index. It carries no pattern — the
+    pattern is in the palette, and `wall_ramp` walks it sideways.
 
     EVERY ROW IDENTICAL IS THE LOAD-BEARING PART, and it is why the wall gets
     its motion from a colour rotation rather than from a CHR swap: one offset
     word displaces a whole column of BG2, so a wall with any horizontal
     feature slides that feature past the screen as the melt rises. The rail
     shipped exactly that once — a uniform tile whose MAP alternated two streak
-    phases per row, which is a horizontal seam every 8 pixels — and a human
-    caught it in the gallery clip. There is now only one wall tile, so there
-    is no alternation left to get wrong, and a palette cycle cannot
-    reintroduce one because it does not touch a pixel.
+    phases per ROW, which is a horizontal seam every 8 pixels — and a human
+    caught it in the gallery clip. Alternating on the COLUMN, as this run does,
+    is the safe axis: a column of identical rows stays identical however far it
+    is displaced.
+
+    FOUR TILES AND FOUR PIXELS A SHADE, WHICH IS THE POINT OF THIS SHAPE. The
+    first version put all eight shades across ONE tile — one pixel each — so
+    the travelling band had a spatial period of 8 px, and at the cycle's rate
+    that is a bright column every 8 pixels crawling about 11 px a second. It
+    read as shimmer rather than as flow: there was nothing big enough for the
+    eye to track. Spreading the same eight shades over 32 px gives the band a
+    period four times longer and a shape you can follow, for three more tiles
+    of CHR, no new palette entries, no new claim and no change to the
+    mechanism.
     """
-    row = [WALL_IX0 + x for x in range(8)]
+    row = [WALL_IX0 + ((k * 8 + x) // WALL_PX_PER_SHADE) % WALL_SHADES
+           for x in range(8)]
     return [list(row) for _ in range(8)]
 
 
@@ -314,33 +344,55 @@ def crust_tile(seed):
 # defined with the animation, further down. The two are asserted equal at the
 # point the second one exists, so they cannot drift apart in silence.
 MELT_BUBBLE_CYCLE = 8
+# ONLY ONE OF THE TWO BODY TILES BUBBLES, and it is the one the map uses least.
+# The tile repeats every 8 px, so a bubble in every body tile is one every eight
+# pixels across the whole lake — a lattice, not a boil, and once they were
+# legible that is exactly how it read. `melt_a` carries the bubble and the map
+# picks it for a third of cells; `melt_b` has none and keeps the vertical drift
+# the body always had, so two thirds of the lava moves without a dot in it.
 MELT_BUBBLES = {
     0: ((2, 7, 0),),
-    5: ((5, 7, 3),),
 }
-MELT_BUBBLE_LIFE = 5            # ...of MELT_ANIM_FRAMES steps
+# A SHORT LIFE IS THE DENSITY CONTROL. The tile repeats every 8 px, so "one
+# bubble per tile" is one every 8 pixels across the whole lake — a lattice, not
+# a boil, and with the bubbles finally legible that is exactly how it read. The
+# two body tiles carry theirs at different x and half a cycle apart, and each is
+# only alive for three of the eight steps, so at any moment most tiles have
+# none and the ones that do are not in step with their neighbours.
+MELT_BUBBLE_LIFE = 3            # ...of MELT_ANIM_FRAMES steps
 # radius by age: a bead rising, swelling for two steps, then gone. Kept SMALL
 # on purpose — the body tile repeats across the whole lava, so a bubble is not
 # one bubble, it is one every eight pixels. A 3x3 blob at that density stops
 # reading as lava and starts reading as a honeycomb; measured by looking.
-MELT_BUBBLE_R = (0, 0, 1, 1, 0)
+MELT_BUBBLE_R = (0, 1, 0)       # a bead, a bubble, a bead — then gone
+MELT_BUBBLE_IX = 1              # ONE TONE, and a colour the body does NOT use
 
 
 def melt_tile(seed, k=0):
     """The lava body at animation step `k`.
 
     The texture is the same dither it always was; what moves is the bubbles.
-    They are drawn AFTER it in indices the body already uses (7 for the film,
-    5 for the rim), so no new colour enters the tile and `crust_y` — which
-    finds the melt's surface by nearest match to the crust's index 3 — has
-    nothing new to find. The assertion in `melt_anim` checks that, per frame.
+    They are drawn AFTER it, in AN ENTRY OF THEIR OWN (index 1, which the melt
+    group was not using). Sharing the body's own 5 and 7 was the first attempt
+    and it made them invisible: those are exactly the indices the dither above
+    scatters, at the same density, so a bubble was a few pixels of the pattern
+    it was sitting in — on the right layer, reaching VRAM, animating, and
+    unseeable. `melt_anim` now asserts the colour is further from every colour
+    the body uses than those are from each other.
+
+    IT IS CLOSE TO THE CRUST'S COLOUR AND THAT IS SAFE STRUCTURALLY, not by
+    distance — there is no colour in this hue family far from both the dither
+    and the crust, because they bracket it. `crust_y` scans a column downward
+    for the first pixel nearest-matching the crust, and every column is wall,
+    then crust, then body, in that order, at every displacement the table
+    holds. A bubble is in the body, so the real crust is always found first.
     """
     rows = []
     for y in range(8):
         rows.append([5 if ((x * 5 + y * 3 + seed) % 11 == 0) else
                      (7 if ((x + y * 2 + seed) % 9 == 0) else 6)
                      for x in range(8)])
-    for bx, by, born in MELT_BUBBLES[seed]:
+    for bx, by, born in MELT_BUBBLES.get(seed, ()):
         age = (k - born) % MELT_BUBBLE_CYCLE
         if age >= MELT_BUBBLE_LIFE:
             continue                    # not in the world this step
@@ -353,8 +405,7 @@ def melt_tile(seed, k=0):
                 x, y = (bx + dx) % 8, (cy + dy) % 8
                 # bright film in the middle, darker rim around it — which is
                 # what makes a 3x3 blob read as a bubble and not as a blot
-                core = (dx == 0 and dy == 0)
-                rows[y][x] = 7 if (core or r == 0) else 5
+                rows[y][x] = MELT_BUBBLE_IX
     return rows
 
 
@@ -399,8 +450,10 @@ PLATE_TILES = [
     ("und_l", plate_under(0)), ("und_m", plate_under(1)),
     ("und_r", plate_under(2)),
 ]
-MELT_TILES = [
-    ("wall", wall_tile()),
+# THE WALL RUN COMES FIRST so the four ANIMATED tiles stay contiguous and last
+# — `smt_nmi_melt` moves them as ONE transfer, and MELT_ANIM_FIRST below is
+# derived from this order rather than typed beside it.
+MELT_TILES = [(f"wall_{k}", wall_tile(k)) for k in range(WALL_TILES)] + [
     ("crust_a", crust_tile(0)), ("crust_b", crust_tile(2)),
     ("melt_a", melt_tile(0, 0)), ("melt_b", melt_tile(5, 0)),
 ]
@@ -531,12 +584,33 @@ def melt_anim():
     # not a rotation of anything. Both close at MELT_ANIM_FRAMES: a rotation by
     # 8 of an 8-tall tile is the identity, and every bubble's age and rise are
     # taken modulo 8.
-    base = [(MELT_TILES[1], lambda r, k: rot_h(r, k)),
-            (MELT_TILES[2], lambda r, k: rot_h(r, k)),
-            (MELT_TILES[3], lambda _r, k: melt_tile(0, k)),
-            (MELT_TILES[4], lambda _r, k: melt_tile(5, k))]
+    base = [(MELT_TILES[WALL_TILES + 0], lambda r, k: rot_h(r, k)),
+            (MELT_TILES[WALL_TILES + 1], lambda r, k: rot_h(r, k)),
+            (MELT_TILES[WALL_TILES + 2], lambda _r, k: melt_tile(0, k)),
+            (MELT_TILES[WALL_TILES + 3], lambda r, k: rot_v(r, k))]
     assert [n for (n, _), _ in base] == ["crust_a", "crust_b",
                                          "melt_a", "melt_b"], MELT_TILES
+    # THE BUBBLE MUST BE A COLOUR ITS SURROUNDINGS DO NOT ALREADY USE, and this
+    # is the assertion the first version needed and did not have. It was drawn
+    # in the body's own 5 and 7 — distance ZERO from the dither — so it was
+    # present, animating, in VRAM, and invisible. Nothing downstream could see
+    # that: the CHR case proves the right bytes reached the right place and the
+    # churn case proves something changed, and both were true throughout.
+    #
+    # The bar is DERIVED: the bubble must be further from every colour the body
+    # uses than those colours are from EACH OTHER. If it is not, it is not a
+    # new colour, it is one of theirs.
+    dither = sorted({v for rows in (melt_tile(sd, 0) for sd in (0, 5))
+                     for row in rows for v in row} - {MELT_BUBBLE_IX})
+    apart = min(_far(PAL_MELT[a], PAL_MELT[b])
+                for a in dither for b in dither if a != b)
+    near = min(_far(PAL_MELT[MELT_BUBBLE_IX], PAL_MELT[d]) for d in dither)
+    assert near > apart, (
+        f"the bubble's colour is {near} from the nearest colour the body "
+        f"already uses, and the body's own colours are {apart} apart — it is "
+        f"not a new colour, it is one of theirs, and the bubbles will be "
+        f"invisible however well the animation runs")
+
     blob = bytearray()
     for k in range(MELT_ANIM_FRAMES):
         for (name, rows), rot in base:
@@ -561,12 +635,13 @@ def melt_anim():
 T_CLEAR, T_TOP_L, T_TOP_M, T_TOP_R, T_UND_L, T_UND_M, T_UND_R = range(7)
 # BG2's tiles sit after BG1's in one shared CHR claim, so their ids are offset.
 MELT_BASE_TILE = len(PLATE_TILES)
-T_WALL, T_CRUST_A, T_CRUST_B, T_MELT_A, T_MELT_B = \
-    (MELT_BASE_TILE + i for i in range(5))
+T_WALL = tuple(MELT_BASE_TILE + k for k in range(WALL_TILES))
+T_CRUST_A, T_CRUST_B, T_MELT_A, T_MELT_B = \
+    (MELT_BASE_TILE + WALL_TILES + i for i in range(4))
 
 # The animated block starts at the crust and runs to the end of the melt: four
 # CONTIGUOUS slots, which is what makes the swap one transfer rather than two.
-MELT_ANIM_FIRST = MELT_BASE_TILE + 1     # ...past the one wall tile
+MELT_ANIM_FIRST = MELT_BASE_TILE + WALL_TILES   # ...past the wall run
 MELT_ANIM_TILES = 4
 # A POWER OF TWO, because the ASM turns the frame index into a blob offset with
 # a shift — ca65 has no multiply available in a `.repeat` count. Asserted here
@@ -628,12 +703,17 @@ def melt_map():
             # the alternation altogether, so there is no longer a second tile
             # to get wrong. Measured either way: tests/test_smelter.py
             # ::test_the_wall_does_not_move_when_its_column_does.
-            row = [T_WALL | ATTR_G1 for c in range(COLS)]
+            # ALTERNATING ON THE COLUMN, which is the safe axis — and the
+            # map's width is a multiple of WALL_TILES, so the run lines up
+            # with itself across the wrap and across the whole world.
+            row = [T_WALL[c % WALL_TILES] | ATTR_G1 for c in range(COLS)]
         elif r == CRUST_MAP_ROW:
             row = [(T_CRUST_A if c % 2 == 0 else T_CRUST_B) | ATTR_G1
                    for c in range(COLS)]
         else:
-            row = [(T_MELT_A if (c + r) % 3 else T_MELT_B) | ATTR_G1
+            # `== 0`, so the BUBBLING tile is the minority — a third of the
+            # cells, on a diagonal that stops the bubbles landing in a lattice
+            row = [(T_MELT_A if (c + r) % 3 == 0 else T_MELT_B) | ATTR_G1
                    for c in range(COLS)]
         m.append(row)
     return [w for row in m for w in row]
@@ -1127,7 +1207,10 @@ SMT_MELT_ANIM_LOG2_BYTES = {manimlog2}  ; ...as a shift, because the frame
 ; whole cycle apart.
 ;
 SMT_WALL_IX0        = {wix0}      ; the wall's first palette index
-SMT_WALL_SHADES     = {wshades}      ; ...one per pixel column of its tile
+SMT_WALL_SHADES     = {wshades}      ; ...this many of them, spread over
+SMT_WALL_PX_PER_SHADE = {wpxper}      ; ...this many pixels each, so the
+SMT_WALL_PERIOD     = {wperiod}     ; travelling band's period is this wide
+SMT_WALL_TILES      = {wtiles}      ; ...and the run is this many tiles long
 ; TICK: ok -- a colour-rotation STEP the phase indexes, not a frame counter.
 SMT_WALL_PAL_FRAMES = {wpalf}      ; a full rotation: step 8 IS step 0
 SMT_WALL_PAL_SHIFT  = {wpalshift}      ; frame = (phase >> SHIFT) & (FRAMES-1)
@@ -1198,6 +1281,7 @@ def main(argv):
         kstates=len(KNIGHT_ANIM), kstride=ANIM_STRIDE,
         kmetaoff=len(kframes),
         manimf=MELT_ANIM_FRAMES, manimt=MELT_ANIM_TILES,
+        wpxper=WALL_PX_PER_SHADE, wperiod=WALL_PERIOD, wtiles=WALL_TILES,
         manimfirst=MELT_ANIM_FIRST, manimshift=MELT_ANIM_SHIFT,
         manimbytes=MELT_ANIM_TILES * 32,
         manimlog2=(MELT_ANIM_TILES * 32).bit_length() - 1,

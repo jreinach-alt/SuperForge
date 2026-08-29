@@ -59,8 +59,19 @@ mode = 1
 [[claims.vram]]
 name = "smt_chr"
 kind = "chr"
-tiles = 12
+tiles = 15
 tile_bytes = 32          # 4bpp — BG1 and BG2 both, in mode 1 and mode 2 alike
+                         #
+                         # THIS COUNT AND `smt_rom`'s `smt_chr` BYTES ARE THE
+                         # SAME ASSET AND THE ALLOCATOR DOES NOT KNOW IT. The
+                         # boot upload's length is `ES_R_SMT_CHR_SIZE` — the
+                         # ROM claim — written to `ES_V_SMT_CHR`, this one. The
+                         # wall going from one tile to four grew the blob and
+                         # the ROM claim and left this at 12, and the build
+                         # stayed GREEN: 48 words spilled past the claim into
+                         # VRAM nothing else had asked for. Growing an asset
+                         # means growing BOTH, by hand, until the vocabulary
+                         # can say they are one thing.
 
 # 32x64 — 512 PIXELS TALL, AND THE SHAPE IS DECLARED, NOT NARRATED. This is
 # the first non-32x32 tilemap in the tree, and it is why `shape` exists: BGnSC

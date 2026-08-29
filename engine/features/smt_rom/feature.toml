@@ -15,10 +15,12 @@ role = "blob"
 
 [[claims.rom]]
 name = "smt_chr"
-bytes = 384              # 12 x 4bpp tiles: a transparent cell, the plate's
-                         # three top and three underside profiles, two wall
-                         # tiles, two crust tiles and two melt tiles;
-                         # tools/gen_smelter_assets.py
+bytes = 480              # 15 x 4bpp tiles: a transparent cell, the plate's
+                         # three top and three underside profiles, the FOUR
+                         # tiles of the wall's run, two crust tiles and two
+                         # melt tiles; tools/gen_smelter_assets.py, and
+                         # SMT_TILE_COUNT in the generated smt_art.inc is the
+                         # count this is 32 x
 
 [[claims.rom]]
 name = "smt_pmap"
