@@ -240,9 +240,20 @@ def screen_plate_of(sc, cam):
 
 # --- the picture, read against CGRAM as the ROM left it ---------------------
 def _cg(raw, i):
+    """One BGR555 word as the 8-bit RGB the SCREENSHOT will hold.
+
+    THE EXPANSION IS THE HARDWARE'S, NOT A RESCALE. A 5-bit channel becomes
+    `(v << 3) | (v >> 2)` — the top bits repeated into the bottom — and not
+    `v * 255 // 31`. The two agree at 0 and 31 and differ by one in between:
+    value 17 is 140 the first way and 139 the second, value 30 is 247 and 246.
+    Nearest-match classification never noticed, because one unit is far inside
+    every margin here; an EXACT comparison notices immediately, and one cost an
+    hour of chasing a splash that was rendering perfectly while the thing
+    looking for it computed the wrong colour to look for.
+    """
     v = raw[2 * i] | (raw[2 * i + 1] << 8)
     r, g, b = v & 0x1F, (v >> 5) & 0x1F, (v >> 10) & 0x1F
-    return (r * 255 // 31, g * 255 // 31, b * 255 // 31)
+    return tuple((c << 3) | (c >> 2) for c in (r, g, b))
 
 
 def _palette(m):

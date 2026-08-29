@@ -235,6 +235,11 @@ tick:
     .a16
     .i16
     jsr oam_park_all
+    ; ...and then the SPLASH takes the entry he just vacated. The park is what
+    ; makes that safe to do by overwriting one entry: every other byte of the
+    ; shadow is already hidden, so the splash never has to tidy up after
+    ; itself, and once its burst is spent it simply leaves the park standing.
+    jsr smt_kn_splash
 @knight_done:
     .a16
     .i16

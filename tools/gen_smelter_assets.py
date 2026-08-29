@@ -43,6 +43,7 @@ THE OFFSET REPLACES THE SCROLL, it does not add to it (vScroll = word & $3FF,
 SnesPpu.cpp:167), so every number in this table is an ABSOLUTE position, and a
 column whose enable bit is clear falls back to its layer's own BGnVOFS.
 """
+import itertools
 import math
 import pathlib
 import sys
@@ -952,6 +953,147 @@ def content_top(rows):
     raise AssertionError("an entirely transparent knight frame")
 
 
+# --------------------------------------------------------------------------
+# THE SPLASH — what the melt does when he goes into it
+# --------------------------------------------------------------------------
+# SIX 16x16 FRAMES IN THE KNIGHT'S OWN SHEET, and they cost nothing: the sheet
+# is 13 cells padded to four whole grid groups, so slots 13..15 are 48 tiles of
+# zeroes already inside `smt_obj_chr`. Six 16x16 frames are 24 of them, and
+# their base tiles land on an arithmetic run (196, 198, ... 206) because a
+# 16x16 frame is a 2x2 block and the grid is 16 wide — which is what lets the
+# ASM index them with a shift and an add instead of a table.
+#
+# ONE OAM ENTRY, THE KNIGHT'S. He has just left the picture, so the entry is
+# free the frame the splash needs it, and the splash simply clears the size bit
+# to draw 16x16 where he was 32x32.
+SPLASH_BOX = 16
+SPLASH_FRAMES = 6
+SPLASH_SHIFT = 2                # frame = (elapsed >> SHIFT), in PHASE units,
+                                #   so 6 frames span 24 of them — a shade over
+                                #   one second, and the burst is done well
+                                #   inside the melt's three-second hold
+# TICK: ok -- a frame count for an animation the accumulated PHASE indexes.
+#   Nothing here counts hardware frames.
+SPLASH_BASE_Y = 14              # the row of the cell the lava's surface is on
+SPLASH_G = 2.6                  # ...and the flight is tuned to CLOSE inside
+                                #   the cell against it
+SPLASH_DROPS = [(-21, 6.0), (-16, 6.6), (-10, 6.4), (-4, 6.2),
+                (4, 6.2), (10, 6.4), (16, 6.6), (21, 6.0)]
+# ...in the 5-bit components `rgb()` takes, and as the 8-bit RGB the knight's
+# palette builder works in — the two are the same three colours and the second
+# is derived from the first, not typed again.
+# IT IS LAVA, SO IT IS THE LAVA'S COLOURS — yellow, orange, red. Thrown metal
+# does not turn white and blue on the way up, and a splash out of a melt that
+# is not made of the melt reads as a different object landing in it.
+#
+# WHAT IT MUST BE LEGIBLE AGAINST IS THE WALL, and that is the whole shape of
+# the constraint. A splash is two things in two places: a CROWN at the surface,
+# which is lava sitting on lava and is SUPPOSED to be crust-coloured, and
+# DROPLETS thrown up across the cavern wall, which is dark blue-purple and
+# nothing like them. So the bar below is taken against the wall's eight shades
+# and not against the crust — being close to the crust is the point, not a
+# defect, and the crown reads anyway because its lifted rows are over the wall
+# too.
+#
+# A CORRECTION IS OWED HERE. This ramp was briefly white and blue, on the
+# reasoning that the first lava-coloured attempt had been invisible. That was
+# not measured: what was measured is that `_classify` could not tell those
+# pixels from the melt, which is a fact about the TEST INSTRUMENT and not about
+# the picture. The droplets over the wall would have read the whole time. The
+# distance-zero rule is real and is enforced below, but it is enforced against
+# the surface each colour is actually drawn over, which is what the first
+# version of this comment got wrong.
+SPLASH_COLOURS = [(31, 31, 18), (31, 17, 0), (20, 2, 0)]   # yellow, orange, red
+# ...and the same three as the 8-bit RGB the knight's palette builder works in,
+# DERIVED rather than typed a second time.
+SPLASH_COLOURS_RGB = [(r * 255 // 31, g * 255 // 31, b * 255 // 31)
+                      for r, g, b in SPLASH_COLOURS]
+
+# WHERE THEY GO: the first free slot past the knight's own cells, as a 2x2
+# block, stepping two tiles a frame along one row of the 16-wide grid. Derived
+# from the sheet's geometry so a thirteenth cell becoming a fourteenth moves
+# the splash rather than silently overwriting it.
+SPLASH_TILE0 = slot_base_tile(len(KNIGHT_CELLS))
+SPLASH_STEP = 2
+def _assert_splash_reads():
+    """The splash must be legible against WHAT IT IS DRAWN OVER.
+
+    That is the wall, and only the wall. Every one of the eight shades, because
+    the wall's cycle is a ROTATION and each of them reaches every column
+    eventually — so a colour that clears one step and not another would be
+    legible on a schedule.
+
+    NOT against the crust, deliberately: the crown at the surface is lava
+    sitting on lava, and asking it to contrast with the thing it is made of is
+    asking for a splash that does not look like one. Its lifted rows are over
+    the wall in any case, which is where the shape actually reads.
+
+    THE YARDSTICK IS TAKEN FROM THE ART: the crust's white-hot and the crust's
+    orange are two tones the picture already asks a viewer to tell apart, so
+    "at least as far apart as those two" is a bar with a meaning rather than a
+    number someone liked. Adjacent wall shades are a step apart and would make
+    a min-pairwise bar meaningless, which is why it is not that.
+
+    AND THE RAMP MUST BE A RAMP: three colours a viewer can tell from each
+    other, or the cooling reads as one flat colour flickering.
+    """
+    around = wall_ramp(0)
+    yard = _far(PAL_MELT[3], PAL_MELT[4])
+    for name, c in zip(("hot", "mid", "deep"), SPLASH_COLOURS):
+        w = rgb(*c)
+        near = min(_far(w, a) for a in around)
+        assert near >= yard, (
+            f"the splash's {name} is {near} from the nearest colour the cavern "
+            f"already uses, and the crust's own two tones are {yard} apart — "
+            f"its droplets will be drawn over a wall they cannot be told from")
+    for (na, a), (nb, b) in itertools.combinations(
+            list(zip(("hot", "mid", "deep"), SPLASH_COLOURS)), 2):
+        assert _far(rgb(*a), rgb(*b)) >= yard, (
+            f"the splash's {na} and {nb} are closer to each other than the "
+            f"crust's own two tones are — the ramp is not a ramp")
+
+
+def splash_frame(f, hot, mid, deep):
+    """One 16x16 frame of the splash, as an index grid.
+
+    THE FLIGHT CLOSES INSIDE THE CELL, which is the whole reason the numbers
+    look the way they do. A droplet peaks near frame 2 and is back at the
+    surface by frame 5, so none of them leave through the top edge and
+    reappear; and the angles stay inside about 20 degrees because a 16 px cell
+    is 8 px of room either side and anything wider is gone by frame 3. A sprite
+    is CLIPPED, not wrapped, so art that leaves its cell does not read as
+    distance — it reads as the effect breaking.
+    """
+    import math
+    rows = [[0] * SPLASH_BOX for _ in range(SPLASH_BOX)]
+
+    def put(x, y, ix):
+        xi, yi = int(round(x)), int(round(y))
+        if 0 <= xi < SPLASH_BOX and 0 <= yi < SPLASH_BOX and rows[yi][xi] == 0:
+            rows[yi][xi] = ix
+
+    # the crown: a lip thrown up at impact, spreading, then settling into a
+    # BROKEN ripple — an unbroken bar across the cell reads as a bar, not as
+    # liquid
+    w = min(2 + f * 2, 7)
+    for dx in range(-w, w + 1):
+        if f >= 3 and (dx + f) % 2:
+            continue
+        lift = max(0, (w - abs(dx)) // 3) if f < 3 else 0
+        put(8 + dx, SPLASH_BASE_Y - lift, (hot, mid, mid, deep, deep, deep)[f])
+    # the droplets, thrown clear and falling back
+    for a, vy in SPLASH_DROPS:
+        rad = math.radians(a)
+        x = 8 + math.tan(rad) * vy * f
+        y = SPLASH_BASE_Y - vy * f + 0.5 * SPLASH_G * f * f
+        if y >= SPLASH_BASE_Y:
+            continue                    # landed — it is the surface again
+        put(x, y, hot if f < 2 else (mid if f < 4 else deep))
+        if f < 3:
+            put(x, y + 1, mid)          # a short tail while it is fast
+    return rows
+
+
 def knight_sheet():
     """The knight's frames -> (CHR blob, 16 palette words, content top/bottom).
 
@@ -974,7 +1116,14 @@ def knight_sheet():
     allc = set()
     for c in cells:
         allc |= opaque_colors(c)
-    words, c2i = build_palette(allc)
+    # THE SPLASH'S THREE COLOURS RIDE IN THE KNIGHT'S PALETTE, because the
+    # splash is drawn from his OAM entry and an OBJ entry names one 16-colour
+    # group. He uses 8 of them, so there is room, and the indices are DERIVED
+    # from where his end rather than typed — build_palette sorts by luminance,
+    # so appending is not enough on its own and the splash's own indices are
+    # read back out of the map it returns.
+    words, c2i = build_palette(allc | set(SPLASH_COLOURS_RGB))
+    splash_ix = [c2i[c] for c in SPLASH_COLOURS_RGB]
 
     groups = (KNIGHT_SLOTS + FRAMES_PER_GROUP - 1) // FRAMES_PER_GROUP
     blob = bytearray(groups * 64 * 32)
@@ -993,7 +1142,22 @@ def knight_sheet():
                         for r in rows[ty * 8:(ty + 1) * 8]]
                 ti = base + ty * 16 + tx
                 blob[ti * 32:(ti + 1) * 32] = encode_4bpp(tile, f"knight{slot}")
-    return bytes(blob), words, top, bottom, len(allc)
+    # ...and the splash's own frames, into the free slots past his 13 cells
+    _assert_splash_reads()
+    for f in range(SPLASH_FRAMES):
+        rows = splash_frame(f, *splash_ix)
+        base = SPLASH_TILE0 + f * SPLASH_STEP
+        for ty in range(SPLASH_BOX // 8):
+            for tx in range(SPLASH_BOX // 8):
+                tile = [r[tx * 8:(tx + 1) * 8]
+                        for r in rows[ty * 8:(ty + 1) * 8]]
+                ti = base + ty * 16 + tx
+                assert ti >= slot_base_tile(len(KNIGHT_CELLS)), (
+                    f"splash frame {f} tile {ti} lands inside the knight's "
+                    f"own cells — the free slots start at "
+                    f"{slot_base_tile(len(KNIGHT_CELLS))}")
+                blob[ti * 32:(ti + 1) * 32] = encode_4bpp(tile, f"splash{f}")
+    return bytes(blob), words, top, bottom, len(allc), splash_ix
 
 
 def anim_tables():
@@ -1081,6 +1245,15 @@ SMT_PAL_MELT_OFF  = 32     ; the melt group's byte offset in smt_pal.bin
 ; --- the knight (vendor/art/camelot, CC0) ----------------------------------
 SMT_KN_BOX        = {kbox}     ; the pack's cell AND the OBJ box: no crop, no
                              ;   re-centre -- see the generator
+; --- the splash (the same sheet's free slots) ------------------------------
+SMT_SPLASH_BOX    = {sbox}     ; 16x16: one OAM entry with the size bit CLEAR
+SMT_SPLASH_FRAMES = {sframes}
+SMT_SPLASH_SHIFT  = {sshift}      ; frame = elapsed >> SHIFT, in PHASE units
+SMT_SPLASH_LIFE   = {slife}     ; ...so the burst spans this many of them
+SMT_SPLASH_TILE0  = {stile0}    ; the first free slot past the knight's cells
+SMT_SPLASH_STEP   = {sstep}      ; ...and a 2x2 block is two tiles along
+SMT_SPLASH_BASE_Y = {sbasey}     ; the cell row the lava's surface sits on
+
 SMT_KN_TOP        = {ktop}      ; MEASURED: the FIRST row of any frame with an
                              ;   opaque pixel. What "fully submerged" means:
                              ;   the melt hides him when THIS row is under the
@@ -1191,7 +1364,7 @@ def main(argv):
         encode_words(PAL_PLATE + PAL_MELT, "smt_pal", 32))
     (out / "smt_hrow.bin").write_bytes(h_row())
 
-    kchr, kpal, ktop, kbottom, kcolours = knight_sheet()
+    kchr, kpal, ktop, kbottom, kcolours, ksplash = knight_sheet()
     (out / "smt_obj.bin").write_bytes(kchr)
     (out / "smt_obj_pal.bin").write_bytes(
         encode_words(kpal, "smt_obj_pal", 16))
@@ -1220,6 +1393,9 @@ def main(argv):
             for i in range(len(SLOT_FREQ))),
         crow=CRUST_MAP_ROW, ctop=CRUST_TOP_PX, mbase=MELT_BASE, mamp=MELT_AMP,
         vbg2=MELT_BASE,
+        sbox=SPLASH_BOX, sframes=SPLASH_FRAMES, sshift=SPLASH_SHIFT,
+        slife=SPLASH_FRAMES << SPLASH_SHIFT, stile0=SPLASH_TILE0,
+        sstep=SPLASH_STEP, sbasey=SPLASH_BASE_Y,
         kbox=FRAME_BOX, ktop=ktop, kbot=kbottom, kslots=KNIGHT_SLOTS,
         kstates=len(KNIGHT_ANIM), kstride=ANIM_STRIDE,
         kmetaoff=len(kframes),

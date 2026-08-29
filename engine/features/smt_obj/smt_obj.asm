@@ -493,6 +493,103 @@ smt_kn_hold:
     .i16
     rts
 
+; --- smt_kn_splash: what the melt does where he went in --------------------
+; CONTRACT smt_kn_splash
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       ES_SMT_KN_SINK — the hold remaining; SMT_SINK_HOLD minus it is
+;             how long he has been under, in PHASE units
+;             ES_SMT_KN_X / ES_SMT_CAM — where he went in, and the camera
+;   out:      the knight's OAM entry restaged as a 16x16 splash frame, or left
+;             parked once the burst is spent
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  the main thread, AFTER oam_park_all, on a frame smt_kn_hidden
+;             answered "hidden" — so the entry is free and the parked bytes
+;             are what this overwrites
+;   tail:     rts
+;
+; IT REUSES HIS OWN OAM ENTRY, which is the whole reason this costs no claim.
+; He has just left the picture, so the entry is free exactly when the splash
+; wants it, and the splash draws 16x16 out of it by clearing the size bit that
+; made him 32x32 — one OBSEL pair, two sizes, per entry.
+;
+; AND IT SITS ON THE SURFACE RATHER THAN AT A REMEMBERED HEIGHT. The lava's
+; crust line is read fresh every frame from `smt_melt_top` in his own centre
+; column, so a jet rising under the splash carries it up. Same word, same
+; place, as everything else here.
+;
+; TICK: ok -- the frame index is a function of the accumulated PHASE, via the
+;   hold that smt_kn_hold spends in the scaler's own units. Nothing counts
+;   hardware frames.
+smt_kn_splash:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "smt_kn_splash"
+    ; ---- how long has he been under, and is the burst over? ---------------
+    lda #SMT_SINK_HOLD
+    sec
+    sbc z:ES_SMT_KN_SINK
+    cmp #SMT_SPLASH_LIFE
+    bcc @alive
+    rts                             ; spent — oam_park_all's bytes stand
+@alive:
+    .a16
+    .i16
+    .repeat ::SMT_SPLASH_SHIFT
+    lsr a                           ; ...which frame of the burst
+    .endrepeat
+    .repeat ::SMT_SPLASH_STEP / 2
+    asl a                           ; ...to a 2x2 block along the grid row
+    .endrepeat
+    clc
+    adc #SMT_SPLASH_TILE0
+    sep #$20
+    .a8
+    sta a:SMT_KN_OAM + 2            ; the frame's base tile
+    lda #SMT_KN_ATTR                ; the knight's palette — the splash's three
+    sta a:SMT_KN_OAM + 3            ;   colours ride in his sixteen
+    rep #$20
+    .a16
+    ; ---- where: centred on the box he fell in, standing on the crust -------
+    lda z:ES_SMT_KN_X
+    clc
+    adc #((SMT_KN_BOX - SMT_SPLASH_BOX) / 2)
+    sec
+    sbc z:ES_SMT_CAM
+    sta z:ES_SMT_SCRATCH + 4        ; ...kept for the X9 bit below
+    sep #$20
+    .a8
+    sta a:SMT_KN_OAM + 0
+    rep #$20
+    .a16
+    lda z:ES_SMT_KN_X
+    clc
+    adc #(SMT_KN_BOX / 2)
+    .repeat 3
+    lsr a                           ; ...his centre column
+    .endrepeat
+    tax
+    jsr smt_melt_top                ; A = the crust line, this frame
+    sec
+    sbc #SMT_SPLASH_BASE_Y          ; ...and the cell row that line sits on
+    sep #$20
+    .a8
+    sta a:SMT_KN_OAM + 1
+    rep #$20
+    .a16
+    ; ---- the hi byte: X9 from the SCREEN x, and the size bit CLEAR ---------
+    ; Clear, and that is the difference between him and this: the same entry,
+    ; the same OBSEL pair, 32x32 for a knight and 16x16 for a splash.
+    lda z:ES_SMT_SCRATCH + 4
+    xba
+    and #1
+    sep #$20
+    .a8
+    sta a:SMT_KN_HI
+    rep #$20
+    .a16
+    rts
+
 ; --- smt_kn_hidden: may he be drawn this frame? ----------------------------
 ; CONTRACT smt_kn_hidden
 ;   entry:    A16 I16 DB=0
