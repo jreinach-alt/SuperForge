@@ -62,7 +62,7 @@
 # 8BPP BUYS DEPTH, NOT SIZE: 64 bytes a tile against 4bpp's 32, so the budget
 # that bought smelter fifteen tiles buys about sixty here. The hall is a bay
 # repeated four times with a 24-step steel ramp and a 24-step brass one in it.
-globals = ["scene_mgr", "fade", "input", "region", "tick_scale", "blend_off",
+globals = ["scene_mgr", "fade", "input", "region", "tick_scale", "mil_tint",
            "mil_bg", "mil_opt", "mil_rom",
            "oam_sprites", "mil_obj"]
 

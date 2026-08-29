@@ -186,9 +186,15 @@ mil_stage_row:
     .i16
     txy
     lda [ES_MIL_NMI_SCRATCH], y     ; the ROM row's word for this column
-    cpx #(SMIL_CAR_COL * 2)         ; ...the ELEVATOR's four columns?
+    ; ...the ELEVATOR's four columns — MINUS THE LEAD, because X walks TABLE
+    ; INDICES and index j displaces SCREEN column j + SMIL_LEAD. Without it the
+    ; override lands one column right of the car: its three right-hand columns
+    ; ride and its LEFT EDGE STAYS BEHIND, driven by the phase table it should
+    ; have stopped reading. The generator bakes the same lead into the blob;
+    ; this is the one place that reads the blob back and has to undo it.
+    cpx #((SMIL_CAR_COL - SMIL_LEAD) * 2)
     bcc @not_car
-    cpx #((SMIL_CAR_COL + SMIL_SHAFT_COLS) * 2)
+    cpx #((SMIL_CAR_COL - SMIL_LEAD + SMIL_SHAFT_COLS) * 2)
     bcs @not_car
     and #(ES_OPT_HALL_BG1 | ES_OPT_HALL_BG2 | ES_OPT_HALL_VSEL)
     ora z:ES_MIL_CAR                ; THE CAR IS DRIVEN BY THE SCENE, not by

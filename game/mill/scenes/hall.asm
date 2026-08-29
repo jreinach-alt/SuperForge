@@ -44,6 +44,7 @@ enter:
     jsr mil_arm_bg                  ; CHR, maps, palettes, BG1SC/BG2SC/BG12NBA
     jsr mil_obj_arm                 ; the rider's CHR, palette and OBSEL
     jsr mil_arm_scroll              ; the four fallback ports, at rest
+    jsr mil_tint_arm                ; the colour window over the shaft
     ; ---- BG3 BECOMES THE TABLE, and this write is the SCENE'S -------------
     ; BG3SC/BG3HOFS/BG3VOFS are not mil_opt's to claim: the offset composition
     ; synthesizes ownership of them and grants the scene's enter code the

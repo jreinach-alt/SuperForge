@@ -48,9 +48,18 @@ SMIL_RIDER_DX = 3
 ; above it. Expressed as a RAISE and subtracted, for the same reason.
 SMIL_RIDER_RAISE = 4
 
-; The documented park: Y >= 240 puts a sprite off the bottom of a 224-line
-; picture whatever its size.
-SMIL_PARK_Y = 240
+; THE PARK ROW IS A FUNCTION OF THE SPRITE'S SIZE, and 240 is not it.
+;
+; OAM Y is 8 bits and the PPU wraps at 256, so a sprite parked at 240 occupies
+; rows 240..255 AND 0..(size-17). At 16x16 that is nothing — which is why
+; oam_park_all's 240 is correct: it clears the hi table in the same pass, so
+; every sprite it parks is SMALL. This rider sets the size bit to LARGE, and
+; at 32x32 a park at 240 wrapped SIXTEEN ROWS OF HIM ONTO THE TOP OF THE
+; SCREEN — visible in the middle of the shaft after the lift had left it.
+;
+; A 32x32 sprite therefore has exactly ONE park row: 224. Below it and part of
+; the sprite is on screen; above it and part of it wraps.
+SMIL_PARK_Y = 256 - SMIL_RIDER_BOX
 
 ; --- the ride -------------------------------------------------------------
 ; The car's rate, in whole pixels a frame, and how far it goes. SMIL_CAR_TOP is
@@ -70,3 +79,12 @@ SMIL_CAR_TOP  = 400
 ; rather than in frames.
 ; TICK: ok -- a threshold on the accumulated PHASE, not a frame count.
 SMIL_CAR_WAIT = 24
+
+; --- the shaft's light ----------------------------------------------------
+; What the blend ADDS to bg2 inside the colour window, per channel, 0..31. A
+; cold wash and a faint lift in green: red left at 0 so the shaft reads as lit
+; from somewhere other than the melt below it, which is the only warm light in
+; the picture. Halved by the blend, so these are twice what lands.
+SMIL_TINT_R = 0
+SMIL_TINT_G = 4
+SMIL_TINT_B = 12

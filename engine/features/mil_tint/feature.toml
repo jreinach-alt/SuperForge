@@ -1,0 +1,60 @@
+# mil_tint — blue light in the lift shaft, for zero channels.
+#
+# =============================================================================
+# WHAT IS TINTED, AND WHY IT IS BG2 AND NOT THE RIDER
+# =============================================================================
+# "The inside space" is what you see THROUGH the glass, and through the glass
+# is BG2 — the car's window is a hole in BG1, and BG1 is the only layer above
+# it. So the tint goes on bg2, the rider stays his own colour, and the read is
+# light in the shaft rather than a blue man.
+#
+# THE ALTERNATIVE WAS CONSIDERED AND COSTS A CONSTRAINT. Colour math on OBJ
+# applies only to sprites using PALETTES 4-7 — `_spritePalette[x] > 3`
+# (SnesPpu.cpp:962) — so tinting the rider would move him off palette 0 and
+# spend three more OBJ palettes' worth of CGRAM position for a worse picture.
+#
+# =============================================================================
+# THE COLOUR WINDOW IS WHAT MAKES IT LOCAL, AND IT IS FREE HERE
+# =============================================================================
+# Colour math is a per-LAYER enable and is otherwise global, so `math = ["bg2"]`
+# alone would tint the whole far wall. What makes it the SHAFT is the colour
+# window: CGWSEL's prevent field gates the math by window 1, and window 1's
+# bounds are WH0/WH1 — SCREEN X positions.
+#
+# AND THIS RAIL CAN AFFORD THAT BECAUSE ITS SHAFT DOES NOT MOVE HORIZONTALLY.
+# The elevator's four columns are at a fixed X, so the window is written ONCE
+# at enter and never again: no HDMA channel, no per-scanline work, nothing on
+# the rail's per-frame budget. A shaft that panned would need the bounds per
+# scanline and that is a channel — which is the honest reason this is cheap
+# here and would not be everywhere.
+#
+# The window covers the full height of those columns, so BG2 is tinted wherever
+# BG1 lets it through: inside the car's glass, and in the gaps between the
+# guide rails above and below it. That is a lit shaft, which is the picture.
+name = "mil_tint"
+role = "feature"
+
+# ---- the blend ------------------------------------------------------------
+# ADD a fixed colour at HALF, gated by the colour window. `prevent` is the
+# CGWSEL field the allocator composes; the window itself is claimed below,
+# because docs/99 §8 is explicit that a windowed mode with no window claimant
+# composes a mode that collapses to a fixed one.
+[[claims.blend]]
+op = "add"
+half = true
+source = "fixed"
+math = ["bg2"]
+prevent = "outside"
+
+# ---- the window, and the colour it adds ------------------------------------
+# WH0/WH1 are window 1's left and right bounds. WOBJSEL bit 5 is what makes
+# window 1 apply to the MATH window at all — ProcessWindowMaskSettings(value, 4)
+# writes layer index 4 = OBJ and index 5 = the COLOUR window
+# (SnesPpu.cpp:1487-1495), so bit 5 is "window 1 active for colour math".
+# WOBJLOG bits 2-3 are that window's combine logic; with one window it is
+# written anyway, because a register nobody establishes holds whatever the
+# previous scene left in it.
+[[claims.reg]]
+name = "mil_window"
+registers = ["WH0", "WH1", "WOBJSEL", "WOBJLOG",
+             "COLDATA_R", "COLDATA_G", "COLDATA_B"]

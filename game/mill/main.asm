@@ -133,6 +133,7 @@ mil_map2_bin:
 ; inside scenes/hall.asm's `.scope` where its symbols resolve (haze's shape,
 ; and smelter's).
 .include "mil_bg.asm"
+.include "mil_tint.asm"              ; the shaft light: a static colour window
 .include "mil_obj.asm"              ; the rider — global, because this rail has
                                     ;   one scene and he is in it
 

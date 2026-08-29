@@ -152,6 +152,13 @@ mil_rider_stage:
     ; operand the moment it is written down.
     clc
     adc #SMIL_RIDER_BOX
+    bmi @park                       ; STILL negative after the bias: the car is
+                                    ;   fully above the picture. Tested as a
+                                    ;   SIGN and not as a magnitude, because a
+                                    ;   16-bit add wraps SMALL — glass row -20
+                                    ;   biased by 32 is 12, not 65548 — so a
+                                    ;   `cmp` alone reads far-above-the-screen
+                                    ;   as just-below-the-top
     cmp #SMIL_RIDER_VIS_SPAN
     bcs @park
     ; ---- his X: the car's column, plus the glass, centred on the box -----
