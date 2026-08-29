@@ -31,9 +31,13 @@ MIL_HI_FIRST  = ES_OAM_SHADOW + ES_OAM_SHADOW_SIZE - 32 + (ES_O_MIL_RIDER / 4)
 MIL_HI_BYTES  = ES_O_MIL_RIDER_SPRITES / 4     ; the claim, in hi-table bytes
 .assert ES_O_MIL_RIDER_SPRITES .MOD 4 = 0, error, "mil_obj: the claim must end on a hi-table byte"
 
-; Every sprite this feature owns is 32x32 — the rider and every leaf cell — so
-; every 2-bit field it writes is `size, no X9`: bit1 set, bit0 clear, four to a
-; byte. X9 is clear BY THE GEOMETRY and not by hope, and these asserts are what
+; Every sprite this feature STAGES is 32x32 — the rider and every leaf cell —
+; so every 2-bit field it writes for one is `size, no X9`: bit1 set, bit0
+; clear, four to a byte. The claim is twelve and only nine are staged, and the
+; remaining three must stay SMALL: they sit parked at Y=240, and 240 with the
+; size bit set wraps sixteen rows of a 32x32 sprite onto the TOP of the screen
+; — the same defect SMIL_PARK_Y exists to avoid, arriving through the hi table
+; instead of through the Y byte. X9 is clear BY THE GEOMETRY and not by hope, and these asserts are what
 ; say so: X9 is a sprite's LEFT edge crossing 256, so what has to stay below it
 ; is the walk clamp and the right-hand bay's far leaf at full travel. The
 ; second pair is a different claim — that an OPEN bay is wholly on screen — and
@@ -44,6 +48,22 @@ MIL_HI_ALL_LARGE = $AA
 .assert SMIL_DOOR_B * 8 + SMIL_LEAF_BOX + SMIL_DOOR_TRAVEL < 256, error, "mil_obj: the far leaf's origin reaches past X9"
 .assert SMIL_WALK_MAX + SMIL_RIDER_BOX <= 256, error, "mil_obj: the player walks off the right edge"
 .assert SMIL_DOOR_B * 8 + SMIL_LEAF_BOX + SMIL_DOOR_TRAVEL + SMIL_LEAF_BOX <= 256, error, "mil_obj: an open right-hand bay clips the right edge"
+
+; ...and HE HAS TO FIT INSIDE THE DOORWAY, top and bottom, or the doors that
+; shut over him leave a strip of him showing under them. This is the same class
+; as the rider's park row in the hall — a constant that puts a sprite a little
+; outside the box meant to contain it — and it is arithmetic on constants, so
+; it is the assembler's to check.
+.assert SMIL_WALK_Y >= SMIL_DOOR_TOP * 8, error, "mil_obj: the player stands above the doorway's head"
+.assert SMIL_WALK_Y + SMIL_RIDER_BOX <= SMIL_LOBBY_FLOOR * 8, error, "mil_obj: the player hangs below the doors"
+
+; ...and THE TWO LEAVES MUST MEET, which is what "shut" means and is not
+; otherwise checked anywhere: the near leaf covers the doorway's left half and
+; the far one starts exactly a LEAF_BOX along, so a doorway wider than two
+; leaves is one whose doors never close, with a strip of whoever is inside it
+; showing down the middle at full travel-zero. Widening DOOR_W without widening
+; the sprite is the change that would do it.
+.assert SMIL_DOOR_W * 8 = SMIL_LEAF_BOX * 2, error, "mil_obj: the doorway is not two leaves wide — the doors cannot meet"
 
 ; THE SIZE BIT LIVES IN THE HI TABLE, four sprites to a byte, so an entry that
 ; does not start one would need a read-modify-write against three neighbours
@@ -242,7 +262,15 @@ mil_rider_stage:
 ; =============================================================================
 ; THE LOBBY SIDE — the same sheet, the same OAM, a different room
 ; =============================================================================
-MIL_LEAF_OAM = ES_OAM_SHADOW + MIL_LEAF_FIRST * 4
+MIL_LOBBY_OAM  = ES_OAM_SHADOW + ES_O_MIL_RIDER * 4   ; the block's own base
+MIL_LEAF_BYTES = MIL_LEAF_CELLS * 4
+; The two arrangements, as byte offsets into that block. He is either ahead of
+; every leaf or behind every leaf; there is no third answer, because a lift
+; door is either in the wall in front of him or in the wall behind him.
+MIL_ARR_FRONT_PLAYER = 0
+MIL_ARR_FRONT_LEAVES = 4
+MIL_ARR_BEHIND_LEAVES = 0
+MIL_ARR_BEHIND_PLAYER = MIL_LEAF_BYTES
 MIL_HFLIP    = 1 << 6
 MIL_LEAF_ATTR = (1 << 4) | (1 << 1)     ; PRIORITY 1 and OBJ PALETTE 1.
                                         ; Priority 1 scores 4 in mode 4, over
@@ -252,16 +280,26 @@ MIL_LEAF_ATTR = (1 << 4) | (1 << 1)     ; PRIORITY 1 and OBJ PALETTE 1.
                                         ; opposite choice for the opposite
                                         ; reason.
 
-; ...AND THE PLAYER IS PRIORITY 1 IN THIS ROOM, which is not a second opinion
-; about the same sprite — it is the same rule reaching the opposite answer
-; because the layer behind him is a different thing. In the hall he is inside
-; a car whose BG1 shell MUST cover him everywhere but the glass, so he scores
-; 2 and loses to BG1's 3. In the lobby the thing behind him is a painted wall
-; that must not cover him anywhere, so he scores 4 and wins. Staging him here
-; with MIL_RIDER_ATTR draws him correctly and puts him behind the masonry,
-; which is a sprite that is present in OAM, correct in every field, and
-; invisible on screen.
-MIL_LOBBY_ATTR = (1 << 4)               ; priority 1, OBJ palette 0 (the rider)
+; ...AND THE PLAYER'S PRIORITY CANNOT DECIDE WHETHER A DOOR COVERS HIM.
+; That was the obvious reading of mode 4's priority order and it is wrong, so
+; it is written down here rather than left to be re-derived: the PPU keeps ONE
+; sprite pixel per column, not one per priority. Mesen writes it as a single
+; buffer — `_spriteColorsCopy[x] = color` beside `_spritePriorityCopy[x] =
+; Priority` (SnesPpu.cpp:772-776) — so where two sprites overlap, exactly one
+; survives evaluation and the priority of the SURVIVOR is then compared against
+; the backgrounds. Sprite-versus-sprite is settled entirely by index; priority
+; never enters it. Raising the player to priority 2 changed nothing, measured.
+;
+; So the depth he is at IS his index, and the two things the room needs are
+; opposite: on the deck he is in front of the wall the doors are set into and
+; passes in front of a retracted leaf; inside a bay he is behind that wall, for
+; the doors to close over and part to reveal. `mil_lobby_stage` therefore
+; SWAPS the two blocks — the same nine entries, written in the order the state
+; asks for — and every one of the nine is written on both paths, so neither
+; arrangement leaves a stale entry behind from the other.
+MIL_LOBBY_ATTR = (1 << 4)               ; priority 1: over BG1's normal 3, and
+                                        ;   tied with the leaves, where the
+                                        ;   index above is what decides
 
 ; --- mil_lobby_walk: one frame of the player on the lobby floor -------------
 ; CONTRACT mil_lobby_walk
@@ -429,17 +467,35 @@ mil_lobby_stage:
     .a16
     .i16
     SF_ASSERT_WIDTH 16, 16, "mil_lobby_stage"
-    jsr mil_lobby_hi                ; the size bits, every frame: three stores
+    jsr mil_lobby_hi                ; the size bits, every frame: nine stores
                                     ;   against an ordering obligation on enter
+    ; ---- WHICH ORDER THE NINE ENTRIES GO IN -------------------------------
+    ; The whole depth question, decided once and then just addressed through.
+    ; See the note on MIL_LOBBY_ATTR: index is the only thing that separates
+    ; two overlapping sprites, so this IS whether the doors cover him.
+    ldx #MIL_ARR_FRONT_PLAYER
+    ldy #MIL_ARR_FRONT_LEAVES
+    lda z:ES_MIL_BOARD
+    cmp #SMIL_BOARD_ABOARD
+    bcc :+
+    ldx #MIL_ARR_BEHIND_PLAYER
+    ldy #MIL_ARR_BEHIND_LEAVES
+:   .a16
+    .i16
+    sty z:ES_MIL_NMI_SCRATCH + 4    ; the leaves' base, for after the player.
+                                    ;   Main-thread scratch: the hall's row
+                                    ;   walker is its only other user and it
+                                    ;   does not run in this room
     ; ---- the player -------------------------------------------------------
     lda z:ES_MIL_PX
     sep #$20
     .a8
-    sta a:MIL_RIDER_OAM + 0         ; X
+    sta a:MIL_LOBBY_OAM + 0, x      ; X
     lda #SMIL_WALK_Y
-    sta a:MIL_RIDER_OAM + 1         ; Y — the floor, and it is a constant
+    sta a:MIL_LOBBY_OAM + 1, x      ; Y — the floor, and it is a constant
     rep #$20
     .a16
+    phx                             ; ...his offset, across the cell choice
     lda z:ES_INP_CUR
     and #(JOY_LEFT | JOY_RIGHT)
     beq @idle
@@ -467,17 +523,18 @@ mil_lobby_stage:
     .a16
     .i16
     jsr mil_slot_tile               ; a slot index -> its tile in the grid
+    plx
     sep #$20
     .a8
-    sta a:MIL_RIDER_OAM + 2
-    lda z:ES_MIL_FACE
-    ora #MIL_LOBBY_ATTR             ; ...in FRONT of the wall — see the note
-    sta a:MIL_RIDER_OAM + 3         ;   on the constant
+    sta a:MIL_LOBBY_OAM + 2, x
+    lda #MIL_LOBBY_ATTR
+    ora z:ES_MIL_FACE               ; ES_MIL_FACE is MIL_HFLIP or zero, both
+    sta a:MIL_LOBBY_OAM + 3, x      ;   low-byte values
     rep #$20
     .a16
-    ; ---- the leaves: two sides a bay, a stack of cells a side --------------------------------------------------------
+    ; ---- the leaves: two sides a bay, a stack of cells a side -------------
     ldx #0                          ; X counts bays, Y indexes their OAM
-    ldy #0
+    ldy z:ES_MIL_NMI_SCRATCH + 4
 @bay:
     .a16
     .i16
@@ -531,14 +588,14 @@ mil_put_leaf:
     .a8
 .repeat SMIL_LEAF_ROWS, k
     lda z:ES_MIL_NMI_SCRATCH + 6
-    sta a:MIL_LEAF_OAM, y           ; X, low 8 — the same for the whole stack
+    sta a:MIL_LOBBY_OAM, y          ; X, low 8 — the same for the whole stack
     lda #(SMIL_DOOR_Y + k * SMIL_LEAF_BOX)
-    sta a:MIL_LEAF_OAM + 1, y       ; Y — this cell's row down the opening
+    sta a:MIL_LOBBY_OAM + 1, y      ; Y — this cell's row down the opening
     lda #SMIL_LEAF_TILE
-    sta a:MIL_LEAF_OAM + 2, y
+    sta a:MIL_LOBBY_OAM + 2, y
     lda z:ES_MIL_NMI_SCRATCH + 7    ; ...the flip bit the caller passed high
     ora #MIL_LEAF_ATTR
-    sta a:MIL_LEAF_OAM + 3, y
+    sta a:MIL_LOBBY_OAM + 3, y
     rep #$20
     .a16
     tya
@@ -578,8 +635,22 @@ mil_lobby_hi:
     lda #MIL_HI_ALL_LARGE
     sta a:MIL_HI_FIRST, x
     inx
-    cpx #MIL_HI_BYTES
+    cpx #(MIL_LEAF_CELLS / 4)       ; the eight leaf cells: two whole bytes
     bcc @byte
+    lda #MIL_RIDER_SIZE_LARGE       ; ...and the player's own byte, where the
+    sta a:MIL_HI_FIRST, x           ;   three entries beside him stay SMALL —
+    inx                             ;   see the note above on Y=240
+@rest:
+    .a8
+    .i16
+    cpx #MIL_HI_BYTES
+    bcs @hi_done
+    stz a:MIL_HI_FIRST, x
+    inx
+    bra @rest
+@hi_done:
+    .a8
+    .i16
     rep #$20
     .a16
     rts
@@ -613,7 +684,7 @@ mil_leaves_park:
     .a8
     .i16
     lda #240
-    sta a:MIL_LEAF_OAM + 1, x       ; Y off the bottom
+    sta a:MIL_LOBBY_OAM + 1, x       ; Y off the bottom
     inx
     inx
     inx
@@ -626,10 +697,11 @@ mil_leaves_park:
     .i16
     stz a:MIL_HI_FIRST, x           ; every leaf cell back to 16x16, so a park
     inx                             ;   at Y=240 ends at 256 instead of wrapping
-    cpx #(MIL_LEAF_CELLS / 4)       ;   16 rows onto the top of the screen
+    cpx #MIL_HI_BYTES               ;   16 rows onto the top of the screen
     bcc @hi
-    lda #MIL_RIDER_SIZE_LARGE       ; ...and the rider's own byte, which the
-    sta a:MIL_RIDER_HI              ;   leaves do not share
+    lda #MIL_RIDER_SIZE_LARGE       ; ...and then the rider's own field back on,
+    sta a:MIL_RIDER_HI              ;   because the hall stages him at the index
+                                    ;   the lobby's BEHIND arrangement uses
     rep #$20
     .a16
     rts

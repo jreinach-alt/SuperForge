@@ -96,11 +96,15 @@ JOY_RIGHT = 1 << 8
 SMIL_DOOR_BAYS = 2
 SMIL_RIDER_GROUP = 4          ; 32x32 cells to an OBJ name-table group
 
-; The player's walk. WALK_Y is the floor minus his box: the pack frames Arthur
-; with four transparent rows under the feet, so his drawn content ends at row 28
-; of 32 and this lands those feet ON the deck rather than four pixels into it.
 SMIL_WALK_STEP = 2
-SMIL_WALK_Y    = SMIL_LOBBY_FLOOR * 8 - SMIL_RIDER_BOX + 4
+
+; HIS BOX IS THE DECK LINE, and once there are lift doors that is structural
+; rather than cosmetic. The pack frames Arthur with four transparent rows under
+; the feet, so his drawn content ends at row 28 of 32 and this lands those feet
+; ON the deck. It also lands his BOX inside the doorway, whose floor is the same
+; deck — and a player sunk even a little into it has that much of himself
+; hanging below doors that stop where the doorway does. mil_obj asserts the fit.
+SMIL_WALK_Y    = SMIL_LOBBY_FLOOR * 8 - SMIL_RIDER_BOX
 SMIL_WALK_MIN  = 8
 SMIL_WALK_MAX  = 256 - SMIL_RIDER_BOX - 8
 
