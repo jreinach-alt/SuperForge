@@ -116,8 +116,16 @@ SMT_KN_LAND_WIN = 12
 SMT_MOS_BG1 = 1 << 0
 SMT_MOS_BG2 = 1 << 1
 
-; Below this screen row he has missed everything and comes back on plate 0.
-SMT_KN_KILL_Y = 232
+; WHAT KILLS HIM IS NOT A CONSTANT ANY MORE. It used to be `SMT_KN_KILL_Y =
+; 232` — a fixed screen row near the bottom of the picture, which meant he fell
+; THROUGH the drawn lava, off the bottom of the screen, and only then died. On
+; a rail whose whole claim is that the collision reads the word the picture is
+; drawn from, that was the one surface still being taken on faith.
+;
+; It is `smt_melt_top` now: the lava's crust line in his own centre column,
+; out of the same offset word the PPU displaced that column by, fallback
+; included. So the surface that kills him is the surface that is drawn, it
+; MOVES, and a jet at its peak reaches up and takes him early.
 
 ; Where he starts. Plate 0's own column, so the spawn is a plate rather than a
 ; coordinate, and moving the plates moves the spawn with them.

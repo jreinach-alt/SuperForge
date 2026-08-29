@@ -297,12 +297,64 @@ def crust_tile(seed):
     return rows
 
 
-def melt_tile(seed):
+# THE BUBBLE FIELD. Two per body tile, born at different steps, each rising one
+# row a step and living five of the eight — so at any moment a tile holds nought,
+# one or two of them at different sizes and the lava reads as boiling rather than
+# as a texture sliding.
+#
+# THE CYCLE IS THE CONSTRAINT, not the look. Everything in this rail's animation
+# closes exactly at MELT_ANIM_FRAMES so the gallery clip's seam stays shut and
+# frame 0 of the swap IS the static CHR the boot upload writes. Ages are taken
+# modulo 8 and the rise is modulo 8, so step 8 is step 0 by construction — the
+# same property the rotations had, kept when they were replaced.
+#
+# (x, y at birth, the step it is born on) — per body seed, so the two body tiles
+# bubble out of phase and a wall of them does not pulse in unison.
+# Declared here rather than read off MELT_ANIM_FRAMES because that constant is
+# defined with the animation, further down. The two are asserted equal at the
+# point the second one exists, so they cannot drift apart in silence.
+MELT_BUBBLE_CYCLE = 8
+MELT_BUBBLES = {
+    0: ((2, 7, 0),),
+    5: ((5, 7, 3),),
+}
+MELT_BUBBLE_LIFE = 5            # ...of MELT_ANIM_FRAMES steps
+# radius by age: a bead rising, swelling for two steps, then gone. Kept SMALL
+# on purpose — the body tile repeats across the whole lava, so a bubble is not
+# one bubble, it is one every eight pixels. A 3x3 blob at that density stops
+# reading as lava and starts reading as a honeycomb; measured by looking.
+MELT_BUBBLE_R = (0, 0, 1, 1, 0)
+
+
+def melt_tile(seed, k=0):
+    """The lava body at animation step `k`.
+
+    The texture is the same dither it always was; what moves is the bubbles.
+    They are drawn AFTER it in indices the body already uses (7 for the film,
+    5 for the rim), so no new colour enters the tile and `crust_y` — which
+    finds the melt's surface by nearest match to the crust's index 3 — has
+    nothing new to find. The assertion in `melt_anim` checks that, per frame.
+    """
     rows = []
     for y in range(8):
         rows.append([5 if ((x * 5 + y * 3 + seed) % 11 == 0) else
                      (7 if ((x + y * 2 + seed) % 9 == 0) else 6)
                      for x in range(8)])
+    for bx, by, born in MELT_BUBBLES[seed]:
+        age = (k - born) % MELT_BUBBLE_CYCLE
+        if age >= MELT_BUBBLE_LIFE:
+            continue                    # not in the world this step
+        cy = (by - age) % 8
+        r = MELT_BUBBLE_R[age]
+        for dy in range(-r, r + 1):
+            for dx in range(-r, r + 1):
+                if dx * dx + dy * dy > r * r:
+                    continue            # a plus, not a square block
+                x, y = (bx + dx) % 8, (cy + dy) % 8
+                # bright film in the middle, darker rim around it — which is
+                # what makes a 3x3 blob read as a bubble and not as a blot
+                core = (dx == 0 and dy == 0)
+                rows[y][x] = 7 if (core or r == 0) else 5
     return rows
 
 
@@ -350,7 +402,7 @@ PLATE_TILES = [
 MELT_TILES = [
     ("wall", wall_tile()),
     ("crust_a", crust_tile(0)), ("crust_b", crust_tile(2)),
-    ("melt_a", melt_tile(0)), ("melt_b", melt_tile(5)),
+    ("melt_a", melt_tile(0, 0)), ("melt_b", melt_tile(5, 0)),
 ]
 
 # --------------------------------------------------------------------------
@@ -391,6 +443,8 @@ MELT_TILES = [
 #   never by a hardware frame. `smt_nmi_melt` computes (phase >> SHIFT) & 7 and
 #   counts nothing, so a change of tick rate leaves this table correct.
 MELT_ANIM_FRAMES = 8            # ...and 8 is also the rotation's own period
+assert MELT_BUBBLE_CYCLE == MELT_ANIM_FRAMES, \
+    "the bubbles' period is not the animation's — step 8 would not be step 0"
 MELT_ANIM_SHIFT = 1             # frame = (phase >> 1) & 7 -- 16 phases a
                                 #   cycle, which DIVIDES the 64-phase loop, so
                                 #   the picture stays a pure function of the
@@ -473,13 +527,25 @@ def melt_anim():
     # `crust_tile(0)` here would be a second copy of the seeds, and a seed
     # changed in one place and not the other gives a rail whose lava snaps on
     # the first frame of every cycle.
-    base = list(zip(MELT_TILES[1:], (rot_h, rot_h, rot_v, rot_v)))
+    # The crust rotates; the body is REBUILT at each step, because bubbles are
+    # not a rotation of anything. Both close at MELT_ANIM_FRAMES: a rotation by
+    # 8 of an 8-tall tile is the identity, and every bubble's age and rise are
+    # taken modulo 8.
+    base = [(MELT_TILES[1], lambda r, k: rot_h(r, k)),
+            (MELT_TILES[2], lambda r, k: rot_h(r, k)),
+            (MELT_TILES[3], lambda _r, k: melt_tile(0, k)),
+            (MELT_TILES[4], lambda _r, k: melt_tile(5, k))]
     assert [n for (n, _), _ in base] == ["crust_a", "crust_b",
                                          "melt_a", "melt_b"], MELT_TILES
     blob = bytearray()
     for k in range(MELT_ANIM_FRAMES):
         for (name, rows), rot in base:
             f = rot(rows, k)
+            if k == 0:
+                assert f == rows, (
+                    f"{name} frame 0 is not the tile the boot upload writes — "
+                    f"the static CHR and the animation would disagree on the "
+                    f"first frame of every cycle")
             if name.startswith("crust"):
                 assert f[0] == rows[0] == [3] * 8, (
                     f"{name} frame {k}: the crust's top row is not the "

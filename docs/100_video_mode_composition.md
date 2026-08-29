@@ -435,6 +435,28 @@ and can be nothing else
 that exactly ONE variable moves between running and flat, and a control that
 stopped the CHR too would leave two.
 
+**The body's frames are BUILT, not rotated.** The crust's animation is a
+horizontal rotation of its rows, which closes at 8 because a rotation by 8 of an
+8-wide tile is the identity. The body's used to be the vertical equivalent — the
+texture drifting upward — and a texture that slides is not a boiling liquid, so
+it is a **bubble field** now: one bead per body tile, born at a fixed step,
+rising a row per step, swelling for two and gone by the fifth. That is not a
+rotation of anything, so the property that made frame 8 equal frame 0 had to be
+re-established rather than inherited: every age and every rise is taken modulo
+`MELT_ANIM_FRAMES`, and the generator asserts frame 0 is byte-identical to the
+tile the boot upload writes. Zero extra cost — the same four tiles, the same
+128 B a frame.
+
+Bubbles are drawn in indices the body already uses (7 for the film, 5 for the
+rim), never the crust's index 3, and that is checked per frame. The reason is
+the test instrument, the same one §11.1's palette cycle had to respect: every
+column scan finds the melt's surface by nearest match to the crust colour, so a
+new bright index in the body would give `crust_y` a second edge to find and
+report it as the offset table being wrong. And the tile REPEATS across the whole
+lava, so a bubble is not one bubble — it is one every eight pixels. A 3x3 blob
+at that density stops reading as lava and starts reading as a honeycomb, which
+is why the peak radius is 1 and the shape is a plus.
+
 Three constraints shaped what could be animated, and the first is the
 interesting one:
 
@@ -604,7 +626,52 @@ And the picture was entirely plausible, because it was lava, and it moved.
 counterpart, and `tools/plants/smelter.py::the-fallback-carries-column-zeros-melt`
 restores the defect so it is not found by eye twice.
 
-### 12.2 Death is an event, and a state cycle is not the same claim
+### 12.2 The lava is a collision, and until this sprint it was a picture
+
+Every surface in this rail is a word in the offset table that the collision
+reads back — the plates, from the first day (§10). The lava was not. The knight
+fell to `SMT_KN_KILL_Y = 232`, a fixed screen row near the bottom of the
+picture, and only then died: a player watched him drop THROUGH molten metal and
+off the edge of the world, which on a rail whose whole claim is "the collision
+reads the word the picture is drawn from" was the one surface still taken on
+faith.
+
+`smt_melt_top` is `smt_plate_top`'s sibling and the difference between them is
+the interesting part: **the fallback is part of the answer.** A column whose
+word carries the BG1 bit does not displace BG2 at all, so its melt is at
+`BG2VOFS` — the melt's base, per §12.1 — and reading the word's VALUE there
+would return the PLATE's height, a hundred rows wrong and in the direction that
+kills the player in mid-air. A collision that reads the table has to read the
+table the way the PPU does, fallback included.
+
+What it buys beyond correctness: the surface MOVES, so a jet at its peak reaches
+up and takes him earlier than the level of the lake would. That is the mechanism
+being honest rather than a difficulty knob, and it is the same word doing it.
+
+The assertion is `test_he_is_never_drawn_below_the_lava_he_falls_into`: at every
+frame he is drawn at all, his lowest drawn pixel is above the melt's surface in
+his own centre column — his pixels off the rendered frame, the surface off the
+ROM's row, re-derived every capture. It cost one more thing to make true. The
+scene asked `mosaic_active` BEFORE ticking him, and the tick is what arms the
+wipe, so on the frame he drowned the answer was still "alive" and he was drawn
+once more, one pixel inside the drawn melt. Two calls and thirty cycles: ask
+again after the tick. One frame at 60 Hz is not something a player sees, and it
+is exactly what a case reading the rendered frame sees.
+
+**AND THREE ASSERTIONS IN THE STATE-CYCLE CASE WERE TRUE FOR THE WRONG REASON**,
+which shortening the fall is what exposed. All three leaned on him drifting
+right through a long descent: "he walked past the metal" was his X clearing the
+span, which only happened in the air (the plate logic has always used his
+CENTRE); "he is falling" compared his feet to the metal UNDER him, which over a
+gap is nothing, so it only fired once he had drifted as far as the NEXT plate —
+and it wanted a full body-height of drop, which no longer exists, because the
+metal is at row ~68 and the melt takes him at ~101; "he reached the bottom of
+the world" was two thirds of the picture, a depth he no longer reaches. Each is
+now the statement the rail actually makes and none depends on how far he falls.
+**A test that passes for a reason adjacent to its name survives every change
+that keeps the reason true, and dies on the first one that does not.**
+
+### 12.3 Death is an event, and a state cycle is not the same claim
 
 Falling out of the world used to respawn the knight in the frame the kill test
 fired: he blinked from the bottom of the screen to the spawn, and every frame of

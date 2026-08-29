@@ -339,9 +339,43 @@ smt_kn_tick:
     lda z:ES_SMT_KN_Y
     bmi :+
     SMT_KN_TO_ROW
-    cmp #SMT_KN_KILL_Y
-    bcc :+
-    ; ---- he is out of the world: arm the wipe, do not teleport him --------
+    sta z:ES_SMT_SCRATCH + 4        ; his top edge, as a picture row. + 4 and
+                                    ;   not + 0: smt_melt_top below uses + 0
+                                    ;   for its own working value
+    ; ---- HOW FAR HE MAY FALL: the lava's own surface, in HIS column --------
+    ; He used to fall to a fixed row 232 — through the picture of the lava,
+    ; out of the bottom of the screen, and only then die. What a player saw was
+    ; a knight dropping THROUGH molten metal, which is the one thing a rail
+    ; built on "the collision reads the word the picture is drawn from" should
+    ; never show.
+    ;
+    ; The surface is a word in the offset table, so it is readable exactly the
+    ; way the plates are, and it MOVES: a jet at its peak reaches up and takes
+    ; him earlier than the level of the lake would. That is the mechanism being
+    ; honest rather than a difficulty knob.
+    ;
+    ; His CENTRE column, because he is 32 px wide and four columns is a range
+    ; the surface can differ across; the middle is the one a player reads as
+    ; "where he is". The contact test is his FEET (SMT_KN_BOTTOM — the art's own
+    ; last drawn row, not the box), so he dies the moment he touches it and is
+    ; never drawn below it.
+    lda z:ES_SMT_KN_X
+    clc
+    adc #(SMT_KN_BOX / 2)
+    .repeat 3
+    lsr a                           ; ...to a world column
+    .endrepeat
+    tax
+    jsr smt_melt_top                ; A = the lava's surface, this frame
+    sec
+    sbc #SMT_KN_BOTTOM              ; ...the highest top edge that still floats
+    cmp z:ES_SMT_SCRATCH + 4
+    beq @drowned
+    bcs @alive                      ; surface - feet > his top: still above it
+@drowned:
+    .a16
+    .i16
+    ; ---- he is in the lava: arm the wipe, do not teleport him --------------
     ; The respawn used to happen HERE, in one frame, which read as the knight
     ; blinking from the bottom of the screen to the spawn with nothing in
     ; between. It is now the mosaic's swap callback, fired at peak black, so
@@ -363,6 +397,9 @@ smt_kn_tick:
     .i16
     rep #$20
     .a16
+@alive:
+    .a16
+    .i16
 :   .a16
     .i16
     rts

@@ -215,8 +215,26 @@ tick:
     .a16                            ;   hides it — TM bit or an OAM park)
     .i16
     jsr smt_kn_tick
+    ; ...AND THE QUERY AGAIN, because the tick is what arms it. The frame he
+    ; goes into the lava, `smt_kn_tick` arms the wipe — and asking BEFORE the
+    ; tick had already answered "alive", so he was drawn once more, one pixel
+    ; inside the drawn melt. One frame at 60 Hz is not something a player sees,
+    ; but it is something a case that reads the rendered frame sees, and it is
+    ; the frame the whole feature is about. Two calls, thirty cycles, and he is
+    ; never drawn inside the metal.
+    sep #$20
+    .a8
+    jsr mosaic_active
+    rep #$20
+    .a16
+    bne @drowned_this_frame
     jsr smt_kn_camera
     jsr smt_kn_draw
+    bra @knight_done
+@drowned_this_frame:
+    .a16
+    .i16
+    jsr oam_park_all
 @knight_done:
     .a16
     .i16

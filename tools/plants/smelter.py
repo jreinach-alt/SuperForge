@@ -1,11 +1,14 @@
 """smelter — offset-per-tile's failure modes, planted.
 
-Fourteen plants. Twelve are silent-corruption defects that still produce a
-plausible picture and two are the allocator refusing a declaration that lies.
-One of them found a hole in the test module on its first run, which is the whole
-reason this file exists rather than a list of defects somebody was already
-confident about; FOUR more are defects the rail SHIPPED and a person caught, put
-here so the next one is caught by the harness instead.
+Fourteen plants, and one RETIRED at the bottom of the file. Twelve are
+silent-corruption defects that still produce a plausible picture and two are the
+allocator refusing a declaration that lies. One of them found a hole in the test
+module on its first run, which is the whole reason this file exists rather than
+a list of defects somebody was already confident about; FOUR more are defects
+the rail SHIPPED and a person caught, put here so the next one is caught by the
+harness instead. The retired one is the other direction entirely — a feature
+landing removed the RANGE its defect needed, so the harness reported it blind
+and the honest response was to write down why rather than invent a new anchor.
 
 THE LAST THREE ARE THE SCROLLING WORLD'S, added when the rail grew from one
 screen to four. `the-read-head-ignores-the-camera` stops the DMA moving along
@@ -64,11 +67,16 @@ different, and each leaves a picture with a knight on a platform in it.
     plate's current height. He stands still, the plate moves under him, and in
     perhaps a fifth of frames he is on it by coincidence. This is the plant
     that says the ride equality is an equality.
-  * `the-knights-y-is-8-8-again` restores the vertical unit the rail shipped
-    first. It is invisible until he falls out of the world: at row 232 the sign
-    bit is set, the kill test reads it as "above the screen", and he wraps to
-    the top instead of respawning. A DEFECT THAT WAS FOUND BY HAND, planted so
-    it is not found by hand twice.
+  * `the-lava-is-64-rows-lower-than-it-looks` moves the surface the COLLISION
+    reads away from the surface the PPU draws, which is the failure mode
+    `smt_melt_top` exists to close. He still dies, dissolves and comes back, so
+    the state cycle stays green; what he does on the way is sink 64 rows into
+    molten metal in full view — and a knight visibly descending into lava reads
+    as an animation somebody chose, which is why only a case that joins his
+    drawn pixels to the melt's drawn surface in the same frame can see it.
+    (`the-knights-y-is-8-8-again` used to sit here. It is RETIRED at the foot of
+    this file, because the same sprint that made the lava a collision deleted
+    the range that made 9.7 necessary. The reasoning is kept there in full.)
   * `the-32x32-size-bit-dropped` clears one bit of the OAM hi table. The PPU
     draws the top-left quarter of him — a small, complete-looking sprite, in
     the right palette, at the right place — which is exactly the shape of
@@ -266,27 +274,6 @@ PLANTS = [
               "green on purpose: flat is the one state where the base IS the "
               "right answer."),
 
-    Plant(id="the-knights-y-is-8-8-again",
-          file=INC,
-          old="""SMT_KN_FRAC  = 7""",
-          new="""SMT_KN_FRAC  = 8         ; PLANT: the unit the rail shipped first""",
-          artifact=ROM,
-          build=["smelter"],
-          tests=[
-              T + "test_walking_off_the_span_drops_him_and_the_world_gives_him_back",
-          ],
-          why="A DEFECT THIS RAIL SHIPPED, restored. At 8.8 the knight's Y "
-              "cannot hold both ends of his own movement: the highest plate "
-              "puts a jump's apex genuinely above the screen, so the kill test "
-              "has to read the sign — and screen row 232 has the same sign bit "
-              "as row -24. He falls past the bottom of the world, the kill is "
-              "skipped, and he WRAPS ROUND to the top of the screen instead of "
-              "respawning. Every other case stays green, including the ride and "
-              "the jump, because nothing else in the rail ever reaches a row "
-              "that big. It took a person walking him off the edge to find it "
-              "the first time; this is the plant that means it is not found "
-              "that way twice."),
-
     Plant(id="the-32x32-size-bit-dropped",
           file=OBJ,
           old="""    ora #SMT_KN_SIZE_LARGE""",
@@ -414,4 +401,86 @@ mode = 1                 # PLANT: a mode with no offset path""",
               "event rather than its endpoints, and it reads it as the "
               "picture ceasing to be explicable by the table while the mosaic "
               "smears it, then becoming explicable again."),
+
+    Plant(id="the-lava-is-64-rows-lower-than-it-looks",
+          file=OPT_ASM,
+          old="""    lda #(SMT_CRUST_TOP_PX - SMT_ROW_BIAS)""",
+          new="""    lda #(SMT_CRUST_TOP_PX - SMT_ROW_BIAS + 64)  ; PLANT: too low by 64""",
+          artifact=ROM,
+          build=["smelter"],
+          tests=[
+              T + "test_he_is_never_drawn_below_the_lava_he_falls_into",
+          ],
+          why="THE SURFACE THE COLLISION READS, moved away from the surface "
+              "the PPU draws — which is the whole failure mode `smt_melt_top` "
+              "exists to close, expressed as the bias error that would "
+              "reintroduce it. The knight still dies, still dissolves, still "
+              "comes back on the spawn plate, so the state cycle case stays "
+              "green; what he does on the way is sink 64 rows into the molten "
+              "metal in full view, which is exactly what the rail shipped "
+              "before the lava was a collision at all. A PLAUSIBLE PICTURE: "
+              "lava is not opaque in most games, and a knight visibly "
+              "descending into it reads as an animation somebody chose. The "
+              "case this names is the only one that joins his drawn pixels to "
+              "the melt's drawn surface in the same frame, which is the only "
+              "place the two can be shown to be the same number."),
 ]
+
+
+# ==========================================================================
+# RETIRED — kept as the trail, not run
+# ==========================================================================
+# A plant that stops landing is a finding about the TREE, not litter, and the
+# right response depends on which half of it died. When the defect CLASS
+# survives an edit that deleted its anchor, the plant is re-expressed against
+# whatever door is still open — `the-wall-stops-being-vertically-uniform` is
+# that case. When the class's PRECONDITION is gone, re-expressing it would be
+# inventing a defect, and the honest move is to retire it with the reason
+# written down.
+#
+# `the-knights-y-is-8-8-again` is the second kind, and what retired it is a
+# feature landing rather than a fix.
+#
+#   It restored the vertical unit the rail shipped first. At 8.8 the knight's Y
+#   could not span both ends of his movement: a jump's apex is genuinely above
+#   the screen while a miss carried him past row 232, and in 8.8 row 232 and row
+#   -24 are the same bit pattern — the kill test read a fall as "above the
+#   screen", skipped the kill, and wrapped him to the top. 9.7 settled it, and
+#   this plant existed so it was not found by hand twice.
+#
+#   THE LAVA BEING A COLLISION DELETED THE RANGE. He no longer falls to a fixed
+#   row near the bottom of the picture; `smt_melt_top` takes him at the melt's
+#   own surface, and the LOWEST that surface can sit is the melt's base — row
+#   129 — so the deepest his top edge ever reaches is 129 - SMT_KN_BOTTOM = 101.
+#   With -50 at the apex, his whole range is about -50..+101, which 8.8 (-128..
+#   +127) represents exactly. Every constant scales off SMT_KN_ONE_PX, so the
+#   two units now produce identical behaviour, and the harness said so: the
+#   plant reached the artifact and the case stayed green. TEST-BLIND, correctly.
+#
+#   The unit STAYS 9.7. It costs nothing and it is headroom. What would make it
+#   load-bearing again is anything that lets him past row 127 — a taller world,
+#   a lower melt base, a death that is a fall out of the picture again — and at
+#   that point this plant is the one to bring back rather than rewrite.
+RETIRED = """
+    Plant(id="the-knights-y-is-8-8-again",
+          file=INC,
+          old='''SMT_KN_FRAC  = 7''',
+          new='''SMT_KN_FRAC  = 8         ; PLANT: the unit the rail shipped first''',
+          artifact=ROM,
+          build=["smelter"],
+          tests=[
+              T + "test_walking_off_the_span_drops_him_and_the_world_gives_him_back",
+          ],
+          why="A DEFECT THIS RAIL SHIPPED, restored. At 8.8 the knight's Y "
+              "cannot hold both ends of his own movement: the highest plate "
+              "puts a jump's apex genuinely above the screen, so the kill test "
+              "has to read the sign — and screen row 232 has the same sign bit "
+              "as row -24. He falls past the bottom of the world, the kill is "
+              "skipped, and he WRAPS ROUND to the top of the screen instead of "
+              "respawning. Every other case stays green, including the ride and "
+              "the jump, because nothing else in the rail ever reaches a row "
+              "that big. It took a person walking him off the edge to find it "
+              "the first time; this is the plant that means it is not found "
+              "that way twice."),
+
+"""

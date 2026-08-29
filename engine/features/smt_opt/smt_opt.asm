@@ -451,6 +451,72 @@ smt_plate_top:
     sbc z:ES_SMT_SCRATCH
     rts
 
+; --- smt_melt_top: where the LAVA'S surface is, this frame, in one column ----
+; CONTRACT smt_melt_top
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       X = a WORLD column, 0..SMT_WORLD_COLS-1
+;   out:      A = the melt's crust line in that column, as a PICTURE ROW
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  main thread, after this frame's phase has been advanced
+;   tail:     rts
+;
+; THE SIBLING OF smt_plate_top, AND FOR THE SAME REASON: the lava's surface is
+; a word in the offset table, so a collision that reads that word is not an
+; approximation of where the lava is, it is where the lava is. The plates got
+; this first because a moving platform is obviously a collision; the lava is
+; one too, and until it was, the knight fell straight through a picture of it.
+;
+; THE FALLBACK IS PART OF THE ANSWER, which is what makes this more than a copy
+; of smt_plate_top with a different constant. A column whose word carries the
+; BG1 bit does not displace BG2 at all — its melt is at BG2VOFS, which the NMI
+; holds at the melt's own base (see the fallback block above). Reading the
+; word's VALUE there would give the PLATE'S height, which is a hundred rows
+; wrong and in the direction that kills the player in mid-air.
+;
+; TICK: ok -- indexed by the accumulated phase, as smt_plate_top is.
+smt_melt_top:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "smt_melt_top"
+    lda z:ES_SMT_FLATSEL
+    bne @flat
+    lda z:ES_SMT_PHASE
+    bra @pick
+@flat:
+    .a16
+    .i16
+    lda #SMT_FLAT_INDEX
+@pick:
+    .a16
+    .i16
+    .repeat ::SMT_PHASE_SHIFT       ; `::` — see smt_nmi_row's note
+    asl a
+    .endrepeat
+    sta z:ES_SMT_SCRATCH
+    txa                             ; the world column...
+    asl a                           ; ...as a byte offset into its row
+    clc
+    adc z:ES_SMT_SCRATCH
+    tax
+    lda f:smt_col_bin, x
+    bit #ES_OPT_WORKS_BG2
+    bne @displaced
+    lda #SMT_VOFS_BG2               ; a plate column: BG2 is at the fallback
+    bra @have
+@displaced:
+    .a16
+    .i16
+    and #ES_OPT_WORKS_MASK
+@have:
+    .a16
+    .i16
+    sta z:ES_SMT_SCRATCH
+    lda #(SMT_CRUST_TOP_PX - SMT_ROW_BIAS)
+    sec
+    sbc z:ES_SMT_SCRATCH
+    rts
+
 .segment "RODATA"
 ; Each plate's first column, as a BYTE offset into a 32-word row. Generated
 ; geometry restated once, here, because the ASM needs it as data rather than

@@ -1437,44 +1437,135 @@ def test_walking_off_the_span_drops_him_and_the_world_gives_him_back(tmp_path):
     He starts ON the metal; he is carried past his plate's four columns; he
     falls, which is asserted as his feet being further below the nearest metal
     than he is tall rather than as "his state variable says airborne"; he
-    reaches the bottom of the world — out of the picture, or past two thirds of
-    it, and he cannot leave through the top while walking; and he comes back
-    standing on a plate at the ride equality, near where he started.
+    goes UNDER — out of the picture entirely, because the melt now takes him at
+    its own surface rather than letting him fall to a fixed row near the bottom
+    — and he comes back standing on a plate at the ride equality, near where he
+    started.
 
     The return is the half that needs the vertical sign to mean what it says.
-    He passes row 232 on the way out, and in the 8.8 unit the first build used,
-    that row and a row above the screen are the same bit pattern: the kill test
-    read it as negative, skipped the respawn, and wrapped him round to the top
-    of the screen instead.
+    In the 8.8 unit the first build used, a fall and a jump's apex are the same
+    bit pattern once the row passes 128: the kill test read a fall as negative,
+    skipped the respawn, and wrapped him round to the top of the screen.
+
+    THREE OF THESE USED TO BE TRUE FOR THE WRONG REASON, and shortening the
+    fall is what exposed it. All three leaned on him DRIFTING RIGHT through a
+    long descent to a fixed row near the bottom of the picture:
+
+      "he walked past the metal"      was x > start + span, and x only got
+                                      there in the air. The plate logic has
+                                      always used his CENTRE, so his centre
+                                      clearing the span is the event — and it
+                                      happens while x is still inside it.
+      "he is falling"                 compared his feet to the metal UNDER HIM,
+                                      which over a gap is nothing at all — it
+                                      only ever fired once he had drifted as
+                                      far as the NEXT plate — and it wanted a
+                                      full body-height of drop, which no longer
+                                      EXISTS: the metal is at row ~68 and the
+                                      melt takes him at ~101. Unsupported and
+                                      descending below the metal he left is the
+                                      claim, and it survives any fall length.
+      "he reached the bottom"         was two thirds of the picture, a depth he
+                                      no longer reaches because the melt's
+                                      surface is well above it.
+
+    Each is now the statement the rail actually makes, and none of them depends
+    on how far he falls.
     """
     span = _art("SMT_PLAT_WIDTH") * 8
-    pal, shots = _hold(tmp_path, {"right": True}, 14, 6)
+    pal, shots = _hold(tmp_path, {"right": True}, 20, 4)
     start = shots[0][1]
-    seen = []
+    seen, last_u = [], None
     for im, kn_x, cam in shots:
         box = _knight(im, pal)
-        seen.append((kn_x, None if box is None else box[3] + 1,
-                     _under(im, pal, kn_x, cam)))
+        u = _under(im, pal, kn_x, cam)
+        if u is not None:
+            last_u = u
+        seen.append((kn_x, None if box is None else box[3] + 1, u, last_u))
 
-    riding = [i for i, (_x, f, u) in enumerate(seen) if u is not None and f == u]
-    walked = [i for i, (x, _f, _u) in enumerate(seen) if x > start + span]
-    falling = [i for i, (_x, f, u) in enumerate(seen)
-               if f is not None and u is not None and f > u + KN_BOX]
-    out = [i for i, (_x, f, _u) in enumerate(seen)
-           if f is None or f > 2 * PICTURE_LINES // 3]
+    riding = [i for i, (_x, f, u, _l) in enumerate(seen)
+              if u is not None and f == u]
+    walked = [i for i, (x, _f, _u, _l) in enumerate(seen)
+              if x + KN_BOX // 2 > start + span]
+    falling = [i for i, (_x, f, u, lu) in enumerate(seen)
+               if f is not None and u is None and lu is not None and f > lu]
+    gone = [i for i, (_x, f, _u, _l) in enumerate(seen) if f is None]
 
     assert riding and riding[0] == 0, f"he did not start on the metal: {seen}"
-    assert walked, f"he never walked past his plate's {span} px of metal"
+    assert walked, f"his centre never cleared his plate's {span} px of metal"
     # >= rather than >: the captures are six frames apart, so leaving the metal
     # and being visibly below it can land in the same one. The ORDER is the
     # claim; the cadence is not.
+    # ONLY FIRSTS ARE USED FROM HERE DOWN. While the mosaic runs, the picture
+    # is smeared enough that lava pixels nearest-match the OBJ palette and
+    # `_knight` reports a box 248 px wide; those captures are noise in every
+    # list. The ORDER of the first real occurrence of each state is the claim,
+    # and the states are separated by the wipe rather than interleaved with it.
     assert falling and falling[0] >= walked[0], \
         "he walked off the metal and kept standing on air"
-    assert out and out[0] >= falling[0], "he never reached the bottom of the world"
-    back = [i for i in riding if i > out[0]]
-    assert back, "he fell out of the world and never came back onto a plate"
+    assert gone and gone[0] >= falling[0], \
+        "he fell and never left the picture — the melt did not take him"
+    back = [i for i in riding if i > gone[0]]
+    assert back, "he went under and never came back onto a plate"
     assert seen[back[0]][0] <= start + span, \
         f"he came back at x={seen[back[0]][0]}, not on the spawn plate"
+
+
+def test_he_is_never_drawn_below_the_lava_he_falls_into(tmp_path):
+    """WHAT THE LAVA IS, asserted — and it used to be nothing.
+
+    He fell to a fixed screen row near the bottom of the picture and only then
+    died, which meant a player watched a knight drop THROUGH molten metal and
+    off the edge of the world. Every other surface in this rail is a word in
+    the offset table read back by the collision; the lava was a picture the
+    physics did not know about.
+
+    It is `smt_melt_top` now — the crust line in his own centre column, out of
+    the same word the PPU displaced that column by, with the plate-column
+    fallback in it — and this is the claim that makes it real:
+    **at every frame he is drawn at all, his lowest drawn pixel is above the
+    lava's surface in his column.** His pixels come off the rendered frame; the
+    surface comes off the ROM's row. He must also actually go under during the
+    run, or the assertion is vacuous — a knight who never falls satisfies it.
+
+    The surface MOVES, which is the interesting half: a jet at its peak reaches
+    up and takes him earlier than the level of the lake would, and the same
+    assertion covers both because it is re-derived every capture.
+    """
+    base = where(CRUST_PX, _art("SMT_VOFS_BG2"))
+    seen, gone_at = [], None
+    with Machine(str(ROM)) as m:
+        m.advance(TITLE)
+        m.advance(1, pad1=JOY_START)
+        m.advance(SETTLE)
+        pal = _palette(m)
+        for k in range(24):
+            kn_x = m.read_u16(W, DP_KN_X)
+            phase = m.read_u16(W, DP_PHASE)
+            cam = m.read_u16(W, DP_CAM_SHOWN)
+            p = tmp_path / f"sink{k}.png"
+            m.screenshot(str(p))
+            im = Image.open(p).convert("RGB")
+            box = _knight(im, pal)
+            if box is None:
+                gone_at = k
+                break
+            _b, _lag, idx = _fit(im, pal, phase, cam)[0]
+            wcol = (kn_x + KN_BOX // 2) >> 3
+            w = row(idx)[wcol]
+            surface = (where(CRUST_PX, w & VALUE_MASK) if w & BIT_BG2 else base)
+            seen.append((k, box[3], surface))
+            m.advance(1, pad1={"right": True})
+
+    for k, bottom, surface in seen:
+        assert bottom < surface, (
+            f"capture {k}: his lowest drawn pixel is at row {bottom} and the "
+            f"lava's surface in his column is at {surface} — he is being drawn "
+            f"inside the melt")
+    assert gone_at is not None, \
+        "he never went under — the assertion above proved nothing"
+    assert max(b for _k, b, _s in seen) > min(b for _k, b, _s in seen) + KN_BOX, \
+        "he never fell far enough for this to be about the lava"
 
 
 def test_the_fall_dissolves_the_picture_before_it_gives_him_back(tmp_path):
