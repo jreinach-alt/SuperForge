@@ -126,6 +126,22 @@ SMT_MOS_BG2 = 1 << 1
 ; out of the same offset word the PPU displaced that column by, fallback
 ; included. So the surface that kills him is the surface that is drawn, it
 ; MOVES, and a jet at its peak reaches up and takes him early.
+;
+; AND HE GOES IN RATHER THAN STOPPING AT IT. Contact is not the event; being
+; UNDER is. He keeps falling with the lava drawn behind him until his highest
+; drawn pixel (SMT_KN_TOP, measured off the art) is below the crust line, and
+; only then does the sprite leave. Killing him on contact made the whole thing
+; one frame long — the melt's own bubbling had no time to be seen at all.
+
+; HOW LONG THE MELT KEEPS HIM BEFORE THE WIPE, in PHASE units.
+;
+; Three seconds, and the arithmetic is the definition of the unit rather than a
+; frame count: SMT_PHASE_BASE is phases per NTSC frame in 8.8, so 3 * 60 of
+; them is three seconds' worth of phase. The counter is then decremented by the
+; SCALED phase step the rest of the rail runs on (US_TSC), which is what makes
+; it three real seconds in both regions without a second clock — the same
+; property the animations get, for the same reason.
+SMT_SINK_HOLD = (3 * 60 * SMT_PHASE_BASE) / 256
 
 ; Where he starts. Plate 0's own column, so the spawn is a plate rather than a
 ; coordinate, and moving the plates moves the spawn with them.

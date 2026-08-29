@@ -105,6 +105,17 @@ bytes = 2                # which plate it stands on, or SMT_KN_AIRBORNE
 name = "smt_kn_face"
 bytes = 2                # 0 right, 1 left — an OAM H-flip, not a second sheet
 
+# HOW LONG THE MELT HAS HELD HIM. Zero while he is alive and drawn; set to
+# SMT_SINK_HOLD the frame his highest drawn pixel goes under the crust line,
+# and counted down by the SAME scaled phase step the animations run on, so the
+# hold is three real seconds in either region and there is no second clock.
+# It saturates at 1 rather than reaching 0: 1 means "under, and the wipe is
+# already armed", which is what keeps him hidden from the arm to the respawn.
+# `smt_kn_respawn` clears it.
+[[claims.dp]]
+name = "smt_kn_sink"
+bytes = 2
+
 # C4 (docs/09 §2.1): OBSEL $2101, written at scene enter.
 #
 # Bits 0-2 are the OBJ name base in 8K-word steps and bits 5-7 the size pair;

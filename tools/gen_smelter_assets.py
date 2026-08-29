@@ -913,8 +913,24 @@ def content_bottom(rows):
     raise AssertionError("an entirely transparent knight frame")
 
 
+def content_top(rows):
+    """The FIRST row of a frame with any opaque pixel in it.
+
+    The sibling of `content_bottom`, and measured for the same reason: the
+    melt now hides him when he is FULLY SUBMERGED, which is a statement about
+    his highest drawn pixel and not about the top of his 32 px cell. Arthur's
+    frames carry transparent rows above the helmet, so taking the cell's edge
+    would despawn him several rows late — visibly late, because the frame he
+    is still drawn in is the one under the lava.
+    """
+    for y in range(len(rows)):
+        if any(rows[y]):
+            return y
+    raise AssertionError("an entirely transparent knight frame")
+
+
 def knight_sheet():
-    """The knight's frames -> (CHR blob, 16 palette words, content bottom).
+    """The knight's frames -> (CHR blob, 16 palette words, content top/bottom).
 
     ONE PALETTE OVER THE WHOLE SET, built from the union of every chosen
     cell's opaque colours — the pack's README measures Arthur at 8, so this is
@@ -939,10 +955,14 @@ def knight_sheet():
 
     groups = (KNIGHT_SLOTS + FRAMES_PER_GROUP - 1) // FRAMES_PER_GROUP
     blob = bytearray(groups * 64 * 32)
-    bottom = 0
+    bottom, top = 0, FRAME_BOX
     for slot, cell in enumerate(cells):
         rows = index_frame(cell, c2i)
         bottom = max(bottom, content_bottom(rows))
+        # the SMALLEST top over the set, for the same reason bottom is the
+        # largest: whichever frame is on screen, no drawn pixel is outside
+        # [top, bottom)
+        top = min(top, content_top(rows))
         base = slot_base_tile(slot)
         for ty in range(FRAME_BOX // 8):
             for tx in range(FRAME_BOX // 8):
@@ -950,7 +970,7 @@ def knight_sheet():
                         for r in rows[ty * 8:(ty + 1) * 8]]
                 ti = base + ty * 16 + tx
                 blob[ti * 32:(ti + 1) * 32] = encode_4bpp(tile, f"knight{slot}")
-    return bytes(blob), words, bottom, len(allc)
+    return bytes(blob), words, top, bottom, len(allc)
 
 
 def anim_tables():
@@ -1038,6 +1058,10 @@ SMT_PAL_MELT_OFF  = 32     ; the melt group's byte offset in smt_pal.bin
 ; --- the knight (vendor/art/camelot, CC0) ----------------------------------
 SMT_KN_BOX        = {kbox}     ; the pack's cell AND the OBJ box: no crop, no
                              ;   re-centre -- see the generator
+SMT_KN_TOP        = {ktop}      ; MEASURED: the FIRST row of any frame with an
+                             ;   opaque pixel. What "fully submerged" means:
+                             ;   the melt hides him when THIS row is under the
+                             ;   crust line, not when his cell's edge is
 SMT_KN_BOTTOM     = {kbot}     ; MEASURED: the last row of a frame with any
                              ;   opaque pixel in it. The pack frames every cell
                              ;   with four transparent rows under the feet, and
@@ -1141,7 +1165,7 @@ def main(argv):
         encode_words(PAL_PLATE + PAL_MELT, "smt_pal", 32))
     (out / "smt_hrow.bin").write_bytes(h_row())
 
-    kchr, kpal, kbottom, kcolours = knight_sheet()
+    kchr, kpal, ktop, kbottom, kcolours = knight_sheet()
     (out / "smt_obj.bin").write_bytes(kchr)
     (out / "smt_obj_pal.bin").write_bytes(
         encode_words(kpal, "smt_obj_pal", 16))
@@ -1170,7 +1194,7 @@ def main(argv):
             for i in range(len(SLOT_FREQ))),
         crow=CRUST_MAP_ROW, ctop=CRUST_TOP_PX, mbase=MELT_BASE, mamp=MELT_AMP,
         vbg2=MELT_BASE,
-        kbox=FRAME_BOX, kbot=kbottom, kslots=KNIGHT_SLOTS,
+        kbox=FRAME_BOX, ktop=ktop, kbot=kbottom, kslots=KNIGHT_SLOTS,
         kstates=len(KNIGHT_ANIM), kstride=ANIM_STRIDE,
         kmetaoff=len(kframes),
         manimf=MELT_ANIM_FRAMES, manimt=MELT_ANIM_TILES,

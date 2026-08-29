@@ -215,23 +215,23 @@ tick:
     .a16                            ;   hides it — TM bit or an OAM park)
     .i16
     jsr smt_kn_tick
-    ; ...AND THE QUERY AGAIN, because the tick is what arms it. The frame he
-    ; goes into the lava, `smt_kn_tick` arms the wipe — and asking BEFORE the
-    ; tick had already answered "alive", so he was drawn once more, one pixel
-    ; inside the drawn melt. One frame at 60 Hz is not something a player sees,
-    ; but it is something a case that reads the rendered frame sees, and it is
-    ; the frame the whole feature is about. Two calls, thirty cycles, and he is
-    ; never drawn inside the metal.
-    sep #$20
-    .a8
-    jsr mosaic_active
-    rep #$20
-    .a16
-    bne @drowned_this_frame
+    ; ...AND THE QUERY AFTER IT, because the tick is what decides. Asking only
+    ; before it meant that on the frame his crown went under, the answer was
+    ; still "alive" and he was staged one more time — one frame at 60 Hz, which
+    ; a player does not see and a case reading the rendered frame does. Two
+    ; calls, thirty cycles.
+    ;
+    ; smt_kn_hidden covers MORE than the wipe: it is also the three seconds the
+    ; melt holds him under before the wipe is armed at all. During those the
+    ; foundry runs exactly as normal — the plates keep their harmonics, the
+    ; lava keeps boiling over the spot he went in — and the only difference is
+    ; that no OAM entry is staged.
+    jsr smt_kn_hidden
+    bne @knight_hidden
     jsr smt_kn_camera
     jsr smt_kn_draw
     bra @knight_done
-@drowned_this_frame:
+@knight_hidden:
     .a16
     .i16
     jsr oam_park_all

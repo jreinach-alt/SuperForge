@@ -409,7 +409,7 @@ mode = 1                 # PLANT: a mode with no offset path""",
           artifact=ROM,
           build=["smelter"],
           tests=[
-              T + "test_he_is_never_drawn_below_the_lava_he_falls_into",
+              T + "test_he_sinks_into_the_lava_and_leaves_only_once_he_is_under",
           ],
           why="THE SURFACE THE COLLISION READS, moved away from the surface "
               "the PPU draws — which is the whole failure mode `smt_melt_top` "
@@ -424,6 +424,44 @@ mode = 1                 # PLANT: a mode with no offset path""",
               "case this names is the only one that joins his drawn pixels to "
               "the melt's drawn surface in the same frame, which is the only "
               "place the two can be shown to be the same number."),
+
+    Plant(id="the-melt-takes-him-on-contact",
+          file=OBJ,
+          old="""    sbc #SMT_KN_TOP                 ; ...the lowest top edge still showing him""",
+          new="""    sbc #SMT_KN_BOTTOM              ; PLANT: his FEET — contact, not under""",
+          artifact=ROM,
+          build=["smelter"],
+          tests=[
+              T + "test_he_sinks_into_the_lava_and_leaves_only_once_he_is_under",
+          ],
+          why="THE FIRST VERSION OF THIS FEATURE, restored, and it is a "
+              "PLAUSIBLE picture — he touches the lava and dies, which is what "
+              "most games do. What it costs is the whole point of the melt "
+              "having an animation: the death becomes one frame long, he never "
+              "descends into anything, and the three-second hold has nothing "
+              "to show. One constant apart from the shipped version, and the "
+              "case that separates them is the one asserting he had pixels "
+              "BELOW the surface before he left."),
+
+    Plant(id="the-hold-is-counted-in-frames",
+          file=OBJ,
+          old="""    sbc z:US_TSC""",
+          new="""    dec a                           ; PLANT: one per FRAME, not per tick""",
+          artifact=ROM,
+          build=["smelter"],
+          tests=[
+              T + "test_the_melt_holds_him_under_before_it_wipes",
+          ],
+          why="the frame-assumption class the `tick-check` lint exists for "
+              "(docs/96), planted where the lint cannot see it: a decrement is "
+              "not a frame COUNT and reads as ordinary arithmetic. Counting the "
+              "hold in frames instead of in the scaled phase step makes it "
+              "67 frames rather than 179 — a bit over one second instead of "
+              "three, which looks like a design choice and not a defect — and "
+              "on PAL it would be a different duration again, which is exactly "
+              "what expressing it in the scaled unit buys. The case this names "
+              "derives the expected length from the rail's own constants, so "
+              "it fails on the RATIO rather than on a number typed twice."),
 ]
 
 

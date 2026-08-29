@@ -163,6 +163,12 @@ smt_kn_arm:
     sta z:ES_SMT_KN_X
     stz z:ES_SMT_KN_VY
     stz z:ES_SMT_KN_FACE
+    stz z:ES_SMT_KN_SINK            ; ...and he is not in the melt. THE UNINIT
+                                    ;   DETECTOR CAUGHT THIS ONE: random DP
+                                    ;   made `smt_kn_hidden` answer "hidden" at
+                                    ;   boot and the knight never appeared at
+                                    ;   all — a state whose ZERO is the normal
+                                    ;   case still has to be written
     lda #SMT_KN_SPAWN_PLATE
     sta z:ES_SMT_KN_PLATE
     jsr smt_kn_ride                 ; ...and put him on it before frame 0
@@ -213,6 +219,8 @@ smt_kn_ride:
 ;   exit:     A16 I16
 ;   in:       US_TSKR — this frame's run step in WHOLE px (a TS_STEP output)
 ;             US_TSKG — this frame's gravity step in WHOLE 8.8 counts
+;             US_TSC — this frame's PHASE step, the unit the melt's hold is
+;             counted in (the same TS_STEP output smt_advance consumes)
 ;             US_VMAX / US_VJUMP — the region-selected terminal fall and
 ;             take-off velocities, chosen once at enter
 ;   out:      the knight's position, velocity, facing and plate advanced
@@ -229,6 +237,21 @@ smt_kn_tick:
     .a16
     .i16
     SF_ASSERT_WIDTH 16, 16, "smt_kn_tick"
+    ; ---- under the melt? then the hold is the ONLY thing that ticks --------
+    ; Not an optimisation — a correctness fix the emulator found. Leaving the
+    ; physics running under the lava kept integrating a fall nothing stops, and
+    ; ~256 rows down his 9.7 Y goes negative; the submersion test reads the sign
+    ; first, took him for "above the screen", and stopped reaching the hold at
+    ; all. The counter froze mid-count and the wipe never came.
+    ;
+    ; He is not a body falling through metal. He is gone, and what is left to
+    ; run is the clock.
+    lda z:ES_SMT_KN_SINK
+    beq @above
+    jmp smt_kn_hold
+@above:
+    .a16
+    .i16
     ; ---- horizontal: the run, and the facing it sets ----------------------
     lda z:ES_INP_CUR
     and #JOY_LEFT
@@ -336,8 +359,15 @@ smt_kn_tick:
     ; and the first build proved it: at row 236 this test read negative, skipped
     ; the kill, and let him wrap round to the top of the screen. 9.7 spans
     ; -256..+255 whole rows, so the sign means what it says at both ends.
+    ; NAMED, NOT ANONYMOUS. This branch used to be `bmi :+` onto the `:` at the
+    ; routine's tail, and adding an anonymous label to the sinking logic below
+    ; silently RE-AIMED it into the middle of that logic — ca65 resolves `:+`
+    ; to the nearest forward one and says nothing. The only reason it did not
+    ; ship is the "No reference to unnamed label" warning on the orphan it left
+    ; behind. An anonymous label is a local convenience; a branch that skips a
+    ; whole state machine is not local.
     lda z:ES_SMT_KN_Y
-    bmi :+
+    bmi @alive
     SMT_KN_TO_ROW
     sta z:ES_SMT_SCRATCH + 4        ; his top edge, as a picture row. + 4 and
                                     ;   not + 0: smt_melt_top below uses + 0
@@ -356,9 +386,17 @@ smt_kn_tick:
     ;
     ; His CENTRE column, because he is 32 px wide and four columns is a range
     ; the surface can differ across; the middle is the one a player reads as
-    ; "where he is". The contact test is his FEET (SMT_KN_BOTTOM — the art's own
-    ; last drawn row, not the box), so he dies the moment he touches it and is
-    ; never drawn below it.
+    ; "where he is".
+    ;
+    ; THE TEST IS HIS HIGHEST DRAWN PIXEL, NOT HIS FEET, and that is the whole
+    ; difference between falling into lava and stopping on top of it. Contact
+    ; used to be the event: he touched the crust line and vanished in the same
+    ; frame, which made the death one frame long and gave the melt's own
+    ; bubbling no time to be seen. He goes IN now — the lava is drawn behind
+    ; him the whole way — and the sprite only leaves once SMT_KN_TOP (the art's
+    ; own first drawn row, measured per build) is under the surface, which is
+    ; what "fully submerged" means for a frame with transparent rows above the
+    ; helmet.
     lda z:ES_SMT_KN_X
     clc
     adc #(SMT_KN_BOX / 2)
@@ -368,40 +406,117 @@ smt_kn_tick:
     tax
     jsr smt_melt_top                ; A = the lava's surface, this frame
     sec
-    sbc #SMT_KN_BOTTOM              ; ...the highest top edge that still floats
+    sbc #SMT_KN_TOP                 ; ...the lowest top edge still showing him
     cmp z:ES_SMT_SCRATCH + 4
-    beq @drowned
-    bcs @alive                      ; surface - feet > his top: still above it
-@drowned:
+    beq @under
+    bcs @alive                      ; surface - his crown > his top: still up
+@under:
     .a16
     .i16
-    ; ---- he is in the lava: arm the wipe, do not teleport him --------------
-    ; The respawn used to happen HERE, in one frame, which read as the knight
-    ; blinking from the bottom of the screen to the spawn with nothing in
-    ; between. It is now the mosaic's swap callback, fired at peak black, so
-    ; the fall, the dissolve, the move and the return are one legible event.
+    ; ---- he is under: hold, and only then wipe -----------------------------
+    ; THE HOLD IS THE POINT OF THIS BRANCH. He is gone from the picture and the
+    ; melt has him; what the player watches for the next three seconds is the
+    ; lava boiling over the place he went in, which is the rail's own CHR
+    ; animation doing the work a death effect would otherwise need art for.
+    ; Arming the wipe on contact skipped all of it.
     ;
-    ; ARMED ONCE. mosaic_arm is idempotent in the wrong direction — calling it
-    ; every frame would restart the OUT phase and the wipe would never reach
-    ; its swap — and he keeps falling while it runs, so the guard is the query
-    ; rather than a flag of our own.
-    sep #$20
-    .a8
-    jsr mosaic_active
-    bne @armed
-    lda #(SMT_MOS_BG1 | SMT_MOS_BG2) ; both drawn layers dissolve
-    ldx #.loword(smt_kn_respawn)
-    jsr mosaic_arm
-@armed:
-    .a8
-    .i16
-    rep #$20
-    .a16
+    ; This branch runs ONCE, on the frame his crown goes under: it starts the
+    ; hold and stops him. Every frame after it, the head of this routine has
+    ; already jumped to `smt_kn_hold` and none of the physics above ran.
+    lda #SMT_SINK_HOLD
+    sta z:ES_SMT_KN_SINK
+    stz z:ES_SMT_KN_VY              ; the melt has him; nothing is falling
 @alive:
     .a16
     .i16
-:   .a16
+    rts
+
+; --- smt_kn_hold: the three seconds the melt keeps him ---------------------
+; CONTRACT smt_kn_hold
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       ES_SMT_KN_SINK — non-zero, the hold remaining in PHASE units
+;             US_TSC — this frame's scaled phase step
+;   out:      the hold advanced, and the wipe armed on the frame it is spent
+;   clobbers: A, X, N, Z, C
+;   assumes:  the main thread, reached only from smt_kn_tick's head
+;   tail:     rts
+;
+; COUNTED IN SCALED PHASE, NOT FRAMES. US_TSC is the same whole-unit step the
+; animations and the physics run on, so three seconds' worth of phase is three
+; real seconds in either region and this needs no clock of its own — the same
+; property the CHR swap and the palette cycle get, for the same reason.
+;
+; IT SATURATES AT 1 RATHER THAN REACHING 0, because 1 has to keep meaning
+; "under": the frames between arming the wipe and the respawn are still frames
+; he must not be staged in, and `smt_kn_hidden` is a test of this word.
+;
+; TICK: ok -- the hold is spent in US_TSC units, which the scaler already
+;   expressed against the declared tick. Nothing here counts frames.
+smt_kn_hold:
+    .a16
     .i16
+    SF_ASSERT_WIDTH 16, 16, "smt_kn_hold"
+    lda z:ES_SMT_KN_SINK
+    cmp #1
+    beq @done                       ; already armed; hold him hidden
+    sec
+    sbc z:US_TSC
+    cmp #1
+    bcs @floor
+    lda #1                          ; ...saturate, never reach 0
+@floor:
+    .a16
+    .i16
+    sta z:ES_SMT_KN_SINK
+    cmp #1
+    bne @done                       ; still boiling
+    ; ---- the hold is spent: arm the wipe, do not teleport him --------------
+    ; The respawn used to happen in ONE FRAME, which read as the knight
+    ; blinking from the bottom of the screen to the spawn with nothing in
+    ; between. It is the mosaic's swap callback, fired at peak black, so the
+    ; fall, the boil, the dissolve, the move and the return are one event.
+    ;
+    ; ARMED ONCE, and the saturation above is what guarantees it: this line is
+    ; reached on the single frame the counter arrives at 1. mosaic_arm is
+    ; idempotent in the wrong direction — calling it every frame would restart
+    ; the OUT phase and the wipe would never reach its swap.
+    sep #$20
+    .a8
+    lda #(SMT_MOS_BG1 | SMT_MOS_BG2) ; both drawn layers dissolve
+    ldx #.loword(smt_kn_respawn)
+    jsr mosaic_arm
+    rep #$20
+    .a16
+@done:
+    .a16
+    .i16
+    rts
+
+; --- smt_kn_hidden: may he be drawn this frame? ----------------------------
+; CONTRACT smt_kn_hidden
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      A = the hold word, Z SET when he may be drawn — the flag IS the
+;             answer, so the caller branches on it directly, the shape
+;             `mosaic_active` uses
+;   clobbers: A, N, Z
+;   assumes:  called AFTER smt_kn_tick, because the tick is what decides
+;   tail:     rts
+;
+; A QUERY AND NOT A FLAG THE SCENE KEEPS, shaped like `mosaic_active` for the
+; same reason: the state lives with the thing that owns it, and a scene that
+; kept its own copy would have two places to get the death out of step.
+;
+; The frames this answers "no" for are the ones between his crown going under
+; the crust line and the respawn — the three-second hold plus the wipe. He is
+; not moved, frozen or reset during them; he is simply not staged into OAM, and
+; the melt boiling over the place he went in is the whole picture.
+smt_kn_hidden:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "smt_kn_hidden"
+    lda z:ES_SMT_KN_SINK
     rts
 
 ; --- smt_kn_respawn: the mosaic's swap callback, at peak black --------------
@@ -430,6 +545,7 @@ smt_kn_respawn:
     lda #(SMT_PLAT_SPAWN_COL * 8)
     sta z:ES_SMT_KN_X
     stz z:ES_SMT_KN_VY
+    stz z:ES_SMT_KN_SINK            ; ...he is out of the melt, and drawable
     stz z:ES_SMT_CAM                ; ...and the camera with him, or the IN
     stz z:ES_SMT_CAM_SHOWN          ;   phase opens on the wrong screen
     jsr smt_kn_ride

@@ -818,7 +818,7 @@ Generated from the tree by `tools/gen_register.py`; `make register` fails when t
 | `sky_band` | **feature** | scene | `vram`&times;2, `cgram`, `rom`&times;3, `dma_init`, `reg` | &mdash; |
 | `smt_bg` | **feature** | unused | `vram`&times;3, `cgram`&times;2, `dma_init`, `reg`, `screen`&times;2 | `smt_rom` |
 | `smt_flat` | **feature** | unused | `reg`, `screen` | &mdash; |
-| `smt_obj` | **consumer** | unused | `vram`, `cgram`, `oam`, `dp`&times;5, `dma_init`, `reg`, `screen` | `oam_sprites`, `smt_rom` |
+| `smt_obj` | **consumer** | unused | `vram`, `cgram`, `oam`, `dp`&times;6, `dma_init`, `reg`, `screen` | `oam_sprites`, `smt_rom` |
 | `smt_opt` | **feature** | unused | `vram`, `dp`&times;6, `hdma`, `reg`, `dma` | `smt_rom` |
 | `smt_rom` | **blob** | unused | `rom`&times;11 | &mdash; |
 | `split_band` | **feature** | scene | `hdma`&times;2, `reg` | &mdash; |

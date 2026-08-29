@@ -98,6 +98,39 @@ def _art(key):
     raise KeyError(f"{key} is not in smt_art.inc")
 
 
+def _rail(key):
+    """One equate out of the HAND-WRITTEN game/smelter/smelter.inc.
+
+    `_art` reads the generated file; this reads the rail's own, where the
+    constants a person chose live — and they are expressions rather than
+    literals there (`SMT_SINK_HOLD = (3 * 60 * SMT_PHASE_BASE) / 256`), which
+    is the point: the value is derived from the unit it is expressed in. So
+    this resolves earlier equates in the same file and evaluates, rather than
+    matching an integer.
+
+    READ, NOT RETYPED, for the same reason `_art` is. A hold asserted against a
+    number typed here would keep passing after somebody shortened the hold.
+    """
+    env, want = {}, None
+    for line in (SUPERFORGE / "game" / "smelter" / "smelter.inc").read_text().splitlines():
+        head, eq, rest = line.partition("=")
+        name = head.strip()
+        if not eq or not name.isidentifier():
+            continue
+        expr = rest.split(";")[0].strip().replace("$", "0x")
+        if not expr or not all(c.isalnum() or c in " _()+-*/<>|&$" for c in expr):
+            continue
+        try:
+            env[name] = eval(expr, {"__builtins__": {}}, dict(env))   # noqa: S307
+        except Exception:
+            continue
+        if name == key:
+            want = env[name]
+    if want is None:
+        raise KeyError(f"{key} is not a resolvable equate in smelter.inc")
+    return int(want)
+
+
 COLS = _art("SMT_COLS")
 PHASES = _art("SMT_PHASES")
 FLAT_ROW = _art("SMT_FLAT_INDEX")
@@ -1472,16 +1505,35 @@ def test_walking_off_the_span_drops_him_and_the_world_gives_him_back(tmp_path):
     Each is now the statement the rail actually makes, and none of them depends
     on how far he falls.
     """
+    # TWO CADENCES, and the reason is the three-second hold. Walking off and
+    # going under takes about 35 frames; the hold and the wipe take another
+    # 210. One spacing cannot see both — coarse enough to reach the return
+    # steps over the fall entirely. So: every other frame until he is gone,
+    # then every tenth until he is riding again.
     span = _art("SMT_PLAT_WIDTH") * 8
-    pal, shots = _hold(tmp_path, {"right": True}, 20, 4)
-    start = shots[0][1]
-    seen, last_u = [], None
-    for im, kn_x, cam in shots:
-        box = _knight(im, pal)
-        u = _under(im, pal, kn_x, cam)
-        if u is not None:
-            last_u = u
-        seen.append((kn_x, None if box is None else box[3] + 1, u, last_u))
+    seen, last_u, start = [], None, None
+    with Machine(str(ROM)) as m:
+        m.advance(TITLE)
+        m.advance(1, pad1=JOY_START)
+        m.advance(SETTLE)
+        pal = _palette(m)
+        every, gone = 2, False
+        for k in range(60):
+            kn_x = m.read_u16(W, DP_KN_X)
+            cam = m.read_u16(W, DP_CAM_SHOWN)
+            p = tmp_path / f"cyc{k}.png"
+            m.screenshot(str(p))
+            im = Image.open(p).convert("RGB")
+            if start is None:
+                start = kn_x
+            box = _knight(im, pal)
+            u = _under(im, pal, kn_x, cam)
+            if u is not None:
+                last_u = u
+            seen.append((kn_x, None if box is None else box[3] + 1, u, last_u))
+            if box is None and not gone:
+                gone, every = True, 10
+            m.advance(every - 1, pad1={"right": True})
 
     riding = [i for i, (_x, f, u, _l) in enumerate(seen)
               if u is not None and f == u]
@@ -1511,35 +1563,44 @@ def test_walking_off_the_span_drops_him_and_the_world_gives_him_back(tmp_path):
         f"he came back at x={seen[back[0]][0]}, not on the spawn plate"
 
 
-def test_he_is_never_drawn_below_the_lava_he_falls_into(tmp_path):
+def test_he_sinks_into_the_lava_and_leaves_only_once_he_is_under(tmp_path):
     """WHAT THE LAVA IS, asserted — and it used to be nothing.
 
     He fell to a fixed screen row near the bottom of the picture and only then
-    died, which meant a player watched a knight drop THROUGH molten metal and
-    off the edge of the world. Every other surface in this rail is a word in
-    the offset table read back by the collision; the lava was a picture the
-    physics did not know about.
+    died, so a player watched a knight drop THROUGH molten metal and off the
+    edge of the world. Every other surface in this rail is a word in the offset
+    table read back by the collision; the lava was a picture the physics did
+    not know about. It is `smt_melt_top` now — the crust line in his own centre
+    column, out of the same word the PPU displaced that column by, with the
+    plate-column fallback in it.
 
-    It is `smt_melt_top` now — the crust line in his own centre column, out of
-    the same word the PPU displaced that column by, with the plate-column
-    fallback in it — and this is the claim that makes it real:
-    **at every frame he is drawn at all, his lowest drawn pixel is above the
-    lava's surface in his column.** His pixels come off the rendered frame; the
-    surface comes off the ROM's row. He must also actually go under during the
-    run, or the assertion is vacuous — a knight who never falls satisfies it.
+    TWO HALVES, AND THE FIRST ONE IS WHY THIS CASE WAS REWRITTEN. Killing him
+    on CONTACT was the first attempt and it was wrong for the picture: the
+    death was one frame long, and the melt's own bubbling — the thing a player
+    is meant to watch — never had time to be seen. So:
 
-    The surface MOVES, which is the interesting half: a jet at its peak reaches
-    up and takes him earlier than the level of the lake would, and the same
-    assertion covers both because it is re-derived every capture.
+      HE GOES IN.   There are frames where his lowest drawn pixel is BELOW the
+                    surface. He is descending into it, with the lava drawn
+                    behind him.
+      HE LEAVES ONLY WHEN UNDER.  There is NO frame where his highest drawn
+                    pixel is below the surface. That is what "fully submerged"
+                    means, and SMT_KN_TOP — the art's own first drawn row,
+                    measured per build — is what makes it a statement about him
+                    rather than about his 32 px cell.
+
+    His pixels come off the rendered frame; the surface comes off the ROM's
+    row, re-derived every capture, because the surface MOVES: a jet at its peak
+    takes him earlier than the level of the lake would.
     """
     base = where(CRUST_PX, _art("SMT_VOFS_BG2"))
+    kn_top = _art("SMT_KN_TOP")
     seen, gone_at = [], None
     with Machine(str(ROM)) as m:
         m.advance(TITLE)
         m.advance(1, pad1=JOY_START)
         m.advance(SETTLE)
         pal = _palette(m)
-        for k in range(24):
+        for k in range(30):
             kn_x = m.read_u16(W, DP_KN_X)
             phase = m.read_u16(W, DP_PHASE)
             cam = m.read_u16(W, DP_CAM_SHOWN)
@@ -1554,18 +1615,96 @@ def test_he_is_never_drawn_below_the_lava_he_falls_into(tmp_path):
             wcol = (kn_x + KN_BOX // 2) >> 3
             w = row(idx)[wcol]
             surface = (where(CRUST_PX, w & VALUE_MASK) if w & BIT_BG2 else base)
-            seen.append((k, box[3], surface))
+            seen.append((k, box[2], box[3], surface))
             m.advance(1, pad1={"right": True})
 
-    for k, bottom, surface in seen:
-        assert bottom < surface, (
-            f"capture {k}: his lowest drawn pixel is at row {bottom} and the "
-            f"lava's surface in his column is at {surface} — he is being drawn "
-            f"inside the melt")
-    assert gone_at is not None, \
-        "he never went under — the assertion above proved nothing"
-    assert max(b for _k, b, _s in seen) > min(b for _k, b, _s in seen) + KN_BOX, \
-        "he never fell far enough for this to be about the lava"
+    assert gone_at is not None, "he never went under"
+    entered = [k for k, _t, b, surf in seen if b > surf]
+    assert entered, (
+        "he never had a pixel below the melt's surface — he is stopping ON the "
+        "lava rather than going into it, and the hold has nothing to show")
+    for k, top, _b, surf in seen:
+        assert top <= surf, (
+            f"capture {k}: his highest drawn pixel is at row {top}, below the "
+            f"lava's surface at {surf} — he is fully submerged and still being "
+            f"drawn")
+    # ...and the frame he left was the one that would have broken the rule
+    assert seen[-1][1] + (seen[-1][2] - seen[-1][1]) >= seen[-1][3] - kn_top, \
+        "he vanished long before he was submerged"
+
+
+def test_the_melt_holds_him_under_before_it_wipes(tmp_path):
+    """THE THREE SECONDS, READ OFF THE PICTURE and not off the counter.
+
+    He goes under and the foundry carries on: the plates keep their harmonics,
+    the wall keeps flowing, and the lava keeps boiling over the place he went
+    in. That hold is the reason the melt's CHR animation is worth having — the
+    first version armed the wipe on contact and the whole death was one frame,
+    with nothing to look at.
+
+    Both edges are picture events. He is gone when no OBJ pixel is in the
+    frame; the wipe has started when no row of the blob explains the frame at
+    any lag, because the mosaic smears the crust lines the table put there. The
+    gap between them is the hold, in emulated frames.
+
+    The expected length is DERIVED, never typed: `SMT_SINK_HOLD` is spent in
+    US_TSC units at `SMT_PHASE_BASE` per frame, both read out of the rail's own
+    .inc. That is what makes this a test of the hold rather than a test of a
+    number somebody wrote in two places.
+
+    AND A HOLD IS NOT A PAUSE, which is the half worth asserting explicitly
+    because it is the half a reasonable implementation gets wrong. Only the
+    KNIGHT stops. Across the hold the melt's CHR must take more than one value
+    in VRAM — the bubbles are rising, which is the whole reason to hold at all
+    — and the row of the blob that explains the picture must change, because
+    the plates are still on their harmonics. A hold that froze the foundry
+    would satisfy the length assertion above and show a still frame for three
+    seconds.
+    """
+    every = 6
+    expected = _rail("SMT_SINK_HOLD") * 256 / _rail("SMT_PHASE_BASE")
+    gone_at, wipe_at, caps = None, None, []
+    chr_seen, rows_seen = [], []
+    with Machine(str(ROM)) as m:
+        m.advance(TITLE)
+        m.advance(1, pad1=JOY_START)
+        m.advance(SETTLE)
+        pal = _palette(m)
+        for k in range(48):
+            phase = m.read_u16(W, DP_PHASE)
+            cam = m.read_u16(W, DP_CAM_SHOWN)
+            melt = _vram_chr(m)
+            p = tmp_path / f"hold{k}.png"
+            m.screenshot(str(p))
+            im = Image.open(p).convert("RGB")
+            here = _knight(im, pal)
+            bad, _lag, idx = _fit(im, pal, phase, cam)[0]
+            caps.append((k, here is not None, bad))
+            if gone_at is not None:
+                chr_seen.append(melt)
+                rows_seen.append(idx)
+            if gone_at is None and here is None:
+                gone_at = k
+            elif gone_at is not None and bad >= 6:
+                wipe_at = k
+                break
+            m.advance(every - 1, pad1={"right": True})
+
+    assert gone_at is not None, f"he never left the picture: {caps}"
+    assert wipe_at is not None, f"the wipe never started: {caps}"
+    held = (wipe_at - gone_at) * every
+    assert abs(held - expected) <= 2 * every, (
+        f"the melt held him for about {held} frames and the rail's own "
+        f"constants say {expected:.0f} — the hold is not being spent in the "
+        f"unit it is written in")
+
+    # ...and the foundry ran the whole time
+    assert len({bytes(c) for c in chr_seen}) > 1, (
+        "the melt's CHR never changed across the hold — the bubbles are not "
+        "animating, so three seconds of holding shows a still frame")
+    assert len(set(rows_seen)) > 1, (
+        "one row of the blob explains every frame of the hold — the plates "
+        "stopped, so the hold froze the world instead of only the knight")
 
 
 def test_the_fall_dissolves_the_picture_before_it_gives_him_back(tmp_path):
@@ -1585,7 +1724,7 @@ def test_the_fall_dissolves_the_picture_before_it_gives_him_back(tmp_path):
     go, a row explains it exactly again. A cut has no such run — every one of
     its frames is explained — which is precisely the difference this measures.
 
-    Measured on the shipped binary: fourteen consecutive captures at 6-15
+    Measured on the shipped binary: a contiguous run of captures at 6-15
     unexplained columns, bracketed on both sides by exact fits.
     """
     caps = []
@@ -1594,21 +1733,26 @@ def test_the_fall_dissolves_the_picture_before_it_gives_him_back(tmp_path):
         m.advance(1, pad1=JOY_START)
         m.advance(SETTLE)
         pal = _palette(m)
-        for k in range(48):
+        # FOUR FRAMES A CAPTURE, NINETY OF THEM. The wipe used to start on the
+        # frame he touched the lava; the melt holds him under for three seconds
+        # first now, so the run has to reach ~250 frames to see it at all and
+        # the cadence pays for that. The wipe itself is ~34 frames, so it is
+        # still 8 captures wide at this spacing.
+        for k in range(90):
             phase = m.read_u16(W, DP_PHASE)
             cam = m.read_u16(W, DP_CAM_SHOWN)
             p = tmp_path / f"die{k}.png"
             m.screenshot(str(p))
             im = Image.open(p).convert("RGB")
             caps.append(_fit(im, pal, phase, cam)[0][0])
-            m.advance(1, pad1={"right": True})
+            m.advance(3, pad1={"right": True})
 
     # the longest run of captures no row of the blob explains
     best = run = 0
     for bad in caps:
         run = run + 1 if bad >= 6 else 0
         best = max(best, run)
-    assert best >= 8, (
+    assert best >= 5, (
         f"the picture stayed explicable throughout — the fall is a cut, not a "
         f"dissolve. Per-capture unexplained columns: {caps}")
     assert caps[0] == 0 and caps[-1] == 0, (

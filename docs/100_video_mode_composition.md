@@ -648,15 +648,52 @@ What it buys beyond correctness: the surface MOVES, so a jet at its peak reaches
 up and takes him earlier than the level of the lake would. That is the mechanism
 being honest rather than a difficulty knob, and it is the same word doing it.
 
-The assertion is `test_he_is_never_drawn_below_the_lava_he_falls_into`: at every
-frame he is drawn at all, his lowest drawn pixel is above the melt's surface in
-his own centre column — his pixels off the rendered frame, the surface off the
-ROM's row, re-derived every capture. It cost one more thing to make true. The
-scene asked `mosaic_active` BEFORE ticking him, and the tick is what arms the
-wipe, so on the frame he drowned the answer was still "alive" and he was drawn
-once more, one pixel inside the drawn melt. Two calls and thirty cycles: ask
-again after the tick. One frame at 60 Hz is not something a player sees, and it
-is exactly what a case reading the rendered frame sees.
+**KILLING HIM ON CONTACT WAS THE FIRST ATTEMPT AND IT WAS WRONG FOR THE
+PICTURE.** He touched the crust line and vanished in the same frame, which made
+the death one frame long — and the melt's own bubbling, the thing the player is
+meant to watch, never had time to be seen at all. He goes IN now: the lava is
+drawn behind him the whole way down, and the sprite leaves only once his highest
+drawn pixel is under the surface. That is `SMT_KN_TOP`, measured off the art per
+build like `SMT_KN_BOTTOM` beside it, because "fully submerged" is a statement
+about his pixels and not about his 32 px cell — Arthur's frames carry eleven
+transparent rows above the helmet, and taking the cell's edge would despawn him
+visibly late, in the frames that are under the lava.
+
+Then **the melt holds him for three seconds before the wipe**, and a hold is not
+a pause: only the knight stops. The plates keep their harmonics, the wall keeps
+flowing, and the lava keeps boiling over the place he went in — which is the
+whole reason the CHR animation is worth having. The hold is counted in
+`US_TSC`, the same scaled phase step the animations and the physics consume,
+so `SMT_SINK_HOLD = (3 * 60 * SMT_PHASE_BASE) / 256` is three real seconds in
+either region with no clock of its own. It saturates at 1 rather than reaching
+0, because 1 has to keep meaning "under" through the wipe.
+
+Two assertions, both off the picture:
+
+- `test_he_sinks_into_the_lava_and_leaves_only_once_he_is_under` — there ARE
+  frames with his pixels below the surface (he is going in), and there is NO
+  frame with his highest pixel below it (he left when submerged). His pixels
+  off the rendered frame, the surface off the ROM's row, re-derived every
+  capture because the surface moves.
+- `test_the_melt_holds_him_under_before_it_wipes` — the gap between "no OBJ
+  pixel in the frame" and "no row of the blob explains the frame" is the hold,
+  in emulated frames, against a length derived from the rail's own `.inc`. And
+  across that gap the melt's CHR must take more than one value and the row that
+  explains the picture must change, so a hold that froze the foundry fails it.
+
+Three things cost more than they looked. The scene asked `mosaic_active` BEFORE
+ticking him and the tick is what decides, so on the frame he went under the
+answer was still "alive" and he was staged one more time — one frame at 60 Hz,
+invisible to a player and exactly what a case reading the frame sees; two calls
+and thirty cycles fixed it. Leaving the physics running under the melt kept
+integrating a fall nothing stops, and ~256 rows down his 9.7 Y goes negative,
+so the submersion test read the sign first, took him for "above the screen", and
+stopped reaching the hold at all — the counter froze mid-count and the wipe
+never came, which is why being under short-circuits the whole tick. And the new
+`smt_kn_sink` claim is DP, so it is random at power-on: unwritten, it read
+non-zero and the knight never appeared at boot. **A state whose zero is the
+normal case still has to be written** — the uninitialised-read detector named
+the two bytes.
 
 **AND THREE ASSERTIONS IN THE STATE-CYCLE CASE WERE TRUE FOR THE WRONG REASON**,
 which shortening the fall is what exposed. All three leaned on him drifting
