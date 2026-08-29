@@ -21,7 +21,7 @@ depends = ["mil_rom"]
 name = "mil_chr1"
 kind = "chr"
 layers = ["bg1"]
-tiles = 256
+tiles = 320
 tile_bytes = 64
 
 [[claims.vram]]
@@ -39,6 +39,14 @@ tile_bytes = 16
 # which (docs/100).
 [[claims.vram]]
 name = "mil_map1"
+kind = "tilemap"
+words = 0x800
+shape = "32x64"
+
+# The lobby's map. Same shape as the hall's so BG1SC's size bits do not change
+# across the edge — only its base does.
+[[claims.vram]]
+name = "mil_lobby"
 kind = "tilemap"
 words = 0x800
 shape = "32x64"

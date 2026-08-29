@@ -16,7 +16,7 @@ bytes = 8256             # 128 phases + the flat control, x 32 words
 
 [[claims.rom]]
 name = "mil_chr1"
-bytes = 16384            # 256 tiles x 64 B. EIGHT bpp: a tile is 64 bytes, not
+bytes = 20480            # 320 tiles x 64 B. EIGHT bpp: a tile is 64 bytes, not
                          # 32, which is the whole reason O9 exists
 
 [[claims.rom]]
@@ -42,8 +42,15 @@ bytes = 208              # BG1's 96-word ramp set, then BG2's two groups
 # ---- the rider ------------------------------------------------------------
 [[claims.rom]]
 name = "mil_obj"
-bytes = 2048             # 2 cells x 16 tiles x 32 B, padded to one grid group
+bytes = 8192             # 16 slots x 16 tiles x 32 B — ten rider cells and the
+                         # lift leaf, in one blob and one upload
+
+# The lobby's own BG1 tilemap. The CHR page is shared with the hall, so this is
+# the entire cost of a second room.
+[[claims.rom]]
+name = "mil_lobby"
+bytes = 4096             # 32x64 words, the same shape as the hall's
 
 [[claims.rom]]
 name = "mil_obj_pal"
-bytes = 32               # 16 words: OBJ palette 0
+bytes = 64               # 32 words: OBJ palettes 0 (rider) and 1 (leaf)

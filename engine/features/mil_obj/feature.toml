@@ -51,12 +51,21 @@ words = 0x1000          # OBJ IS 4bpp IN EVERY MODE — mode 4's 8bpp belongs to
 # for it anyway; this is the claim that spends it.
 [[claims.cgram]]
 name = "mil_obj_pal"
-words = 16
-at = 128
+words = 32               # TWO OBJ palettes: 0 is the rider, 1 is the lift
+at = 128                 # leaf. Steel in the knight's eight colours would be
+                         # wrong, and an OBJ palette is 16 words whether or not
+                         # a sprite fills it.
 
+# NINE ENTRIES, CLAIMED AS TWELVE. The rider is one; the lobby's two lift bays
+# are two leaves each and a leaf is a STACK of two 32x32 cells, because the
+# opening is 64 px tall and the large size in this rail's OBSEL pair is 64x64 —
+# a box tall enough to cover it in one sprite would be twice as wide as the bay.
+# Twelve because the hi table packs four sprites to a byte and a range that
+# starts and ends on a byte boundary is one this feature can write whole,
+# without a read-modify-write against neighbours it does not own.
 [[claims.oam]]
 name = "mil_rider"
-sprites = 1
+sprites = 12
 at = 0                   # ...and it must start a hi-table byte, because the
                          # size bit for a 32x32 sprite lives there — the ASM
                          # asserts the alignment
@@ -67,6 +76,51 @@ name = "mil_car"
 bytes = 2                # the car's own displacement up the shaft, in pixels.
                          # NOT a phase: the scene drives it, because a cutscene
                          # is a performance and not a turn of an animation.
+
+# --- the lobby's state ------------------------------------------------------
+[[claims.dp]]
+name = "mil_px"
+bytes = 2                # the player's screen X in the lobby. Y is the floor
+                         # and is a constant, so it is not state.
+
+[[claims.dp]]
+name = "mil_face"
+bytes = 2                # 0 = facing right; the OAM H-flip bit otherwise
+
+[[claims.dp]]
+name = "mil_step"
+bytes = 2                # how far he has walked, in pixels — the walk cell is
+                         # indexed by THIS and not by a frame count, so the
+                         # legs move with the ground and the cadence is
+                         # region-correct for nothing
+
+[[claims.dp]]
+name = "mil_door"
+bytes = 4                # one word per bay: a leaf's travel, 0..DOOR_TRAVEL
+
+# --- the ride, across the edge ---------------------------------------------
+# These three are what makes the two scenes one sequence rather than two demos,
+# and they are dp rather than scene state precisely because they have to SURVIVE
+# a switch: the bay he stepped into decides the bay he steps out of.
+[[claims.dp]]
+name = "mil_bay"
+bytes = 2                # which bay the ride uses, as a WORD OFFSET (0 or 2)
+                         # so it indexes mil_door and mil_bay_x directly
+
+[[claims.dp]]
+name = "mil_board"
+bytes = 2                # 0 free · 1 walking in · 2 aboard · 3 alighting.
+                         # The TRAVEL is still the door's animation state; this
+                         # only says which way it is being driven and who is
+                         # holding the controls
+
+[[claims.dp]]
+name = "mil_arrive"
+bytes = 2                # 0 = the lobby is being entered at boot, nonzero =
+                         # the lift just brought him back. Established in MAIN
+                         # before the first enter, because sm_init zeroes
+                         # exactly scene_mgr's own claims and rule 5 says power
+                         # on is random
 
 [[claims.dp]]
 name = "mil_rider_y"

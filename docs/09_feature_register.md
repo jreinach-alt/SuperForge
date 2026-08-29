@@ -744,10 +744,10 @@ Generated from the tree by `tools/gen_register.py`; `make register` fails when t
 | `met_glow` | **feature** | unused | `wram`, `hdma`, `reg` | &mdash; |
 | `met_obj` | **consumer** | unused | `vram`, `cgram`, `oam`&times;4, `dp`, `dma_init`, `reg` | `oam_sprites`, `met_rom` |
 | `met_rom` | **blob** | unused | `rom`&times;7 | &mdash; |
-| `mil_bg` | **feature** | unused | `vram`&times;4, `cgram`&times;2, `dma_init`, `reg`, `screen`&times;2 | `mil_rom` |
-| `mil_obj` | **consumer** | unused | `vram`, `cgram`, `oam`, `dp`&times;2, `dma_init`, `reg`, `screen` | `oam_sprites`, `mil_rom` |
+| `mil_bg` | **feature** | unused | `vram`&times;5, `cgram`&times;2, `dma_init`, `reg`, `screen`&times;2 | `mil_rom` |
+| `mil_obj` | **consumer** | unused | `vram`, `cgram`, `oam`, `dp`&times;9, `dma_init`, `reg`, `screen` | `oam_sprites`, `mil_rom` |
 | `mil_opt` | **feature** | unused | `vram`, `dp`&times;6, `wram`, `hdma`, `reg`, `dma` | `mil_rom` |
-| `mil_rom` | **blob** | unused | `rom`&times;8 | &mdash; |
+| `mil_rom` | **blob** | unused | `rom`&times;9 | &mdash; |
 | `mil_tint` | **feature** | unused | `reg`, `blend` | &mdash; |
 | `mo_floor` | **feature** | unused | `vram`, `cgram`, `dma_init`, `reg` | `mo_rom` |
 | `mo_obj` | **consumer** | unused | `vram`, `cgram`&times;4, `oam`&times;6, `dp`, `wram`, `dma_init`, `reg` | `oam_sprites`, `mo_rom`, `m7_project`, `pool` |

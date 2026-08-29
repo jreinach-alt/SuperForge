@@ -67,5 +67,27 @@ globals = ["scene_mgr", "fade", "input", "region", "tick_scale", "mil_tint",
            "oam_sprites", "mil_obj"]
 
 [[scene]]
+id = "lobby"
+features = []
+
+[[scene]]
 id = "hall"
 features = []
+
+# The ride out and the ride back. Both are FADES: the lift is a cut in the
+# fiction and a fade on the hardware, because every scene here re-establishes
+# BG1SC, BG3's row and all four scroll ports at enter, and a hard cut would
+# show one frame of the successor's registers against the predecessor's VRAM.
+[[edge]]
+from = "lobby"
+to = "hall"
+style = "fade"
+
+# THE RETURN EDGE IS THE ONE THE HYGIENE RULE IS ABOUT. `hall` leaves BG3
+# holding a page of machine offsets and BG1SC pointing at the hall's map; the
+# lobby re-points the map and writes a row with no enable bit in it, because in
+# mode 4 a table nobody disarms is still a table.
+[[edge]]
+from = "hall"
+to = "lobby"
+style = "fade"

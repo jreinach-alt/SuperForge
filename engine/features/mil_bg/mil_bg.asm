@@ -159,3 +159,54 @@ mil_arm_bg:
     ldy #ES_C_MIL_PAL1_WORDS
     jsr mil_pal_up
     rts
+
+; --- mil_lobby_bases: BG1SC re-pointed at the lobby's map -------------------
+; CONTRACT mil_lobby_bases
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      BG1SC at the lobby's tilemap; everything else unchanged
+;   clobbers: A, N, Z
+;   assumes:  forced blank at scene enter
+;   tail:     rts
+;
+; THIS IS THE WHOLE COST OF A SECOND ROOM. The CHR page, both palettes, BG2's
+; map and BG12NBA are identical across the edge — `mil_arm_bg` ran first and
+; established all of them — so the two scenes differ by ONE REGISTER. That is
+; what cutting both rooms against one shared tile set bought.
+mil_lobby_bases:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_lobby_bases"
+    sep #$20
+    .a8
+    lda #ES_V_MIL_LOBBY_SC_BASE
+    sta a:$2107                     ; BG1SC
+    rep #$20
+    .a16
+    rts
+
+; --- mil_lobby_up: the lobby's tilemap into VRAM (scene enter) --------------
+; CONTRACT mil_lobby_up
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the lobby map in its claimed page
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  forced blank AND the NMI masked
+;   tail:     rts
+mil_lobby_up:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_lobby_up"
+    sep #$20
+    .a8
+    lda #$80
+    sta a:$2115                     ; VMAIN: +1 word after the high byte
+    rep #$20
+    .a16
+    lda #ES_V_MIL_LOBBY
+    sta a:$2116
+    ldx #.loword(mil_lobby_bin)
+    ldy #ES_R_MIL_LOBBY_SIZE
+    lda #^mil_lobby_bin
+    jsr mil_up_dma
+    rts

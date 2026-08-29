@@ -88,3 +88,45 @@ SMIL_CAR_WAIT = 24
 SMIL_TINT_R = 0
 SMIL_TINT_G = 4
 SMIL_TINT_B = 12
+
+; --- the lobby ------------------------------------------------------------
+JOY_LEFT  = 1 << 9
+JOY_RIGHT = 1 << 8
+
+SMIL_DOOR_BAYS = 2
+SMIL_RIDER_GROUP = 4          ; 32x32 cells to an OBJ name-table group
+
+; The player's walk. WALK_Y is the floor minus his box: the pack frames Arthur
+; with four transparent rows under the feet, so his drawn content ends at row 28
+; of 32 and this lands those feet ON the deck rather than four pixels into it.
+SMIL_WALK_STEP = 2
+SMIL_WALK_Y    = SMIL_LOBBY_FLOOR * 8 - SMIL_RIDER_BOX + 4
+SMIL_WALK_MIN  = 8
+SMIL_WALK_MAX  = 256 - SMIL_RIDER_BOX - 8
+
+; The leaves sit at the opening's top row.
+SMIL_DOOR_Y = SMIL_DOOR_TOP * 8
+
+SMIL_SPAWN_X    = 120         ; the player, between the two bays
+SMIL_DOOR_REACH = 48          ; how near a bay he must stand for it to open.
+                              ;   The OPENING is 64 px wide, so half of it is
+                              ;   32 and anything less than that leaves places
+                              ;   inside the doorway where the doors are shut.
+                              ;   48 is the half-width plus a stride of
+                              ;   approach, and the two bays' centres are 112
+                              ;   apart, so the reaches still do not overlap
+SMIL_DOOR_STEP  = 2           ; a leaf's travel a frame
+
+; --- the ride, and the four things the player can be doing in the lobby -----
+; The travel is still the door's own state — a leaf caught half-way reverses
+; from where it is. These say which way it is being DRIVEN and who has the
+; controls, which is a different question and the reason they are separate.
+SMIL_BOARD_FREE   = 0         ; he walks; a bay opens because he is near it
+SMIL_BOARD_IN     = 1         ; he is walking into a bay that is held open
+SMIL_BOARD_ABOARD = 2         ; he is inside; the doors shut OVER him (OAM
+                              ;   order, measured — see mil_obj.asm) and the
+                              ;   scene switches when they are shut
+SMIL_BOARD_OUT    = 3         ; he has just arrived; the doors part to reveal
+                              ;   him, and he is free when they are open
+SMIL_BOARD_DEST   = SMIL_DOOR_W * 4 - SMIL_RIDER_BOX / 2   ; ...a bay's left
+                              ; edge to the px that centres him in it

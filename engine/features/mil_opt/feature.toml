@@ -84,9 +84,23 @@ bytes = 64
 # ownership of BG3SC/BG3HOFS/BG3VOFS and grants the SCENE'S enter code the
 # consent to write them; a raw claim on them beside the composition is O5's
 # register arm and would stop the build by name.
+# ...and the SCENE may write them too, because the lobby is a second mode-4
+# scene that uses no offsets at all: it establishes the four ports at rest
+# itself rather than calling into a walker whose constants belong to the hall.
+# `scene_writes` says who ELSE may write; it does not say the owner stays out.
 [[claims.reg]]
 name = "mil_fallback"
 registers = ["BG1VOFS", "BG2VOFS", "BG1HOFS", "BG2HOFS"]
+scene_writes = ["BG1VOFS", "BG2VOFS", "BG1HOFS", "BG2HOFS"]
+
+# ...AND THE OWNER CO-WRITES ALL FOUR, WHICH IS A SEPARATE PERMISSION. In the
+# hall `mil_commit_vofs` rewrites the two V ports every VBlank because they
+# carry the camera for every undriven column; in the lobby the scene
+# establishes all four at rest and nothing touches them again. Declared rather
+# than left to be inferred: the gate refused the build by name until it was,
+# which is the check working — a permission nobody checked against the code is
+# worth as much as an undeclared write.
+scene_writes_shared = ["BG1VOFS", "BG2VOFS", "BG1HOFS", "BG2HOFS"]
 
 # ---- state ----------------------------------------------------------------
 [[claims.dp]]

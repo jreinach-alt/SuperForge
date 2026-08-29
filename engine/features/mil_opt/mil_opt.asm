@@ -313,3 +313,45 @@ mil_advance:
     .i16
     sta z:ES_MIL_PHASE
     rts
+
+; --- mil_zero_row: BG3's offset row, with no enable bit in it ---------------
+; CONTRACT mil_zero_row
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      SMIL_COLS zero words at BG3's offset row
+;   clobbers: A, X, N, Z
+;   assumes:  forced blank at scene enter
+;   tail:     rts
+;
+; A MODE-4 SCENE THAT WANTS NO OFFSETS STILL HAS AN OFFSET TABLE. The PPU reads
+; BG3's map as per-column scroll words whenever the mode says so, and it does
+; not ask whether the scene meant it. So a flat room in this mode disarms the
+; table by its CONTENT: no enable bit set anywhere, therefore no column
+; displaced, therefore both layers scroll from BGnHOFS/BGnVOFS like an ordinary
+; screen.
+;
+; That is the same hygiene obligation `smelter`'s title discharges by
+; re-pointing BG3SC at a text map. This rail stays in ONE MODE across its edge,
+; so it cannot point the table away — it has to mean nothing instead.
+mil_zero_row:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_zero_row"
+    sep #$20
+    .a8
+    lda #$80
+    sta a:$2115                     ; VMAIN: +1 word after the high byte
+    rep #$20
+    .a16
+    lda #ES_V_MIL_TAB
+    sta a:$2116
+    ldx #0
+@word:
+    .a16
+    .i16
+    stz a:$2118                     ; the word port, low
+    stz a:$2119                     ; ...and high
+    inx
+    cpx #SMIL_COLS
+    bcc @word
+    rts

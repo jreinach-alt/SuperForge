@@ -12,8 +12,38 @@
 ; CPU-WRITTEN REGISTER, DECLARED: OBSEL $2101 (mil_obsel), at scene enter.
 
 MIL_OBJ_REGS = $4300 + ES_D_MIL_OBJ_UP_CH * 16
-MIL_RIDER_OAM = ES_OAM_SHADOW + ES_O_MIL_RIDER * 4
-MIL_RIDER_HI  = ES_OAM_SHADOW + ES_OAM_SHADOW_SIZE - 32 + (ES_O_MIL_RIDER / 4)
+; THE ORDER INSIDE THE CLAIM IS A MECHANISM, NOT A LAYOUT. The leaves and the
+; player are BOTH priority 1 in the lobby, and mode 4 gives them the same
+; score — so what separates them is OAM index. Mesen writes a sprite's pixels
+; with an unconditional overwrite (SnesPpu.cpp:772-776) and fetches from the
+; last sprite found on the line BACKWARDS (:660), so the LOWEST index is
+; written last and wins. The leaves therefore come first and the player last,
+; and that one fact is what makes both lift transitions need no special case:
+; the doors close OVER him as he boards, and they part to REVEAL him when he
+; arrives, because he is simply behind them the whole time.
+MIL_LEAF_FIRST  = ES_O_MIL_RIDER
+MIL_LEAF_CELLS  = SMIL_DOOR_BAYS * 2 * SMIL_LEAF_ROWS
+MIL_RIDER_INDEX = ES_O_MIL_RIDER + MIL_LEAF_CELLS
+MIL_RIDER_OAM = ES_OAM_SHADOW + MIL_RIDER_INDEX * 4
+.assert MIL_RIDER_INDEX < ES_O_MIL_RIDER + ES_O_MIL_RIDER_SPRITES, error, "mil_obj: the claim does not cover the rider behind the leaves"
+MIL_RIDER_HI  = ES_OAM_SHADOW + ES_OAM_SHADOW_SIZE - 32 + (MIL_RIDER_INDEX / 4)
+MIL_HI_FIRST  = ES_OAM_SHADOW + ES_OAM_SHADOW_SIZE - 32 + (ES_O_MIL_RIDER / 4)
+MIL_HI_BYTES  = ES_O_MIL_RIDER_SPRITES / 4     ; the claim, in hi-table bytes
+.assert ES_O_MIL_RIDER_SPRITES .MOD 4 = 0, error, "mil_obj: the claim must end on a hi-table byte"
+
+; Every sprite this feature owns is 32x32 — the rider and every leaf cell — so
+; every 2-bit field it writes is `size, no X9`: bit1 set, bit0 clear, four to a
+; byte. X9 is clear BY THE GEOMETRY and not by hope, and these asserts are what
+; say so: X9 is a sprite's LEFT edge crossing 256, so what has to stay below it
+; is the walk clamp and the right-hand bay's far leaf at full travel. The
+; second pair is a different claim — that an OPEN bay is wholly on screen — and
+; it is separate because a leaf half off the right edge needs no X9 bit and is
+; still a composition defect.
+MIL_HI_ALL_LARGE = $AA
+.assert SMIL_WALK_MAX < 256, error, "mil_obj: the walk clamp lets the player past X9"
+.assert SMIL_DOOR_B * 8 + SMIL_LEAF_BOX + SMIL_DOOR_TRAVEL < 256, error, "mil_obj: the far leaf's origin reaches past X9"
+.assert SMIL_WALK_MAX + SMIL_RIDER_BOX <= 256, error, "mil_obj: the player walks off the right edge"
+.assert SMIL_DOOR_B * 8 + SMIL_LEAF_BOX + SMIL_DOOR_TRAVEL + SMIL_LEAF_BOX <= 256, error, "mil_obj: an open right-hand bay clips the right edge"
 
 ; THE SIZE BIT LIVES IN THE HI TABLE, four sprites to a byte, so an entry that
 ; does not start one would need a read-modify-write against three neighbours
@@ -208,3 +238,440 @@ mil_rider_stage:
     rep #$20
     .a16
     rts
+
+; =============================================================================
+; THE LOBBY SIDE — the same sheet, the same OAM, a different room
+; =============================================================================
+MIL_LEAF_OAM = ES_OAM_SHADOW + MIL_LEAF_FIRST * 4
+MIL_HFLIP    = 1 << 6
+MIL_LEAF_ATTR = (1 << 4) | (1 << 1)     ; PRIORITY 1 and OBJ PALETTE 1.
+                                        ; Priority 1 scores 4 in mode 4, over
+                                        ; BG1's normal 3, so the leaves close
+                                        ; IN FRONT of the bay drawn behind
+                                        ; them. The rider's priority 0 is the
+                                        ; opposite choice for the opposite
+                                        ; reason.
+
+; ...AND THE PLAYER IS PRIORITY 1 IN THIS ROOM, which is not a second opinion
+; about the same sprite — it is the same rule reaching the opposite answer
+; because the layer behind him is a different thing. In the hall he is inside
+; a car whose BG1 shell MUST cover him everywhere but the glass, so he scores
+; 2 and loses to BG1's 3. In the lobby the thing behind him is a painted wall
+; that must not cover him anywhere, so he scores 4 and wins. Staging him here
+; with MIL_RIDER_ATTR draws him correctly and puts him behind the masonry,
+; which is a sprite that is present in OAM, correct in every field, and
+; invisible on screen.
+MIL_LOBBY_ATTR = (1 << 4)               ; priority 1, OBJ palette 0 (the rider)
+
+; --- mil_lobby_walk: one frame of the player on the lobby floor -------------
+; CONTRACT mil_lobby_walk
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       ES_INP_CUR — left/right/up; ES_MIL_BOARD, ES_MIL_BAY
+;   out:      ES_MIL_PX advanced and clamped, ES_MIL_FACE and ES_MIL_STEP
+;             updated; ES_MIL_BOARD advanced when he commits to a bay or
+;             reaches its centre
+;   clobbers: A, X, N, Z, C
+;   assumes:  the main thread
+;   tail:     rts
+;
+; TICK: ok -- ES_MIL_STEP accumulates PIXELS WALKED and the walk cell is
+;   indexed by it, so the legs move with the ground. Nothing counts frames.
+;
+; HE ONLY HAS THE CONTROLS WHILE HE IS FREE. Walking into a bay and stepping
+; out of one are the same walk under different ownership, which is why they are
+; the same routine and not a second one — the destination is a number either
+; way, and the only difference is who supplies it.
+mil_lobby_walk:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_lobby_walk"
+    lda z:ES_MIL_BOARD
+    beq @free
+    cmp #SMIL_BOARD_IN
+    beq @walk_in
+    rts                             ; aboard, or alighting: the doors have him
+; ---- he is walking into the bay he called -----------------------------------
+@walk_in:
+    .a16
+    .i16
+    ldx z:ES_MIL_BAY
+    lda f:mil_bay_x, x
+    clc
+    adc #SMIL_BOARD_DEST            ; ...the px that centres him in the opening
+    cmp z:ES_MIL_PX
+    beq @arrived
+    bcc @in_left                    ; the bay is to his LEFT
+    lda z:ES_MIL_PX                 ; ...to his right
+    clc
+    adc #SMIL_WALK_STEP
+    stz z:ES_MIL_FACE
+    bra @in_store
+@in_left:
+    .a16
+    .i16
+    lda z:ES_MIL_PX
+    sec
+    sbc #SMIL_WALK_STEP
+    ldx #MIL_HFLIP
+    stx z:ES_MIL_FACE
+@in_store:
+    .a16
+    .i16
+    sta z:ES_MIL_PX
+    bra @stepped
+@arrived:
+    .a16
+    .i16
+    lda #SMIL_BOARD_ABOARD          ; centred: the doors close over him
+    sta z:ES_MIL_BOARD
+    rts
+; ---- free: he has the controls ---------------------------------------------
+@free:
+    .a16
+    .i16
+    lda z:ES_INP_CUR
+    and #JOY_UP
+    beq @not_up
+    jsr mil_try_board               ; UP at a bay that stands open boards it
+@not_up:
+    .a16
+    .i16
+    lda z:ES_INP_CUR
+    and #JOY_RIGHT
+    beq @not_right
+    lda z:ES_MIL_PX
+    cmp #SMIL_WALK_MAX
+    bcs @done
+    clc
+    adc #SMIL_WALK_STEP
+    sta z:ES_MIL_PX
+    stz z:ES_MIL_FACE
+    bra @stepped
+@not_right:
+    .a16
+    .i16
+    lda z:ES_INP_CUR
+    and #JOY_LEFT
+    beq @done
+    lda z:ES_MIL_PX
+    cmp #(SMIL_WALK_MIN + SMIL_WALK_STEP)
+    bcc @done
+    sec
+    sbc #SMIL_WALK_STEP
+    sta z:ES_MIL_PX
+    lda #MIL_HFLIP
+    sta z:ES_MIL_FACE
+@stepped:
+    .a16
+    .i16
+    lda z:ES_MIL_STEP
+    clc
+    adc #SMIL_WALK_STEP
+    sta z:ES_MIL_STEP
+@done:
+    .a16
+    .i16
+    rts
+
+; --- mil_try_board: UP at an OPEN bay commits him to the ride ---------------
+; CONTRACT mil_try_board
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      ES_MIL_BAY and ES_MIL_BOARD set if a bay stands fully open and
+;             he is in reach of it; untouched otherwise
+;   clobbers: A, X, N, Z, C
+;   assumes:  the main thread, ES_MIL_BOARD = SMIL_BOARD_FREE
+;   tail:     rts
+;
+; FULLY OPEN, not merely opening. The proximity rule already opened the bay he
+; is standing at, so the travel reaching DOOR_TRAVEL is the door's own way of
+; saying it is ready — and testing it means a press during the slide waits for
+; the leaves instead of walking him through them.
+mil_try_board:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_try_board"
+    ldx #0
+@bay:
+    .a16
+    .i16
+    lda z:ES_MIL_DOOR, x
+    cmp #SMIL_DOOR_TRAVEL
+    bcc @next
+    lda #SMIL_BOARD_IN
+    sta z:ES_MIL_BOARD
+    stx z:ES_MIL_BAY
+    rts
+@next:
+    .a16
+    .i16
+    inx
+    inx
+    cpx #(SMIL_DOOR_BAYS * 2)
+    bcc @bay
+    rts
+
+; --- mil_lobby_stage: the player and the four lift leaves -------------------
+; CONTRACT mil_lobby_stage
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      five shadow-OAM entries written: the player at ES_MIL_PX on the
+;             lobby floor, and each bay's two leaves parted by its own travel
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  the main thread; writes the OAM SHADOW
+;   tail:     rts
+;
+; ONE LEAF GRAPHIC, FOUR ENTRIES. The right-hand leaf of each bay is the same
+; tile set with the OAM H-flip bit set, which is why the pair costs one 32x32
+; cell instead of two.
+mil_lobby_stage:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_lobby_stage"
+    jsr mil_lobby_hi                ; the size bits, every frame: three stores
+                                    ;   against an ordering obligation on enter
+    ; ---- the player -------------------------------------------------------
+    lda z:ES_MIL_PX
+    sep #$20
+    .a8
+    sta a:MIL_RIDER_OAM + 0         ; X
+    lda #SMIL_WALK_Y
+    sta a:MIL_RIDER_OAM + 1         ; Y — the floor, and it is a constant
+    rep #$20
+    .a16
+    lda z:ES_INP_CUR
+    and #(JOY_LEFT | JOY_RIGHT)
+    beq @idle
+    lda z:ES_MIL_STEP               ; ...walking: the cell follows the GROUND
+    lsr a
+    lsr a
+    lsr a
+    and #(SMIL_RIDER_WALK_N - 1)
+    clc
+    adc #SMIL_RIDER_WALK0
+    bra @cell
+@idle:
+    .a16
+    .i16
+    lda z:ES_MIL_PHASE
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    and #(SMIL_RIDER_IDLE_N - 1)
+    clc
+    adc #SMIL_RIDER_IDLE0
+@cell:
+    .a16
+    .i16
+    jsr mil_slot_tile               ; a slot index -> its tile in the grid
+    sep #$20
+    .a8
+    sta a:MIL_RIDER_OAM + 2
+    lda z:ES_MIL_FACE
+    ora #MIL_LOBBY_ATTR             ; ...in FRONT of the wall — see the note
+    sta a:MIL_RIDER_OAM + 3         ;   on the constant
+    rep #$20
+    .a16
+    ; ---- the leaves: two sides a bay, a stack of cells a side --------------------------------------------------------
+    ldx #0                          ; X counts bays, Y indexes their OAM
+    ldy #0
+@bay:
+    .a16
+    .i16
+    lda f:mil_bay_x, x
+    sec
+    sbc z:ES_MIL_DOOR, x            ; the near leaf, retracted left
+    jsr mil_put_leaf
+    lda f:mil_bay_x, x
+    clc
+    adc #SMIL_LEAF_BOX
+    clc
+    adc z:ES_MIL_DOOR, x            ; ...and the far leaf, right, H-flipped
+    ora #(MIL_HFLIP << 8)           ; (carried in the high byte to mil_put_leaf)
+    jsr mil_put_leaf
+    inx
+    inx
+    cpx #(SMIL_DOOR_BAYS * 2)
+    bcc @bay
+    rts
+
+; --- mil_put_leaf: one leaf's STACK of cells at Y, advancing Y --------------
+; CONTRACT mil_put_leaf
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       A = the leaf's screen X in the low byte, the H-flip bit in the
+;             high byte; Y = the first cell's OAM byte offset
+;   out:      SMIL_LEAF_ROWS entries written down the opening, Y advanced past
+;             them
+;   clobbers: A, N, Z
+;   assumes:  the main thread
+;   tail:     rts
+;
+; A 64 px opening is TWO 32x32 cells, not one sprite: this rail's OBSEL pair is
+; 32x32/64x64 and a leaf is 32 wide, so the box tall enough to cover the
+; opening is twice as wide as the bay it is closing. The stack is invisible
+; because `leaf_pixels` is drawn on a vertical period that divides 32 — the
+; same tile index serves every cell, so the second row costs four OAM bytes
+; and no CHR.
+;
+; The count is `.repeat`ed rather than looped because it is a constant the
+; generator emits: both index registers are already carrying the bay and the
+; OAM cursor, and a third counter in scratch would be state standing in for
+; a number the assembler already knows.
+mil_put_leaf:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_put_leaf"
+    sta z:ES_MIL_NMI_SCRATCH + 6    ; enter-time and main-thread: the NMI's row
+                                    ;   walker does not run in the lobby
+    sep #$20
+    .a8
+.repeat SMIL_LEAF_ROWS, k
+    lda z:ES_MIL_NMI_SCRATCH + 6
+    sta a:MIL_LEAF_OAM, y           ; X, low 8 — the same for the whole stack
+    lda #(SMIL_DOOR_Y + k * SMIL_LEAF_BOX)
+    sta a:MIL_LEAF_OAM + 1, y       ; Y — this cell's row down the opening
+    lda #SMIL_LEAF_TILE
+    sta a:MIL_LEAF_OAM + 2, y
+    lda z:ES_MIL_NMI_SCRATCH + 7    ; ...the flip bit the caller passed high
+    ora #MIL_LEAF_ATTR
+    sta a:MIL_LEAF_OAM + 3, y
+    rep #$20
+    .a16
+    tya
+    clc
+    adc #4
+    tay
+    sep #$20
+    .a8
+.endrepeat
+    rep #$20
+    .a16
+    rts
+
+; --- mil_lobby_hi: the size bits for every sprite this feature owns ---------
+; CONTRACT mil_lobby_hi
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      MIL_HI_BYTES hi-table bytes written whole
+;   clobbers: A, X, N, Z
+;   assumes:  scene enter
+;   tail:     rts
+;
+; WHOLE BYTES, NOT A READ-MODIFY-WRITE. The claim starts and ends on a
+; hi-table byte precisely so this feature can write its own bytes without
+; touching a neighbour's two bits, and the `.assert` above is what holds the
+; allocator to it.
+mil_lobby_hi:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_lobby_hi"
+    sep #$20
+    .a8
+    ldx #0
+@byte:
+    .a8
+    .i16
+    lda #MIL_HI_ALL_LARGE
+    sta a:MIL_HI_FIRST, x
+    inx
+    cpx #MIL_HI_BYTES
+    bcc @byte
+    rep #$20
+    .a16
+    rts
+
+; --- mil_leaves_park: the lobby's leaves, put away ---------------------------
+; CONTRACT mil_leaves_park
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      every leaf cell parked off-screen and its size bit cleared
+;   clobbers: A, X, N, Z
+;   assumes:  scene enter
+;   tail:     rts
+;
+; The hall does not draw leaves, but OAM IS NOT SCENE STATE — the shadow
+; carries whatever the last scene left in it across the edge, and a lobby that
+; left its bays open would hang four lit doors in the middle of a mill. Boot's
+; `oam_park_all` cannot cover this: it runs once, before either scene.
+;
+; The park is Y=$F0 AND the size bit cleared, which are not redundant. $F0 is
+; 240, and a 32x32 sprite parked there wraps 16 rows onto the top of the
+; screen — the same defect the rider's SMIL_PARK_Y exists to avoid. Cleared to
+; 16x16 the entry ends at 256 and shows nothing.
+mil_leaves_park:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_leaves_park"
+    sep #$20
+    .a8
+    ldx #0
+@leaf:
+    .a8
+    .i16
+    lda #240
+    sta a:MIL_LEAF_OAM + 1, x       ; Y off the bottom
+    inx
+    inx
+    inx
+    inx
+    cpx #(MIL_LEAF_CELLS * 4)
+    bcc @leaf
+    ldx #0
+@hi:
+    .a8
+    .i16
+    stz a:MIL_HI_FIRST, x           ; every leaf cell back to 16x16, so a park
+    inx                             ;   at Y=240 ends at 256 instead of wrapping
+    cpx #(MIL_LEAF_CELLS / 4)       ;   16 rows onto the top of the screen
+    bcc @hi
+    lda #MIL_RIDER_SIZE_LARGE       ; ...and the rider's own byte, which the
+    sta a:MIL_RIDER_HI              ;   leaves do not share
+    rep #$20
+    .a16
+    rts
+
+; --- mil_slot_tile: an animation slot -> its tile index ---------------------
+; CONTRACT mil_slot_tile
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       A = the slot index
+;   out:      A = the tile index that slot starts at
+;   clobbers: N, Z, C
+;   assumes:  nothing
+;   tail:     rts
+;
+; THE NAME TABLE IS A 16-WIDE GRID AND FOUR 32x32 CELLS FILL A ROW, so slot*4
+; is the base only while slot < 4. At slot 4 it lands on tile 16 — row 1 of the
+; FIRST cell — and the fifth frame reads the first one's second row. Sixty-four
+; tiles is one group of four cells; the base is a group address plus a column
+; in it. The generator writes the blob with the same formula.
+mil_slot_tile:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_slot_tile"
+    pha
+    and #(SMIL_RIDER_GROUP - 1)     ; the column within the group
+    asl a
+    asl a
+    sta z:ES_MIL_NMI_SCRATCH + 6
+    pla
+    .repeat 2
+    lsr a                           ; ...and which group
+    .endrepeat
+    .repeat 6
+    asl a                           ; 64 tiles a group
+    .endrepeat
+    clc
+    adc z:ES_MIL_NMI_SCRATCH + 6
+    rts
+
+.segment "RODATA"
+; The bays' left edges, in screen X. Derived from the generator's own column
+; plan, so moving a lift bay moves its leaves with it.
+mil_bay_x:
+    .word SMIL_DOOR_A * 8, SMIL_DOOR_B * 8
+.segment "CODE"

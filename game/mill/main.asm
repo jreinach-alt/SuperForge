@@ -101,14 +101,6 @@ mil_row_bin:
     .incbin "mil_row.bin"
 .assert ^mil_row_bin = ES_R_MIL_ROW_BANK, error, "mil_row bank drifted from allocator claim"
 .assert .loword(mil_row_bin) = ES_R_MIL_ROW_ADDR, error, "mil_row addr drifted from allocator claim"
-mil_map1_bin:
-    .incbin "mil_map1.bin"
-.assert ^mil_map1_bin = ES_R_MIL_MAP1_BANK, error, "mil_map1 bank drifted from allocator claim"
-.assert .loword(mil_map1_bin) = ES_R_MIL_MAP1_ADDR, error, "mil_map1 addr drifted from allocator claim"
-mil_obj_bin:
-    .incbin "mil_obj.bin"
-.assert ^mil_obj_bin = ES_R_MIL_OBJ_BANK, error, "mil_obj bank drifted from allocator claim"
-.assert .loword(mil_obj_bin) = ES_R_MIL_OBJ_ADDR, error, "mil_obj addr drifted from allocator claim"
 mil_chr2_bin:
     .incbin "mil_chr2.bin"
 .assert ^mil_chr2_bin = ES_R_MIL_CHR2_BANK, error, "mil_chr2 bank drifted from allocator claim"
@@ -121,7 +113,27 @@ mil_obj_pal_bin:
     .incbin "mil_obj_pal.bin"
 .assert ^mil_obj_pal_bin = ES_R_MIL_OBJ_PAL_BANK, error, "mil_obj_pal bank drifted from allocator claim"
 .assert .loword(mil_obj_pal_bin) = ES_R_MIL_OBJ_PAL_ADDR, error, "mil_obj_pal addr drifted from allocator claim"
+
+; WINDOW 2 HOLDS THE BULK NOW. The lobby's map, the enlarged OBJ blob and both
+; of the hall's 32x64 tilemaps are 4 KB each and window 1 no longer has that
+; contiguous. A tilemap cannot straddle the LoROM seam ($00:FFFF -> $01:8000 is
+; a discontinuity, not a carry), so the packer moves whole claims rather than
+; splitting them — and the `.assert`s are what turn a repack into a build
+; failure instead of art read from the wrong bank. This is the third time they
+; have done that on this rail, which is the argument for writing them.
 .segment "BANK2"
+mil_obj_bin:
+    .incbin "mil_obj.bin"
+.assert ^mil_obj_bin = ES_R_MIL_OBJ_BANK, error, "mil_obj bank drifted from allocator claim"
+.assert .loword(mil_obj_bin) = ES_R_MIL_OBJ_ADDR, error, "mil_obj addr drifted from allocator claim"
+mil_lobby_bin:
+    .incbin "mil_lobby.bin"
+.assert ^mil_lobby_bin = ES_R_MIL_LOBBY_BANK, error, "mil_lobby bank drifted from allocator claim"
+.assert .loword(mil_lobby_bin) = ES_R_MIL_LOBBY_ADDR, error, "mil_lobby addr drifted from allocator claim"
+mil_map1_bin:
+    .incbin "mil_map1.bin"
+.assert ^mil_map1_bin = ES_R_MIL_MAP1_BANK, error, "mil_map1 bank drifted from allocator claim"
+.assert .loword(mil_map1_bin) = ES_R_MIL_MAP1_ADDR, error, "mil_map1 addr drifted from allocator claim"
 mil_map2_bin:
     .incbin "mil_map2.bin"
 .assert ^mil_map2_bin = ES_R_MIL_MAP2_BANK, error, "mil_map2 bank drifted from allocator claim"
@@ -138,31 +150,38 @@ mil_map2_bin:
                                     ;   one scene and he is in it
 
 ; --- the scene -------------------------------------------------------------
+.include "scenes/lobby.asm"
 .include "scenes/hall.asm"
 
 ; --- sm_nmi_hook: per-frame VBlank work -----------------------------------
 ; In: A8/I16, DB=0 (from sm_nmi_core). May clobber A/X/Y.
 ;
-; ONE ENTRY, ONE TRANSFER, AND ONE SCENE. Every offset row this rail will ever
+; ONE ENTRY AND ONE TRANSFER. Every offset row this rail will ever
 ; show is already in ROM, so the only thing that has to reach the hardware each
 ; frame is WHICH row BG3's map is holding: 64 B, and it is the entire per-frame
 ; cost of thirty-two columns moving on the axes their own words name.
 ;
-; UNGUARDED, because this rail has exactly one scene. Smelter guards its
-; equivalent on the running scene id because the phase it reads is a
-; scene-scoped dp claim that means something else in the title; here there is
-; no other scene for it to mean something else in.
+; GUARDED BY THE RUNNING SCENE. The lobby's BG3 row is a page of zeros written
+; once at enter and never touched again; running the hall's walker there would
+; transfer 64 B of machine offsets over it every frame and displace a room that
+; has nothing to displace.
 sm_nmi_hook:
     .a8
     .i16
     jsr oam_nmi_dma                 ; the OAM shadow, every armed VBlank
+    lda z:ES_SM_CTL                 ; the scene now running
+    cmp #ES_E_LOBBY_TO_HALL_DST     ; ...the hall?
+    bne @done
     jsr hall::mil_nmi_row           ; the phase -> BG3's offset row, 64 B
+@done:
+    .a8
+    .i16
     rts
 
-; --- scene dispatch tables (manifest order: hall=0) ------------------------
-sm_enter_tab:   .word hall::enter
-sm_tick_tab:    .word hall::tick
-sm_exit_tab:    .word hall::exit
+; --- scene dispatch tables (manifest order: lobby=0, hall=1) --------------
+sm_enter_tab:   .word lobby::enter, hall::enter
+sm_tick_tab:    .word lobby::tick,  hall::tick
+sm_exit_tab:    .word lobby::exit,  hall::exit
 
 ; --- MAIN: boot -----------------------------------------------------------
 ; init.inc leaves: native, A16/I16, DB=0, forced blank, NMI+HDMA off.
@@ -178,7 +197,14 @@ MAIN:
     jsr region_init                 ; the console's own region line, once. It
                                     ;   is game-lifetime state: a console does
                                     ;   not change region between scenes.
-    ; ---- enter the boot scene (id 0 = hall) under forced blank -----------
+    ; ---- the ride's own establishment, before the room reads it ----------
+    ; ES_MIL_ARRIVE tells `lobby::enter` whether he is walking in at boot or
+    ; stepping out of a lift. sm_init zeroes exactly scene_mgr's claims and
+    ; power-on dp is RANDOM (rule 5), so this store is the write-before-read
+    ; contract and the only place in the game that can discharge it: every
+    ; other writer of the word is downstream of a room that has already read it.
+    stz z:ES_MIL_ARRIVE
+    ; ---- enter the boot scene (id 0 = lobby) under forced blank -----------
     ldx #0
     jsr (sm_enter_tab, x)
     ; ---- screen on: NMI + auto-joypad ------------------------------------

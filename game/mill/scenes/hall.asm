@@ -13,7 +13,10 @@
 ; unexplained state.
 .scope hall
 .include "engine_state_hall.inc"    ; GENERATED — this scene's map
-.include "mil_opt.asm"              ; the row transfer, the phase, the ports
+.include "mil_opt.asm"              ; the table walker. SCENE-SCOPED, because
+                                    ;   it reads ES_OPT_HALL_* — the offset
+                                    ;   composition emits one constant set per
+                                    ;   scene, and the lobby has its own
 
 ; --- enter: the whole picture, under forced blank --------------------------
 ; CONTRACT hall::enter
@@ -43,6 +46,10 @@ enter:
     stz z:ES_MIL_RIDER_Y
     jsr mil_arm_bg                  ; CHR, maps, palettes, BG1SC/BG2SC/BG12NBA
     jsr mil_obj_arm                 ; the rider's CHR, palette and OBSEL
+    jsr mil_leaves_park             ; ...and the lobby's lift leaves put away.
+                                    ;   OAM is not scene state: the shadow
+                                    ;   carries across the edge, and a bay left
+                                    ;   open would hang four doors in the mill
     jsr mil_arm_scroll              ; the four fallback ports, at rest
     jsr mil_tint_arm                ; the colour window over the shaft
     ; ---- BG3 BECOMES THE TABLE, and this write is the SCENE'S -------------
@@ -125,10 +132,31 @@ tick:
     bne @hold
     lda z:ES_MIL_CAR
     cmp #SMIL_CAR_TOP
-    bcs @hold
+    bcs @arrived
     clc
     adc #SMIL_CAR_STEP
     sta z:ES_MIL_CAR
+    bra @hold
+    ; ---- THE FAR END OF THE RIDE ------------------------------------------
+    ; The car left the top of the screen a long way back — CAR_TOP is well past
+    ; the row where its last pixel goes — so what this is really waiting for is
+    ; a beat of empty shaft, and then the lift lets him out somewhere else.
+    ; THE OTHER BAY, which is the one thing the whole sequence is for: the bay
+    ; is a word the lobby handed up, and flipping it is what makes arriving
+    ; different from leaving.
+@arrived:
+    .a16
+    .i16
+    lda z:ES_MIL_BAY
+    eor #2                          ; ...the other bay, as a word offset
+    sta z:ES_MIL_BAY
+    lda #1
+    sta z:ES_MIL_ARRIVE
+    sep #$20
+    .a8
+    SM_SWITCH "HALL", "LOBBY"
+    rep #$20
+    .a16
 @hold:
     .a16
     .i16

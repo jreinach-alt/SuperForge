@@ -139,7 +139,10 @@ SW_SHADOW = [(0, 0, 0), (0, 0, 2), (0, 1, 3), (0, 1, 4), (1, 2, 6), (1, 2, 7),
 BG1_IX0 = 32
 N_COLD, N_WARM, N_MOLTEN, N_BRASS = 36, 16, 32, 12
 IX_COLD = BG1_IX0                       # 32.. 67  machined steel: the shafts
-IX_WARM = IX_COLD + N_COLD              # 68.. 83  worked iron: the frames
+IX_WARM = IX_COLD + N_COLD              # 68.. 83  worked iron: the machine
+                                        #   housings and the lift frames.
+                                        # TICK: ok -- a CGRAM index. `frames`
+                                        #   here is ironwork, not animation
 IX_MOLTEN = IX_WARM + N_WARM            # 84..115  the melt, the glow, hot metal
 IX_BRASS = IX_MOLTEN + N_MOLTEN         # 116..127 fittings, bands, plaques
 
@@ -280,7 +283,7 @@ MELT_ROW = FLOOR + 25                 # ...and the channel under it, y 200..223 
 # every claim the packer places after it and drift the .assert in main.asm —
 # a build failure for a colour change. The page is the resource; how much of
 # it the art currently uses is a number the generator prints.
-CHR1_TILES = 256              # 16,384 B — bg1 at 8bpp, 64 B a tile. RAISED
+CHR1_TILES = 320              # 20,480 B — bg1 at 8bpp, 64 B a tile. RAISED
                               #   from 192 when the kit's art arrived: converted
                               #   assets dedupe far less than procedural ones,
                               #   because every pixel of authored shading is a
@@ -733,6 +736,156 @@ def paint_bg1():
 
 
 # --------------------------------------------------------------------------
+# THE LOBBY — the same mode, the same CHR page, a different room
+# --------------------------------------------------------------------------
+# A flat interior with two lift bays and a call button beside each: the scene
+# the ride leaves from and comes back to. It costs almost nothing because it
+# shares EVERYTHING except its tilemap — mode 4, the 8bpp CHR page, both
+# palettes, the OBJ sheet. Two scenes, one art set, and what changes across the
+# edge is which map BG1SC points at.
+#
+# THE DOORS ARE SPRITES, AND THE REASON IS THE RAIL'S OWN SUBJECT INVERTED.
+# The obvious idea on a mode-4 rail is to make the leaves offset columns and
+# slide them with a word. It cannot work, and the reason is the one fact this
+# whole rail is built on: A DISPLACED COLUMN MOVES WHOLE. A door is a PARTIAL
+# reveal — the leaf retracts while the wall above it and the floor below it
+# hold still — and there is no word that displaces part of a column. The hall's
+# machines work precisely because a ram FILLS its column.
+#
+# So the leaves are OBJ, sliding pixel-granular at priority 1 (mode 4 scores
+# that 4, over BG1's normal 3), over a bay drawn dark in BG1. ONE leaf graphic
+# serves both sides — the right-hand one sets the OAM H-flip bit — and the
+# whole animation costs nothing but the OAM shadow that is already committed
+# every frame.
+LOBBY_FLOOR = 22              # the deck's map row
+LOBBY_DOORS = (5, 19)         # ...and the two lift bays' first map column
+DOOR_W = 8                    # a bay is this wide in COLUMNS: two 32 px leaves
+DOOR_ROWS = 8                 # ...and the opening is this tall, in rows: 64 px,
+                              #   which is a 32 px figure with headroom over him
+                              #   rather than a slot he exactly fills
+DOOR_TRAVEL = 30              # how far a leaf slides to stand open, in pixels
+DOOR_TOP = LOBBY_FLOOR - DOOR_ROWS
+LEAF_BOX = 32                 # the leaf sprite, which is the OBJ box
+LEAF_ROWS = DOOR_ROWS * 8 // LEAF_BOX   # ...so a side is this many cells STACKED
+
+# A 64 px opening cannot be one sprite: OBSEL's large size in this rail's pair
+# is 64x64 and a leaf is 32 wide, so the box that is tall enough is twice as
+# wide as the bay. Two 32x32 cells stacked is the shape that fits — and it
+# costs no CHR at all, because `leaf_pixels` is written on a period that
+# DIVIDES 32, so the same graphic is its own continuation and the seam between
+# the two cells is not visible.
+assert DOOR_ROWS * 8 == LEAF_ROWS * LEAF_BOX, "the opening must be whole cells"
+
+
+# The upper wall is where the room's HEIGHT is either established or lost, and
+# the first cut lost it: a flat field of near-identical warm greys over a low
+# strip of doors reads as a letterbox rather than as a hall. Nothing up there
+# is under any offset-column obligation — the lobby's table is a row of zeros —
+# so the whole wall is free art, and it is spent on three horizontal data the
+# eye can measure the room against: a cornice near the top, a band of clerestory
+# vents below it, and pilasters running the full drop to the deck.
+CORNICE = 26                  # the cornice band's top, in pixels
+PIER_PITCH = 48               # a pilaster every this many pixels...
+PIER_W = 10                   # ...this wide
+
+
+def lobby_wall(y, x):
+    fl = LOBBY_FLOOR * 8
+    if y < CORNICE:                              # the ceiling run above it
+        return Wm(1 if (y % 6) < 2 else 3)
+    if y < CORNICE + 8:                          # the cornice itself, lit above
+        return Wm(13 if y < CORNICE + 3 else 7)
+    pier = ((x + PIER_PITCH // 2) % PIER_PITCH) < PIER_W
+    if pier:                                     # a pilaster, with a lit arris
+        e = (x + PIER_PITCH // 2) % PIER_PITCH
+        return Wm(12 if e == 0 else 2 if e == PIER_W - 1 else 8 + (e % 2))
+    if CORNICE + 14 <= y < CORNICE + 42:         # the clerestory vents
+        cell = (x % 24)
+        if 4 <= cell < 20 and (y - CORNICE - 14) % 4 < 3:
+            return Wm(0) if (y - CORNICE) % 8 < 4 else Wm(2)
+    if (fl - 44) <= y < (fl - 38):               # the dado rail
+        return Br(3)
+    return Wm(5 + ((x // 6 + y // 16) % 2))
+
+
+def paint_lobby():
+    """BG1's lobby map, painted and then cut against the SAME tile set the hall
+    uses — one CHR page, two rooms."""
+    buf = [[0] * PX for _ in range(PXH)]
+    fl = LOBBY_FLOOR * 8
+    for y in range(fl):
+        for x in range(PX):
+            buf[y][x] = lobby_wall(y, x)
+    for y in range(fl, PXH):                     # the deck
+        for x in range(PX):
+            r = y - fl
+            buf[y][x] = (Wm(15) if r < 2 else
+                         Wm(3) if r % 12 in (0, 1) else
+                         Wm(6 + ((x // 4 + r) % 3)))
+    for c0 in LOBBY_DOORS:
+        ox, oy = c0 * 8, DOOR_TOP * 8
+        for y in range(oy - 8, fl):              # the jamb, and the dark bay
+            for x in range(ox - 8, ox + (DOOR_W + 1) * 8):
+                if not 0 <= x < PX:
+                    continue
+                inbay = ox <= x < ox + DOOR_W * 8 and y >= oy
+                if inbay:
+                    d = min(1.0, (y - oy) / 40)  # a shaft receding into dark
+                    buf[y][x] = Wm(max(0, int(3 - 3 * d)))
+                else:
+                    lip = y < oy or x < ox or x >= ox + DOOR_W * 8
+                    buf[y][x] = Wm(13 if (y == oy - 8 or y == oy - 7) else
+                                   (10 if lip else 6))
+        for y in range(oy - 20, oy - 8):         # the header beam over the bay
+            for x in range(ox - 14, ox + (DOOR_W + 1) * 8 + 6):
+                if not 0 <= x < PX:
+                    continue
+                buf[y][x] = Wm(14 if y < oy - 18 else
+                               2 if y >= oy - 11 else 9 + ((x // 5) % 2))
+        for y in range(oy + 16, oy + 30):        # the call panel beside it
+            for x in range(ox + DOOR_W * 8 + 12, ox + DOOR_W * 8 + 22):
+                if x < PX:
+                    rim = y in (oy + 16, oy + 29)
+                    buf[y][x] = Br(11) if rim else Ml(8 + ((x + y) % 3) * 4)
+    return buf
+
+
+# The leaf's own OBJ palette: it is 4bpp like every sprite, and steel in the
+# rider's eight knight colours would be wrong, so it takes OBJ palette 1.
+LEAF_PAL = [(0, 0, 0), (3, 3, 4), (7, 7, 8), (11, 11, 12), (15, 15, 17),
+            (19, 19, 21), (24, 18, 8), (29, 24, 14)]
+
+
+def leaf_pixels():
+    """One lift leaf, 32x32, in indices into LEAF_PAL. The right-hand leaf is
+    this one H-FLIPPED by its OAM attribute bit, so the pair costs one
+    graphic — and EVERY VERTICAL PERIOD HERE DIVIDES 32, so the same graphic
+    stacked under itself continues without a seam and one cell covers a
+    64 px opening twice over."""
+    buf = [[0] * LEAF_BOX for _ in range(LEAF_BOX)]
+    for y in range(LEAF_BOX):
+        for x in range(LEAF_BOX):
+            if x >= LEAF_BOX - 2:
+                buf[y][x] = 7                    # the meeting edge, lit brass
+            elif x < 2:
+                buf[y][x] = 1                    # ...and the stile at the jamb
+            else:
+                # A panelled door, not a grid: the shading runs ACROSS the leaf
+                # only, and the one horizontal datum is a single recessed line
+                # on a period that divides 32 so the stack has no seam.
+                panel = 3 <= (x % 16) < 13
+                buf[y][x] = (2 if y % 16 == 0 else
+                             4 if panel else 3)
+    for x in range(3, LEAF_BOX - 3):             # the panel's lit top edge
+        for y in range(1, LEAF_BOX, 16):
+            if 3 <= (x % 16) < 13:
+                buf[y][x] = 5
+    for y in range(4, LEAF_BOX, 8):              # rivets down the stile
+        buf[y][3] = 6
+    return buf
+
+
+# --------------------------------------------------------------------------
 # BG2 — 2bpp, and EVERY MAP ROW IS ONE TILE ACROSS ITS WHOLE WIDTH
 # --------------------------------------------------------------------------
 # That is not a stylistic choice, it is the horizontal-displacement contract:
@@ -827,9 +980,22 @@ def tread_tile(k):
 # indexed by the rail's PHASE, which the scaler already expressed against the
 # declared tick. Nothing here counts hardware frames.
 CAMELOT = ROOT / "vendor" / "art" / "camelot"
-RIDER_CELLS = [(0, 0), (0, 2)]          # (row, col) on the pack's 8x8 grid
+# The pack's own row map: idle [0], run [1,2]. Two idle cells and eight run
+# cells — the rider stands in the lift and WALKS in the lobby, and the two
+# scenes index the same sheet.
+RIDER_CELLS = ([(0, 0), (0, 2)]
+               + [(1, c) for c in range(4)] + [(2, c) for c in range(4)])
+RIDER_IDLE0, RIDER_IDLE_N = 0, 2
+RIDER_WALK0, RIDER_WALK_N = 2, 8
 RIDER_BOX = 32                          # the pack's cell IS the OBJ box
-RIDER_SLOTS = 4                         # ...padded to one whole grid group
+FRAMES_PER_GROUP = 4                    # four 32x32 cells fill one 64-tile group
+                                        # TICK: ok -- OBJ NAME-TABLE GEOMETRY,
+                                        #   not a rate: a 32x32 cell is 4x4
+                                        #   tiles and a group is 64, so this 4
+                                        #   is fixed by the PPU's name table
+                                        #   and cannot vary with region
+RIDER_SLOTS = 16                        # ...four groups: ten rider cells, then
+LEAF_SLOT = 12                          #   the lift leaf at the last group
 
 
 def _rider_cells():
@@ -849,9 +1015,13 @@ def _rider_cells():
 
 
 def rider_sheet():
-    """(CHR blob, 16 palette words). ONE palette over both cells, from the
-    union of their opaque colours — the pack measures Arthur at 8, so this is
-    a lossless conversion and not a quantisation."""
+    """(CHR blob, rider palette, leaf palette).
+
+    ONE palette over every rider cell, from the union of their opaque colours —
+    the pack measures Arthur at 8, so this is a lossless conversion and not a
+    quantisation. The LIFT LEAF rides in the same blob at LEAF_SLOT, on its own
+    OBJ palette: one upload, one ROM claim, and the two never share a colour.
+    """
     cells = _rider_cells()
     allc = set()
     for c in cells:
@@ -867,32 +1037,35 @@ def rider_sheet():
     words = [rgb(0, 0, 0)] + [rgb(*c) for c in order]
     words += [rgb(0, 0, 0)] * (16 - len(words))
 
+    assert len(cells) <= RIDER_SLOTS
+    def put(slot, get):
+        for ty in range(4):
+            for tx in range(4):
+                group, within = divmod(slot, FRAMES_PER_GROUP)
+                ti = group * 64 + within * 4 + ty * 16 + tx
+                for y in range(8):
+                    rowpx = [get(tx * 8 + x, ty * 8 + y) for x in range(8)]
+                    for pl in range(2):
+                        lo = hi = 0
+                        for x in range(8):
+                            v = rowpx[x] >> (pl * 2)
+                            lo |= (v & 1) << (7 - x)
+                            hi |= ((v >> 1) & 1) << (7 - x)
+                        blob[ti * 32 + pl * 16 + y * 2] = lo
+                        blob[ti * 32 + pl * 16 + y * 2 + 1] = hi
+
     blob = bytearray(RIDER_SLOTS * 16 * 32)      # 16 tiles a 32x32 cell
     for slot, cell in enumerate(cells):
         px = cell.load()
-        for ty in range(4):
-            for tx in range(4):
-                # THE 16x16/32x32 OBJ TILE ORDER IS A GRID, NOT A RUN: the PPU
-                # reads row r of a cell at tile base + r*16, so a 32x32 cell
-                # occupies four rows of four in a 16-tile-wide name table.
-                ti = slot * 4 + ty * 16 + tx
-                for y in range(8):
-                    rowpx = []
-                    for x in range(8):
-                        r, g, b, a = px[tx * 8 + x, ty * 8 + y]
-                        rowpx.append(c2i[(r >> 3, g >> 3, b >> 3)] if a > 127 else 0)
-                    lo = hi = lo2 = hi2 = 0
-                    for x in range(8):
-                        v = rowpx[x]
-                        lo |= (v & 1) << (7 - x)
-                        hi |= ((v >> 1) & 1) << (7 - x)
-                        lo2 |= ((v >> 2) & 1) << (7 - x)
-                        hi2 |= ((v >> 3) & 1) << (7 - x)
-                    blob[ti * 32 + y * 2] = lo
-                    blob[ti * 32 + y * 2 + 1] = hi
-                    blob[ti * 32 + 16 + y * 2] = lo2
-                    blob[ti * 32 + 16 + y * 2 + 1] = hi2
-    return bytes(blob), words
+        def get(x, y, px=px):
+            r, g, b, a = px[x, y]
+            return c2i[(r >> 3, g >> 3, b >> 3)] if a > 127 else 0
+        put(slot, get)
+
+    leaf = leaf_pixels()
+    put(LEAF_SLOT, lambda x, y: leaf[y][x])
+    lpal = [rgb(*c) for c in LEAF_PAL] + [rgb(0, 0, 0)] * (16 - len(LEAF_PAL))
+    return bytes(blob), words, lpal
 
 
 # --------------------------------------------------------------------------
@@ -939,8 +1112,17 @@ def pal_bytes(words):
 # --------------------------------------------------------------------------
 # the cut: a painted picture -> unique tiles + a tilemap
 # --------------------------------------------------------------------------
-def cut(buf):
-    tiles, index, tmap = [], {}, []
+def cut(buf, tiles=None, index=None):
+    """A painted picture -> a tilemap over a SHARED tile set.
+
+    Passing the accumulators in is what lets the hall and the lobby cut against
+    ONE CHR page: whatever the second room has in common with the first — every
+    course of wall, every deck row — costs it nothing. Two scenes, one page,
+    and BG12NBA never changes across the edge.
+    """
+    tiles = [] if tiles is None else tiles
+    index = {} if index is None else index
+    tmap = []
     for r in range(ROWS):
         row = []
         for c in range(COLS):
@@ -1046,7 +1228,11 @@ def row_table():
 def main():
     buf = paint_bg1()
     assert_shaft_invariance(buf)
-    tiles1, map1 = cut(buf)
+    shared, ix = [], {}
+    tiles1, map1 = cut(buf, shared, ix)
+    lobby_tiles, map_lobby = cut(paint_lobby(), shared, ix)
+    assert lobby_tiles is tiles1
+
     assert len(tiles1) <= CHR1_TILES, (
         f"BG1 needs {len(tiles1)} tiles, the page holds {CHR1_TILES}")
     chr1 = b"".join(encode_8bpp(t, f"bg1 tile {i}") for i, t in enumerate(tiles1))
@@ -1100,16 +1286,26 @@ def main():
 
     (OUT / "mil_chr1.bin").write_bytes(chr1)
     (OUT / "mil_chr2.bin").write_bytes(chr2)
+    def mlobby():
+        out = bytearray()
+        for r in range(ROWS):
+            for c in range(COLS):
+                t = map_lobby[r][c] if r < len(map_lobby) else 0
+                out += bytes((t & 0xFF, t >> 8))
+        return bytes(out)
+
     (OUT / "mil_map1.bin").write_bytes(m1())
+    (OUT / "mil_lobby.bin").write_bytes(mlobby())
+
     (OUT / "mil_map2.bin").write_bytes(m2())
     # ONE PALETTE BLOB, TWO GROUPS, and the offset is emitted beside it: two
     # claims are two blobs the packer orders by SIZE, and an uploader reaching
     # the second by a distance from the first reads a sign it does not choose.
     (OUT / "mil_pal.bin").write_bytes(pal_bytes(PAL_BG1) + pal_bytes(PAL_BG2))
     (OUT / "mil_row.bin").write_bytes(row_table())
-    rchr, rpal = rider_sheet()
+    rchr, rpal, lpal = rider_sheet()
     (OUT / "mil_obj.bin").write_bytes(rchr)
-    (OUT / "mil_obj_pal.bin").write_bytes(pal_bytes(rpal))
+    (OUT / "mil_obj_pal.bin").write_bytes(pal_bytes(rpal) + pal_bytes(lpal))
 
     inc = f"""; mil_art.inc — GENERATED by tools/gen_mill_assets.py. Do not edit.
 ; The machine hall's geometry, so the ASM and the tests read ONE copy of it.
@@ -1143,7 +1339,29 @@ SMIL_WIN_W        = {WINDOW[2]}
 SMIL_WIN_H        = {WINDOW[3]}
 SMIL_RIDER_BOX    = {RIDER_BOX}     ; the OBJ box: OBSEL's 32x32 size pair
 SMIL_RIDER_SLOTS  = {RIDER_SLOTS}      ; ...one whole 64-tile grid group
+SMIL_RIDER_SLOT_TILES = 4      ; a 32x32 cell is 4 tiles wide in the name table
+SMIL_RIDER_IDLE0  = {RIDER_IDLE0}
+SMIL_RIDER_IDLE_N = {RIDER_IDLE_N}
+SMIL_RIDER_WALK0  = {RIDER_WALK0}
+SMIL_RIDER_WALK_N = {RIDER_WALK_N}
+; TICK: ok -- a count of CELLS IN A SHEET, not of frames on a clock. Which cell
+;   shows is chosen by ES_MIL_STEP (pixels walked) or by ES_MIL_PHASE, which
+;   TS_STEP advances at the region's own rate — so the sheet's length is a
+;   property of the art and is already region-correct.
 SMIL_RIDER_FRAMES = {len(RIDER_CELLS)}
+SMIL_LEAF_SLOT    = {LEAF_SLOT}     ; the lift leaf, in the same OBJ blob
+SMIL_LEAF_TILE    = {(LEAF_SLOT // 4) * 64 + (LEAF_SLOT % 4) * 4}    ; ...and its tile index in the name table
+SMIL_LEAF_BOX     = {LEAF_BOX}
+SMIL_LEAF_ROWS    = {LEAF_ROWS}      ; ...stacked this many deep to fill the opening
+
+; --- the lobby ------------------------------------------------------------
+SMIL_LOBBY_FLOOR  = {LOBBY_FLOOR}     ; the deck's map row
+SMIL_DOOR_A       = {LOBBY_DOORS[0]}      ; the two lift bays' first map column
+SMIL_DOOR_B       = {LOBBY_DOORS[1]}
+SMIL_DOOR_W       = {DOOR_W}      ; a bay, in columns
+SMIL_DOOR_ROWS    = {DOOR_ROWS}
+SMIL_DOOR_TOP     = {DOOR_TOP}     ; the opening's top map row
+SMIL_DOOR_TRAVEL  = {DOOR_TRAVEL}     ; a leaf's slide, in pixels
 SMIL_BELT_ROW     = {BELT_ROW}
 SMIL_BELT_PHASES  = {BELT_PHASES}
 SMIL_TILES1       = {len(tiles1)}

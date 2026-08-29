@@ -11,6 +11,12 @@
 # commit. This scene WRITES it through `mil_advance`, which is the division
 # lakeside draws between `water`'s scroll and the scene that drives it.
 
+[scene.lobby]
+# The lobby drives the same one rate the hall does — the idle cell rides the
+# accumulated phase, so it needs the same pair.
+tsc_acc = "u16@dp"       # TICK: ok -- the carried FRACTION of a scaled rate.
+tsc = "u16@dp"           # TICK: ok -- the OUTPUT of the scaler.
+
 [scene.hall]
 tsc_acc = "u16@dp"       # TICK: ok -- the carried FRACTION of a scaled rate.
                          # It exists to remove a frame coupling, not to hold
