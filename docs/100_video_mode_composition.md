@@ -93,11 +93,12 @@ than read**, because reading a fetch order is not the same as watching it:
   the start of each scanline's fetch, so the leftmost column always shows its
   layer's own `BGnVOFS`.
 
-`tests/test_smelter.py::test_the_offset_leads_its_column_by_one` asserts the
-first as a measurement rather than as an assumption: a shift of 0 explains the
+`tests/test_smelter.py::test_the_world_column_under_a_screen_column_is_the_one_that_moves_it`
+asserts the first as a measurement rather than as an assumption: a shift of 0 explains the
 picture and ±1 does not, so the maximum is sharp.
-`test_screen_column_zero_cannot_be_displaced` asserts the second against the
-value the scene wrote to BG2VOFS.
+`test_screen_column_zero_lands_when_the_port_it_falls_back_on_is_free`
+asserts the second — and asserts it as a limit PAID rather than merely
+suffered, which is what §12.1 changed.
 
 ## 3. The vocabulary
 
