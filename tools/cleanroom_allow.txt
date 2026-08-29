@@ -14,3 +14,22 @@
 # not a title.
 tests/test_runner_guard.py	timed-out run_to_break
 vendor/mesen_runner.py	timed-out run_to_break
+
+# --- OVERSIZED FILES: `size:<path>`, reviewed and kept -----------------------
+# A separate arm of the same gate. >2 MB is a licensing tripwire — a human is
+# meant to look at a big committed blob and say why it is here — so these lines
+# carry the same obligation as the name exemptions above.
+#
+# The three forge_line sheets are the mill rail's source art
+# (vendor/art/forge_line/README.md, docs/92 §5.1a). They are large because they
+# are continuous-tone renders carrying per-pixel grain: 109k-159k unique
+# colours each, 0.00% of aligned 8x8 blocks constant. The grain is not
+# information for our purposes and the obvious economy is to halve them — that
+# was MEASURED and REFUSED: converting from half-resolution sheets moves 18-43%
+# of the output indices, mean RGB888 delta ~10 and max 66-132, which is pixels
+# crossing between ramps rather than settling one step along one. So the bytes
+# as supplied are what the conversion needs, and 5.5 MB is what they cost.
+# Only frames_sheet is over the 2 MB line today; the other two sit just under
+# it and are NOT listed, because an entry for a file the gate never flags is a
+# line nobody has to keep true.
+size: ./vendor/art/forge_line/frames_sheet.png

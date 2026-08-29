@@ -37,6 +37,7 @@ FAIL=0
 # Adding an entry is a CONSCIOUS act — it means "I read this line and it is
 # mechanism language, not branding and not copied content."
 ALLOWLIST="tools/cleanroom_allow.txt"
+SIZE_USED=0
 ALLOW_TALLY="$(mktemp)"
 trap 'rm -f "$ALLOW_TALLY"' EXIT
 _allow_filter() {   # stdin: "file:line:content" hits; stdout: non-exempt hits
@@ -242,23 +243,47 @@ if [ -n "$BADFILES" ]; then
 fi
 
 # --- 4. Oversized files (>2 MB needs a human look; a licensing tripwire) ----
+# THE ALLOWLIST THIS MESSAGE PROMISED DID NOT EXIST until 2026-08-29: the
+# failure said "review, then allowlist it" and there was no mechanism to
+# allowlist with, so the only ways past a legitimately large file were to
+# shrink it or to edit this gate. A tripwire that cannot be armed down is one
+# somebody eventually disarms wholesale. Entries live in the same file as the
+# name exemptions, prefixed `size:`, and carry the same obligation: a line here
+# means a human read the file and decided the bytes are worth committing.
+SIZE_ALLOW=$(grep -E '^size:' "$ALLOWLIST" 2>/dev/null | sed 's/^size:[[:space:]]*//' \
+    | sed 's/[[:space:]]*#.*//' | sed '/^$/d' || true)
 BIG=$(find . -path ./build -prune -o -path ./.git -prune -o \
     -path ./tools/Mesen -prune -o -type f -size +2M -print)
-if [ -n "$BIG" ]; then
-    echo "$BIG"
-    echo "cleanroom: FAIL — file over 2MB committed (review, then allowlist it)"
+BIG_UNREVIEWED=""
+for f in $BIG; do
+    if ! printf '%s\n' "$SIZE_ALLOW" | grep -qxF "$f"; then
+        BIG_UNREVIEWED="$BIG_UNREVIEWED$f
+"
+    else
+        SIZE_USED=$((SIZE_USED + 1))
+    fi
+done
+if [ -n "$BIG_UNREVIEWED" ]; then
+    printf '%s' "$BIG_UNREVIEWED"
+    echo "cleanroom: FAIL — file over 2MB committed (review, then add a \
+'size:<path>' line to tools/cleanroom_allow.txt with the reason)"
     FAIL=1
 fi
 
 # --- Reach (printed pass or fail) -------------------------------------------
 SWEPT=$(grep -rIl '' "${EXCLUDES[@]}" . 2>/dev/null | wc -l)
 ALLOW_DEFINED=0
+SIZE_ALLOW_DEFINED=0
 if [ -f "$ALLOWLIST" ]; then
-    ALLOW_DEFINED=$(grep -cEv '^[[:space:]]*(#|$)' "$ALLOWLIST" || true)
+    SIZE_ALLOW_DEFINED=$(grep -cE '^size:' "$ALLOWLIST" || true)
+fi
+if [ -f "$ALLOWLIST" ]; then
+    ALLOW_DEFINED=$(grep -Ev '^[[:space:]]*(#|$)' "$ALLOWLIST" | grep -cv '^size:' || true)
 fi
 ALLOW_USED=$(wc -c < "$ALLOW_TALLY" | tr -d ' ')
 echo "cleanroom: swept $SWEPT text files, $ZIPS zip(s); \
-$ALLOW_USED hit(s) exempted by $ALLOW_DEFINED allowlist entr(y|ies)"
+$ALLOW_USED hit(s) exempted by $ALLOW_DEFINED allowlist entr(y|ies), \
+$SIZE_USED oversized file(s) exempted by $SIZE_ALLOW_DEFINED size entr(y|ies)"
 
 if [ "$FAIL" -ne 0 ]; then
     exit 1

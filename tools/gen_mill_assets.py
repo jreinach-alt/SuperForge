@@ -69,6 +69,9 @@ any tile count.
 import pathlib
 import sys
 
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+KIT = ROOT / "vendor" / "art" / "forge_line"
+
 OUT = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "build/assets")
 OUT.mkdir(parents=True, exist_ok=True)
 
@@ -167,8 +170,15 @@ PAL_BG2 = [rgb(1, 1, 4),                    # g0/0 backdrop — CGRAM word 0, an
            rgb(12, 15, 21),                 # g0/3 ...and the lit edge of one
            rgb(0, 0, 0),                    # g1/0 transparent
            rgb(*SW_BRASS[3]),               # g1/1 belt body
-           rgb(*SW_BRASS[10]),              # g1/2 belt plate
-           rgb(*SW_MOLTEN[9])]              # g1/3 the cleat, catching the pour
+           rgb(*SW_BRASS[9]),               # g1/2 belt plate
+           rgb(*SW_BRASS[13])]              # g1/3 the cleat's lit edge — BRASS
+                                            #      and not molten: the belt is
+                                            #      the second-loudest thing on
+                                            #      screen and the channel is the
+                                            #      first, so a hot cleat put two
+                                            #      light sources in one picture
+                                            #      and the eye went to the wrong
+                                            #      one
 BG2_G_WALL, BG2_G_BELT = 0, 1
 
 
@@ -198,7 +208,14 @@ LEAD = 1
 PIER_COLS = 1                 # screen column 0: the hall's masonry buttress
 
 # THE STATIONS. Four machines, left to right, over the 31 displaceable columns:
-#   [upright][shaft][shaft][upright][belt...]
+#   [upright][shaft x4][upright][belt x6]  -- TWO stations, not four.
+#
+# THE SCALE COMES FROM THE ART. The concept sheet's own placement manifest puts
+# a machine across about eleven columns; four of those do not fit on a 32-column
+# screen and the four-station version was four copies of one small machine. Two
+# stations at the sheet's scale is a hall with two DIFFERENT machines in it, and
+# the ram is then four columns wide -- exactly the 32 px the kit's ram art is
+# drawn at, so the art arrives at its own size instead of being squeezed.
 #
 # A SHAFT COLUMN IS OPAQUE FOR ITS WHOLE HEIGHT AND CANNOT BE OTHERWISE.
 # Bounding it top and bottom would put a horizontal edge in a column that
@@ -207,18 +224,19 @@ PIER_COLS = 1                 # screen column 0: the hall's masonry buttress
 # between them, the way the concept sheet's press does, and the frame supplies
 # the top and bottom the shaft cannot have. Sixteen shaft columns read as a
 # wall of pipes; EIGHT, each in a frame, read as four machines.
-STATION_AT = (1, 9, 17, 25)
-STATION_W = (8, 8, 8, 7)
-SHAFT_COLS = 2                # ...between the uprights at 0 and 3
-BELT_AT = 4                   # ...and the conveyor fills the rest
+STATION_AT = (1, 13)
+STATION_W = (12, 12)
+SHAFT_COLS = 4                # ...between the uprights at 0 and 5
+BELT_AT = 6                   # ...and the conveyor fills the rest
+TAIL_AT = 25                  # ...then a conveyor run out to the right edge
 
 # THE STROKE, in pixels of vertical displacement. A head drawn at map row
 # CAP_ROW appears at screen row CAP_ROW*8 - v.
-CAP_ROW = 17                  # 136 px down the map
-HEAD_ROWS = 2                 # ...and the head is two tiles tall
-STROKE = (80, 64, 88, 56)     # per station — four machines, four throws
-PERIOD = (1, 2, 1, 1)         # ...and the twin cycles twice a loop
-STATION_PHASE = (0, 40, 74, 20)   # ...starting at different points
+CAP_ROW = 13                  # 104 px down the map: the ram's top map row
+HEAD_ROWS = 6                 # ...and the kit's ram is 48 px, six tiles tall
+STROKE = (72, 56)             # per station — two machines, two throws
+PERIOD = (1, 2)               # ...and the twin strokes twice a loop
+STATION_PHASE = (0, 40)       # ...out of step with each other
 
 # THE BELT'S RATE, in units of the H field. It is 8-PIXEL granular — the layer
 # keeps its own low three bits — so only multiples of 8 do anything.
@@ -240,7 +258,11 @@ MELT_ROW = 25                 # ...and the channel under it, y 200..223 — the
 # every claim the packer places after it and drift the .assert in main.asm —
 # a build failure for a colour change. The page is the resource; how much of
 # it the art currently uses is a number the generator prints.
-CHR1_TILES = 192              # 12,288 B — bg1 at 8bpp, 64 B a tile
+CHR1_TILES = 256              # 16,384 B — bg1 at 8bpp, 64 B a tile. RAISED
+                              #   from 192 when the kit's art arrived: converted
+                              #   assets dedupe far less than procedural ones,
+                              #   because every pixel of authored shading is a
+                              #   little different from its neighbour
 CHR2_TILES = 64               # 1,024 B — bg2 at 2bpp, 16 B a tile
 
 BIT_BG1 = 0x2000              # this column's offset drives BG1
@@ -268,7 +290,7 @@ def kind(col):
         return "pier"
     st = station_of(col)
     if st is None:
-        return "pier"
+        return "belt" if col >= TAIL_AT else "pier"
     k = col - STATION_AT[st]
     if k == 0 or k == 1 + SHAFT_COLS:
         return "upright"
@@ -285,6 +307,81 @@ def kind(col):
 # column is filled from a per-x profile, so it is uniform by construction —
 # and then asserted again after the cut, so a future edit that breaks it stops
 # the build instead of shipping a shaft that slides.
+# --------------------------------------------------------------------------
+# the kit — the concept sheets, resampled into this palette
+# --------------------------------------------------------------------------
+# vendor/art/forge_line/README.md is the whole argument for why this is a
+# CONVERSION and not an extraction; the short version is that the sheets carry
+# no pixel grid (0.00% of aligned 8x8 blocks constant, and no integer upscale
+# underneath) but every asset is isolated on a chroma key, so each one can be
+# resampled to the footprint its layer gives it.
+#
+# BOXES ARE THE SEGMENTER'S, NOT EYEBALLED: tools/kit_import.py finds them by
+# row band then column run. They are written out here because a build must not
+# depend on a segmentation pass agreeing with itself run to run.
+KIT_BOX = {
+    "rail_a": ("frames_sheet", (82, 58, 242, 836)),
+    "rail_b": ("frames_sheet", (268, 58, 400, 836)),
+    "rail_c": ("frames_sheet", (557, 58, 678, 836)),
+    "rail_d": ("frames_sheet", (745, 58, 860, 836)),
+    "ram": ("ram_fx_sheet", (226, 82, 370, 332)),
+    "post": ("conveyor_sheet", (759, 481, 845, 682)),
+    "footing": ("frames_sheet", (85, 852, 1028, 946)),
+    "roller": ("conveyor_sheet", (130, 481, 497, 682)),
+    "billet": ("frames_sheet", (761, 996, 986, 1038)),
+    "panel_flue": ("conveyor_sheet", (130, 808, 246, 926)),
+    "panel_brace": ("conveyor_sheet", (342, 808, 458, 926)),
+    "panel_valve": ("conveyor_sheet", (555, 808, 670, 926)),
+    "panel_hatch": ("conveyor_sheet", (767, 808, 883, 926)),
+    "panel_rivet": ("conveyor_sheet", (980, 808, 1096, 926)),
+    "panel_duct": ("conveyor_sheet", (1197, 808, 1313, 926)),
+}
+_KIT_CACHE = {}
+
+
+def kit(name, size):
+    """One converted asset as an index buffer, cached. Imported lazily because
+    kit_import reads THIS module's palette — importing it at module scope is a
+    cycle."""
+    key = (name, size)
+    if key not in _KIT_CACHE:
+        import kit_import
+        sheet, box = KIT_BOX[name]
+        _KIT_CACHE[key] = kit_import.convert(str(KIT / f"{sheet}.png"), box, size)
+    return _KIT_CACHE[key]
+
+
+def kit_cross_section(name, w):
+    """A V-INVARIANT profile derived from a guide-rail strip.
+
+    The strips cannot be used as drawn — 38-48 of 52 rows differ from the modal
+    row even with the cap and the foot excluded, because the lighting runs down
+    the whole length. So this takes the strip's CROSS-SECTION: each x is the
+    mean of that column over the uniform middle. One row, repeated, invariant
+    by construction, keeping the flute spacing and the metal the art was drawn
+    with. The art cannot supply the ROW a displaced column needs; it can supply
+    the SHAPE."""
+    key = ("xsec", name, w)
+    if key not in _KIT_CACHE:
+        import kit_import
+        from PIL import Image
+        sheet, box = KIT_BOX[name]
+        src = kit_import.key_to_alpha(Image.open(KIT / f"{sheet}.png").crop(box))
+        small = kit_import.resample(src, (w, 120))
+        px = small.load()
+        row = Image.new("RGBA", (w, 1))
+        rp = row.load()
+        for x in range(w):
+            acc, n = [0, 0, 0], 0
+            for y in range(22, 86):                  # the middle: no cap, no foot
+                r, g, b, a = px[x, y]
+                if a:
+                    acc[0] += r; acc[1] += g; acc[2] += b; n += 1
+            rp[x, 0] = (acc[0] // n, acc[1] // n, acc[2] // n, 255) if n else (0, 0, 0, 0)
+        _KIT_CACHE[key] = kit_import.map_to_palette(row, PAL_BG1, BG1_IX0)[0]
+    return _KIT_CACHE[key]
+
+
 def C(k):  return IX_COLD + max(0, min(N_COLD - 1, int(k)))
 def Wm(k): return IX_WARM + max(0, min(N_WARM - 1, int(k)))
 def Ml(k): return IX_MOLTEN + max(0, min(N_MOLTEN - 1, int(k)))
@@ -306,31 +403,16 @@ def _cyl(w, lo, hi, centre=0.32):
 
 
 def shaft_profile(st):
-    """The 32-pixel band of a station's four SHAFT columns, as one index per
-    x. Every row of those columns is this, which is the vertical-invariance
-    contract discharged by construction rather than by care."""
-    w = SHAFT_COLS * 8
-    if st == 0:                                  # drop hammer: one heavy guide
-        p = _cyl(w, 6, 35)
-        for x in (0, 1, w - 2, w - 1):
-            p[x] = 1
-        return [C(v) for v in p]
-    if st == 1:                                  # twin pistons: two rods
-        p = _cyl(w // 2, 7, 35) + _cyl(w // 2, 7, 35)
-        return [C(v) for v in p]
-    if st == 2:                                  # crucible: two guide rails,
-        p = [None] * w                           #   open between them
-        for x, v in zip(range(0, 5), _cyl(5, 9, 33)):
-            p[x] = C(v)
-        for x, v in zip(range(w - 5, w), _cyl(5, 9, 33)):
-            p[x] = C(v)
-        return [0 if v is None else v for v in p]
-    p = [None] * w                               # press: two thick posts
-    for x, v in zip(range(0, 6), _cyl(6, 8, 34)):
-        p[x] = C(v)
-    for x, v in zip(range(w - 6, w), _cyl(6, 8, 34)):
-        p[x] = C(v)
-    return [0 if v is None else v for v in p]
+    """The 32-pixel band of a station's four SHAFT columns, as one index per x.
+
+    Every row of those columns is this, which is the vertical-invariance
+    contract discharged by construction rather than by care — and the shape is
+    the kit's own guide rails, cross-sectioned. Two rails per station, mirrored
+    about the centre, so the ram runs in a symmetric guide the way the sheet's
+    assembly preview shows it."""
+    outer, inner = (("rail_a", "rail_b"), ("rail_c", "rail_d"))[st]
+    a, b = kit_cross_section(outer, 8), kit_cross_section(inner, 8)
+    return list(a) + list(b) + list(reversed(b)) + list(reversed(a))
 
 
 def shaft_groups(st):
@@ -341,59 +423,22 @@ def shaft_groups(st):
     single station. Nothing in the table knows they belong to one machine —
     they are simply three adjacent words, and two of them agree."""
     if st == 1:
-        return ((0, 1, PHASES // 2), (1, 1, 0))
+        return ((0, 2, PHASES // 2), (2, 2, 0))
     return ((0, SHAFT_COLS, 0),)
 
 
 def head_pixels(st, wcols):
     """The one thing in a shaft column that is NOT row-uniform, and therefore
-    the one thing its displacement is seen to move."""
-    w = wcols * 8
-    buf = [[0] * w for _ in range(16)]
-    # THE HEAD IS WARM AND THE SHAFT IS COLD, and that is a legibility rule
-    # rather than a palette preference: the head is the only thing in its
-    # column that moves, and on a cold cylinder a cold head is a shape nobody
-    # can pick out of the shading it slides through. The sheet draws every
-    # moving part in brass and hot metal for the same reason.
-    body = _cyl(w, 2, N_BRASS - 1)
-    for y in range(16):
-        for x in range(w):
-            buf[y][x] = Br(body[x] * (0.5 + 0.5 * (1 - abs(y - 6) / 12)))
-    if st == 0:                                  # ram: a dark band + hot face
-        for y in (0, 1, 6, 7):
-            for x in range(w):
-                buf[y][x] = Wm(3 + 4 * (1 - abs(x - w * 0.3) / w))
-        for y in range(12, 16):
-            for x in range(1, w - 1):
-                buf[y][x] = Ml(12 + (y - 12) * 6)
-    elif st == 1:                                # piston cap: collar + crown
-        for y in (0, 1, 8, 9):
-            for x in range(w):
-                buf[y][x] = Wm(2 + 5 * (1 - abs(x - w * 0.3) / w))
-        for y in range(13, 16):
-            for x in range(1, w - 1):
-                buf[y][x] = Ml(8 + (y - 13) * 5)
-    elif st == 2:                                # crucible: a vessel of melt
-        for y in range(16):
-            for x in range(w):
-                inside = 3 <= x < w - 3 and 3 <= y < 14
-                if inside:
-                    buf[y][x] = Ml(4 + 26 * (1 - (y - 3) / 11) ** 1.4)
-                elif y in (2, 14) or x in (2, w - 3):
-                    buf[y][x] = Br(4 + 6 * (1 - abs(x - w * 0.3) / w))
-    else:                                        # platen: a slab, lit beneath
-        for y in range(16):
-            for x in range(w):
-                if y < 3 or y > 12:
-                    buf[y][x] = 0
-                elif y in (3, 12):
-                    buf[y][x] = Br(3 + 8 * (1 - abs(x - w * 0.35) / w))
-                else:
-                    buf[y][x] = C(body[x] * (0.6 + 0.4 * (1 - (y - 3) / 10)))
-        for x in range(1, w - 1):
-            buf[13][x] = Ml(24)
-            buf[14][x] = Ml(16)
-    return buf
+    the one thing its displacement is seen to move.
+
+    The DROP HAMMER takes the kit's ram at the size it was drawn — 32 px wide
+    is exactly four columns, which is why the station is four columns and not
+    three. The TWIN takes the kit's support post, twice, at 16 px: two rods of
+    the same machine, half a turn apart, and the table does not know they are
+    one machine — they are simply adjacent words, two of which agree."""
+    w, h = wcols * 8, HEAD_ROWS * 8
+    src = kit("ram" if st == 0 else "post", (w, h))
+    return [list(r) for r in src]
 
 
 # --- the static columns: the pier, the legs, the deck and the channel -------
@@ -460,7 +505,7 @@ def paint_upright(buf, cx, st, side):
         for x in range(w):
             edge = x in (0, w - 1)
             inner = 2 <= x < w - 2
-            v = 0 if edge else (6 if inner else 3)
+            v = 1 if edge else (9 if inner else 5)
             buf[y][cx + x] = Br(2 + 5 * glow) if (glow > 0.45 and not edge) \
                 else Wm(v)
     for y in range(top, top + 12):                    # the capital
@@ -483,22 +528,57 @@ def paint_upright(buf, cx, st, side):
             buf[y][cx + x] = Wm(4 if x < k or x >= w - k else 8)
 
 
+def paint_overhead(buf, cx, w):
+    """The plant above the line, in the BELT columns' upper half.
+
+    THOSE COLUMNS DRIVE BG2, so BG1 in them is at its fallback and STATIC —
+    which makes the whole upper half of a conveyor bay free 8bpp art standing
+    in front of a wall that never moves. It was empty in the first cut and the
+    picture read as two machines in a blue room; the kit's six dark panel tiles
+    fill it with ducting, valves and hatches for nothing per frame.
+    """
+    # THREE panels, NOT six, and none of them mirrored. Converted art dedupes
+    # badly — every pixel of authored shading differs slightly from its
+    # neighbour — so six variants plus a vertical flip filled the 256-tile page
+    # exactly and left no headroom for anything else. Three, laid in a fixed
+    # order, read as one run of plant rather than as six different things, and
+    # cost a third of the tiles.
+    PANELS = ("panel_duct", "panel_valve", "panel_hatch")
+    top = GANTRY_ROW * 8 + 16
+    for i, x0 in enumerate(range(cx, cx + w, 16)):
+        tile = kit(PANELS[i % len(PANELS)], (16, 16))
+        for y0 in (top, top + 16):
+            for y in range(16):
+                for x in range(16):
+                    if x0 + x >= cx + w:
+                        continue
+                    v = tile[y][x]
+                    if v:
+                        buf[y0 + y][x0 + x] = v
+    for x in range(cx, cx + w):                  # a shadow line under the plant
+        for y in (top + 32, top + 33):
+            buf[y][x] = Wm(1)
+
+
 def paint_belt_front(buf, cx, w):
     """BG1 in a BELT column: STATIC, because that column's word drives BG2.
     So the conveyor's frame, its rollers and the deck under it are full-detail
     8bpp standing in front of a belt that runs. That is the layering doing the
     work, and it is why the picture is not four bays of empty air."""
-    top = BELT_ROW * 8 - 3
+    # THE KIT'S ROLLER FRAME, tiled, WITH ITS MIDDLE CUT OUT. The art is a
+    # closed housing; drawn whole it would hide the belt running behind it,
+    # which is the one thing in these columns that moves. So the frame's top
+    # and bottom courses are kept and the band between them is dropped — the
+    # rollers still read, and the tread shows through where the belt is.
+    top = BELT_ROW * 8 - 8
+    frame = kit("roller", (64, 32))
     for x in range(cx, cx + w):
-        for y in (top, top + 1):                 # the rail over the belt
-            buf[y][x] = C(24 + ((x // 2) % 3) * 3)
-        for y in (top + 21, top + 22, top + 23):  # ...and the trough under it
-            buf[y][x] = Wm(3 + (y - top - 21) * 4)
-    for x in range(cx + 4, cx + w, 32):          # roller housings, SPARSE:
-        for y in range(top + 2, top + 21):       #   the belt behind them is
-            for k in range(5):                   #   the thing that moves, and
-                if x + k < cx + w:               #   a frame that covers it is
-                    buf[y][x + k] = Wm(4 + (3 if 1 <= k <= 3 else 0))
+        for y in range(32):
+            if 10 <= y < 22:
+                continue                         # ...the window the belt runs in
+            v = frame[y][x % 64]
+            if v:
+                buf[top + y][x] = v
 
 
 def paint_deck_and_melt(buf, cx, w):
@@ -506,17 +586,18 @@ def paint_deck_and_melt(buf, cx, w):
     art in every column that gets it, so it carries the horizontal courses,
     the hazard skirt and the lit lip that no displaced column could hold."""
     d0, m0 = DECK_ROW * 8, MELT_ROW * 8
+    # THE DECK IS THE KIT'S BASE FOOTING, tiled. It is 96 px of authored
+    # riveted plate with arches under it; the rail lays it down repeating and
+    # every column that gets it is static, so it keeps every horizontal course
+    # the art was drawn with.
+    deck = kit("footing", (96, 16))
     for x in range(cx, cx + w):
-        for y in range(d0, m0):
-            r = y - d0
-            if r < 2:                            # the deck's lit top edge
-                buf[y][x] = Wm(15 if (x % 32) < 16 else 12)
-            elif r < 5:                          # a hazard skirt
-                buf[y][x] = (Br(11) if ((x + r * 2) % 12) < 6 else Wm(2))
-            elif r in (14, 15):
-                buf[y][x] = Wm(3)
-            else:
-                buf[y][x] = Wm(5 + ((x // 4 + r) % 3))
+        for y in range(d0, min(m0, d0 + 16)):
+            v = deck[y - d0][x % 96]
+            if v:
+                buf[y][x] = v
+        for y in range(d0 + 16, m0):             # ...and its shadowed under-run
+            buf[y][x] = Wm(3 + ((x // 4 + y) % 2))
         for y in range(m0 - 3, m0):              # the lip catching the glow
             buf[y][x] = Ml(24 + (y - m0 + 3) * 3)
         for y in range(m0, PX):                  # the channel, uplighting all
@@ -536,19 +617,25 @@ def paint_bg1():
                 buf[y][sx + x] = prof[x]
         for k0, wc, _ in shaft_groups(st):
             head = head_pixels(st, wc)
-            for y in range(16):
+            for y in range(HEAD_ROWS * 8):
                 for x in range(wc * 8):
-                    buf[CAP_ROW * 8 + y][sx + k0 * 8 + x] = head[y][x]
+                    v = head[y][x]
+                    if v:                        # the ram's art is keyed, and
+                        buf[CAP_ROW * 8 + y][sx + k0 * 8 + x] = v
         paint_upright(buf, s * 8, st, 0)                  # the near upright
         paint_upright(buf, (s + 1 + SHAFT_COLS) * 8, st, 1)   # ...and the far
         paint_crown(buf, s * 8, (2 + SHAFT_COLS) * 8, st)
         bx = (s + BELT_AT) * 8
         bw = (w - BELT_AT) * 8
+        paint_overhead(buf, bx, bw)
         paint_belt_front(buf, bx, bw)
         paint_deck_and_melt(buf, s * 8, 8)
         paint_deck_and_melt(buf, (s + 1 + SHAFT_COLS) * 8, 8)
         paint_deck_and_melt(buf, bx, bw)
     paint_deck_and_melt(buf, 0, 8)
+    paint_overhead(buf, TAIL_AT * 8, (COLS - TAIL_AT) * 8)
+    paint_belt_front(buf, TAIL_AT * 8, (COLS - TAIL_AT) * 8)
+    paint_deck_and_melt(buf, TAIL_AT * 8, (COLS - TAIL_AT) * 8)
     return buf
 
 
@@ -698,7 +785,7 @@ def assert_shaft_invariance(buf):
     vertically, so every row of it outside the head band must be identical —
     the generator paints it that way, and this is what stops a future edit
     from quietly reintroducing the seam that slides."""
-    head = range(CAP_ROW * 8, CAP_ROW * 8 + 16)
+    head = range(CAP_ROW * 8, CAP_ROW * 8 + HEAD_ROWS * 8)
     for st, s in enumerate(STATION_AT):
         for x in range((s + 1) * 8, (s + 1 + SHAFT_COLS) * 8):
             seen = {buf[y][x] for y in range(PX) if y not in head}
@@ -728,7 +815,13 @@ def piston_v(col, phase):
 
 
 def belt_h(col, phase):
+    """The tail run past the last station has no station of its own, so it
+    takes the last one's direction: it is the same line continuing off the
+    right-hand edge, and a tail running the other way would read as a second
+    machine nobody can see."""
     st = station_of(col)
+    if st is None:
+        st = len(STATION_AT) - 1
     return (BELT_DIR[st % len(BELT_DIR)] * BELT_STEP * phase) & 0x3FF
 
 
