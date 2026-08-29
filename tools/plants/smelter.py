@@ -1,11 +1,23 @@
 """smelter — offset-per-tile's failure modes, planted.
 
-Eleven plants. Nine are silent-corruption defects that still produce a plausible
-picture and two are the allocator refusing a declaration that lies. One of the
-eleven found a hole in the test module on its first run, which is the whole
+Fourteen plants. Twelve are silent-corruption defects that still produce a
+plausible picture and two are the allocator refusing a declaration that lies.
+One of them found a hole in the test module on its first run, which is the whole
 reason this file exists rather than a list of defects somebody was already
-confident about; three more are defects the rail SHIPPED and a person caught,
-put here so the next one is caught by the harness instead.
+confident about; FOUR more are defects the rail SHIPPED and a person caught, put
+here so the next one is caught by the harness instead.
+
+THE LAST THREE ARE THE SCROLLING WORLD'S, added when the rail grew from one
+screen to four. `the-read-head-ignores-the-camera` stops the DMA moving along
+the world-space row, which is a no-op on the first screen and therefore
+invisible to every case that starts from the settled frame.
+`the-fallback-carries-column-zeros-melt` is the fourth shipped defect and the
+second one a person found by LOOKING: BGnVOFS is not screen column 0's
+register, it is every column whose word drives the OTHER layer, so paying off
+column 0 with it gave sixteen plate columns one shared melt height belonging to
+the left edge. `the-fall-teleports-instead-of-dissolving` puts the respawn back
+in the frame the kill fires — the state cycle is unchanged and stays green,
+which is the point: the event is a different claim from its endpoints.
 
 THE SET IS BUILT AROUND WHAT A PER-COLUMN TABLE CAN GET WRONG WITHOUT
 LOOKING WRONG. A picture where every column has moved to *some* height is the
@@ -88,26 +100,32 @@ T = "tests/test_smelter.py::"
 
 PLANTS = [
     Plant(id="table-column-lead-removed",
-          file=GEN,
-          old="""            w = column_word((col + 1) % COLS, phase)""",
-          new="""            w = column_word(col, phase)   # PLANT: the lead undone""",
+          file=OPT_ASM,
+          old="""    inc a                           ; ...+1: the fetch lead, paid here at the
+    asl a                           ;   read head rather than baked in the blob""",
+          new="""    asl a                           ; PLANT: the lead undone""",
           artifact=ROM,
           build=["smelter"],
           tests=[
-              T + "test_the_offset_leads_its_column_by_one",
+              T + "test_the_world_column_under_a_screen_column_is_the_one_that_moves_it",
               T + "test_every_melt_column_stands_where_its_word_says",
               T + "test_every_plate_column_stands_where_its_word_says",
           ],
-          why="the defect this rail actually shipped. Undoing the shift moves "
+          why="the defect this rail actually shipped. Undoing the lead moves "
               "every column's displacement one column right, which on a "
               "picture of arches and bobbing plates is invisible: the melt "
               "still erupts, the plates still move, and the only thing wrong "
               "is WHICH column each word drives. The plate cases catch it "
               "because a plate's four columns then include one at the layer's "
               "fallback — the ghost that made the first plate render three "
-              "columns wide. Planted in the GENERATOR rather than at a write "
-              "site because the shift is a property of the table, and the "
-              "table is where a future author would undo it."),
+              "columns wide. THE PLANT MOVED WITH THE MECHANISM: the lead used "
+              "to be baked into the generator's table and was planted there; "
+              "the world-space table pays it at the DMA'S READ HEAD instead, "
+              "so that is where the edit a future author makes now lives. The "
+              "rename that came with the move also left this plant pointing at "
+              "a test that no longer existed — which the harness reported as "
+              "FIRED, because pytest exits non-zero for an unresolvable node "
+              "id. tools/falsify.py grew PLANT-NAMES-NO-TEST for it."),
 
     Plant(id="bg1-enable-bit-dropped",
           file=GEN,
@@ -309,10 +327,12 @@ mode = 1                 # PLANT: a mode with no offset path""",
     Plant(id="bg-text-back-in-globals",
           file=GAME,
           old="""globals = ["scene_mgr", "fade", "input", "text_dp", "font_rom",
-           "smt_bg", "smt_rom", "oam_sprites", "region", "tick_scale"]""",
+           "smt_bg", "smt_rom", "oam_sprites", "region", "tick_scale",
+           "mosaic"]""",
           new="""globals = ["scene_mgr", "fade", "input", "text_dp", "font_rom",
            "bg_text",                    # PLANT: BG3 drawn where it is data
-           "smt_bg", "smt_rom", "oam_sprites", "region", "tick_scale"]""",
+           "smt_bg", "smt_rom", "oam_sprites", "region", "tick_scale",
+           "mosaic"]""",
           artifact=ROM,
           build=["smelter"],
           expect="build-fails",
@@ -324,4 +344,74 @@ mode = 1                 # PLANT: a mode with no offset path""",
               "moving `bg_text` from the title scene into the globals — "
               "because that is the edit a future author makes without "
               "thinking, and the refusal is what has to catch it."),
+
+    Plant(id="the-read-head-ignores-the-camera",
+          file=OPT_ASM,
+          old="""    sta z:ES_SMT_NMI_SCRATCH + 2    ; the camera's own column, for below
+    inc a""",
+          new="""    sta z:ES_SMT_NMI_SCRATCH + 2    ; the camera's own column, for below
+    lda #0                          ; PLANT: the read head never leaves home
+    inc a""",
+          artifact=ROM,
+          build=["smelter"],
+          tests=[
+              T + "test_the_same_agreement_holds_with_the_camera_off_zero",
+          ],
+          why="SCROLLING, REMOVED, AND THE FIRST SCREEN IS UNTOUCHED. The "
+              "layers still scroll — the H ports carry the camera four "
+              "instructions later — and the transfer still fires the same 64 B "
+              "into the same place. Only the READ HEAD stops moving, so every "
+              "frame past the first screen displaces its columns by the words "
+              "belonging to world columns 1..32. The picture is a foundry with "
+              "plates and jets in it, and the plates are simply not where the "
+              "platforms are. EVERY OTHER CASE IN THIS MODULE SURVIVES IT, "
+              "because every other case starts from the settled frame where "
+              "the camera is zero and the plant is a no-op — which is the "
+              "whole reason the case it names exists."),
+
+    Plant(id="the-fallback-carries-column-zeros-melt",
+          file=OPT_ASM,
+          old="""    lda #SMT_VOFS_BG2               ; the melt's own base, for every column""",
+          new="""    lda z:ES_SMT_NMI_SCRATCH        ; PLANT: column 0's word, for everyone
+    and #ES_OPT_WORKS_MASK
+    ; the melt's own base, for every column""",
+          artifact=ROM,
+          build=["smelter"],
+          tests=[
+              T + "test_the_melt_behind_every_plate_is_one_calm_level",
+          ],
+          why="THE DEFECT THIS RAIL SHIPPED AND A PERSON SAW, restored. A word "
+              "carries one enable bit, so a plate column displaces BG1 and "
+              "leaves BG2 at BG2VOFS — and BG2VOFS is not column 0's register, "
+              "it is EVERY plate column's. Loading it with column 0's own word "
+              "to pay off the column the hardware cannot displace paid for one "
+              "column with sixteen: the lava behind all four platforms rose "
+              "and fell together in the left edge's rhythm, at a different "
+              "rate from the jets beside it, and snapped to the base whenever "
+              "the camera put a plate under column 0. THE PICTURE IS ENTIRELY "
+              "PLAUSIBLE — it is lava, and it moves — which is why it shipped "
+              "and why every other case here stays green under it: all of them "
+              "measure where the crust is in the columns the TABLE drives, and "
+              "not one measured the columns it does not."),
+
+    Plant(id="the-fall-teleports-instead-of-dissolving",
+          file=OBJ,
+          old="""    ldx #.loword(smt_kn_respawn)
+    jsr mosaic_arm""",
+          new="""    jsr smt_kn_respawn              ; PLANT: the one-frame cut, again""",
+          artifact=ROM,
+          build=["smelter"],
+          tests=[
+              T + "test_the_fall_dissolves_the_picture_before_it_gives_him_back",
+          ],
+          why="the respawn back in the frame the kill fires, which is where it "
+              "was. He still dies, he still comes back, he still comes back ON "
+              "THE SPAWN PLATE at the ride equality — so the state cycle case "
+              "stays green and should, because the state cycle is not what "
+              "broke. What breaks is that the player cannot SEE it happen: he "
+              "blinks from the bottom of the world to the start with nothing "
+              "in between. The case this names is the only one that reads the "
+              "event rather than its endpoints, and it reads it as the "
+              "picture ceasing to be explicable by the table while the mosaic "
+              "smears it, then becoming explicable again."),
 ]

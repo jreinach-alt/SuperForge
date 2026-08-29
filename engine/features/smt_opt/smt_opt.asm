@@ -251,20 +251,39 @@ smt_nmi_row:
     xba
     sta a:$210F                     ; BG2HOFS, high
     xba
-    ; ---- SCREEN COLUMN 0, WHICH THE HARDWARE CANNOT DISPLACE ---------------
+    ; ---- THE FALLBACK PORTS, WHICH ARE SHARED AND NOT COLUMN 0'S ----------
     ; The offset latches are cleared at the start of each scanline's fetch, so
-    ; the leftmost column always shows its layer's own BGnVOFS. On a static
-    ; screen that is one column at the fallback and the rail simply asserted
-    ; it. Under scrolling it would be a permanently WRONG column travelling
-    ; along the left edge — so the fallback register is made to carry that
-    ; column's own value. The hardware limit is not worked around; the port it
-    ; falls back to is loaded with the right answer.
+    ; screen column 0 cannot be displaced at all: it shows its layer's own
+    ; BGnVOFS. But that is not the ONLY column reading these ports. A word
+    ; carries one enable bit, so a plate column displaces BG1 and leaves BG2 at
+    ; BG2VOFS, and a gap column displaces BG2 and leaves BG1 at BG1VOFS. THE
+    ; FALLBACK IS A WHOLE-SCREEN QUANTITY. Loading it with column 0's answer
+    ; loads it for everyone.
     ;
-    ; The word is read from the SAME ROW the transfer just moved, at the
-    ; camera's own column — which is why the blob no longer bakes the lead in.
-    ; One column drives one layer, and the other layer is either transparent
-    ; there (BG1 over a gap) or calm by construction (the melt under a plate),
-    ; so the one word settles both.
+    ; THAT SHIPPED, AND A PERSON SAW IT. Column 0 is a gap column most of the
+    ; time, so BG2VOFS carried that one jet's height — and every plate column
+    ; on screen, sixteen of thirty-two, showed its melt at that height. The
+    ; lava behind the four platforms rose and fell together, in a rhythm
+    ; belonging to the left edge rather than to itself, and SNAPPED to the base
+    ; the moment the camera put a plate under column 0. Measured before the
+    ; fix: the crust row in every plate column equalled where(CRUST_PX,
+    ; BG2VOFS) at all fourteen samples, to the pixel.
+    ;
+    ; So the two ports are settled by what ELSE falls back on them, and column
+    ; 0 gets whatever is left:
+    ;
+    ;   BG2VOFS — every plate column's melt. It is held at the melt's own base,
+    ;     which makes the lava behind the platforms a calm level surface. The
+    ;     cost is screen column 0: when it is a gap column its melt sits at the
+    ;     base too, instead of riding its jet. One column at the left edge,
+    ;     against sixteen in the middle of the screen.
+    ;   BG1VOFS — every gap column's plates, and there are no plate pixels in a
+    ;     gap column to displace. It is free, so column 0 keeps it: when column
+    ;     0 is a plate column, that plate lands exactly where its word says.
+    ;
+    ; The hardware limit is not worked around. It is PAID on the layer where
+    ; nothing else was already spending the port, and stated on the layer where
+    ; something was.
     rep #$20
     .a16
     lda z:ES_SMT_NMI_SCRATCH + 2
@@ -275,7 +294,7 @@ smt_nmi_row:
     lda f:smt_col_bin, x
     sta z:ES_SMT_NMI_SCRATCH
     and #ES_OPT_WORKS_BG1
-    beq @col0_gap
+    beq @col0_bg2                   ; gap column: BG1 has nothing to place
     lda z:ES_SMT_NMI_SCRATCH
     and #ES_OPT_WORKS_MASK
     sep #$20
@@ -285,25 +304,15 @@ smt_nmi_row:
     sta a:$210E                     ; BG1VOFS, high
     rep #$20
     .a16
-    lda #SMT_VOFS_BG2               ; ...and the melt is calm under a plate
-    bra @col0_bg2
-@col0_gap:
-    .a16
-    .i16
-    lda z:ES_SMT_NMI_SCRATCH
-    and #ES_OPT_WORKS_MASK
 @col0_bg2:
     .a16
     .i16
-    sep #$20
+    lda #SMT_VOFS_BG2               ; the melt's own base, for every column
+    sep #$20                        ;   whose word drives the other layer
     .a8
     sta a:$2110                     ; BG2VOFS, low
     xba
     sta a:$2110                     ; BG2VOFS, high
-    rep #$20
-    .a16
-    sep #$20
-    .a8
     ; fall through — the same channel, re-armed, for the melt's CHR
 
 ; --- smt_nmi_melt: the melt's CHR, every armed VBlank -----------------------

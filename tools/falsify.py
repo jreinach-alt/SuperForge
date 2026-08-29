@@ -120,9 +120,16 @@ PLANT_BROKE_BUILD = "PLANT-BROKE-THE-BUILD"
 PLANT_WRONG_ERROR = "PLANT-BUILD-FAILED-UNNAMED"
 BASELINE_RED = "BASELINE-WOULD-NOT-BUILD"
 RESTORE_BAD = "RESTORE-INCOMPLETE"
+# A plant naming a test that does not exist. pytest exits NON-ZERO for an
+# unresolvable node id, so without this the run reads FIRED — the harness's own
+# worst failure mode, a green light for an assertion nobody wrote. Caught on
+# smelter, where a rename left `table-column-lead-removed` pointing at a case
+# that no longer existed and the plant reported FIRED with "(no match in any
+# of ...)" as its evidence.
+TEST_MISSING = "PLANT-NAMES-NO-TEST"
 
 PLANT_FAILURES = {PLANT_NOT_APPLIED, PLANT_NO_REACH, PLANT_BROKE_BUILD,
-                  PLANT_WRONG_ERROR, BASELINE_RED, RESTORE_BAD}
+                  PLANT_WRONG_ERROR, BASELINE_RED, RESTORE_BAD, TEST_MISSING}
 
 
 @dataclass
@@ -266,7 +273,15 @@ def run_plant(p: Plant, verbose: bool = True) -> Result:
             else:
                 # 4. the tests must go RED
                 rc, tout = run_tests(p.tests, p.root)
-                if rc == 0:
+                if rc == 4 or "no tests ran" in tout or "no match in any" in tout:
+                    # pytest's USAGE_ERROR, or a node id it could not resolve.
+                    # Non-zero, so this would otherwise read as the defect
+                    # being caught.
+                    verdict = TEST_MISSING
+                    detail = ("the plant names a test that does not exist, so "
+                              "nothing was actually run — a rename is the "
+                              f"usual cause. {_tail(tout, 2)}")
+                elif rc == 0:
                     verdict = TEST_BLIND
                     detail = ("the named test(s) stayed GREEN against a "
                               "planted defect that DID reach the artifact — "

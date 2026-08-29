@@ -323,8 +323,8 @@ def _fit(im, pal, phase, cam):
         idx = (phase - lag) % PHASES
         vis = visible(row(idx), cam)
         bad = 0
-        for c in range(COLS):
-            w = vis[c]
+        for c in range(1, COLS):        # column 0 is not displaced by its own
+            w = vis[c]                  #   word — see the fallback case below
             if not (w & BIT_BG2):
                 continue
             y = crust_y(im, pal, c)
@@ -378,6 +378,59 @@ def test_the_world_column_under_a_screen_column_is_the_one_that_moves_it(frame):
                 f"head's alignment is not being measured, it is being assumed")
 
 
+def test_the_same_agreement_holds_with_the_camera_off_zero(tmp_path):
+    """SCROLLING, ASSERTED WHERE IT ACTUALLY HAPPENS — and the case above
+    cannot make this claim.
+
+    There is one offset table and it is WORLD space, so scrolling is not a
+    rebuild: the DMA's read head moves along a row it was already going to
+    transfer, and the layers carry the sub-column remainder in their own H
+    ports. The claim is therefore the SAME one — screen column sc shows the
+    word for world column cam + sc — but at a camera that is not zero, which is
+    the only place it has any content. At cam = 0 a read head that ignored the
+    camera entirely produces a byte-identical picture, so every case that
+    starts from the settled frame is blind to the whole mechanism.
+
+    Sharp on both sides again, and the unit is now a WHOLE COLUMN: move the
+    assumed camera by 8 px either way and no row may explain the picture at any
+    lag.
+
+    The camera is PLACED, by writing the knight's world X and the plate he is
+    riding — the two quantities `smt_kn_camera` is a function of, at the one
+    place the rail computes it. Nothing else is written and nothing else is
+    read: the assertion is the rendered frame against the blob in the ROM. He
+    is put on a plate rather than dropped into a gap because `_fit` reads the
+    crust in gap columns, and a knight falling through them would be occluding
+    the thing under test.
+    """
+    slot = next(i for i, (col, _w) in enumerate(PLATES) if col >= 2 * COLS)
+    col, _w = PLATES[slot]
+    with Machine(str(ROM)) as m:
+        m.advance(TITLE)
+        m.advance(1, pad1=JOY_START)
+        m.advance(SETTLE)
+        m.write_bytes(W, DP_KN_X, ((col + 1) * 8).to_bytes(2, "little"))
+        m.write_bytes(W, DP_KN_PLATE, slot.to_bytes(2, "little"))
+        m.advance(2)                    # the tick moves the camera, then a
+        pal = _palette(m)               #   VBlank draws from it
+        phase = m.read_u16(W, DP_PHASE)
+        cam = m.read_u16(W, DP_CAM_SHOWN)
+        p = tmp_path / "scrolled.png"
+        m.screenshot(str(p))
+    im = Image.open(p).convert("RGB")
+
+    assert cam >= COLS * 8, f"the camera is still on the first screen: {cam}"
+    bad, _lag, _idx = _fit(im, pal, phase, cam)[0]
+    assert bad == 0, (
+        f"no row of the blob explains the scrolled picture at cam={cam} "
+        f"({bad} column(s) wrong at the best fit)")
+    for d in (-8, +8):
+        off = _fit(im, pal, phase, cam + d)[0][0]
+        assert off > 0, (
+            f"a camera of {cam + d} explains the picture as well as {cam} — "
+            f"the read head is not tracking the camera by whole columns")
+
+
 def test_every_melt_column_stands_where_its_word_says(frame):
     """THE HEADLINE EQUALITY. Not "the melt moves": every gap column's crust
     line is at exactly `map row - word - 1`, against the word the ROM holds
@@ -387,8 +440,8 @@ def test_every_melt_column_stands_where_its_word_says(frame):
     assert bad == 0, f"row {idx} (lag {lag}) leaves {bad} column(s) unexplained"
     vis = visible(row(idx), cam)
     checked = 0
-    for c in range(COLS):
-        w = vis[c]
+    for c in range(1, COLS):            # ...except column 0, which the
+        w = vis[c]                      #   hardware cannot displace at all
         if not (w & BIT_BG2):
             continue
         assert crust_y(im, pal, c) == where(CRUST_PX, w & VALUE_MASK), \
@@ -452,30 +505,87 @@ def test_the_frame_geometry_is_the_one_this_module_assumes(frame):
     assert im.size == (256, PICTURE_TOP + PICTURE_LINES + 8), im.size
 
 
-def test_screen_column_zero_lands_because_its_fallback_was_loaded(frame):
-    """THE HARDWARE LIMIT, PAID OFF — and this case used to assert the limit.
+def test_the_melt_behind_every_plate_is_one_calm_level(tmp_path):
+    """THE DEFECT A PERSON SAW, and the case that had no counterpart.
+
+    A word carries ONE enable bit. A plate column displaces BG1 and leaves BG2
+    at BG2VOFS — so the melt behind every plate on screen, sixteen columns of
+    thirty-two, is not in the table at all. It is whatever that one register
+    holds.
+
+    The rail used to load BG2VOFS with SCREEN COLUMN 0's word, to pay off the
+    column the hardware cannot displace. Column 0 is a gap column most of the
+    time, so the lava behind all four platforms rose and fell together in a
+    rhythm belonging to the left edge, at a different rate from the jets beside
+    it, and SNAPPED to the base whenever the camera put a plate under column 0.
+    Every case in this module measured where the crust IS in the columns the
+    table drives; not one measured the columns it does not.
+
+    So: the melt behind the plates is ONE level, it is the melt's own base, and
+    it does not move — across the harmonic and across the camera both, because
+    the failure was visible only while something else was changing.
+    """
+    expect = where(CRUST_PX, _art("SMT_VOFS_BG2"))
+    seen = []
+    with Machine(str(ROM)) as m:
+        m.advance(TITLE)
+        m.advance(1, pad1=JOY_START)
+        m.advance(SETTLE)
+        pal = _palette(m)
+        for shot in range(8):
+            if shot == 4:               # ...and now from somewhere else in
+                slot = next(i for i, (col, _w) in enumerate(PLATES)
+                            if col >= 2 * COLS)          # the world entirely
+                m.write_bytes(W, DP_KN_X, ((PLATES[slot][0] + 1) * 8)
+                              .to_bytes(2, "little"))
+                m.write_bytes(W, DP_KN_PLATE, slot.to_bytes(2, "little"))
+                m.advance(2)
+            cam = m.read_u16(W, DP_CAM_SHOWN)
+            p = tmp_path / f"calm{shot}.png"
+            m.screenshot(str(p))
+            im = Image.open(p).convert("RGB")
+            rows = {crust_y(im, pal, c) for c in range(1, COLS)
+                    if screen_plate_of(c, cam) is not None}
+            rows.discard(None)
+            seen.append((cam, sorted(rows)))
+            m.advance(5)
+    for cam, rows in seen:
+        assert rows == [expect], (
+            f"at cam={cam} the melt behind the plates is at {rows}, not the "
+            f"one calm level {expect} — a plate column's BG2 is falling back "
+            f"on a register somebody else is driving")
+    assert len({cam for cam, _r in seen}) > 1, "the camera never moved"
+
+
+def test_screen_column_zero_lands_when_the_port_it_falls_back_on_is_free(frame):
+    """THE HARDWARE LIMIT, PAID WHERE IT CAN BE AND STATED WHERE IT CANNOT.
 
     The offset latches are cleared at the start of each scanline's fetch, so
-    the leftmost column cannot be displaced at all: it shows its layer's own
-    BGnVOFS, whatever that happens to be. On a static screen that was one
-    column at the fallback and this module simply asserted it.
+    the leftmost column always shows its layer's own BGnVOFS. That register is
+    not column 0's, though — it is the fallback for every column whose word
+    drives the other layer — so column 0 can only be given its own answer on a
+    layer nothing else is spending.
 
-    Under scrolling it would be a permanently WRONG column travelling along
-    the left edge — the one place the picture disagrees with the table, moving
-    with the camera. So the NMI reads that column's word out of the row it has
-    just transferred and loads BG1VOFS/BG2VOFS with it. The limit is unchanged;
-    what changed is that the port it falls back to now carries the right
-    answer, and this case asserts the RESULT: screen column 0 stands exactly
-    where its own world column's word says, which the PPU cannot do by
-    displacement.
+    BG1VOFS is such a layer: the columns falling back on it are gap columns,
+    and a gap column has no plate pixels to place. So when column 0 is a plate
+    column, its plate lands exactly on its word, and this case asserts that
+    equality.
+
+    BG2VOFS is not: every plate column's melt reads it. It is held at the
+    melt's base for their sake, and the price is this — when column 0 is a gap
+    column, its melt sits at the base instead of riding its jet. Asserted here
+    as the KNOWN cost rather than left as an unexplained column, which is the
+    difference between a limit and a bug.
     """
     im, pal, phase, cam = frame
     _, _, idx = _fit(im, pal, phase, cam)[0]
     w = visible(row(idx), cam)[0]
-    if w & BIT_BG2:
-        assert crust_y(im, pal, 0) == where(CRUST_PX, w & VALUE_MASK)
+    if w & BIT_BG1:
+        assert plate_y(im, pal, 0) == where(PLAT_PX, w & VALUE_MASK), \
+            "column 0 is a plate column and BG1VOFS is free — it should land"
     else:
-        assert plate_y(im, pal, 0) == where(PLAT_PX, w & VALUE_MASK)
+        assert crust_y(im, pal, 0) == where(CRUST_PX, _art("SMT_VOFS_BG2")), \
+            "column 0's melt is neither at its word nor at the base it shares"
 
 
 def test_the_row_bias_is_what_the_rail_says(frame):
@@ -1365,6 +1475,54 @@ def test_walking_off_the_span_drops_him_and_the_world_gives_him_back(tmp_path):
     assert back, "he fell out of the world and never came back onto a plate"
     assert seen[back[0]][0] <= start + span, \
         f"he came back at x={seen[back[0]][0]}, not on the spawn plate"
+
+
+def test_the_fall_dissolves_the_picture_before_it_gives_him_back(tmp_path):
+    """THE DEATH IS AN EVENT, not a cut — asserted on the picture and nowhere
+    else.
+
+    The respawn used to happen in the frame he crossed the kill row: he
+    blinked from the bottom of the world to the spawn with nothing in between,
+    and every frame of it was a legal running frame. It is now the mosaic's
+    swap callback, fired at peak black, so the fall, the dissolve, the move and
+    the return are one legible thing.
+
+    The assertion is that the picture STOPS BEING EXPLICABLE and then starts
+    again. While the mosaic runs, the PPU is replicating one pixel across each
+    block, so the crust lines the offset table put in place are smeared away
+    and no row of the blob explains the frame at any lag; when the wipe lets
+    go, a row explains it exactly again. A cut has no such run — every one of
+    its frames is explained — which is precisely the difference this measures.
+
+    Measured on the shipped binary: fourteen consecutive captures at 6-15
+    unexplained columns, bracketed on both sides by exact fits.
+    """
+    caps = []
+    with Machine(str(ROM)) as m:
+        m.advance(TITLE)
+        m.advance(1, pad1=JOY_START)
+        m.advance(SETTLE)
+        pal = _palette(m)
+        for k in range(48):
+            phase = m.read_u16(W, DP_PHASE)
+            cam = m.read_u16(W, DP_CAM_SHOWN)
+            p = tmp_path / f"die{k}.png"
+            m.screenshot(str(p))
+            im = Image.open(p).convert("RGB")
+            caps.append(_fit(im, pal, phase, cam)[0][0])
+            m.advance(1, pad1={"right": True})
+
+    # the longest run of captures no row of the blob explains
+    best = run = 0
+    for bad in caps:
+        run = run + 1 if bad >= 6 else 0
+        best = max(best, run)
+    assert best >= 8, (
+        f"the picture stayed explicable throughout — the fall is a cut, not a "
+        f"dissolve. Per-capture unexplained columns: {caps}")
+    assert caps[0] == 0 and caps[-1] == 0, (
+        f"the run does not open and close on a frame the table explains: "
+        f"{caps}")
 
 
 def test_the_knight_does_not_hide_the_edge_the_per_column_cases_read(frame):

@@ -529,7 +529,101 @@ from is not constant. The pair is matched on the ART BYTES instead — the wall'
 CGRAM words and the animated CHR block, read off the machine at each capture —
 which is what actually drew the frame.
 
-## 12. Stated limits
+## 12. The world that scrolls, and the two hardware facts it exposed
+
+The rail started one screen wide, and a table that is exactly as wide as the
+screen hides two things about offset-per-tile. Widening the world to four
+screens (128 world columns, 16 plate slots, `SCREENS` in
+`tools/gen_smelter_assets.py`) surfaced both, and both cost a defect first.
+
+**The table is world space and scrolling is an addition at the read head.**
+There is one blob and one row per phase, indexed by WORLD column. The DMA that
+moves BG3's V row every VBlank starts at `cam + 1` instead of at 0, so the
+camera costs no rebuild, no second table and no extra byte of VBlank — the
+transfer is the same 64 B into the same place, from a different offset. The
+`+ 1` is the fetch lead (§2), moved out of the generator and paid here, which
+is what makes each row usable for two things at once: the 32 words the transfer
+moves, and the one word the fallback needs. The layers' own `BGnHOFS` carry the
+camera at full pixel resolution, so the 8-px quantisation of the read head and
+the sub-column remainder never disagree —
+`tests/test_smelter.py::test_the_same_agreement_holds_with_the_camera_off_zero`
+asserts the same equality the static case asserts, at a camera two screens in,
+and requires that a camera 8 px either side explains the picture at NO lag.
+
+**A 16-bit port written from an 8-bit accumulator is a garbage write even when
+the picture is identical.** The `BGnHOFS` pair is a write-twice latch: low byte,
+then high. The high byte came from `xba`, which serves B — and B holds the
+camera's high byte only if the camera was loaded SIXTEEN BITS WIDE. Written in
+A8, the load takes the low byte and `xba` hands over whatever the previous
+16-bit operation left in B, which here was the DMA source address's high byte,
+recomputed every frame from the phase. `BGnHOFS` is 10 bits, so the damage
+landed in bits 8-9: both layers scrolled by a multiple of 256 px, and both maps
+repeat every 256 px, so **the picture was byte-identical and no test in the
+module could have seen it.** It was found by reading the routine after a
+different symptom, and the fix is the `rep #$20` now standing four lines above
+the writes with the reason written beside it. The general shape is worth having
+in mind: a wrong write whose damage is invisible today becomes visible the day
+someone changes the map's period.
+
+### 12.1 The fallback port is a whole-screen quantity, not column 0's
+
+Screen column 0 cannot be displaced — the offset latches are cleared at the
+start of each scanline's fetch (§2) — so it shows its layer's own `BGnVOFS`.
+The obvious move is to load that register with column 0's own word, and the
+rail did, and **it shipped a defect a person caught by looking at the clip.**
+
+A word carries ONE enable bit. So a plate column displaces BG1 and leaves BG2 at
+`BG2VOFS`; a gap column displaces BG2 and leaves BG1 at `BG1VOFS`. The fallback
+registers are not column 0's — they are read by **every column whose word drives
+the other layer**, which is sixteen of thirty-two on this screen. Loading
+`BG2VOFS` with column 0's word therefore gave the melt behind all four platforms
+one shared height belonging to the left edge: it rose and fell together, at a
+different rate from the jets beside it, and SNAPPED to the base the moment the
+camera put a plate under column 0. Measured before the fix, on fourteen
+consecutive samples: the crust row in every plate column equalled
+`where(CRUST_PX, BG2VOFS)` to the pixel.
+
+The settlement is to spend each port on whoever else is already reading it, and
+give column 0 what is left:
+
+| port | who else falls back on it | what it carries | what column 0 gets |
+|---|---|---|---|
+| `BG1VOFS` | gap columns' BG1 — and a gap column has no plate pixels | column 0's own word, when column 0 is a plate column | its plate, exactly where the word says |
+| `BG2VOFS` | **every plate column's melt** — sixteen columns, visible | the melt's own base, so the lava behind the platforms is one calm level | its melt at that base, not at its jet |
+
+One column at the left edge, against sixteen in the middle. The hardware limit
+is paid on the layer where nothing else was spending the port, and STATED on the
+layer where something was.
+
+Two things about how this was missed are worth keeping. Every case in the module
+measured where the crust IS in the columns the table drives; **not one measured
+the columns it does not** — the same shape as the wall defect in §11.1, and the
+same lesson: ask what else moves when the thing under test moves.
+And the picture was entirely plausible, because it was lava, and it moved.
+`test_the_melt_behind_every_plate_is_one_calm_level` is the case that had no
+counterpart, and `tools/plants/smelter.py::the-fallback-carries-column-zeros-melt`
+restores the defect so it is not found by eye twice.
+
+### 12.2 Death is an event, and a state cycle is not the same claim
+
+Falling out of the world used to respawn the knight in the frame the kill test
+fired: he blinked from the bottom of the screen to the spawn, and every frame of
+it was a legal running frame. It is now `mosaic_arm` with `smt_kn_respawn` as the
+swap callback, so the fall, the dissolve, the move and the return are one
+legible event — the consumer's side of the mosaic contract (park OAM, gate the
+scene's own brightness writers, `jsr mosaic_tick` last).
+
+The test that already existed asserted the state CYCLE — he rides, he walks off,
+he falls, he reaches the bottom, he comes back on the spawn plate at the ride
+equality — and every one of those endpoints holds under a cut. So the event
+needed its own assertion, and it is read off the picture rather than off the
+mosaic's state: **while the wipe runs, no row of the blob explains the frame at
+any lag**, because the PPU is replicating one pixel across each block and the
+crust lines the table put in place are smeared away. Measured: fourteen
+consecutive captures at 6-15 unexplained columns, bracketed on both sides by
+exact fits. A cut has no such run.
+
+## 13. Stated limits
 
 - **The offset TABLE'S CONTENT is not modelled.** The claim says BG3's tilemap
   is a table of scroll words; it does not say which words, how they get there,
@@ -550,6 +644,20 @@ which is what actually drew the frame.
   the write consent exist so scene code CAN establish the composed state
   through the gate; whether a scene actually writes them is proven on the
   emulator.
+- **One column's word drives one layer, with one value.** Bits 13 and 14 select
+  which BG a V word displaces and the value is shared, so a column cannot place
+  BG1 and BG2 at two different heights. Setting both bits gives them the SAME
+  height, which for a plate over lava is worse than the fallback. This is
+  hardware, not vocabulary — but it is the reason §12.1's settlement is a
+  trade-off and not an oversight, and a composition that needs two independent
+  per-column displacements needs a second mechanism.
+- **The fallback ports are not modelled at all.** `[[claims.offset]]` says a
+  table displaces named layers; nothing in it says that a layer's own
+  `BGnVOFS`/`BGnHOFS` is simultaneously the value for every column the table
+  does NOT drive on that layer. The allocator registers the ports as owned
+  (`smt_fallback` here) and stops there. What they carry, and who else is
+  reading them, is the rail's business and is proved on the emulator — §12.1 is
+  the case that says why that is a limit worth naming rather than a detail.
 - **Nothing here reaches the offset table's VRAM PLACEMENT.** BG3SC bases are
   1K-word granular and the fetch reads two rows of the claimed region, so 30 of
   a 32-row map are addressable and never read. That is what the granularity

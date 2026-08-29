@@ -174,12 +174,19 @@ scene_writes = ["BG1VOFS", "BG2VOFS", "BG1HOFS", "BG2HOFS"]
 #   BG1HOFS / BG2HOFS  ARE the camera. The table quantises to 8 px and these
 #       do not, so the read head steps one word per 8-px boundary and these
 #       carry the remainder.
-#   BG1VOFS / BG2VOFS  are screen column 0's answer. The PPU clears the offset
-#       latches at the start of each scanline's fetch, so the leftmost column
-#       cannot be displaced and falls back to these — which under scrolling
-#       would be a permanently wrong column travelling along the left edge.
-#       The NMI loads them with that column's own value out of the same row it
-#       just transferred, so the hardware limit costs nothing.
+#   BG1VOFS / BG2VOFS  are the FALLBACK for every column the table does not
+#       drive on that layer — which is a whole-screen quantity, not screen
+#       column 0's. A word carries one enable bit, so a plate column displaces
+#       BG1 and leaves BG2 here; a gap column displaces BG2 and leaves BG1
+#       here. Column 0 is on top of that: the PPU clears the offset latches at
+#       the start of each scanline's fetch, so the leftmost column cannot be
+#       displaced at all and reads these too.
+#       Loading them with column 0's own word — which the rail did, and shipped
+#       — gave every plate column's melt one shared height belonging to the
+#       left edge. BG2VOFS now carries the melt's base for the sixteen columns
+#       that read it, and BG1VOFS carries column 0's word, because the columns
+#       falling back on IT are gap columns with no plate pixels to place.
+#       docs/100 §12.1.
 #
 # Declared rather than left to be inferred: the gate refused the build by name
 # until it was, which is the check working. `scene_writes` says who ELSE may
