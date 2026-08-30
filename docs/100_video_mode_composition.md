@@ -884,8 +884,20 @@ stand. What makes its collision worth having rather than borrowed from
   IS the deck's top, which the generator asserts. So whether a figure can
   stand there is a function of the car's displacement, the same quantity the
   offset word for those columns carries. The tiles never change; the answer
-  does. `col_map` answers "what is at this tile"; the question here is "where
-  is this column THIS FRAME".
+  does.
+
+**And `col_map` was not rejected for the reason it looks like.** The tempting
+story is that a tile-flag table cannot separate this floor because the art
+dedups — measurably false here: the deck row's twelve tile ids are disjoint
+from the holes' and appear nowhere else in the map. The actual reasons, having
+read the kernel rather than assumed it: it reads a BYTE-PER-TILE world blob
+(`lda a:CM_WORLD_WIN, x`) where this rail has a 2-byte SNES tilemap, so binding
+it costs a second 2 KB blob duplicating the map plus a 256-byte flag table; it
+answers a 2-D question ("what is at this world pixel") where this rail's
+walkable surface is ONE ROW, so 2.3 KB and a measured 951.9 mc a query stand
+against four bytes and three shifts; and it states its own boundary — "it
+answers questions ABOUT the world" — which the car's solidity is not. A fit for
+a different shape, not a worse one.
 
 ### 13.6 A lift that never leaves is a bridge
 

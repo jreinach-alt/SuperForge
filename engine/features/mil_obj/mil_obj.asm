@@ -771,9 +771,27 @@ mil_bay_x:
 ; while the car is DOWN and a fall while it is anywhere else, so whether they
 ; are solid is a function of the car's displacement — the same number the
 ; offset word carries. That is the half no tile-flag table can express, and it
-; is the reason this rail's collision is worth having rather than borrowed:
-; `col_map` answers "what is at this tile", and the question here is "where is
-; this column THIS FRAME".
+; is the reason this rail's collision is not `col_map`'s.
+;
+; AND THE REASON IS NOT THE ONE IT LOOKS LIKE. The tempting story is that a
+; tile-flag table cannot tell this rail's floor from its holes because the art
+; dedups — and that is measurably FALSE here: the deck row's twelve tile ids
+; are disjoint from the holes' and appear nowhere else in the map, so a flag
+; table would separate them perfectly. The real reasons are three, and only the
+; last is about the mechanism:
+;
+;   * col_map reads a BYTE-PER-TILE world blob (`lda a:CM_WORLD_WIN, x`). This
+;     rail's BG1 map is a 2-byte SNES tilemap, so binding it means emitting a
+;     second 2 KB blob that duplicates the map's layout, plus its 256-byte
+;     flag table.
+;   * col_map answers "what is at this world PIXEL" — a 2-D question. This
+;     rail's walkable surface is ONE ROW, so the question is "does this column
+;     have a floor", which a 32-bit mask answers in three shifts. 2.3 KB and a
+;     measured 951.9 mc a query against four bytes and a shift is a mismatch of
+;     DIMENSION, not of quality.
+;   * col_map states its own boundary: "it answers questions ABOUT the world".
+;     Whether the car is under these four columns is a property of a FRAME.
+;     That half is out of its scope by its own statement, and rightly.
 
 ; --- mil_deck_bit: does screen column X have a floor? -----------------------
 ; CONTRACT mil_deck_bit
