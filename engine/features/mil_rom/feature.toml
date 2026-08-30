@@ -16,8 +16,17 @@ bytes = 8256             # 128 phases + the flat control, x 32 words
 
 [[claims.rom]]
 name = "mil_chr1"
-bytes = 20480            # 320 tiles x 64 B. EIGHT bpp: a tile is 64 bytes, not
-                         # 32, which is the whole reason O9 exists
+bytes = 24576            # 384 tiles x 64 B. EIGHT bpp: a tile is 64 bytes, not
+                         # 32, which is the whole reason O9 exists.
+                         #
+                         # RAISED from 20,480 when the palette was fitted to the
+                         # art instead of interpolated through it: a richer
+                         # palette DEDUPES LESS, because fewer 8x8 blocks come
+                         # out byte-identical once the shading between them
+                         # survives quantisation. 328 tiles needed against the
+                         # old 320-tile page, and the page is the resource — how
+                         # much of it the art uses is a number the generator
+                         # prints.
 
 [[claims.rom]]
 name = "mil_chr2"

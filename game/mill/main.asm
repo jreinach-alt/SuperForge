@@ -97,22 +97,10 @@ mil_chr1_bin:
     .incbin "mil_chr1.bin"
 .assert ^mil_chr1_bin = ES_R_MIL_CHR1_BANK, error, "mil_chr1 bank drifted from allocator claim"
 .assert .loword(mil_chr1_bin) = ES_R_MIL_CHR1_ADDR, error, "mil_chr1 addr drifted from allocator claim"
-mil_row_bin:
-    .incbin "mil_row.bin"
-.assert ^mil_row_bin = ES_R_MIL_ROW_BANK, error, "mil_row bank drifted from allocator claim"
-.assert .loword(mil_row_bin) = ES_R_MIL_ROW_ADDR, error, "mil_row addr drifted from allocator claim"
-mil_chr2_bin:
-    .incbin "mil_chr2.bin"
-.assert ^mil_chr2_bin = ES_R_MIL_CHR2_BANK, error, "mil_chr2 bank drifted from allocator claim"
-.assert .loword(mil_chr2_bin) = ES_R_MIL_CHR2_ADDR, error, "mil_chr2 addr drifted from allocator claim"
-mil_pal_bin:
-    .incbin "mil_pal.bin"
-.assert ^mil_pal_bin = ES_R_MIL_PAL_BANK, error, "mil_pal bank drifted from allocator claim"
-.assert .loword(mil_pal_bin) = ES_R_MIL_PAL_ADDR, error, "mil_pal addr drifted from allocator claim"
-mil_obj_pal_bin:
-    .incbin "mil_obj_pal.bin"
-.assert ^mil_obj_pal_bin = ES_R_MIL_OBJ_PAL_BANK, error, "mil_obj_pal bank drifted from allocator claim"
-.assert .loword(mil_obj_pal_bin) = ES_R_MIL_OBJ_PAL_ADDR, error, "mil_obj_pal addr drifted from allocator claim"
+mil_obj_bin:
+    .incbin "mil_obj.bin"
+.assert ^mil_obj_bin = ES_R_MIL_OBJ_BANK, error, "mil_obj bank drifted from allocator claim"
+.assert .loword(mil_obj_bin) = ES_R_MIL_OBJ_ADDR, error, "mil_obj addr drifted from allocator claim"
 
 ; WINDOW 2 HOLDS THE BULK NOW. The lobby's map, the enlarged OBJ blob and both
 ; of the hall's 32x64 tilemaps are 4 KB each and window 1 no longer has that
@@ -122,10 +110,10 @@ mil_obj_pal_bin:
 ; failure instead of art read from the wrong bank. This is the third time they
 ; have done that on this rail, which is the argument for writing them.
 .segment "BANK2"
-mil_obj_bin:
-    .incbin "mil_obj.bin"
-.assert ^mil_obj_bin = ES_R_MIL_OBJ_BANK, error, "mil_obj bank drifted from allocator claim"
-.assert .loword(mil_obj_bin) = ES_R_MIL_OBJ_ADDR, error, "mil_obj addr drifted from allocator claim"
+mil_row_bin:
+    .incbin "mil_row.bin"
+.assert ^mil_row_bin = ES_R_MIL_ROW_BANK, error, "mil_row bank drifted from allocator claim"
+.assert .loword(mil_row_bin) = ES_R_MIL_ROW_ADDR, error, "mil_row addr drifted from allocator claim"
 mil_lobby_bin:
     .incbin "mil_lobby.bin"
 .assert ^mil_lobby_bin = ES_R_MIL_LOBBY_BANK, error, "mil_lobby bank drifted from allocator claim"
@@ -138,6 +126,18 @@ mil_map2_bin:
     .incbin "mil_map2.bin"
 .assert ^mil_map2_bin = ES_R_MIL_MAP2_BANK, error, "mil_map2 bank drifted from allocator claim"
 .assert .loword(mil_map2_bin) = ES_R_MIL_MAP2_ADDR, error, "mil_map2 addr drifted from allocator claim"
+mil_chr2_bin:
+    .incbin "mil_chr2.bin"
+.assert ^mil_chr2_bin = ES_R_MIL_CHR2_BANK, error, "mil_chr2 bank drifted from allocator claim"
+.assert .loword(mil_chr2_bin) = ES_R_MIL_CHR2_ADDR, error, "mil_chr2 addr drifted from allocator claim"
+mil_pal_bin:
+    .incbin "mil_pal.bin"
+.assert ^mil_pal_bin = ES_R_MIL_PAL_BANK, error, "mil_pal bank drifted from allocator claim"
+.assert .loword(mil_pal_bin) = ES_R_MIL_PAL_ADDR, error, "mil_pal addr drifted from allocator claim"
+mil_obj_pal_bin:
+    .incbin "mil_obj_pal.bin"
+.assert ^mil_obj_pal_bin = ES_R_MIL_OBJ_PAL_BANK, error, "mil_obj_pal bank drifted from allocator claim"
+.assert .loword(mil_obj_pal_bin) = ES_R_MIL_OBJ_PAL_ADDR, error, "mil_obj_pal addr drifted from allocator claim"
 .segment "CODE"
 
 ; --- the global feature runtime (after the blobs its uploads read) ---------

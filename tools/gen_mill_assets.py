@@ -146,11 +146,39 @@ IX_WARM = IX_COLD + N_COLD              # 68.. 83  worked iron: the machine
 IX_MOLTEN = IX_WARM + N_WARM            # 84..115  the melt, the glow, hot metal
 IX_BRASS = IX_MOLTEN + N_MOLTEN         # 116..127 fittings, bands, plaques
 
+# THE PALETTE IS FITTED TO THE ART, NOT A CURVE THROUGH IT.
+#
+# The four ramps above are the sheet's own swatches, and the first cut built
+# the palette by INTERPOLATING them — `_stretch(_anchors(SW_*), n)` — then
+# quantised the kit art onto the result by nearest entry. That places the
+# entries along a 1-D CURVE while the art is a 3-D CLOUD around it, and the
+# shipped tree measured the cost: only 76 of 96 claimed CGRAM entries were
+# ever drawn, and the cold ramp used 19 of its 36.
+#
+# An 8bpp layer indexes CGRAM DIRECTLY with no palette field, so the palette
+# can be chosen FROM the art instead. These four lists are per-family k-means
+# over the kit's own pixels, sorted by luminance so each ramp stays MONOTONE —
+# `C(k)` / `Wm(k)` / `Ml(k)` / `Br(k)` are indexed by hand all through the
+# painter and must keep meaning "k steps from dark to light".
+#
+# Weighted per-pixel error against the ramps they replace: cold -81%, warm
+# -49%, molten -93%, brass -57%. Molten is the largest because the melt spans
+# the widest cloud and an interpolated curve through it was furthest from the
+# pixels it had to represent.
+#
+# GENERATED, and committed rather than computed at build time for the reason
+# KIT_BOX carries: a build must not depend on a clustering pass agreeing with
+# itself run to run. Regenerate with `python3 tools/fit_mill_palette.py`.
+# A family with fewer DISTINCT entries than its length keeps the duplicates —
+# the indices are addressed by hand and must all stay valid, and a ramp that
+# cannot fill itself is saying the art has no more steps to give.
+FIT_STEEL_COLD = [(2,3,5), (2,3,6), (2,3,6), (3,3,4), (2,3,7), (2,3,7), (3,3,7), (3,4,5), (3,4,5), (4,4,3), (4,4,3), (4,4,4), (5,4,3), (3,4,8), (3,4,8), (5,4,4), (5,4,4), (7,2,8), (5,4,4), (3,4,9), (4,5,6), (4,5,6), (5,5,5), (5,5,5), (6,5,4), (6,5,4), (4,5,9), (5,6,7), (5,6,10), (5,7,10), (7,8,10), (8,9,12), (10,10,13), (14,14,14), (21,21,21), (27,25,24)]
+FIT_STEEL_WARM = [(6,5,5), (5,6,8), (6,6,6), (7,6,5), (7,7,6), (8,7,6), (8,8,7), (14,3,16), (9,8,8), (8,9,11), (10,9,8), (11,10,9), (12,11,11), (14,13,12), (16,15,14), (19,18,16)]
+FIT_MOLTEN = [(5,0,5), (6,0,7), (8,1,1), (7,0,8), (8,0,9), (9,0,10), (8,1,9), (12,1,2), (12,2,1), (11,1,11), (12,1,13), (13,1,14), (16,3,1), (15,1,15), (16,1,17), (18,1,19), (21,1,17), (24,5,1), (29,9,1), (31,11,1), (31,14,1), (31,16,2), (31,18,4), (27,21,10), (31,20,6), (31,21,7), (31,24,10), (31,26,14), (31,29,19), (30,29,26), (31,30,28), (31,31,31)]
+FIT_BRASS = [(0,0,0), (1,0,0), (1,0,1), (1,1,1), (1,1,3), (2,1,4), (2,2,1), (2,2,5), (4,3,2), (7,4,2), (13,7,3), (21,13,5)]
+
 PAL_BG1 = [rgb(*c) for c in
-           (_stretch(_anchors(SW_STEEL_COLD), N_COLD)
-            + _stretch(_anchors(SW_STEEL_WARM), N_WARM)
-            + _stretch(_anchors(SW_MOLTEN), N_MOLTEN)
-            + _stretch(_anchors(SW_BRASS), N_BRASS))]
+           (FIT_STEEL_COLD + FIT_STEEL_WARM + FIT_MOLTEN + FIT_BRASS)]
 assert len(PAL_BG1) == N_COLD + N_WARM + N_MOLTEN + N_BRASS == 96
 
 # --- BG2's two GROUPS, at CGRAM 0..7 ---------------------------------------
@@ -334,7 +362,16 @@ def head_row(st):
 # every claim the packer places after it and drift the .assert in main.asm —
 # a build failure for a colour change. The page is the resource; how much of
 # it the art currently uses is a number the generator prints.
-CHR1_TILES = 320              # 20,480 B — bg1 at 8bpp, 64 B a tile. RAISED
+CHR1_TILES = 384              # 24,576 B — bg1 at 8bpp, 64 B a tile. RAISED
+                              #   AGAIN from 320 when the palette stopped being
+                              #   an interpolated curve and started being fitted
+                              #   to the art (see FIT_* above): a richer palette
+                              #   DEDUPES LESS, because fewer 8x8 blocks come
+                              #   out byte-identical once the shading between
+                              #   them survives quantisation. 328 tiles needed
+                              #   against a 320 page — the overflow is the
+                              #   measurement that the fit is carrying more.
+                              #   Originally RAISED
                               #   from 192 when the kit's art arrived: converted
                               #   assets dedupe far less than procedural ones,
                               #   because every pixel of authored shading is a
