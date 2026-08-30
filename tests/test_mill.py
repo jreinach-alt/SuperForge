@@ -79,7 +79,10 @@ def _art(key):
     for line in (ASSETS / "mil_art.inc").read_text().splitlines():
         head, _, rest = line.partition("=")
         if head.strip() == key:
-            return int(rest.split(";")[0].strip())
+            v = rest.split(";")[0].strip()
+            # ca65 spells hex with `$`, and the floor map is emitted that way
+            # because a bit field is unreadable in decimal.
+            return int(v.replace("$", "0x"), 0)
     raise KeyError(f"{key} is not in mil_art.inc")
 
 
@@ -136,6 +139,8 @@ ROW_BYTES = _art("SMIL_ROW_BYTES")
 LEAD = _art("SMIL_LEAD")
 CAM_MAX = _art("SMIL_CAM_MAX")
 CAR_COL = _art("SMIL_CAR_COL")
+SMIL_LIFT_COL = _art("SMIL_LIFT_COL")
+STAND_Y = _art("SMIL_STAND_Y")
 STATION_AT = (_art("SMIL_STATION_A"), _art("SMIL_STATION_B"))
 SHAFT_COLS = _art("SMIL_SHAFT_COLS")
 WIN_X, WIN_Y = _art("SMIL_WIN_X"), _art("SMIL_WIN_Y")
@@ -147,6 +152,7 @@ LEAF_ROWS = _art("SMIL_LEAF_ROWS")
 DOOR_A, DOOR_B = _art("SMIL_DOOR_A"), _art("SMIL_DOOR_B")
 DOOR_W = _art("SMIL_DOOR_W")
 DOOR_TRAVEL = _art("SMIL_DOOR_TRAVEL")
+WALK_STEP = _rail("SMIL_WALK_STEP")
 DOOR_TOP = _art("SMIL_DOOR_TOP")
 BELT_ROW = _art("SMIL_BELT_ROW")
 LOBBY_FLOOR = _art("SMIL_LOBBY_FLOOR")
@@ -467,6 +473,37 @@ def scene(m):
     return m.read_u16(W, DP_SM) & 0xFF
 
 
+def board_and_ride(m):
+    """From standing in the hall, get on the lift and start the climb.
+
+    THE HALL IS NOT A CUTSCENE ANY MORE. It used to start its own ride after a
+    beat, so a case that wanted a moving camera only had to wait; now he
+    arrives standing on the car and the climb begins when he asks for it. The
+    tests that need the ride say so, which is a better statement of what they
+    depend on than a wait was.
+    """
+    for _ in range(400):                      # ...once the picture is up: the
+        if m.read_bytes(W, DP_SM + 2, 1)[0] == 0:   # scene's tick runs through
+            break                             # the fade-in but a press during
+        m.advance(1)                          # it is a press nobody is reading
+    else:
+        pytest.fail("the hall never finished arriving")
+    for _ in range(400):
+        if m.read_u16(W, DP_PX) >= SMIL_LIFT_COL * 8:
+            break
+        m.advance(1, pad1=JOY_RIGHT)
+    for _ in range(400):
+        if m.read_u16(W, DP_PX) <= SMIL_LIFT_COL * 8:
+            break
+        m.advance(1, pad1=JOY_LEFT)
+    m.advance(4, pad1=JOY_UP)
+    for _ in range(240):
+        if m.read_u16(W, DP_CAR) > 0:
+            return
+        m.advance(1)
+    pytest.fail("the lift did not start after UP on the car")
+
+
 def settle_hall(m, frames=8):
     """A few frames of the hall with Y HELD, so the picture is the flat row.
 
@@ -747,6 +784,7 @@ def test_a_vertical_word_carries_the_camera(tmp_path):
         a = shot(m, tmp_path / "a.png")
         cam_a = m.read_u16(W, DP_CAM)
         r_a = m.read_u16(W, DP_SHOWN)
+        board_and_ride(m)
         for _ in range(1200):
             if m.read_u16(W, DP_CAM) <= cam_a - 24:
                 break
@@ -929,6 +967,7 @@ def test_the_rider_is_only_visible_through_the_car_s_glass(tmp_path):
     """
     with Machine(str(ROM)) as m:
         to_hall(m)
+        board_and_ride(m)
         for _ in range(900):
             if m.read_u16(W, DP_CAR) >= 40:
                 break
@@ -977,6 +1016,7 @@ def test_the_car_moves_as_one_piece(tmp_path):
     """
     with Machine(str(ROM)) as m:
         to_hall(m)
+        board_and_ride(m)
         for _ in range(900):
             if m.read_u16(W, DP_CAR) >= 40:
                 break
@@ -1159,6 +1199,7 @@ def test_the_ride_closes_the_loop_into_the_other_bay():
                 m.advance(1)
             else:
                 pytest.fail(f"turn {turn}: never reached the hall")
+            board_and_ride(m)       # ...he walks the mill deck and asks to go
             assert m.read_u16(W, DP_BAY) == 2, (
                 f"turn {turn}: he boarded bay {boarded}, not the far one")
             for _ in range(1800):
@@ -1206,6 +1247,7 @@ def test_the_reveal_waits_for_the_picture():
             if scene(m) == SCENE_HALL:
                 break
             m.advance(1)
+        board_and_ride(m)
         for _ in range(1800):
             if scene(m) == SCENE_LOBBY:
                 break
@@ -1225,3 +1267,197 @@ def test_the_reveal_waits_for_the_picture():
         else:
             pytest.fail("the doors never opened after the fade")
     assert held > 0, "the fade was already over on arrival — the gate is untested"
+
+
+# --------------------------------------------------------------------------
+# WHERE HE CAN STAND — and half of the answer is a scroll word
+# --------------------------------------------------------------------------
+def deck_mask():
+    """The floor, one bit a screen column, out of the GENERATED inc.
+
+    Read rather than retyped for the usual reason, and with a second one here:
+    the map is the painter's own record of where it laid a deck, so a copy of
+    it in this file would be a claim about the art that the art could not
+    contradict.
+    """
+    lo, hi = _art("SMIL_DECK_LO"), _art("SMIL_DECK_HI")
+    return [bool((lo if c < 16 else hi) & (1 << (c % 16))) for c in range(COLS)]
+
+
+def test_the_shafts_have_no_floor_and_that_is_the_mechanism_s_price():
+    """A SHAFT COLUMN CANNOT HAVE A DECK IN IT. It is displaced vertically, so
+    every row of it must be identical, and a deck is a horizontal course. So
+    the holes in the hall's floor are not level design — they are what
+    offset-per-tile costs on the axis this rail chose, and this is the case
+    that says the two facts are the same fact.
+
+    Asserted against `kind()`'s geometry rather than against the mask's own
+    bits, so it cannot pass by agreeing with itself.
+    """
+    mask = deck_mask()
+    for at in STATION_AT:
+        for k in range(SHAFT_COLS):
+            sc = at + 1 + k
+            assert not mask[sc], (
+                f"screen column {sc} is a shaft AND claims a floor — one of "
+                f"the two is wrong, and a shaft with a horizontal course in it "
+                f"slides")
+    assert sum(mask) == COLS - len(STATION_AT) * SHAFT_COLS, (
+        "the floor is missing somewhere that is not a shaft")
+
+
+def test_he_cannot_walk_into_the_hammer_s_shaft(tmp_path):
+    """THE STATIC HALF, read off the machine. He walks left until he stops, and
+    where he stops must be the edge of the run the floor map names — not a
+    clamp, because there is no clamp: every step is offered to the floor and
+    taken only if the floor accepts it.
+
+    The stop is asserted to the PIXEL against the mask, so a collision that
+    was merely approximately right would fail.
+    """
+    mask = deck_mask()
+    with Machine(str(ROM)) as m:
+        to_hall(m)
+        for _ in range(600):
+            m.advance(1, pad1=JOY_LEFT)
+        px = m.read_u16(W, DP_PX)
+        im = shot(m, tmp_path / "left.png")
+    # the run he is standing in: walk left from his column while the floor holds
+    col = px // 8
+    first = col
+    while first > 0 and mask[first - 1]:
+        first -= 1
+    assert px == first * 8, (
+        f"he stopped at px={px} (column {col}); the run he is on starts at "
+        f"column {first}, so the floor let him past its edge or stopped him "
+        f"short of it")
+    assert not mask[first - 1], "he stopped inside a continuous run"
+
+
+def test_he_cannot_walk_off_the_end_of_the_world(tmp_path):
+    """...and the same rule is what bounds the world. The right-hand end of the
+    deck is the last column, so his box has to stop with its right edge on it —
+    there is no separate clamp for the screen edge and there should not be."""
+    with Machine(str(ROM)) as m:
+        to_hall(m)
+        for _ in range(600):
+            m.advance(1, pad1=JOY_RIGHT)
+        px = m.read_u16(W, DP_PX)
+    assert px + RIDER_BOX == COLS * 8, (
+        f"he stopped at px={px}; his box should end exactly at the world's "
+        f"last column ({COLS * 8})")
+
+
+def test_the_lift_s_columns_are_floor_only_while_the_car_is_down(tmp_path):
+    """THE DYNAMIC HALF, AND THE REASON THIS RAIL'S COLLISION IS ITS OWN.
+
+    The lift's four columns are a hole in the deck that the car fills when it
+    is parked. Whether a figure can stand there is therefore a function of the
+    car's displacement — the same quantity the offset word for those columns
+    carries — and no tile-flag table can say that, because the answer changes
+    while the tiles do not.
+
+    Asserted as a CROSSING: with the car down he can walk from the run on one
+    side to the run on the other, and the mask says those runs are not
+    connected. So the only thing that carried him across was the car.
+    """
+    mask = deck_mask()
+    lift = list(range(SMIL_LIFT_COL, SMIL_LIFT_COL + SHAFT_COLS))
+    assert not any(mask[c] for c in lift), (
+        "the lift's columns are painted floor, so this case proves nothing")
+    with Machine(str(ROM)) as m:
+        to_hall(m)
+        assert m.read_u16(W, DP_CAR) == 0, "the car is not parked on arrival"
+        start = m.read_u16(W, DP_PX)
+        for _ in range(600):
+            m.advance(1, pad1=JOY_LEFT)
+        left = m.read_u16(W, DP_PX)
+        for _ in range(600):
+            m.advance(1, pad1=JOY_RIGHT)
+        right = m.read_u16(W, DP_PX)
+    assert left < lift[0] * 8, (
+        f"he never got left of the lift (px={left}) — the car is not bridging "
+        f"its own shaft")
+    assert right + RIDER_BOX > (lift[-1] + 1) * 8, (
+        f"he never got right of the lift (px={right})")
+    assert left // 8 not in lift and right // 8 not in lift
+    # ...and the two ends are in DIFFERENT runs of the painted floor, so the
+    # crossing cannot be explained by the deck alone.
+    def run_of(c):
+        first = c
+        while first > 0 and mask[first - 1]:
+            first -= 1
+        return first
+    assert run_of(left // 8) != run_of(right // 8), (
+        "both ends of his walk are in one painted run — the car was never "
+        "load-bearing and this case would pass without it")
+    assert start // 8 in lift, "he did not arrive standing on the car"
+
+
+def test_stepping_off_the_car_gives_him_the_controls(tmp_path):
+    """He arrives ON the lift, not shut inside it — the car is parked and its
+    bottom IS the deck's top, which the generator asserts. So the same test
+    that boards him is the one that releases him, and there is no separate
+    'get out' state to keep in step with anything."""
+    with Machine(str(ROM)) as m:
+        to_hall(m)
+        assert m.read_u16(W, DP_BOARD) == 0, "he arrived aboard, not standing"
+        for _ in range(60):
+            m.advance(1, pad1=JOY_LEFT)
+        off = m.read_u16(W, DP_PX)
+        assert off < SMIL_LIFT_COL * 8, "he did not step off the car"
+        assert m.read_u16(W, DP_BOARD) == 0
+        m.advance(4, pad1=JOY_UP)
+        assert m.read_u16(W, DP_BOARD) == 0, (
+            "UP boarded him while he was standing beside the lift, not on it")
+        # ...and the car is not a ride he started: it is where the CALL rule
+        # left it, which is away, because he walked away from it.
+        assert m.read_u16(W, DP_CAR) > 0, (
+            "the lift did not withdraw when he stepped off it")
+        for _ in range(400):
+            m.advance(1, pad1=JOY_RIGHT)
+            if m.read_u16(W, DP_PX) >= SMIL_LIFT_COL * 8:
+                break
+        m.advance(4, pad1=JOY_UP)
+        m.advance(4)
+        assert m.read_u16(W, DP_CAR) > 0, "UP on the car did not start the ride"
+
+
+def test_he_waits_at_the_shaft_s_edge_for_the_lift(tmp_path):
+    """THE DYNAMIC HALF DOING WORK, which is the whole reason this rail's
+    collision is its own rather than borrowed.
+
+    The car withdraws when he walks away and comes when he walks back, so its
+    four columns are floor on some frames and a hole on others while the TILES
+    NEVER CHANGE. Walking back toward it he reaches the edge before it does and
+    is held there — and the frame he starts moving again is the frame the car
+    lands, because `mil_solid` answers from the car's own displacement and not
+    from a copy of it.
+
+    Asserted as that coincidence, not as "he was blocked for a while": a stall
+    of the right length for the wrong reason is exactly what a tuned constant
+    would produce.
+    """
+    with Machine(str(ROM)) as m:
+        to_hall(m)
+        for _ in range(300):                  # walk away; the lift withdraws
+            m.advance(1, pad1=JOY_LEFT)
+        assert m.read_u16(W, DP_CAR) > 0, "the lift never left"
+        trace = []
+        for _ in range(60):
+            m.advance(1, pad1=JOY_RIGHT)
+            trace.append((m.read_u16(W, DP_PX), m.read_u16(W, DP_CAR)))
+    stalls = [i for i in range(1, len(trace)) if trace[i][0] == trace[i - 1][0]]
+    assert stalls, "he was never held at the shaft — the hole is not solid-checked"
+    last = stalls[-1]
+    assert trace[last][1] == 0, (
+        f"he was released with the car at {trace[last][1]}, not at the deck — "
+        f"the block is not reading the car's position")
+    assert trace[last - 1][1] > 0 or trace[last][1] == 0
+    held_at = trace[stalls[0]][0]
+    assert held_at + RIDER_BOX == SMIL_LIFT_COL * 8, (
+        f"he was held at px={held_at}; his box should stop with its right edge "
+        f"exactly on the last floor column, which is where the lift's first "
+        f"column begins")
+    after = [px for px, _ in trace[last + 1:]]
+    assert after and after[-1] > held_at, "he never got moving again"

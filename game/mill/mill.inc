@@ -152,3 +152,26 @@ SMIL_BOARD_OUT    = 3         ; he has just arrived; the doors part to reveal
                               ;   him, and he is free when they are open
 SMIL_BOARD_DEST   = SMIL_DOOR_W * 4 - SMIL_RIDER_BOX / 2   ; ...a bay's left
                               ; edge to the px that centres him in it
+
+; --- the lift, when he is not on it -----------------------------------------
+; A LIFT THAT NEVER LEAVES IS A BRIDGE. The car parks on the deck and its four
+; columns are the only floor across that shaft — so if it stays parked forever,
+; `mil_solid`'s reading of the car's displacement can never answer anything but
+; "floor", and the dynamic half of this rail's collision is code that cannot
+; run. That is not a hypothesis: the falsification harness reported it, by
+; taking the car test OUT and finding every case still green.
+;
+; So the car behaves like a lift: it comes when he is near the shaft and
+; withdraws when he is not, and the hole in the floor opens and shuts with it.
+; ONE RULE, POSITION-DRIVEN, which is the same shape as the lobby's doors —
+; the travel is the state and there is no timer to keep in step with anything.
+SMIL_LIFT_REACH = 56          ; how near the shaft's centre he must be. Wide
+                              ;   enough that it is down before he can reach
+                              ;   its columns, so he never steps onto a hole
+SMIL_CAR_AWAY   = 64          ; how far up it withdraws. Well short of
+                              ;   SMIL_CAR_TOP, which is what ends the ride —
+                              ;   a car that withdrew that far would take an
+                              ;   empty lift to the lobby
+SMIL_CAR_CALL   = 3           ; ...and how fast it answers, in pixels a frame
+; TICK: ok -- a rate against a HELD position, not a count of frames: he decides
+;   how long it takes by where he stands, exactly as the lobby's doors do.

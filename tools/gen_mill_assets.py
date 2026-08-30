@@ -243,14 +243,29 @@ TAIL_AT = 25                  # ...then a conveyor run out to the right edge
 # CAP_ROW appears at screen row CAP_ROW*8 - v.
 FLOOR = 28                    # the forge floor's first map row: the lower
                               #   screen is rows 28..55, the shaft house above
-CAP_ROW = FLOOR + 13          # the ram's top map row: the ram's top map row
-HEAD_ROWS = 6                 # ...and the kit's ram is 48 px, six tiles tall
+# TWO HEADS, TWO ROWS, and they were one constant until the deck became a place
+# to stand. A ram and a lift car are the same SHAPE — a head 48 px tall on a
+# displaced column — so sharing the row read as economy. What separates them is
+# what each has to reach:
+#
+#   the CAR has to land ON the deck, because a lift you cannot walk into is a
+#   lift nobody boards. Its bottom is the deck's top.
+#   the RAM has nothing to meet, and that is not an oversight — THERE IS NO
+#   FLOOR UNDER IT. A shaft column is displaced vertically, so it must be
+#   identical row to row, and a deck is a horizontal course; the four columns a
+#   station's shaft occupies therefore cannot have one. The hammer falls past
+#   the deck line into the melt, which is what the picture already showed and
+#   what DECK_COLS below records. Its row stays where the art wants it.
+#
+# (An earlier cut of this split moved the ram DOWN so it would bite into a
+# figure standing under it. Measured afterwards: nobody can stand under it.)
+HEAD_ROWS = 6                 # the kit's ram is 48 px, six tiles tall
+CAP_ROW = FLOOR + 13          # the ram's top map row
 STROKE = (72, 0)              # station 0 is the drop hammer; station 1 is the
 PERIOD = (1, 1)               #   ELEVATOR and its column is not driven by the
 STATION_PHASE = (0, 0)        #   phase at all — the scene drives it
 
 ELEVATOR = 1                  # ...which station's shaft carries the car
-CAR_ROW = CAP_ROW             # the car's map row, same as a ram's
 CAR_H = HEAD_ROWS * 8         # ...and its height
 # THE PORT HAS TO BE SMALLER THAN THE MAN, or the occlusion it exists for
 # never happens. The first cut was 22x30 in a 32x48 car and the rider's ink is
@@ -261,7 +276,15 @@ CAR_H = HEAD_ROWS * 8         # ...and its height
 # by the harness reporting that the mechanism could be REMOVED without the
 # screen changing. A viewing port down to about the knees cuts his legs, which
 # is both what the plant needs and what a lift door actually looks like.
-WINDOW = (7, 4, 18, 16)       # x0, y0, w, h of the glass, inside the car.
+WINDOW = (7, 26, 18, 18)      # x0, y0, w, h of the glass, inside the car.
+                              #   LOW IN THE DOOR, because a man standing on
+                              #   the car's floor has his head there. The car
+                              #   is 48 px and he is 32, so his box starts 16
+                              #   down it and his drawn content 11 further —
+                              #   a port at the top of the door shows the space
+                              #   above his helmet. Placed here, ONE formula
+                              #   puts him in the car whether it is parked on
+                              #   the deck or halfway up the shaft.
                               #   THE HOLE IS THE EFFECT: BG1 is transparent
                               #   here and opaque everywhere else on the car,
                               #   and an OBJ at priority 0 loses to BG1's
@@ -286,6 +309,25 @@ BELT_PHASES = 8               # EIGHT, not four: at four the belt has only four
 DECK_ROW = FLOOR + 23                 # the floor deck: y 184..199
 MELT_ROW = FLOOR + 25                 # ...and the channel under it, y 200..223 — the
                               #   last three rows the 224-line picture shows
+
+# ...and now the two heads can be derived from it, which is the whole reason
+# they were split. STAND_Y is where a figure's feet go; RAM_BITE is how far
+# into him the hammer comes at the bottom of its stroke, so the hazard is a
+# stated number rather than an accident of two rows.
+STAND_Y = DECK_ROW * 8                # the deck's top: a standing figure's feet
+CAR_ROW = (STAND_Y - CAR_H) // 8      # the car LANDS on it
+RAM_BITE = STAND_Y - 32 - (CAP_ROW * 8 + HEAD_ROWS * 8)
+assert CAR_ROW * 8 + CAR_H == STAND_Y, "the car must land on the deck"
+
+
+def head_row(st):
+    """Which map row this station's head is pasted at, and staged against.
+
+    ONE FUNCTION, so the painter, the invariance check and the emitted
+    constants cannot disagree about it — which they did for one build, with the
+    car's art at the ram's row and the rider staged at the car's.
+    """
+    return CAR_ROW if st == ELEVATOR else CAP_ROW
 
 # THE CHR PAGES ARE A FIXED SIZE, PADDED. A claim must be FILLED by its
 # .incbin (docs/37), so a CHR blob that shrank with an art edit would move
@@ -648,10 +690,22 @@ def paint_belt_front(buf, cx, w):
                 buf[top + y][x] = v
 
 
+# WHICH COLUMNS HAVE A FLOOR, RECORDED BY THE PAINTER THAT LAYS ONE.
+#
+# This is the collision map and it is not a second description of the picture —
+# it is the SAME call. A shaft column cannot have a deck in it, because a
+# vertically displaced column must be identical row to row and a deck is a
+# horizontal course; so the holes in the floor are not a design decision that
+# could drift from the art, they are what the mechanism costs, and the set
+# below is the painter's own record of where it did and did not lay one.
+DECK_COLS = set()
+
+
 def paint_deck_and_melt(buf, cx, w):
     """The floor the hall stands on and the channel running under it. Static
     art in every column that gets it, so it carries the horizontal courses,
     the hazard skirt and the lit lip that no displaced column could hold."""
+    DECK_COLS.update(range(cx // 8, (cx + w) // 8))
     d0, m0 = DECK_ROW * 8, MELT_ROW * 8
     # THE DECK IS THE KIT'S BASE FOOTING, tiled. It is 96 px of authored
     # riveted plate with arches under it; the rail lays it down repeating and
@@ -718,11 +772,20 @@ def paint_bg1():
             # occluded by the rails showing through his own window: visible as
             # a four-pixel sliver where the rails happened to be transparent.
             opaque_box = (st == ELEVATOR)
+            # ...AND EACH STATION'S HEAD SITS AT ITS OWN ROW. A ram and a car
+            # are the same shape and were pasted at one row until the deck
+            # became a place to stand; what separates them is what each has to
+            # MEET (see the CAP_ROW/CAR_ROW note above), so the paste asks
+            # `head_row` rather than assuming. Splitting the constants without
+            # splitting this put the car's art sixteen pixels from where the
+            # rider was being staged against it — the port drew and the man in
+            # it did not.
+            row0 = head_row(st)
             for y in range(HEAD_ROWS * 8):
                 for x in range(wc * 8):
                     v = head[y][x]
                     if v or opaque_box:
-                        buf[CAP_ROW * 8 + y][sx + k0 * 8 + x] = v
+                        buf[row0 * 8 + y][sx + k0 * 8 + x] = v
         paint_upright(buf, s * 8, st, 0)                  # the near upright
         paint_upright(buf, (s + 1 + SHAFT_COLS) * 8, st, 1)   # ...and the far
         paint_crown(buf, s * 8, (2 + SHAFT_COLS) * 8, st)
@@ -1150,8 +1213,8 @@ def assert_shaft_invariance(buf):
     vertically, so every row of it outside the head band must be identical —
     the generator paints it that way, and this is what stops a future edit
     from quietly reintroducing the seam that slides."""
-    head = range(CAP_ROW * 8, CAP_ROW * 8 + HEAD_ROWS * 8)
     for st, s in enumerate(STATION_AT):
+        head = range(head_row(st) * 8, head_row(st) * 8 + HEAD_ROWS * 8)
         for x in range((s + 1) * 8, (s + 1 + SHAFT_COLS) * 8):
             seen = {buf[y][x] for y in range(PXH) if y not in head}
             assert len(seen) == 1, (
@@ -1349,7 +1412,30 @@ SMIL_SHAFT_COLS   = {SHAFT_COLS}
 SMIL_WORLD_H      = {WORLD_H}    ; the world is two screens tall...
 SMIL_CAM_MAX      = {CAM_MAX}    ; ...so the camera climbs this far
 SMIL_FLOOR        = {FLOOR}     ; the forge floor's first map row
-SMIL_CAP_ROW      = {CAP_ROW}     ; the head's map row
+SMIL_CAP_ROW      = {CAP_ROW}     ; the ram's map row
+SMIL_DECK_ROW     = {DECK_ROW}     ; the deck's map row...
+SMIL_STAND_Y      = {STAND_Y}    ; ...and its top, where a figure's feet go
+SMIL_LIFT_COL     = {STATION_AT[ELEVATOR] + 1}     ; the lift's first SCREEN column, and the
+                              ;   first of the four the car bridges when it is
+                              ;   down. Same number as SMIL_CAR_COL, derived
+                              ;   from the station rather than from the car
+
+; THE FLOOR, ONE BIT A SCREEN COLUMN, RECORDED BY THE PAINTER THAT LAID IT.
+; Not a second description of the picture — the same call. A shaft column is
+; displaced vertically so it must be identical row to row, and a deck is a
+; horizontal course; the four columns of each station's shaft therefore cannot
+; have one, and the holes in this map are what the mechanism costs rather than
+; a level design that could drift from the art.
+;
+;   {"".join("#" if c in DECK_COLS else "." for c in range(COLS))}
+;   {"".join(str(c % 10) for c in range(COLS))}
+;
+; The lift's own four columns are the second hole, and they are the reason
+; this map is not the whole answer: while the car is DOWN they are ground, and
+; while it is anywhere else they are not. That half is not expressible here and
+; is read from the live offset word — see mil_col.asm.
+SMIL_DECK_LO      = ${sum(1 << c for c in DECK_COLS if c < 16):04X}     ; screen columns 0..15, bit c = column c
+SMIL_DECK_HI      = ${sum(1 << (c - 16) for c in DECK_COLS if c >= 16):04X}     ; ...and 16..31
 SMIL_ELEVATOR     = {ELEVATOR}      ; ...which station's shaft carries the car
 SMIL_CAR_COL      = {STATION_AT[ELEVATOR] + 1}     ; its first SCREEN column
 SMIL_CAR_ROW      = {CAR_ROW}     ; the car's map row

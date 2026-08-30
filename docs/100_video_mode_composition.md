@@ -866,6 +866,50 @@ The control was unreachable for the whole of the lift's development. It was
 found by `test_the_flat_control_is_a_row_and_not_a_disarm`, which selected it
 and could not. Y holds the flat row now; B still holds the ride.
 
+### 13.5 Collision, and why half of it is a scroll word
+
+The rail was a demonstration you watched until the deck became a place to
+stand. What makes its collision worth having rather than borrowed from
+`col_map` is that **half of it cannot be a tile-flag table**:
+
+- **The static half is the painter's own record.** `paint_deck_and_melt`
+  registers the columns it lays a floor in, and that set is emitted as a
+  32-bit map. It is not a second description of the picture — it is the same
+  call. And the holes in it are not level design: A SHAFT COLUMN CANNOT HAVE A
+  DECK IN IT, because it is displaced vertically so every row of it must be
+  identical, and a deck is a horizontal course. The gaps in the hall's floor
+  are what offset-per-tile costs on the axis this rail chose.
+- **The dynamic half reads the live displacement.** The lift's four columns
+  are one of those holes, and the car fills it when it is parked — its bottom
+  IS the deck's top, which the generator asserts. So whether a figure can
+  stand there is a function of the car's displacement, the same quantity the
+  offset word for those columns carries. The tiles never change; the answer
+  does. `col_map` answers "what is at this tile"; the question here is "where
+  is this column THIS FRAME".
+
+### 13.6 A lift that never leaves is a bridge
+
+The dynamic half shipped unreachable, and the harness is what said so. The car
+only moved while the player was aboard, and he could only walk while it was
+parked — so `mil_solid`'s reading of the car could never answer anything but
+"floor". A plant that deleted the reading entirely left every case green.
+
+That is the same finding shape as §13.3's port, arriving a second time in one
+rail, and it is worth stating as a rule: **a mechanism whose input never varies
+is not a mechanism.** The fix was to make the lift behave like a lift — it
+comes when he is near the shaft and withdraws when he is not, on the same
+position-driven rule the lobby's doors use, so the hole in the floor opens and
+shuts and the reading has something to read. Measured afterwards: walking back
+to a departed lift, he is held at the shaft's edge for ten frames and starts
+moving on the exact frame the car lands.
+
+One defect fell out of that immediately, and it is a good example of two
+things being the same until they are not: the camera was `CAM_MAX - car`
+unconditionally, which was correct while the car only moved with him in it.
+Once the lift could leave on its own, the camera panned away from the man
+standing on the deck every time it was called elsewhere. It follows the RIDE
+now, not the car.
+
 ## 14. Stated limits
 
 - **The offset TABLE'S CONTENT is not modelled.** The claim says BG3's tilemap
@@ -901,6 +945,14 @@ and could not. Y holds the flat row now; B still holds the ride.
   (`smt_fallback` here) and stops there. What they carry, and who else is
   reading them, is the rail's business and is proved on the emulator — §12.1 is
   the case that says why that is a limit worth naming rather than a detail.
+- **Collision is not modelled by the vocabulary at all, and could not be.**
+  `mill`'s floor map is emitted by its own generator and read by its own
+  feature; nothing in `[[claims.offset]]` says that a displaced column cannot
+  carry a horizontal course, which is the fact the holes in that floor come
+  from. The composition proves the columns do not collide as RESOURCES; what
+  the art in them can be is the rail's to know. §13.5 is the case for why that
+  line is in the right place — a vocabulary that tried to model it would be
+  modelling the picture.
 - **Nothing here reaches the offset table's VRAM PLACEMENT.** BG3SC bases are
   1K-word granular and the fetch reads two rows of the claimed region, so 30 of
   a 32-row map are addressable and never read. That is what the granularity

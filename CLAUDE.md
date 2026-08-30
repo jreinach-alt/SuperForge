@@ -213,9 +213,14 @@ writing your first test.
   vertically on BG1 beside conveyors running horizontally on BG2, in the same
   32-word row; plus a lift whose car is a BG1 column, whose rider is occluded
   by it for free at OBJ priority 0, and which carries the player between two
-  scenes. §13 also records the two things the falsification harness found here
-  that a look could not: an oracle that moved with its own defect, and an
-  occlusion mechanism that was doing no observable work)
+  scenes, and a walkable deck whose HOLES ARE WHAT THE MECHANISM COSTS — a
+  vertically displaced column cannot carry a horizontal course, so a shaft
+  cannot have a floor, and whether the lift's own columns are floor is read
+  from the car's live displacement rather than from a tile flag. §13 also
+  records the three things the falsification harness found that a look could
+  not: an oracle that moved with its own defect, and TWICE a mechanism doing
+  no observable work — an occlusion with nothing to occlude, and a dynamic
+  collision whose input never varied)
 - **Color-math composition** — the screen/blend vocabulary (`claims.screen` / `claims.blend`), the one-blender refusal set R1–R7 and the line between refusing and warning, the `ES_SCR_*` emission (a symbol only for a port the composition OWNS — ownership is per half), the per-scene state and what that means at a transition edge, coexistence with raw claims, and the stated limits → [`docs/99`](docs/99_color_math_composition.md).
   Exercised by two rails: `lakeside` (the blend itself, asserted as an equality)
   and `heathaze` (the same per-scene disarm rule, on an HDMA-driven scroll port

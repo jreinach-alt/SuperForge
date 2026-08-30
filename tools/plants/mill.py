@@ -195,6 +195,73 @@ PLANTS = [
               "INSIDE it. No window register was ever involved, so there is "
               "nothing else for a reader to suspect."),
 
+    Plant(id="collision-tests-one-edge-not-the-box",
+          file=OBJ_ASM,
+          old="""    .repeat 3
+    lsr a                           ; ...his left edge, as a column
+    .endrepeat
+    tax
+    jsr mil_solid
+    beq @no""",
+          new="""    .repeat 3
+    lsr a                           ; PLANT: the left edge is not tested
+    .endrepeat
+    tax""",
+          artifact=ROM,
+          build=["mill"],
+          tests=[T + "test_he_cannot_walk_into_the_hammer_s_shaft"],
+          why="one edge instead of the box. He still stops at a hole and the "
+              "picture still looks like collision — he simply stops THIRTY-TWO "
+              "PIXELS LATE walking left, standing over the melt with all but "
+              "his right edge past the floor. This is the defect a case that "
+              "asserted 'he stops somewhere' would ship; the case asserts the "
+              "stop to the pixel against the floor map, which is the only "
+              "thing that can tell the two apart. Planted in `mil_can_stand` "
+              "rather than in a direction's own branch, because the first cut "
+              "of this plant edited the RIGHTWARD branch and the case that "
+              "names it walks LEFT — the harness reported TEST-BLIND for a "
+              "defect the test never reached."),
+
+    Plant(id="the-lift-is-always-floor",
+          file=OBJ_ASM,
+          old="""    lda z:ES_MIL_CAR                ; the lift's own columns: ground iff the
+    bne @no                         ;   car is at the bottom of its travel""",
+          new="""    nop                             ; PLANT: ground whatever the car is doing
+    nop""",
+          artifact=ROM,
+          build=["mill"],
+          tests=[
+              T + "test_he_waits_at_the_shaft_s_edge_for_the_lift",
+              T + "test_the_lift_s_columns_are_floor_only_while_the_car_is_down",
+          ],
+          why="THE DYNAMIC HALF, REMOVED. The lift's columns become permanent "
+              "floor, so he walks out over the shaft while the car is at the "
+              "top of it. Nothing in a still frame distinguishes the two "
+              "cases, because the TILES ARE THE SAME EITHER WAY; what changed "
+              "is that the answer no longer comes from the ride's own number. "
+              "This plant is also the one that found the mechanism was not "
+              "reachable at all: on its first run every named case stayed "
+              "green, because the car only ever moved while he was aboard and "
+              "could not walk. A lift that never leaves is a bridge, and the "
+              "call rule (mil_lift_call) is what the finding bought."),
+
+    Plant(id="the-floor-map-is-not-the-painter-s",
+          file=GEN,
+          old="""    DECK_COLS.update(range(cx // 8, (cx + w) // 8))""",
+          new="""    DECK_COLS.update(range(COLS))     # PLANT: a floor everywhere""",
+          artifact=ROM,
+          build=["mill"],
+          tests=[
+              T + "test_the_shafts_have_no_floor_and_that_is_the_mechanism_s_price",
+              T + "test_he_cannot_walk_into_the_hammer_s_shaft",
+          ],
+          why="the map stops being the painter's record and becomes a claim "
+              "about the art that the art cannot contradict. He walks over "
+              "both shafts, on nothing — and the picture does not object, "
+              "because a figure over a hole looks exactly like a figure over "
+              "a floor when the floor is what you were going to check. The "
+              "geometry case catches it off the ROM alone, without a frame."),
+
     Plant(id="hall-declares-mode-1",
           file=OPT_TOML,
           old="""name = "mil_mode"

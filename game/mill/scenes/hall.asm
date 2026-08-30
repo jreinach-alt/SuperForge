@@ -49,6 +49,16 @@ enter:
     stz z:US_TSC_ACC
     stz z:ES_MIL_CAR
     stz z:ES_MIL_RIDER_Y
+    stz z:ES_MIL_STEP
+    stz z:ES_MIL_FACE
+    stz z:ES_MIL_BOARD              ; HE ARRIVES STANDING ON THE CAR, not shut
+    lda #(SMIL_LIFT_COL * 8)        ;   in it. The car is on the deck — its
+    sta z:ES_MIL_PX                 ;   bottom IS the deck's top, which the
+                                    ;   generator asserts — so its four columns
+                                    ;   are ground, and he can walk straight off
+                                    ;   them or press UP to go back. Arriving
+                                    ;   ABOARD instead started the climb on the
+                                    ;   first frame and he never had the pad
     jsr mil_arm_bg                  ; CHR, maps, palettes, BG1SC/BG2SC/BG12NBA
     jsr mil_obj_arm                 ; the rider's CHR, palette and OBSEL
     jsr mil_leaves_park             ; ...and the lobby's lift leaves put away.
@@ -131,6 +141,18 @@ tick:
     ; animation's position alone, so un-flattening resumes rather than restarts.
     lda z:US_TSC
     jsr mil_advance
+    ; ---- HE HAS THE CONTROLS UNTIL HE GIVES THEM UP ----------------------
+    ; The hall used to be a cutscene that started itself after a beat. It is a
+    ; place now: he steps out of the car onto the deck, walks it as far as the
+    ; floor goes, and the ride begins when he stands back on the lift and
+    ; presses UP. `mil_walk_hall` returns immediately once the car is moving,
+    ; so the performance below is unchanged from the frame it starts.
+    jsr mil_walk_hall
+    lda z:ES_MIL_BOARD              ; ...and the lift answers where he stands,
+    bne :+                          ;   which is what makes the hole in the
+    jsr mil_lift_call               ;   floor open and shut
+:   .a16
+    .i16
     ; ---- THE RIDE, and it is one number --------------------------------
     ; The car climbs; the camera follows it until the world runs out, and then
     ; the car keeps going and leaves through the top. Both fall out of the same
@@ -141,9 +163,9 @@ tick:
     ; shaft sliding past it — which is what riding a lift looks like, and it is
     ; the one column on screen whose word is not changing while every other
     ; column's is.
-    lda z:ES_MIL_PHASE              ; ...a beat on the floor before it moves
-    cmp #SMIL_CAR_WAIT
-    bcc @hold
+    lda z:ES_MIL_BOARD              ; ...and only once he is aboard. The beat
+    cmp #SMIL_BOARD_ABOARD          ;   before it moves is his to take now
+    bne @hold
     lda z:ES_INP_CUR
     and #JOY_B
     bne @hold
@@ -177,7 +199,21 @@ tick:
 @hold:
     .a16
     .i16
-    lda #SMIL_CAM_MAX               ; ...and the camera follows it up
+    ; THE CAMERA FOLLOWS THE RIDE, NOT THE CAR. They were the same thing while
+    ; the car only ever moved with him in it; once the lift comes and goes on
+    ; its own, a camera tied to the car pans away from the man standing on the
+    ; deck every time the lift is called elsewhere — which is what it did, and
+    ; it took the player off the bottom of the picture.
+    lda z:ES_MIL_BOARD
+    cmp #SMIL_BOARD_ABOARD
+    beq :+
+    lda #SMIL_CAM_MAX               ; on foot: the deck, and it does not move
+    sta z:ES_MIL_CAM
+    jsr mil_rider_stage
+    rts
+:   .a16
+    .i16
+    lda #SMIL_CAM_MAX               ; ...aboard: the camera follows him up
     sec
     sbc z:ES_MIL_CAR
     bpl :+

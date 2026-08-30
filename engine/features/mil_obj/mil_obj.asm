@@ -187,11 +187,24 @@ mil_rider_stage:
     .a16
     .i16
     SF_ASSERT_WIDTH 16, 16, "mil_rider_stage"
-    lda #(SMIL_CAR_ROW * 8 + SMIL_WIN_Y)
+    lda z:ES_MIL_BOARD              ; ON FOOT IS A DIFFERENT PLANE, and it is
+    cmp #SMIL_BOARD_ABOARD          ;   the same rule the lobby uses: in the
+    beq :+                          ;   car he is BEHIND the shell that cuts
+    jmp mil_deck_stage              ;   him to its port; on the deck he is in
+:   .a16                            ;   FRONT of the floor he stands on
+    .i16
+    ; ONE FORMULA FOR BOTH PLACES HE CAN BE. His feet are on a floor: the deck
+    ; when he is standing on it, the car's own floor when he is in it — and the
+    ; generator asserts those are the same line (`CAR_ROW * 8 + CAR_H ==
+    ; STAND_Y`), so the car simply carries the floor up with it. Deriving his
+    ; row from the GLASS instead put him twenty-one pixels higher riding than
+    ; standing, which is two positions for one man and showed the moment he
+    ; could do both.
+    lda #(SMIL_STAND_Y - SMIL_RIDER_BOX)
     sec
     sbc z:ES_MIL_CAM
     sec
-    sbc z:ES_MIL_CAR                ; ...the glass's screen row
+    sbc z:ES_MIL_CAR                ; ...his screen row, riding
     sta z:ES_MIL_RIDER_Y
     ; ---- off the top or off the bottom: park -----------------------------
     ; ONE UNSIGNED COMPARE FOR BOTH ENDS, after biasing by the sprite box. The
@@ -217,12 +230,8 @@ mil_rider_stage:
     .a8
     sta a:MIL_RIDER_OAM + 0         ; X, low 8
     lda z:ES_MIL_RIDER_Y
-    sec
-    sbc #SMIL_RIDER_RAISE           ; ...the art's own offset inside the glass.
-                                    ;   A SUBTRACTION, because the offset is
-                                    ;   upward and a negative immediate is a
-                                    ;   hex mask the no-literals gate refuses
-    sta a:MIL_RIDER_OAM + 1         ; Y
+    sta a:MIL_RIDER_OAM + 1         ; Y — the same row the deck staging uses,
+                                    ;   because it is the same floor
     rep #$20
     .a16
     ; ---- which idle cell, from the PHASE and not from a frame count ------
@@ -747,3 +756,443 @@ mil_slot_tile:
 mil_bay_x:
     .word SMIL_DOOR_A * 8, SMIL_DOOR_B * 8
 .segment "CODE"
+
+; =============================================================================
+; WHERE HE CAN STAND — collision, and half of it is a scroll word
+; =============================================================================
+; The hall's deck is not continuous and cannot be. A shaft column is displaced
+; VERTICALLY, so every row of it must be identical; a deck is a horizontal
+; course. The four columns of each station's shaft therefore have no floor, and
+; the holes in the hall's floor are not level design — they are what the
+; mechanism costs. `SMIL_DECK_LO`/`_HI` is the painter's own record of where it
+; laid a deck, one bit a screen column, emitted by the same call that drew it.
+;
+; AND THE SECOND HOLE IS NOT ALWAYS A HOLE. The lift's four columns are ground
+; while the car is DOWN and a fall while it is anywhere else, so whether they
+; are solid is a function of the car's displacement — the same number the
+; offset word carries. That is the half no tile-flag table can express, and it
+; is the reason this rail's collision is worth having rather than borrowed:
+; `col_map` answers "what is at this tile", and the question here is "where is
+; this column THIS FRAME".
+
+; --- mil_deck_bit: does screen column X have a floor? -----------------------
+; CONTRACT mil_deck_bit
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       X = a SCREEN column, 0..SMIL_COLS-1
+;   out:      Z CLEAR if that column has deck art under it, Z SET if it is a
+;             hole; A clobbered
+;   clobbers: A, X, N, Z, C
+;   assumes:  the main thread
+;   tail:     rts
+;
+; The static half only. `mil_solid` is what callers want.
+mil_deck_bit:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_deck_bit"
+    cpx #SMIL_COLS
+    bcs @off                        ; past the world: not floor
+    cpx #16
+    bcc @lo
+    lda #SMIL_DECK_HI
+    txa                             ; ...the high word, and X -= 16
+    sec
+    sbc #16
+    tax
+    lda #SMIL_DECK_HI
+    bra @shift
+@lo:
+    .a16
+    .i16
+    lda #SMIL_DECK_LO
+@shift:
+    .a16
+    .i16
+    cpx #0
+    beq @test
+@down:
+    .a16
+    .i16
+    lsr a
+    dex
+    bne @down
+@test:
+    .a16
+    .i16
+    and #1
+    rts
+@off:
+    .a16
+    .i16
+    lda #0
+    rts
+
+; --- mil_solid: ...and is it ground THIS FRAME? -----------------------------
+; CONTRACT mil_solid
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       X = a SCREEN column
+;   out:      Z CLEAR if a figure can stand there, Z SET if he would fall
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  the main thread; reads ES_MIL_CAR
+;   tail:     rts
+;
+; THE LIFT'S COLUMNS ARE THE DYNAMIC HALF. They carry the car, and the car's
+; displacement is the same quantity the offset word for those columns carries —
+; so "is this ground" is answered from the ride's own number and not from a
+; second copy of it. At rest the car's bottom IS the deck's top (the generator
+; asserts that: `CAR_ROW * 8 + CAR_H == STAND_Y`), so car == 0 is exactly the
+; condition, with no tolerance to tune.
+mil_solid:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_solid"
+    phx
+    jsr mil_deck_bit
+    tay                             ; ...THE RESULT, PARKED IN Y BEFORE THE PULL.
+    plx                             ;   `plx` sets N and Z from the byte it
+    tya                             ;   pulls, so a `bne` after it tests X and
+    bne @yes                        ;   not the answer — which read as "every
+                                    ;   column is floor" and let him walk over
+                                    ;   both holes and off the right edge of
+                                    ;   the world. Measured, not spotted
+    cpx #SMIL_LIFT_COL
+    bcc @no
+    cpx #(SMIL_LIFT_COL + SMIL_SHAFT_COLS)
+    bcs @no
+    lda z:ES_MIL_CAR                ; the lift's own columns: ground iff the
+    bne @no                         ;   car is at the bottom of its travel
+@yes:
+    .a16
+    .i16
+    lda #1
+    rts
+@no:
+    .a16
+    .i16
+    lda #0
+    rts
+
+; --- mil_can_stand: can his WHOLE BOX stand at this X? ----------------------
+; CONTRACT mil_can_stand
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       A = a candidate screen X for his left edge
+;   out:      Z CLEAR if both edges of his box are over ground
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  the main thread
+;   tail:     rts
+;
+; BOTH EDGES, not his centre. A centre test lets half of him hang over a hole,
+; which on a 32-pixel figure and 8-pixel columns is sixteen pixels of him
+; standing on the melt. Testing the box is also what makes the lift's four
+; columns exactly wide enough to hold him.
+mil_can_stand:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_can_stand"
+    pha                             ; the candidate, across both edge tests. On
+                                    ;   the STACK and not in the NMI walker's
+                                    ;   scratch: that claim is eight bytes and
+                                    ;   the offset this wanted was the ninth
+    .repeat 3
+    lsr a                           ; ...his left edge, as a column
+    .endrepeat
+    tax
+    jsr mil_solid
+    beq @no
+    pla
+    clc
+    adc #(SMIL_RIDER_BOX - 1)       ; ...and his right
+    .repeat 3
+    lsr a
+    .endrepeat
+    tax
+    jmp mil_solid                   ; its Z is this routine's answer
+@no:
+    .a16
+    .i16
+    pla
+    lda #0
+    rts
+
+; --- mil_walk_hall: one frame of the player on the mill deck ----------------
+; CONTRACT mil_walk_hall
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       ES_INP_CUR — left/right/up; ES_MIL_BOARD, ES_MIL_CAR
+;   out:      ES_MIL_PX advanced where the floor allows, ES_MIL_FACE and
+;             ES_MIL_STEP updated, ES_MIL_BOARD changed when he steps out of
+;             the car or back into it
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  the main thread
+;   tail:     rts
+;
+; TICK: ok -- ES_MIL_STEP accumulates PIXELS WALKED and the walk cell is
+;   indexed by it, so the legs move with the ground. Nothing counts frames.
+;
+; THE CLAMPS ARE GONE. The lobby bounds him with two constants because a flat
+; room has nothing to bound him with; here every step is offered to the floor
+; and taken only if the floor accepts it, so the edges of the world and the
+; edges of the holes are the same rule and neither is a number somebody tuned.
+mil_walk_hall:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_walk_hall"
+    lda z:ES_MIL_BOARD              ; RIDING is the thing that takes the pad
+    beq @grounded                   ;   away, NOT a car that is moving: once
+    rts                             ;   the lift comes and goes on its own the
+@grounded:                          ;   two are different states
+    .a16
+    .i16
+    lda z:ES_INP_CUR
+    and #JOY_UP
+    beq @not_up
+    jsr mil_try_ride                ; UP over the lift: board it
+@not_up:
+    .a16
+    .i16
+    lda z:ES_INP_CUR
+    and #JOY_RIGHT
+    beq @not_right
+    lda z:ES_MIL_PX
+    clc
+    adc #SMIL_WALK_STEP
+    jsr mil_can_stand
+    beq @done                       ; the floor refuses: he stops at the edge
+    lda z:ES_MIL_PX
+    clc
+    adc #SMIL_WALK_STEP
+    sta z:ES_MIL_PX
+    stz z:ES_MIL_FACE
+    bra @stepped
+@not_right:
+    .a16
+    .i16
+    lda z:ES_INP_CUR
+    and #JOY_LEFT
+    beq @done
+    lda z:ES_MIL_PX
+    cmp #SMIL_WALK_STEP
+    bcc @done                       ; ...and the left edge of the screen, which
+    sec                             ;   is the one bound the floor cannot state
+    sbc #SMIL_WALK_STEP
+    jsr mil_can_stand
+    beq @done
+    lda z:ES_MIL_PX
+    sec
+    sbc #SMIL_WALK_STEP
+    sta z:ES_MIL_PX
+    lda #MIL_HFLIP
+    sta z:ES_MIL_FACE
+@stepped:
+    .a16
+    .i16
+    lda z:ES_MIL_STEP
+    clc
+    adc #SMIL_WALK_STEP
+    sta z:ES_MIL_STEP
+    lda z:ES_MIL_PX                 ; ...and stepping OFF the car gives him the
+    jsr mil_on_lift                 ;   controls back, which is the same test
+    bne @done                       ;   that put him in it
+    stz z:ES_MIL_BOARD
+@done:
+    .a16
+    .i16
+    rts
+
+; --- mil_on_lift: is his whole box over the lift's columns? -----------------
+; The car is SMIL_SHAFT_COLS wide and he is SMIL_RIDER_BOX across, and the
+; generator's geometry makes those the same 32 pixels — so "on the lift" is
+; "exactly on it", with no room to be half aboard. The assert says so rather
+; than leaving it to be noticed when somebody widens one of them. It sits ABOVE
+; the contract block because a contract must attach to its own label with
+; nothing but prose in between, which `make width-check` checks.
+.assert SMIL_SHAFT_COLS * 8 = SMIL_RIDER_BOX, error, "mil_obj: the car is not exactly a figure wide, so `on the lift` needs a tolerance nobody has chosen"
+
+; CONTRACT mil_on_lift
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       A = his screen X
+;   out:      Z CLEAR if both edges of his box are inside the lift's columns
+;   clobbers: A, X, N, Z, C
+;   assumes:  the main thread
+;   tail:     rts
+mil_on_lift:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_on_lift"
+    cmp #(SMIL_LIFT_COL * 8)
+    bcc @no
+    cmp #((SMIL_LIFT_COL + SMIL_SHAFT_COLS) * 8)
+    bcs @no
+    lda #1
+    rts
+@no:
+    .a16
+    .i16
+    lda #0
+    rts
+
+; --- mil_try_ride: UP on the car commits him to the climb -------------------
+; CONTRACT mil_try_ride
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      ES_MIL_BOARD set to ABOARD and ES_MIL_PX snapped to the car when
+;             he is standing on it; untouched otherwise
+;   clobbers: A, X, N, Z, C
+;   assumes:  the main thread, the car at rest
+;   tail:     rts
+mil_try_ride:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_try_ride"
+    lda z:ES_MIL_CAR                ; ...and only into a car that is HERE
+    bne @no
+    lda z:ES_MIL_PX
+    jsr mil_on_lift
+    beq @no
+    lda #(SMIL_LIFT_COL * 8)        ; snapped, so the ride starts from the one
+    sta z:ES_MIL_PX                 ;   place the glass is cut for
+    lda #SMIL_BOARD_ABOARD
+    sta z:ES_MIL_BOARD
+@no:
+    .a16
+    .i16
+    rts
+
+; --- mil_deck_stage: him on the mill deck, on foot --------------------------
+; CONTRACT mil_deck_stage
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      his OAM entry at ES_MIL_PX on the deck, IN FRONT of BG1
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  the main thread; writes the OAM SHADOW
+;   tail:     rts
+;
+; His screen row is the deck minus his box minus the camera — the deck is a
+; world row and the camera is where the world is, so nothing here holds a
+; second copy of either. He is only ever on foot with the car at rest, so the
+; camera is at its clamp; deriving it anyway costs three instructions and means
+; the day that stops being true this does not quietly go wrong.
+mil_deck_stage:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_deck_stage"
+    lda #(SMIL_STAND_Y - SMIL_RIDER_BOX)
+    sec
+    sbc z:ES_MIL_CAM
+    sta z:ES_MIL_RIDER_Y
+    lda z:ES_MIL_PX
+    sep #$20
+    .a8
+    sta a:MIL_RIDER_OAM + 0         ; X
+    lda z:ES_MIL_RIDER_Y
+    sta a:MIL_RIDER_OAM + 1         ; Y
+    rep #$20
+    .a16
+    lda z:ES_INP_CUR
+    and #(JOY_LEFT | JOY_RIGHT)
+    beq @idle
+    lda z:ES_MIL_STEP               ; walking: the cell follows the GROUND
+    lsr a
+    lsr a
+    lsr a
+    and #(SMIL_RIDER_WALK_N - 1)
+    clc
+    adc #SMIL_RIDER_WALK0
+    bra @cell
+@idle:
+    .a16
+    .i16
+    lda z:ES_MIL_PHASE
+    .repeat 5
+    lsr a
+    .endrepeat
+    and #(SMIL_RIDER_IDLE_N - 1)
+    clc
+    adc #SMIL_RIDER_IDLE0
+@cell:
+    .a16
+    .i16
+    jsr mil_slot_tile
+    sep #$20
+    .a8
+    sta a:MIL_RIDER_OAM + 2
+    lda #MIL_LOBBY_ATTR             ; priority 1: over the deck he stands on
+    ora z:ES_MIL_FACE
+    sta a:MIL_RIDER_OAM + 3
+    lda #MIL_RIDER_SIZE_LARGE
+    sta a:MIL_RIDER_HI
+    rep #$20
+    .a16
+    rts
+
+; --- mil_lift_call: the car comes when he is near, and leaves when he is not -
+; CONTRACT mil_lift_call
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       ES_MIL_PX, ES_MIL_BOARD
+;   out:      ES_MIL_CAR driven toward 0 or toward SMIL_CAR_AWAY
+;   clobbers: A, X, N, Z, C
+;   assumes:  the main thread, and that he is ON FOOT — the caller does not
+;             call this while he is riding
+;   tail:     rts
+;
+; A LIFT THAT NEVER LEAVES IS A BRIDGE, and a bridge makes the interesting half
+; of this rail's collision unreachable: `mil_solid` reads the car's
+; displacement to answer whether its four columns are floor, and if the car is
+; always parked the answer is always yes and the reading is dead code. The
+; harness said so — removing the car test left every case green.
+;
+; The rule is the lobby's doors, on a different quantity: he is near it or he
+; is not, the travel is the state, and a car caught halfway reverses from where
+; it is. The reach is wide enough that the car is DOWN before his box can reach
+; its columns, so the hole never opens under him — collision here blocks
+; movement and does not model falling, and a floor that vanished beneath him
+; would be a picture no rule in this rail could explain.
+mil_lift_call:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_lift_call"
+    lda z:ES_MIL_PX
+    clc
+    adc #(SMIL_RIDER_BOX / 2)       ; ...his centre
+    sec
+    sbc #(SMIL_LIFT_COL * 8 + SMIL_SHAFT_COLS * 4)   ; ...the shaft's
+    bpl :+
+    eor #$FFFF                      ; |distance|, without a signed compare
+    inc a
+:   .a16
+    .i16
+    cmp #SMIL_LIFT_REACH
+    bcs @away
+    lda z:ES_MIL_CAR                ; near: it comes down to the deck
+    beq @done
+    sec
+    sbc #SMIL_CAR_CALL
+    bpl :+
+    lda #0
+:   .a16
+    .i16
+    sta z:ES_MIL_CAR
+    rts
+@away:
+    .a16
+    .i16
+    lda z:ES_MIL_CAR                ; far: it withdraws, and the hole opens
+    cmp #SMIL_CAR_AWAY
+    bcs @done
+    clc
+    adc #SMIL_CAR_CALL
+    cmp #SMIL_CAR_AWAY
+    bcc :+
+    lda #SMIL_CAR_AWAY
+:   .a16
+    .i16
+    sta z:ES_MIL_CAR
+@done:
+    .a16
+    .i16
+    rts
