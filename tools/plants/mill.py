@@ -64,6 +64,7 @@ GEN = SUPERFORGE / "tools" / "gen_mill_assets.py"
 OPT_ASM = SUPERFORGE / "engine" / "features" / "mil_opt" / "mil_opt.asm"
 OBJ_ASM = SUPERFORGE / "engine" / "features" / "mil_obj" / "mil_obj.asm"
 OPT_TOML = SUPERFORGE / "engine" / "features" / "mil_opt" / "feature.toml"
+HALL_ASM = SUPERFORGE / "game" / "mill" / "scenes" / "hall.asm"
 ROM = SUPERFORGE / "build" / "mill.sfc"
 T = "tests/test_mill.py::"
 
@@ -283,6 +284,24 @@ PLANTS = [
               "a leaf at OBJ priority 1 (score 4) beats BG1's normal 3 "
               "everywhere, so the wall stops occluding it and the pixels the "
               "case samples move.",),
+
+    Plant(id="the-new-room-shows-the-old-room-s-pose",
+          file=HALL_ASM,
+          old="""    jsr mil_rider_stage             ; ...AND THE MAN HIMSELF, for exactly the""",
+          new="""    nop                             ; PLANT: the arrival is not staged
+    .byte 0                         ; ...AND THE MAN HIMSELF, for exactly the""",
+          artifact=ROM,
+          build=["mill"],
+          tests=[
+              T + "test_the_handover_does_not_show_him_where_the_last_room_left_him",
+          ],
+          why="OAM is not scene state, and this is the line that says so for "
+              "the man rather than for the doors. Without it his entry keeps "
+              "the LOBBY's coordinates across the edge: the mill floor fades "
+              "up with him standing where the bay was, 18 lit frames measured, "
+              "then he snaps onto the car when the tick first runs. The rail "
+              "shipped exactly that, under a comment two lines above stating "
+              "the principle for the leaves.",),
 
     Plant(id="hall-declares-mode-1",
           file=OPT_TOML,

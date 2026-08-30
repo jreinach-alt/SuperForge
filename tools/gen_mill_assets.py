@@ -1314,6 +1314,37 @@ def _rider_cells():
     return out
 
 
+def rider_head():
+    """The HIGHEST inked row any pose reaches — the other end of `rider_feet`.
+
+    The poses disagree here (11, 12 or 13 depending on the stride) where they
+    agree exactly on the feet, so this is the minimum: the bound has to hold
+    for whichever cell is on screen.
+    """
+    return min(min(y for y in range(RIDER_BOX) for x in range(RIDER_BOX)
+                   if c.load()[x, y][3] > 127) for c in _rider_cells())
+
+
+def rider_feet():
+    """The lowest INKED row in the rider's cells, which is not the box's floor.
+
+    THE BOX IS NOT THE FIGURE. His cell is 32 px and the art stops at row 27 in
+    all ten poses — four blank rows underneath — so a stand height computed as
+    `floor - RIDER_BOX` leaves him hanging those four pixels above the deck.
+    Measured on the shipped ROM: his ink ended at screen row 171 with the
+    deck's top edge at 175. Emitted rather than written down, so a redrawn
+    sprite re-seats him instead of quietly floating.
+    """
+    feet = set()
+    for c in _rider_cells():
+        px = c.load()
+        feet.add(max(y for y in range(RIDER_BOX) for x in range(RIDER_BOX)
+                     if px[x, y][3] > 127))
+    if len(feet) != 1:
+        raise SystemExit(f"rider poses disagree on where his feet are: {feet}")
+    return feet.pop()
+
+
 def rider_sheet():
     """(CHR blob, rider palette, leaf palette).
 
@@ -1676,6 +1707,14 @@ SMIL_WIN_Y        = {WINDOW[1]}
 SMIL_WIN_W        = {WINDOW[2]}
 SMIL_WIN_H        = {WINDOW[3]}
 SMIL_RIDER_BOX    = {RIDER_BOX}     ; the OBJ box: OBSEL's 32x32 size pair
+SMIL_RIDER_HEAD   = {rider_head()}     ; the highest row his ART reaches in the box
+SMIL_RIDER_FEET   = {rider_feet()}     ; ...and the lowest row his ART reaches
+                                ;   inside it. The two differ by four blank
+                                ;   rows, which is exactly how far he floated.
+SMIL_SCANLINE_LEAD = {SCANLINE_LEAD}      ; screen row y draws MAP row y+1
+                                ;   (SnesPpu.cpp:186, first displayed
+                                ;   scanline is 1) — so a figure standing on
+                                ;   a map row is placed against y-1
 SMIL_RIDER_SLOTS  = {RIDER_SLOTS}      ; ...one whole 64-tile grid group
 SMIL_RIDER_SLOT_TILES = 4      ; a 32x32 cell is 4 tiles wide in the name table
 SMIL_RIDER_IDLE0  = {RIDER_IDLE0}

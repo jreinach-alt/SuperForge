@@ -65,6 +65,18 @@ enter:
                                     ;   OAM is not scene state: the shadow
                                     ;   carries across the edge, and a bay left
                                     ;   open would hang four doors in the mill
+    jsr mil_rider_stage             ; ...AND THE MAN HIMSELF, for exactly the
+                                    ;   same reason the leaves are parked here
+                                    ;   — which this line was missing while the
+                                    ;   line above it stated the principle. His
+                                    ;   entry held the LOBBY's coordinates for
+                                    ;   the whole handover, so the mill floor
+                                    ;   faded up with him standing where the
+                                    ;   bay had been, 18 frames measured, and
+                                    ;   he snapped onto the car when the tick
+                                    ;   finally ran. Everything this reads —
+                                    ;   CAM, CAR, PHASE, PX, BOARD — is set
+                                    ;   above, so it stages the arrival pose.
     jsr mil_arm_scroll              ; the four fallback ports, at rest
     jsr mil_tint_arm                ; the colour window over the shaft
     ; ---- BG3 BECOMES THE TABLE, and this write is the SCENE'S -------------

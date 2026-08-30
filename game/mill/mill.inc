@@ -122,7 +122,13 @@ SMIL_WALK_STEP = 2
 ; ON the deck. It also lands his BOX inside the doorway, whose floor is the same
 ; deck — and a player sunk even a little into it has that much of himself
 ; hanging below doors that stop where the doorway does. mil_obj asserts the fit.
-SMIL_WALK_Y    = SMIL_LOBBY_FLOOR * 8 - SMIL_RIDER_BOX
+; HIS FEET ON THE DECK, FROM THE ART RATHER THAN FROM THE BOX. This was
+; `floor * 8 - RIDER_BOX`, which assumes the figure fills its 32 px cell to the
+; bottom; it does not — every pose stops at SMIL_RIDER_FEET with blank rows
+; under it — so he hung four pixels over the floor. The deck's first MAP row is
+; SMIL_LOBBY_FLOOR * 8, drawn one screen row higher (SMIL_SCANLINE_LEAD), and
+; his lowest inked row goes immediately above that.
+SMIL_WALK_Y    = SMIL_LOBBY_FLOOR * 8 - SMIL_SCANLINE_LEAD - 1 - SMIL_RIDER_FEET
 SMIL_WALK_MIN  = 8
 SMIL_WALK_MAX  = 256 - SMIL_RIDER_BOX - 8
 

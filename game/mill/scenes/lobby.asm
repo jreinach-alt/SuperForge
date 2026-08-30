@@ -82,6 +82,12 @@ enter:
     jsr mil_lobby_up                ; the lobby map into its own page...
     jsr mil_lobby_bases             ; ...and BG1SC re-pointed at it
     jsr lobby_flat                  ; BG3 zeroed, and the four ports at rest
+    jsr mil_lobby_stage             ; ...and the nine OAM entries, NOW. The
+                                    ;   shadow carries across a scene edge, so
+                                    ;   without this his entry keeps whatever
+                                    ;   the hall left in it right through the
+                                    ;   handover and the room fades up with him
+                                    ;   drawn at the wrong coordinates.
     jsr mil_tint_arm                ; the colour window (its bay is off-screen
                                     ;   here; the claim is global and the
                                     ;   registers are established either way —

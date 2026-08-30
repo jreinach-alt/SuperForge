@@ -1043,6 +1043,11 @@ def test_the_car_moves_as_one_piece(tmp_path):
 # --------------------------------------------------------------------------
 # THE LOBBY, and the cycle that closes
 # --------------------------------------------------------------------------
+LEAF_TILE = 192                     # the leaf cell's tile id, so the
+                                    #   staged entry that is NOT a leaf is him
+DP_FADE_CTL = _dp("ES_FADE_CTL")
+
+
 def gen_pocket_columns():
     """Screen columns a retracted leaf reaches that lie outside every bay.
 
@@ -1541,3 +1546,53 @@ def test_a_retracted_leaf_is_hidden_by_the_pier_it_slides_into(tmp_path):
     assert not moved, (
         f"{len(moved)} pocket pixel(s) changed when the doors opened, first at "
         f"{moved[0]} — a leaf is drawing OVER the pier it should retract into")
+
+
+def test_the_handover_does_not_show_him_where_the_last_room_left_him():
+    """A SCENE EDGE MUST RESTAGE HIM, because OAM is not scene state.
+
+    `hall::enter` parked the lobby's leaves and said why — "the shadow carries
+    across the edge" — and then did not stage the MAN. So his entry held the
+    lobby's coordinates through the whole handover: the mill floor faded up
+    with him standing where the bay had been, for 18 frames measured, and he
+    snapped onto the car when the tick finally ran. The lobby's own enter had
+    the identical hole in the other direction.
+
+    THE ASSERTION IS ON THE FRAMES A VIEWER CAN SEE. Fade level 0 is black and
+    proves nothing, so this counts only lit frames, and it allows exactly one:
+    `enter` runs with the NMI masked, so the shadow it writes reaches OAM on
+    the next NMI, and that one frame is the DMA's lag rather than a stale pose.
+    Anything more is the bug.
+    """
+    slack = 8                       # a frame of walk at SMIL_WALK_STEP
+    with Machine(str(ROM)) as m:
+        m.advance(BOOT)
+        for _ in range(600):
+            if scene(m) == SCENE_LOBBY and m.read_bytes(W, DP_SM + 2, 1)[0] == 0:
+                break
+            m.advance(1)
+        for _ in range(600):
+            if m.read_u16(W, DP_DOOR + 2) >= DOOR_TRAVEL:
+                break
+            m.advance(1, pad1=JOY_RIGHT)
+        else:
+            pytest.fail("the far bay never opened")
+
+        seen_hall, lit_stale = False, []
+        for k in range(140):
+            m.advance(1, pad1=JOY_UP if k < 4 else {})
+            if scene(m) == SCENE_HALL:
+                seen_hall = True
+            oam = m.read_bytes(OAM, 0, 12 * 4)
+            him = [(oam[i * 4], oam[i * 4 + 1]) for i in range(12)
+                   if oam[i * 4 + 1] < 240 and oam[i * 4 + 2] != LEAF_TILE]
+            fade = m.read_bytes(W, DP_FADE_CTL, 1)[0]
+            if him and fade > 0:
+                drift = abs(him[0][0] - (m.read_u16(W, DP_PX) & 0xFF))
+                if drift > slack:
+                    lit_stale.append((k, him[0][0], m.read_u16(W, DP_PX), fade))
+    assert seen_hall, "the ride never handed over — this case tested nothing"
+    assert len(lit_stale) <= 1, (
+        f"{len(lit_stale)} LIT frame(s) drew him away from ES_MIL_PX, first "
+        f"{lit_stale[0]} (frame, staged x, PX, fade) — the new room is showing "
+        f"the pose the old one left behind")

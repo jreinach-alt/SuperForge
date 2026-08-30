@@ -54,8 +54,15 @@ MIL_HI_ALL_LARGE = $AA
 ; as the rider's park row in the hall — a constant that puts a sprite a little
 ; outside the box meant to contain it — and it is arithmetic on constants, so
 ; it is the assembler's to check.
-.assert SMIL_WALK_Y >= SMIL_DOOR_TOP * 8, error, "mil_obj: the player stands above the doorway's head"
-.assert SMIL_WALK_Y + SMIL_RIDER_BOX <= SMIL_LOBBY_FLOOR * 8, error, "mil_obj: the player hangs below the doors"
+; ...AND IT IS HIS INK THAT HAS TO FIT, NOT HIS BOX. These two were written
+; against SMIL_RIDER_BOX, which is the 32 px OBJ cell and not the figure: the
+; art stops at SMIL_RIDER_FEET with four blank rows under it. So the bottom
+; bound was four pixels too strict, and satisfying it is what held him four
+; pixels clear of the floor — a constant and the assertion guarding it making
+; the same mistake, which is why the float survived a build that checks this.
+; Stated on the drawn rows, both bounds are true of what a viewer can see.
+.assert SMIL_WALK_Y + SMIL_RIDER_HEAD >= SMIL_DOOR_TOP * 8, error, "mil_obj: the player stands above the doorway's head"
+.assert SMIL_WALK_Y + SMIL_RIDER_FEET <= SMIL_LOBBY_FLOOR * 8 - SMIL_SCANLINE_LEAD, error, "mil_obj: the player hangs below the doors"
 
 ; ...and THE TWO LEAVES MUST MEET, which is what "shut" means and is not
 ; otherwise checked anywhere: the near leaf covers the doorway's left half and
