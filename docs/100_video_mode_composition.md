@@ -886,18 +886,35 @@ stand. What makes its collision worth having rather than borrowed from
   offset word for those columns carries. The tiles never change; the answer
   does.
 
-**And `col_map` was not rejected for the reason it looks like.** The tempting
-story is that a tile-flag table cannot separate this floor because the art
-dedups — measurably false here: the deck row's twelve tile ids are disjoint
-from the holes' and appear nowhere else in the map. The actual reasons, having
-read the kernel rather than assumed it: it reads a BYTE-PER-TILE world blob
-(`lda a:CM_WORLD_WIN, x`) where this rail has a 2-byte SNES tilemap, so binding
-it costs a second 2 KB blob duplicating the map plus a 256-byte flag table; it
-answers a 2-D question ("what is at this world pixel") where this rail's
-walkable surface is ONE ROW, so 2.3 KB and a measured 951.9 mc a query stand
-against four bytes and three shifts; and it states its own boundary — "it
-answers questions ABOUT the world" — which the car's solidity is not. A fit for
-a different shape, not a worse one.
+**And `col_map` was not rejected for being narrow — two earlier accounts in
+this document were wrong.** Recorded as wrong, because both were asserted
+without reading enough of the feature:
+
+- *"a tile-flag table cannot separate this floor, because the art dedups"* —
+  false by measurement: the deck row's twelve tile ids are disjoint from the
+  holes' and appear nowhere else in the map.
+- *"col_map reads a byte-per-tile blob, which is the Mode 7 world shape"* —
+  false. `jumper` and `maze` bind it in **BGMODE 1** with 32×32 worlds;
+  `patrol`, `stomper` and `scroll_run` likewise. Twelve rails compose it,
+  across modes, across worlds from 32×32 to 512×512.
+
+What `col_map` wants is an **authored logical world**: one byte per cell, from
+which the display tilemap is *built*. `maze_rom` says it outright — the blob is
+"col_map's world AND the BG render source" — so the drawn terrain and the solid
+terrain agree by construction rather than by two loops staying in step. That
+model is mode-agnostic, and it is a good one.
+
+`mill` has no such blob. Its BG1 is **painted as a picture** and then cut into
+8×8 tiles; the tile ids are an artifact of the cut and the dedup, not authored
+cells. There is no logical grid to bind, and making one would mean authoring
+the mill as a grid and deriving the art from it — the reverse of how a
+converted concept-art kit is made. The floor map here is the painter's own
+record for exactly that reason.
+
+One half of the question is outside any static world map regardless: whether
+the car is under those four columns is a property of a FRAME. `col_map` states
+that boundary itself — "it answers questions ABOUT the world" — and honouring
+it is correct, not a shortfall.
 
 ### 13.6 A lift that never leaves is a bridge
 

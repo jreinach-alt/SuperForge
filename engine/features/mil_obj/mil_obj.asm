@@ -773,25 +773,35 @@ mil_bay_x:
 ; offset word carries. That is the half no tile-flag table can express, and it
 ; is the reason this rail's collision is not `col_map`'s.
 ;
-; AND THE REASON IS NOT THE ONE IT LOOKS LIKE. The tempting story is that a
-; tile-flag table cannot tell this rail's floor from its holes because the art
-; dedups — and that is measurably FALSE here: the deck row's twelve tile ids
-; are disjoint from the holes' and appear nowhere else in the map, so a flag
-; table would separate them perfectly. The real reasons are three, and only the
-; last is about the mechanism:
+; AND THE REASON IS NOT THAT col_map IS NARROW. Two earlier accounts in this
+; comment were wrong and are worth recording as wrong, because both were
+; asserted without reading enough of the feature:
 ;
-;   * col_map reads a BYTE-PER-TILE world blob (`lda a:CM_WORLD_WIN, x`). This
-;     rail's BG1 map is a 2-byte SNES tilemap, so binding it means emitting a
-;     second 2 KB blob that duplicates the map's layout, plus its 256-byte
-;     flag table.
-;   * col_map answers "what is at this world PIXEL" — a 2-D question. This
-;     rail's walkable surface is ONE ROW, so the question is "does this column
-;     have a floor", which a 32-bit mask answers in three shifts. 2.3 KB and a
-;     measured 951.9 mc a query against four bytes and a shift is a mismatch of
-;     DIMENSION, not of quality.
-;   * col_map states its own boundary: "it answers questions ABOUT the world".
-;     Whether the car is under these four columns is a property of a FRAME.
-;     That half is out of its scope by its own statement, and rightly.
+;   * "a tile-flag table cannot separate this floor, because the art dedups" —
+;     FALSE here by measurement: the deck row's twelve tile ids are disjoint
+;     from the holes' and appear nowhere else in the map.
+;   * "col_map reads a byte-per-tile blob, which is the Mode 7 world shape" —
+;     FALSE. `jumper` and `maze` bind it in BGMODE 1 with 32x32 worlds;
+;     `patrol`, `stomper` and `scroll_run` likewise. Twelve rails compose it
+;     across modes and across worlds from 32x32 to 512x512.
+;
+; What col_map actually wants is an AUTHORED LOGICAL WORLD: one byte per cell,
+; from which the display tilemap is BUILT. maze_rom says it outright — the blob
+; is "col_map's world AND the BG render source" — so the drawn terrain and the
+; solid terrain agree by construction rather than by two loops staying in step.
+; That model is mode-agnostic and it is a good one.
+;
+; THIS RAIL SIMPLY HAS NO SUCH BLOB. Its BG1 is PAINTED as a picture and then
+; cut into 8x8 tiles; the tile ids are an artifact of the cut and the dedup,
+; not authored cells. There is no logical grid to bind, and making one would
+; mean authoring the mill as a grid and deriving the art from it — the reverse
+; of how a converted concept-art kit is made. The floor map here is the
+; painter's record for exactly that reason.
+;
+; And one half of the question is outside ANY static world map: whether the car
+; is under these four columns is a property of a FRAME, not of the world.
+; col_map states that boundary itself — "it answers questions ABOUT the world" —
+; and honouring it is correct, not a shortfall.
 
 ; --- mil_deck_bit: does screen column X have a floor? -----------------------
 ; CONTRACT mil_deck_bit
