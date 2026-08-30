@@ -1010,10 +1010,30 @@ def _lobby_art():
     if len(bottoms) != 1:
         raise SystemExit("lobby art: the two bays do not share a floor line")
 
-    # seat it: the bays' bottom edge meets this lobby's deck
+    # SEAT IT ON BOTH AXES.
+    #
+    # Vertically: the bays' bottom edge meets this lobby's deck.
+    #
+    # Horizontally: THE BAYS MUST LAND ON THE TILE GRID. They arrive at x=44
+    # and x=148, which are not multiples of 8, and a bay whose edge falls
+    # mid-tile has no correct priority bit — mark that tile and the wall
+    # notches the SHUT doors, leave it and a retracted leaf shows through 4 px
+    # of pier. Neither is acceptable and no tilemap can say both, so the art is
+    # rolled instead until the openings are whole tiles. The wall was authored
+    # to tile horizontally (its two edge columns are an ordinary adjacency, at
+    # the 71st percentile of this image's own column-to-column change), so the
+    # roll wraps rather than padding, and the joint it moves inland is one the
+    # picture already contained.
     slide = LOBBY_FLOOR * 8 - (bottoms.pop() + 1)
     if slide < 0:
         raise SystemExit("lobby art: the wall sits below this lobby's deck")
+    roll = -(spans[0][0] % 8)                    # ...left, to the nearest grid
+    raw = [[row[(x - roll) % PX] for x in range(PX)] for row in raw]
+    spans = [((x0 + roll) % PX, w) for x0, w in spans]
+    for x0, w in spans:
+        if x0 % 8 or w % 8:
+            raise SystemExit(f"lobby art: bay at x={x0} w={w} is not whole "
+                             f"tiles even after seating")
     buf = [[dark] * PX for _ in range(LOBBY_ART_H)]
     for y in range(LOBBY_ART_H - slide):
         buf[y + slide][:] = raw[y]
@@ -1044,6 +1064,63 @@ def lobby_art():
     if not _LOBBY_ART_CACHE:
         _LOBBY_ART_CACHE.append(_lobby_art())
     return _LOBBY_ART_CACHE[0]
+
+
+# A LEAF RETRACTS INTO THE WALL, WHICH MEANS THE WALL HAS TO BEAT IT.
+#
+# The leaves are OBJ at priority 1, which mode 4 scores 4 (`RenderMode4`'s
+# `spritePriorities[4] = {2,4,6,8}`), and BG1's NORMAL priority is 3 — so a
+# leaf drew over every pixel of the wall, including the pier it is supposed to
+# slide into. On screen the doors opened in FRONT of the building. A real lift
+# retracts its leaves into a pocket and the door surround occludes them.
+#
+# BG1's HIGH priority is 7 (`RenderTilemap<0, 8, 3, 7>`), above the leaf's 4,
+# so the fix is a tilemap bit rather than any change to how the leaves move:
+# every wall tile a retracted leaf would cover gets bit 13 set and the leaf
+# disappears behind it. The player is raised to OBJ priority 3 (score 8) to
+# stay in front of that same wall — see MIL_LOBBY_ATTR.
+#
+# THE POCKETS ARE DERIVED FROM THE BAYS, and only columns lying ENTIRELY
+# outside every bay are marked. The delivered art does not put the bays on the
+# tile grid, so each opening has a 4-px sliver of wall sharing its edge tile;
+# marking that tile would clip the leaf INSIDE the opening, which reads as a
+# gap, while leaving it lets the leaf overlap the pier's edge by 4 px, which
+# reads as the leaf being at the pier. The second is the better error.
+TILE_HI = 0x2000              # bit 13 of a tilemap word: this tile is HIGH
+                              #   priority (SnesPpu.cpp:1024). Not to be
+                              #   confused with BIT_BG1 above, which is the
+                              #   same bit in an OFFSET word and means
+                              #   something else entirely.
+
+
+def lobby_hi_cols():
+    """Tile columns whose whole 8 px lies outside every bay."""
+    bays = lobby_bays()
+    return {c for c in range(COLS)
+            if all(c * 8 + 8 <= x0 or c * 8 >= x0 + w for x0, w in bays)}
+
+
+# THE PICTURE IS ONE MAP ROW BELOW THE SCANLINE THAT SHOWS IT. A BG row is
+# fetched as `(realY + vScroll) >> 3` with realY the scanline (SnesPpu.cpp:186)
+# and the first DISPLAYED scanline is 1, so at VSCROLL 0 screen row y shows map
+# row y+1 — measured here: screen 175 draws map 176, the deck's first row.
+# Rows computed in SCREEN space are therefore one short at the bottom, which
+# left the leaves' last row over an unmarked deck tile and drew a one-pixel
+# band of door across the pier. The conversion is written out rather than a
+# bare +1 so the next reader does not have to rediscover which way it goes.
+SCANLINE_LEAD = 1
+
+
+def lobby_hi_rows():
+    """The MAP rows a leaf covers, from the screen rows it occupies.
+
+    A leaf's cells stack from the opening's top for the whole opening's
+    height, so it spans screen rows [DOOR_TOP*8, LOBBY_FLOOR*8) — and the map
+    rows drawn there are those plus the scanline lead.
+    """
+    top = DOOR_TOP * 8 + SCANLINE_LEAD
+    bot = LOBBY_FLOOR * 8 - 1 + SCANLINE_LEAD
+    return range(top // 8, bot // 8 + 1)
 
 
 def lobby_bays():
@@ -1520,10 +1597,13 @@ def main():
     (OUT / "mil_chr1.bin").write_bytes(chr1)
     (OUT / "mil_chr2.bin").write_bytes(chr2)
     def mlobby():
+        hi_c, hi_r = lobby_hi_cols(), set(lobby_hi_rows())
         out = bytearray()
         for r in range(ROWS):
             for c in range(COLS):
                 t = map_lobby[r][c] if r < len(map_lobby) else 0
+                if r in hi_r and c in hi_c:
+                    t |= TILE_HI            # ...the pocket a leaf retracts into
                 out += bytes((t & 0xFF, t >> 8))
         return bytes(out)
 

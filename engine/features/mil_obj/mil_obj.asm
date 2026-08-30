@@ -282,12 +282,18 @@ MIL_ARR_BEHIND_LEAVES = 0
 MIL_ARR_BEHIND_PLAYER = MIL_LEAF_BYTES
 MIL_HFLIP    = 1 << 6
 MIL_LEAF_ATTR = (1 << 4) | (1 << 1)     ; PRIORITY 1 and OBJ PALETTE 1.
-                                        ; Priority 1 scores 4 in mode 4, over
-                                        ; BG1's normal 3, so the leaves close
-                                        ; IN FRONT of the bay drawn behind
-                                        ; them. The rider's priority 0 is the
-                                        ; opposite choice for the opposite
-                                        ; reason.
+                                        ; Priority 1 scores 4 in mode 4
+                                        ; (RenderMode4's {2,4,6,8}), over BG1's
+                                        ; NORMAL 3, so a leaf closes in front
+                                        ; of the bay recess drawn behind it —
+                                        ; and UNDER BG1's HIGH 7, which is what
+                                        ; lets it retract into the pier. The
+                                        ; wall carries that bit in its tilemap
+                                        ; (gen_mill_assets `lobby_hi_cols`);
+                                        ; before it did, the doors opened in
+                                        ; front of the building. The rider's
+                                        ; priority 0 is the opposite choice for
+                                        ; the opposite reason.
 
 ; ...AND THE PLAYER'S PRIORITY CANNOT DECIDE WHETHER A DOOR COVERS HIM.
 ; That was the obvious reading of mode 4's priority order and it is wrong, so
@@ -306,9 +312,25 @@ MIL_LEAF_ATTR = (1 << 4) | (1 << 1)     ; PRIORITY 1 and OBJ PALETTE 1.
 ; SWAPS the two blocks — the same nine entries, written in the order the state
 ; asks for — and every one of the nine is written on both paths, so neither
 ; arrangement leaves a stale entry behind from the other.
-MIL_LOBBY_ATTR = (1 << 4)               ; priority 1: over BG1's normal 3, and
-                                        ;   tied with the leaves, where the
-                                        ;   index above is what decides
+MIL_LOBBY_ATTR = (3 << 4)               ; PRIORITY 3, which mode 4 scores 8 —
+                                        ;   above BG1's HIGH 7. He has to beat
+                                        ;   the same pier the leaves lose to:
+                                        ;   he walks in FRONT of the wall the
+                                        ;   doors retract INTO, and one bit in
+                                        ;   the tilemap cannot say both. It was
+                                        ;   priority 1 while nothing in the
+                                        ;   lobby was high-priority, and the
+                                        ;   moment the pockets were marked that
+                                        ;   put him behind the piers.
+                                        ;
+                                        ;   IT STILL DOES NOT DECIDE WHETHER A
+                                        ;   DOOR COVERS HIM — see the note
+                                        ;   above. Only one sprite pixel per
+                                        ;   column survives evaluation and INDEX
+                                        ;   picks it, so the closing doors work
+                                        ;   by `mil_lobby_stage`'s swap exactly
+                                        ;   as before; this priority is only
+                                        ;   about him versus the BACKGROUND.
 
 ; --- mil_lobby_walk: one frame of the player on the lobby floor -------------
 ; CONTRACT mil_lobby_walk

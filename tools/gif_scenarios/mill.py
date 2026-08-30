@@ -54,9 +54,10 @@ from vendor.mesen_runner import MemoryType
 ROOT = Path(__file__).resolve().parent.parent.parent
 
 ROM = "mill"
-CAPTURES = 160                  # a CEILING over the lead-in and the take, not
-                                #   a schedule: the phase returning is what
-                                #   ends it.
+CAPTURES = 240                  # a CEILING over the lead-in trip and the take,
+                                #   not a schedule: the cycle closing is what
+                                #   ends it. One trip measured 348 emulated
+                                #   frames, so two is ~232 captures at STEP 3.
 
 # THE TAKE IS A CLIMB, not a turn of the animation. The world is two screens
 # tall and the camera goes up it and back, because the question the clip has to
@@ -138,70 +139,71 @@ class Stalled(RuntimeError):
     nothing, so it is an error rather than a very short GIF."""
 
 
+# ONE TRIP, AS DATA, RUN TWICE. (name, pad held, done-when, stall budget in
+# captures.) The first pass is the lead-in and the recorder drops it; the
+# second is the take. Everything waits on the ROM's own state — a fixed plan
+# drifts against the ROM's tick and films a plausible clip of the wrong thing.
+TRIP = (
+    ("the lobby settles", {}, lambda r: _at_rest(r, LOBBY), 150),
+    ("cross to the far bay", {"right": True},
+     lambda r: _u16(r, DOOR + 2) >= DOOR_TRAVEL, 200),
+    ("board", {"up": True}, lambda r: _scene(r) == HALL, 200),
+    ("the hall settles", {}, lambda r: _at_rest(r, HALL), 200),
+    ("start the climb", {"up": True}, lambda r: _u16(r, CAR) > 0, 200),
+    ("ride to the top", {}, lambda r: _scene(r) == LOBBY, 400),
+    ("arrive", {}, lambda r: _at_rest(r, LOBBY), 200),
+)
+
+
 class Drive:
     """One capture per call, each advancing STEP frames.
 
-    THE LEAD-IN IS THE LOBBY AND IT IS DROPPED. `.started` stays falsy while he
-    walks to a bay, the leaves part, he boards, the rooms hand over and he
-    presses UP on the car; the recorder pays those frames without storing them.
+    IT LOOPS, AND THE LOOP POINT IS A ROOM THE MACHINES ARE NOT IN. The take
+    is one whole round trip — the doors part to reveal him where the lift set
+    him down, he crosses the lobby, boards the other bay, rides the shaft past
+    the pistons and the belts, and is set down again behind shut doors. Driven
+    three times and measured, that cycle is 348 emulated frames to the frame
+    and settles at the same px with both bays shut, so the take can open and
+    close on it.
 
-    THE TAKE IS THE ROUND TRIP'S SECOND HALF: it opens on the forge floor with
-    the car at the bottom of the shaft and the channel lit, climbs, and runs
-    TAIL captures past SMIL_CAR_TOP — long enough for the lift to hand back, so
-    the last frames are him standing in the lobby bay he set out from. It does
-    NOT loop: frame 0 is the mill floor and the last frame is the lobby, and the
-    seam is reported at that honest size (reports/gallery_loop_seams.md).
+    THE SEAM IS IN THE LOBBY FOR A REASON. The picture in the hall is a
+    function of the phase, the camera AND the car, and those periods share no
+    factor — a take that closed there could only report a large seam honestly
+    (reports/gallery_loop_seams.md). The lobby has none of them on screen: the
+    wall is static art, the doors are shut and he is behind them, so the two
+    ends of the cycle are the same picture rather than merely a similar one.
+
+    THE LEAD-IN IS A WHOLE TRIP AND IT IS DROPPED. The ROM boots into the
+    middle of the lobby, which is NOT on the cycle — he has never ridden, so
+    no bay has set him down. So the drive runs the trip once to reach the
+    cycle, sets `.started` there, and runs it again for the take.
     """
-
-    # (name, stall budget in captures) — generous, because a fade is slow and a
-    # budget that fires on a healthy tree is worse than none at all.
-    PHASES = (("lobby settles", 120), ("walk to the bay", 200),
-              ("board", 200), ("hall settles", 200), ("start the climb", 200))
 
     def __init__(self):
         self.started = False
         self.done = False
-        self.after = 0
-        self.phase = 0
+        self.step = 0
         self.held = 0
-
-    def _advance(self):
-        self.phase += 1
-        self.held = 0
+        self.lap = 0
 
     def __call__(self, r, i):
-        pad = {}
-        if self.phase < len(self.PHASES):
-            self.held += 1
-            name, budget = self.PHASES[self.phase]
-            if self.held > budget:
-                raise Stalled(f"mill: '{name}' did not finish in {budget} "
-                              f"captures — the choreography no longer matches "
-                              f"the ROM")
-            if self.phase == 0:
-                if _at_rest(r, LOBBY):
-                    self._advance()
-            elif self.phase == 1:
-                pad = {"right": True}
-                if _u16(r, DOOR + 2) >= DOOR_TRAVEL:
-                    self._advance()
-            elif self.phase == 2:
-                pad = {"up": True}
-                if _scene(r) == HALL:
-                    self._advance()
-            elif self.phase == 3:
-                if _at_rest(r, HALL):
-                    self._advance()
-            elif self.phase == 4:
-                pad = {"up": True}
-                if _u16(r, CAR) > 0:
-                    self._advance()
+        name, pad, ready, budget = TRIP[self.step]
+        self.held += 1
+        if self.held > budget:
+            raise Stalled(f"mill: '{name}' (lap {self.lap}) did not finish in "
+                          f"{budget} captures — the choreography no longer "
+                          f"matches the ROM")
+        if ready(r):
+            self.step += 1
+            self.held = 0
+            if self.step == len(TRIP):
+                self.step = 0
+                self.lap += 1
+                if self.lap == 1:
                     self.started = True      # ...the stored take opens HERE
-            return r.frame_step(STEP, **pad)
-        if _u16(r, CAR) >= CAR_TOP:
-            self.after += 1
-            self.done = self.after >= TAIL
-        return r.frame_step(STEP)
+                else:
+                    self.done = True         # ...and closes one cycle later
+        return r.frame_step(STEP, **pad)
 
 
 def make_drive():

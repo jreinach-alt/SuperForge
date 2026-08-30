@@ -1043,6 +1043,23 @@ def test_the_car_moves_as_one_piece(tmp_path):
 # --------------------------------------------------------------------------
 # THE LOBBY, and the cycle that closes
 # --------------------------------------------------------------------------
+def gen_pocket_columns():
+    """Screen columns a retracted leaf reaches that lie outside every bay.
+
+    Derived from the SAME two numbers the generator marks the tilemap from —
+    the bays it read off the wall art and the leaf's travel — so this cannot
+    drift from the thing it is checking, and it narrows itself if the art ever
+    moves an opening.
+    """
+    out = set()
+    for x0 in (DOOR_AX, DOOR_BX):
+        out |= set(range(max(0, x0 - DOOR_TRAVEL), x0))
+        out |= set(range(x0 + DOOR_W * 8,
+                         min(256, x0 + DOOR_W * 8 + DOOR_TRAVEL)))
+    bays = [range(x, x + DOOR_W * 8) for x in (DOOR_AX, DOOR_BX)]
+    return sorted(x for x in out if not any(x in b for b in bays))
+
+
 def bay_mid(i):
     return (DOOR_AX if i == 0 else DOOR_BX) + DOOR_W * 4
 
@@ -1463,3 +1480,64 @@ def test_he_waits_at_the_shaft_s_edge_for_the_lift(tmp_path):
         f"column begins")
     after = [px for px, _ in trace[last + 1:]]
     assert after and after[-1] > held_at, "he never got moving again"
+
+
+def test_a_retracted_leaf_is_hidden_by_the_pier_it_slides_into(tmp_path):
+    """A LIFT DOOR RETRACTS INTO THE WALL, so the wall must beat the leaf.
+
+    The leaves are OBJ and slid at priority 1, which mode 4 scores 4
+    (`RenderMode4`'s {2,4,6,8}) — above BG1's NORMAL 3, which is what makes
+    them close over the bay recess. Nothing put them under BG1's HIGH 7, so
+    for six commits they opened IN FRONT OF THE BUILDING: the doors slid
+    across the piers instead of into them. Twenty-two cases passed throughout,
+    because every one of them was asking about the bay and none about the
+    wall beside it. It was found by looking.
+
+    THE ASSERTION IS THAT THE WALL DOES NOT CHANGE. A leaf that has retracted
+    into its pocket is invisible, so the pocket's pixels must be the same
+    whether the doors are shut or standing open — no reference picture, no
+    colour list, just the same region of the same screen in two states. That
+    is what "behind" MEANS, and it stays true if the art, the palette or the
+    travel ever move.
+    """
+    pocket = gen_pocket_columns()
+    assert pocket, "no pocket columns: the art's bays reach both screen edges"
+    y0, y1 = DOOR_TOP * 8, LOBBY_FLOOR * 8
+
+    with Machine(str(ROM)) as m:
+        m.advance(BOOT)
+        for _ in range(600):            # ...both bays shut, and he is between
+            if scene(m) == SCENE_LOBBY and m.read_bytes(W, DP_SM + 2, 1)[0] == 0:
+                break
+            m.advance(1)
+        assert max(m.read_u16(W, DP_DOOR + 2 * i) for i in range(BAYS)) == 0, \
+            "a bay was already open — the spawn is inside a reach"
+        # HE MOVES BETWEEN THE TWO CAPTURES AND HE IS A SPRITE OVER THIS WALL,
+        # so where he stands is not evidence about the leaves. His box in
+        # BOTH states is excluded rather than assumed away — the first cut of
+        # this case reported 735 changed pixels that were all him walking.
+        where = [m.read_u16(W, DP_PX)]
+        shut = shot(m, tmp_path / "shut.png")
+
+        for _ in range(600):            # ...and now with the far bay standing
+            if m.read_u16(W, DP_DOOR + 2) >= DOOR_TRAVEL:
+                break
+            m.advance(1, pad1=JOY_RIGHT)
+        else:
+            pytest.fail("the far bay never opened")
+        where.append(m.read_u16(W, DP_PX))
+        opened = shot(m, tmp_path / "open.png")
+
+    him = {x for px in where for x in range(px - 1, px + RIDER_BOX + 1)}
+    pocket = [x for x in pocket if x not in him]
+    assert pocket, "he stood in every pocket — nothing left to measure"
+
+    assert shut.tobytes() != opened.tobytes(), \
+        "the two captures are identical — the doors never moved, so this case " \
+        "would pass on a rail with no doors at all"
+
+    a, b = shut.load(), opened.load()
+    moved = [(x, y) for x in pocket for y in range(y0, y1) if a[x, y] != b[x, y]]
+    assert not moved, (
+        f"{len(moved)} pocket pixel(s) changed when the doors opened, first at "
+        f"{moved[0]} — a leaf is drawing OVER the pier it should retract into")

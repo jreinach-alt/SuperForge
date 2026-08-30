@@ -262,6 +262,28 @@ PLANTS = [
               "a floor when the floor is what you were going to check. The "
               "geometry case catches it off the ROM alone, without a frame."),
 
+    Plant(id="the-doors-open-in-front-of-the-building",
+          file=GEN,
+          old="""                if r in hi_r and c in hi_c:
+                    t |= TILE_HI            # ...the pocket a leaf retracts into""",
+          new="""                if False:                # PLANT: no pocket is high
+                    t |= TILE_HI""",
+          artifact=ROM,
+          build=["mill"],
+          tests=[
+              T + "test_a_retracted_leaf_is_hidden_by_the_pier_it_slides_into",
+          ],
+          why="the defect this rail actually shipped, and the reason it needs "
+              "a plant rather than a comment: for six commits the leaves slid "
+              "ACROSS the piers instead of into them, and twenty-two cases "
+              "passed the whole time because every one of them asked about "
+              "the BAY and none about the wall beside it. A lift whose doors "
+              "open in front of the building is not subtle once seen, and it "
+              "was seen by a person, not by the suite. Without the pocket bit "
+              "a leaf at OBJ priority 1 (score 4) beats BG1's normal 3 "
+              "everywhere, so the wall stops occluding it and the pixels the "
+              "case samples move.",),
+
     Plant(id="hall-declares-mode-1",
           file=OPT_TOML,
           old="""name = "mil_mode"
