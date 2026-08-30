@@ -149,7 +149,9 @@ CAR_ROW, CAR_H = _art("SMIL_CAR_ROW"), _art("SMIL_CAR_H")
 RIDER_BOX = _art("SMIL_RIDER_BOX")
 LEAF_BOX = _art("SMIL_LEAF_BOX")
 LEAF_ROWS = _art("SMIL_LEAF_ROWS")
-DOOR_A, DOOR_B = _art("SMIL_DOOR_A"), _art("SMIL_DOOR_B")
+DOOR_AX, DOOR_BX = _art("SMIL_DOOR_AX"), _art("SMIL_DOOR_BX")   # in PIXELS: the
+                                    #   bays are read off the wall art, which does
+                                    #   not put them on the tile grid
 DOOR_W = _art("SMIL_DOOR_W")
 DOOR_TRAVEL = _art("SMIL_DOOR_TRAVEL")
 WALK_STEP = _rail("SMIL_WALK_STEP")
@@ -1042,7 +1044,7 @@ def test_the_car_moves_as_one_piece(tmp_path):
 # THE LOBBY, and the cycle that closes
 # --------------------------------------------------------------------------
 def bay_mid(i):
-    return (DOOR_A if i == 0 else DOOR_B) * 8 + DOOR_W * 4
+    return (DOOR_AX if i == 0 else DOOR_BX) + DOOR_W * 4
 
 
 def test_the_doorway_is_exactly_two_leaves_wide():

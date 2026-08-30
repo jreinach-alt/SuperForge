@@ -17,11 +17,20 @@ depends = ["mil_rom"]
 # 8bpp: 64 B a tile, 32 VRAM words. The budget that bought smelter fifteen
 # 4bpp tiles buys about sixty here, so the hall is a BAY REPEATED four times
 # with sixty-four colours in it rather than sixty distinct things.
+# 384 TILES, AND THE NUMBER IS THE ROM BLOB'S. mil_bg uploads this page with
+# `ldy #ES_R_MIL_CHR1_SIZE` — the ROM claim's size — so a vram claim smaller
+# than the rom claim does not truncate the transfer, it writes PAST this
+# region. At 320 tiles against a 24,576 B blob that overran 2,048 words into
+# `mil_lobby`, which was invisible for exactly as long as no tile index
+# reached the overrun: the map is uploaded after the CHR, so the map was
+# rewritten correctly and only a BG1 tile numbered >= 320 could read the
+# damage. The imported lobby wall pushed the page to 352 tiles and the deck,
+# whose tiles sort last, read tilemap words as pixels.
 [[claims.vram]]
 name = "mil_chr1"
 kind = "chr"
 layers = ["bg1"]
-tiles = 320
+tiles = 384
 tile_bytes = 64
 
 [[claims.vram]]

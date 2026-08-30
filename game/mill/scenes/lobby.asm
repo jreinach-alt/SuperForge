@@ -405,10 +405,17 @@ exit:
 ; The reach has to cover the whole doorway and the two must not overlap, or a
 ; step taken in front of one bay opens the other. Both are arithmetic on
 ; constants, so both are the assembler's to check rather than a playtest's.
+; THE BOOT INVARIANT, AS A CHECK RATHER THAN AS PROSE. Line 56 says he starts
+; "on the deck with both bays shut"; nothing enforced it, and when the bays
+; moved to wherever the wall art puts them, the far one came inside the reach
+; and he booted beside an open lift. `mil_lobby_doors` opens a bay when his
+; CENTRE is nearer than SMIL_DOOR_REACH, so that is what this asserts, on both.
+.assert SMIL_SPAWN_X + SMIL_RIDER_BOX / 2 - SMIL_BAY_A_MID >= SMIL_DOOR_REACH, error, "lobby: he boots inside the near bay's reach"
+.assert SMIL_BAY_B_MID - SMIL_SPAWN_X - SMIL_RIDER_BOX / 2 >= SMIL_DOOR_REACH, error, "lobby: he boots inside the far bay's reach"
 .assert SMIL_DOOR_REACH >= SMIL_DOOR_W * 4, error, "lobby: the reach is narrower than the doorway"
-.assert SMIL_DOOR_B * 8 - SMIL_DOOR_A * 8 > SMIL_DOOR_REACH * 2, error, "lobby: the two bays' reaches overlap"
+.assert SMIL_DOOR_BX - SMIL_DOOR_AX > SMIL_DOOR_REACH * 2, error, "lobby: the two bays' reaches overlap"
 mil_bay_mid:
-    .word SMIL_DOOR_A * 8 + SMIL_DOOR_W * 4
-    .word SMIL_DOOR_B * 8 + SMIL_DOOR_W * 4
+    .word SMIL_DOOR_AX + SMIL_DOOR_W * 4
+    .word SMIL_DOOR_BX + SMIL_DOOR_W * 4
 .segment "CODE"
 .endscope

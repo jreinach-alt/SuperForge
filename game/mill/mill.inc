@@ -129,7 +129,17 @@ SMIL_WALK_MAX  = 256 - SMIL_RIDER_BOX - 8
 ; The leaves sit at the opening's top row.
 SMIL_DOOR_Y = SMIL_DOOR_TOP * 8
 
-SMIL_SPAWN_X    = 120         ; the player, between the two bays
+; MIDWAY BETWEEN THE TWO BAY CENTRES, DERIVED. This was 120 — a number that
+; happened to leave both bays shut because the far one sat at EXACTLY
+; SMIL_DOOR_REACH, on the wrong side of a `bcs`. The bays are now read off the
+; wall art (SMIL_DOOR_AX/BX) rather than declared, and the delivered wall put
+; the far bay four pixels nearer, which was enough to have him spawn with a
+; lift already standing open beside him. So the spawn is derived from the
+; bays it is defined against, and lobby.asm asserts the invariant its own
+; comment states — that at boot BOTH bays are shut.
+SMIL_BAY_A_MID  = SMIL_DOOR_AX + SMIL_DOOR_W * 4
+SMIL_BAY_B_MID  = SMIL_DOOR_BX + SMIL_DOOR_W * 4
+SMIL_SPAWN_X    = (SMIL_BAY_A_MID + SMIL_BAY_B_MID) / 2 - SMIL_RIDER_BOX / 2
 SMIL_DOOR_REACH = 48          ; how near a bay he must stand for it to open.
                               ;   The OPENING is 64 px wide, so half of it is
                               ;   32 and anything less than that leaves places

@@ -45,9 +45,9 @@ MIL_HI_BYTES  = ES_O_MIL_RIDER_SPRITES / 4     ; the claim, in hi-table bytes
 ; still a composition defect.
 MIL_HI_ALL_LARGE = $AA
 .assert SMIL_WALK_MAX < 256, error, "mil_obj: the walk clamp lets the player past X9"
-.assert SMIL_DOOR_B * 8 + SMIL_LEAF_BOX + SMIL_DOOR_TRAVEL < 256, error, "mil_obj: the far leaf's origin reaches past X9"
+.assert SMIL_DOOR_BX + SMIL_LEAF_BOX + SMIL_DOOR_TRAVEL < 256, error, "mil_obj: the far leaf's origin reaches past X9"
 .assert SMIL_WALK_MAX + SMIL_RIDER_BOX <= 256, error, "mil_obj: the player walks off the right edge"
-.assert SMIL_DOOR_B * 8 + SMIL_LEAF_BOX + SMIL_DOOR_TRAVEL + SMIL_LEAF_BOX <= 256, error, "mil_obj: an open right-hand bay clips the right edge"
+.assert SMIL_DOOR_BX + SMIL_LEAF_BOX + SMIL_DOOR_TRAVEL + SMIL_LEAF_BOX <= 256, error, "mil_obj: an open right-hand bay clips the right edge"
 
 ; ...and HE HAS TO FIT INSIDE THE DOORWAY, top and bottom, or the doors that
 ; shut over him leave a strip of him showing under them. This is the same class
@@ -754,7 +754,7 @@ mil_slot_tile:
 ; The bays' left edges, in screen X. Derived from the generator's own column
 ; plan, so moving a lift bay moves its leaves with it.
 mil_bay_x:
-    .word SMIL_DOOR_A * 8, SMIL_DOOR_B * 8
+    .word SMIL_DOOR_AX, SMIL_DOOR_BX
 .segment "CODE"
 
 ; =============================================================================

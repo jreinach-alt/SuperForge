@@ -40,6 +40,7 @@ SEED = 7
 STRIDE = 2                       # every 2nd pixel each way — 4x fewer, same cloud
 ITERS = 14
 WEIGHT = (2, 4, 1)               # the eye's, and map_to_palette's own weighting
+FRINGE = 2                       # px of silhouette edge dropped: the key's halo
 
 FAMILIES = [("SW_STEEL_COLD", G.SW_STEEL_COLD, G.N_COLD),
             ("SW_STEEL_WARM", G.SW_STEEL_WARM, G.N_WARM),
@@ -55,17 +56,63 @@ def _d2(p, q):
     return sum(WEIGHT[i] * (p[i] - q[i]) ** 2 for i in range(3))
 
 
+def _is_key_hue(r, g, b):
+    """On the KEY'S HUE AXIS: red and blue both up, green well down.
+
+    Erosion alone does not finish the job. A halo on continuous-tone art is
+    wider than any fixed erosion, and what survives is dark magenta — whose
+    nearest anchor is the DARKEST MOLTEN one, because a dark purple is closer
+    to a dark red than to any steel. So it does not scatter, it piles into one
+    family and takes entries there.
+
+    This is safe here for a reason particular to this art and not general:
+    the four families are steel (neutral to blue), molten (red to white
+    through orange) and brass (brown to gold), and NONE of them puts red and
+    blue up together with green down. A deep molten red has b LOW and is not
+    matched. Measured on the sheets it rejects 3.19% of opaque pixels, present
+    in all fifteen assets — the signature of a halo, not of a feature.
+    """
+    return r > 48 and b > 48 and g < 0.60 * min(r, b)
+
+
 def gather():
-    """Every kit pixel, bucketed by the family whose anchors it is nearest."""
+    """Every kit pixel, bucketed by the family whose anchors it is nearest.
+
+    THE KEY FRINGE IS NOT ART, AND IT WILL TAKE ENTRIES IF YOU LET IT. The
+    sheets are keyed on magenta and `kit_import.is_key` matches it loosely
+    (g < 110, r > 150, b > 150) — loose enough for the grain, not loose enough
+    for the HALO, because the sheets are continuous-tone and every asset's
+    edge blends the key toward the art through values like (107, 8, 115) that
+    no key test can claim without eating real pixels too.
+
+    Snapping onto hand-picked ramps hid that: a fringe pixel simply landed on
+    whatever entry was nearest. Fitting the palette TO the pixels does not
+    hide it — the fringe is a dense, tight cluster and k-means rewards it with
+    entries of its own. The first cut of this file spent ELEVEN of ninety-six
+    that way, most of the middle of the molten ramp, so the hall's channel and
+    the lobby's deck drew key bleed as though it were hot metal.
+
+    So the fringe is removed geometrically rather than by colour: a pixel
+    within FRINGE of a transparent one is an edge pixel and is not sampled.
+    That costs a thin outline of genuine art at every silhouette, which is the
+    right trade — those pixels are the least representative in the sheet.
+    """
     anchors = [(n, [_exp(c) for c in G._anchors(sw)]) for n, sw, _ in FAMILIES]
     out = {n: [] for n, _, _ in FAMILIES}
     for name, (sheet, box) in G.KIT_BOX.items():
         im = K.key_to_alpha(Image.open(G.KIT / f"{sheet}.png").crop(box))
         px = im.load()
+        w, h = im.size
+        solid = [[px[x, y][3] != 0 for x in range(w)] for y in range(h)]
+        keep = [[solid[y][x]
+                 and all(solid[j][i]
+                         for j in range(max(0, y - FRINGE), min(h, y + FRINGE + 1))
+                         for i in range(max(0, x - FRINGE), min(w, x + FRINGE + 1)))
+                 for x in range(w)] for y in range(h)]
         for y in range(0, im.size[1], STRIDE):
             for x in range(0, im.size[0], STRIDE):
                 r, g, b, a = px[x, y]
-                if not a:
+                if not keep[y][x] or _is_key_hue(r, g, b):
                     continue
                 fam = min(anchors, key=lambda f: min(_d2((r, g, b), q) for q in f[1]))
                 out[fam[0]].append((r, g, b))

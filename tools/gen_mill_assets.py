@@ -172,10 +172,10 @@ IX_BRASS = IX_MOLTEN + N_MOLTEN         # 116..127 fittings, bands, plaques
 # A family with fewer DISTINCT entries than its length keeps the duplicates —
 # the indices are addressed by hand and must all stay valid, and a ramp that
 # cannot fill itself is saying the art has no more steps to give.
-FIT_STEEL_COLD = [(2,3,5), (2,3,6), (2,3,6), (3,3,4), (2,3,7), (2,3,7), (3,3,7), (3,4,5), (3,4,5), (4,4,3), (4,4,3), (4,4,4), (5,4,3), (3,4,8), (3,4,8), (5,4,4), (5,4,4), (7,2,8), (5,4,4), (3,4,9), (4,5,6), (4,5,6), (5,5,5), (5,5,5), (6,5,4), (6,5,4), (4,5,9), (5,6,7), (5,6,10), (5,7,10), (7,8,10), (8,9,12), (10,10,13), (14,14,14), (21,21,21), (27,25,24)]
-FIT_STEEL_WARM = [(6,5,5), (5,6,8), (6,6,6), (7,6,5), (7,7,6), (8,7,6), (8,8,7), (14,3,16), (9,8,8), (8,9,11), (10,9,8), (11,10,9), (12,11,11), (14,13,12), (16,15,14), (19,18,16)]
-FIT_MOLTEN = [(5,0,5), (6,0,7), (8,1,1), (7,0,8), (8,0,9), (9,0,10), (8,1,9), (12,1,2), (12,2,1), (11,1,11), (12,1,13), (13,1,14), (16,3,1), (15,1,15), (16,1,17), (18,1,19), (21,1,17), (24,5,1), (29,9,1), (31,11,1), (31,14,1), (31,16,2), (31,18,4), (27,21,10), (31,20,6), (31,21,7), (31,24,10), (31,26,14), (31,29,19), (30,29,26), (31,30,28), (31,31,31)]
-FIT_BRASS = [(0,0,0), (1,0,0), (1,0,1), (1,1,1), (1,1,3), (2,1,4), (2,2,1), (2,2,5), (4,3,2), (7,4,2), (13,7,3), (21,13,5)]
+FIT_STEEL_COLD = [(2,3,6), (2,3,6), (2,3,6), (3,3,4), (2,3,7), (4,3,3), (3,3,7), (3,4,4), (3,4,5), (3,4,5), (4,4,3), (4,4,4), (3,4,7), (5,4,3), (5,4,3), (3,4,8), (5,4,4), (5,4,4), (3,4,9), (4,5,6), (4,5,6), (5,5,4), (5,5,4), (5,5,5), (5,5,5), (6,5,4), (4,5,9), (5,6,7), (5,6,10), (5,7,10), (7,8,10), (8,9,12), (10,10,13), (14,14,14), (21,21,21), (27,25,24)]
+FIT_STEEL_WARM = [(6,5,5), (6,6,5), (5,6,8), (7,6,6), (8,6,5), (8,7,6), (9,7,6), (8,8,7), (9,8,8), (9,9,9), (10,9,8), (11,10,9), (12,11,11), (14,13,12), (16,15,14), (19,18,16)]
+FIT_MOLTEN = [(5,0,7), (7,1,1), (10,1,1), (12,2,1), (16,3,1), (21,4,1), (26,6,1), (29,8,1), (30,10,0), (26,12,1), (31,11,1), (31,13,1), (31,15,2), (31,17,3), (31,18,4), (28,19,7), (31,20,6), (28,21,9), (31,21,7), (27,22,14), (31,22,8), (31,24,7), (31,24,11), (31,26,12), (30,26,17), (31,29,16), (31,28,21), (30,29,26), (31,31,22), (31,30,28), (31,31,29), (31,31,31)]
+FIT_BRASS = [(0,0,0), (1,0,0), (1,1,1), (1,1,2), (2,1,1), (1,1,3), (3,2,2), (2,2,5), (4,3,2), (8,5,2), (14,7,3), (21,14,5)]
 
 PAL_BG1 = [rgb(*c) for c in
            (FIT_STEEL_COLD + FIT_STEEL_WARM + FIT_MOLTEN + FIT_BRASS)]
@@ -867,7 +867,6 @@ def paint_bg1():
 # whole animation costs nothing but the OAM shadow that is already committed
 # every frame.
 LOBBY_FLOOR = 22              # the deck's map row
-LOBBY_DOORS = (5, 19)         # ...and the two lift bays' first map column
 DOOR_W = 8                    # a bay is this wide in COLUMNS: two 32 px leaves
 DOOR_ROWS = 8                 # ...and the opening is this tall, in rows: 64 px,
                               #   which is a 32 px figure with headroom over him
@@ -886,76 +885,191 @@ LEAF_ROWS = DOOR_ROWS * 8 // LEAF_BOX   # ...so a side is this many cells STACKE
 assert DOOR_ROWS * 8 == LEAF_ROWS * LEAF_BOX, "the opening must be whole cells"
 
 
-# The upper wall is where the room's HEIGHT is either established or lost, and
-# the first cut lost it: a flat field of near-identical warm greys over a low
-# strip of doors reads as a letterbox rather than as a hall. Nothing up there
-# is under any offset-column obligation — the lobby's table is a row of zeros —
-# so the whole wall is free art, and it is spent on three horizontal data the
-# eye can measure the room against: a cornice near the top, a band of clerestory
-# vents below it, and pilasters running the full drop to the deck.
-CORNICE = 26                  # the cornice band's top, in pixels
-PIER_PITCH = 48               # a pilaster every this many pixels...
-PIER_W = 10                   # ...this wide
+# --------------------------------------------------------------------------
+# THE LOBBY WALL IS IMPORTED, AND IT IS THE SOURCE OF TRUTH FOR THE BAYS
+# --------------------------------------------------------------------------
+# The wall above the deck is a delivered 256x176 asset authored to THIS
+# palette (vendor/art/forge_line/README.md records the request it answers).
+# Unlike the three sheets, it needs no resample and no nearest-entry search:
+# every colour in it is already an exact CGRAM entry, so the import is a
+# LOOKUP and a colour that is not in the palette stops the build by name.
+# That is the whole difference between art fitted onto a palette and art
+# authored to one.
+#
+# AND THE BAYS ARE FOUND, NOT DECLARED. `LOBBY_DOORS` used to say where the
+# painter would cut two holes; now the art has them, so the code reads them
+# back the way `paint_deck_and_melt` records `DECK_COLS` — one source, no
+# second description to drift. They are NOT tile-aligned in the delivered
+# art and they do not have to be: the leaves that cover them are sprites,
+# positioned in pixels.
+LOBBY_ART = KIT / "mode4_asset01_lobby_interior_wall.png"
+LOBBY_ART_H = 176              # the wall the asset covers; the deck is below it
+CEIL_BAND = 12                 # ...and how far the coffer runs past the slide
+CEIL_PITCH = 16                # the coffer's grid
+LOBBY_ART_DRIFT = 24           # counts a delivered colour may sit from an
+                               #   entry before it is a DIFFERENT palette
+LOBBY_ART_FIT = []             # (exact, distinct, worst drift), for the summary
 
 
-def lobby_wall(y, x):
-    fl = LOBBY_FLOOR * 8
-    if y < CORNICE:                              # the ceiling run above it
-        return Wm(1 if (y % 6) < 2 else 3)
-    if y < CORNICE + 8:                          # the cornice itself, lit above
-        return Wm(13 if y < CORNICE + 3 else 7)
-    pier = ((x + PIER_PITCH // 2) % PIER_PITCH) < PIER_W
-    if pier:                                     # a pilaster, with a lit arris
-        e = (x + PIER_PITCH // 2) % PIER_PITCH
-        return Wm(12 if e == 0 else 2 if e == PIER_W - 1 else 8 + (e % 2))
-    if CORNICE + 14 <= y < CORNICE + 42:         # the clerestory vents
-        cell = (x % 24)
-        if 4 <= cell < 20 and (y - CORNICE - 14) % 4 < 3:
-            return Wm(0) if (y - CORNICE) % 8 < 4 else Wm(2)
-    if (fl - 44) <= y < (fl - 38):               # the dado rail
-        return Br(3)
-    return Wm(5 + ((x // 6 + y // 16) % 2))
+def _lobby_art():
+    """(index buffer 256xLOBBY_ART_H, [(x0, w), ...] for each bay found).
+
+    THE ART IS SEATED, NOT ASSUMED. It was authored on its own 176 px canvas
+    with its floor line at y=164 and a band reserved at the top — the shape a
+    wall elevation takes when it expects a HUD over it, which this rail does
+    not have. So the import finds the bays and SLIDES the whole wall until
+    their bottom edge meets this lobby's deck. On the delivered asset that is
+    12 px, and it lands the openings at exactly DOOR_TOP*8 — but the number is
+    derived, so a redrawn wall with its floor somewhere else still seats.
+
+    The band the slide opens at the top is filled with a coffered ceiling in
+    the art's own two darkest tones. It is the one part of this wall we draw,
+    and it is drawn because the delivered art left it blank.
+    """
+    from PIL import Image
+    im = Image.open(LOBBY_ART).convert("RGB")
+    if im.size != (PX, LOBBY_ART_H):
+        raise SystemExit(f"lobby art is {im.size}, expected {(PX, LOBBY_ART_H)}")
+    look = {}
+    for i, w in enumerate(PAL_BG1):
+        look.setdefault(((w & 31) << 3 | (w & 31) >> 2,
+                         ((w >> 5) & 31) << 3 | ((w >> 5) & 31) >> 2,
+                         ((w >> 10) & 31) << 3 | ((w >> 10) & 31) >> 2),
+                        BG1_IX0 + i)
+    # NEAREST, AND THE DRIFT IS REPORTED. The wall was authored against a
+    # PUBLISHED SNAPSHOT of this palette, and the palette is refitted from time
+    # to time — most recently to get the chroma key's halo out of the molten
+    # ramp. An exact-lookup import would make every such refit break a
+    # delivered asset, which is the wrong coupling: the art is fixed, the
+    # palette is ours to improve. So this maps to the nearest entry the way
+    # kit_import does, counts how many colours were EXACT, and refuses only if
+    # some colour is nowhere near — which is what "authored against a different
+    # palette" actually looks like.
+    px = im.load()
+    rgbs = [((w & 31) << 3 | (w & 31) >> 2,
+             ((w >> 5) & 31) << 3 | ((w >> 5) & 31) >> 2,
+             ((w >> 10) & 31) << 3 | ((w >> 10) & 31) >> 2) for w in PAL_BG1]
+    cache, worst, exact = {}, 0, 0
+    for c in {px[x, y] for y in range(LOBBY_ART_H) for x in range(PX)}:
+        j = min(range(len(rgbs)),
+                key=lambda i: (2 * (rgbs[i][0] - c[0]) ** 2
+                               + 4 * (rgbs[i][1] - c[1]) ** 2
+                               + (rgbs[i][2] - c[2]) ** 2))
+        d = max(abs(rgbs[j][k] - c[k]) for k in range(3))
+        cache[c] = BG1_IX0 + j
+        worst = max(worst, d)
+        exact += (d == 0)
+    if worst > LOBBY_ART_DRIFT:
+        raise SystemExit(f"lobby art: a colour is {worst} counts from the "
+                         f"nearest BG1 entry — this was authored against a "
+                         f"different palette")
+    LOBBY_ART_FIT.append((exact, len(cache), worst))
+    raw = [[cache[px[x, y]] for x in range(PX)] for y in range(LOBBY_ART_H)]
+
+    # A BAY IS A TALL RUN OF COLUMNS WHOSE PIXELS ARE ALL THE DARKEST INDEX.
+    # The brief asked for flat dark recesses precisely so the sprites could
+    # cover them, which makes "flat and dark" the thing to search for. The
+    # reserved band at the top is the same colour across the full width, so a
+    # bay is the run that does NOT reach row 0.
+    dark = min(v for r in raw for v in r)
+    def dark_runs(xs):
+        """Contiguous row runs where every column in `xs` is the dark index."""
+        col = [y for y in range(LOBBY_ART_H)
+               if all(raw[y][x] == dark for x in xs)]
+        out = []
+        for y in col:
+            if out and y == out[-1][1] + 1:
+                out[-1][1] = y
+            else:
+                out.append([y, y])
+        return [(a, b) for a, b in out if b > a]
+
+    tall = [x for x in range(PX)
+            if sum(1 for y in range(LOBBY_ART_H) if raw[y][x] == dark) >= 48]
+    spans, run = [], None
+    for x in tall + [None]:
+        if run and x == run[1] + 1:
+            run = (run[0], x)
+            continue
+        if run and run[1] - run[0] >= 20:
+            spans.append((run[0], run[1] - run[0] + 1))
+        run = (x, x) if x is not None else None
+    if len(spans) != 2:
+        raise SystemExit(f"lobby art: found {len(spans)} bays, expected 2")
+
+    # The opening is the LONGEST dark run in those columns. The reserved band
+    # at the top and the shadow line under the floor are dark across the whole
+    # width too, so "the only dark run" is not true and the tallest one is.
+    bottoms = set()
+    for x0, w in spans:
+        body = max(dark_runs(range(x0, x0 + w)), key=lambda r: r[1] - r[0])
+        if body[1] - body[0] + 1 < 32:
+            raise SystemExit(f"lobby art: the bay at x={x0} is only "
+                             f"{body[1] - body[0] + 1} px tall")
+        bottoms.add(body[1])
+    if len(bottoms) != 1:
+        raise SystemExit("lobby art: the two bays do not share a floor line")
+
+    # seat it: the bays' bottom edge meets this lobby's deck
+    slide = LOBBY_FLOOR * 8 - (bottoms.pop() + 1)
+    if slide < 0:
+        raise SystemExit("lobby art: the wall sits below this lobby's deck")
+    buf = [[dark] * PX for _ in range(LOBBY_ART_H)]
+    for y in range(LOBBY_ART_H - slide):
+        buf[y + slide][:] = raw[y]
+
+    # THE COFFERED CEILING FILLING THE BAND THE SLIDE OPENED. Both tones are
+    # the ART'S OWN, chosen by LUMINANCE rather than by index — an index is
+    # only a position in a ramp and the ramps are not ordered against each
+    # other, so `sorted(indices)[1]` picks a number, not a colour, and the
+    # first cut of this drew beams one luminance step off the ground they sat
+    # on. The beam is the tone the art already outlines with, so the ceiling
+    # belongs to the same drawing as the wall under it.
+    def lum(i):
+        w = PAL_BG1[i - BG1_IX0]
+        return 2 * (w & 31) + 4 * ((w >> 5) & 31) + ((w >> 10) & 31)
+    used = sorted({v for r in raw for v in r}, key=lum)
+    beam = max(used, key=lambda i: -abs(lum(i) - (lum(dark) + 28)))
+    for y in range(slide + CEIL_BAND):
+        for x in range(PX):
+            buf[y][x] = beam if (x % CEIL_PITCH) < 2 or (y % CEIL_PITCH) < 2 \
+                else dark
+    return buf, spans
+
+
+_LOBBY_ART_CACHE = []
+
+
+def lobby_art():
+    if not _LOBBY_ART_CACHE:
+        _LOBBY_ART_CACHE.append(_lobby_art())
+    return _LOBBY_ART_CACHE[0]
+
+
+def lobby_bays():
+    """[(x, width)] in PIXELS, read off the art."""
+    return lobby_art()[1]
 
 
 def paint_lobby():
-    """BG1's lobby map, painted and then cut against the SAME tile set the hall
-    uses — one CHR page, two rooms."""
+    """BG1's lobby map: the delivered wall art above, the deck below, cut
+    against the SAME tile set the hall uses — one CHR page, two rooms.
+
+    THE BAYS ARE NOT DRAWN HERE. They are in the art, and `lobby_bays` reads
+    them back out of it, so there is exactly one statement of where a lift
+    opening is and the sprites that cover them cannot drift from the hole."""
     buf = [[0] * PX for _ in range(PXH)]
+    art, _ = lobby_art()
     fl = LOBBY_FLOOR * 8
-    for y in range(fl):
-        for x in range(PX):
-            buf[y][x] = lobby_wall(y, x)
+    assert fl == LOBBY_ART_H, "the art's height must be the wall's height"
+    for y in range(LOBBY_ART_H):
+        buf[y][:] = art[y]
     for y in range(fl, PXH):                     # the deck
         for x in range(PX):
             r = y - fl
             buf[y][x] = (Wm(15) if r < 2 else
                          Wm(3) if r % 12 in (0, 1) else
                          Wm(6 + ((x // 4 + r) % 3)))
-    for c0 in LOBBY_DOORS:
-        ox, oy = c0 * 8, DOOR_TOP * 8
-        for y in range(oy - 8, fl):              # the jamb, and the dark bay
-            for x in range(ox - 8, ox + (DOOR_W + 1) * 8):
-                if not 0 <= x < PX:
-                    continue
-                inbay = ox <= x < ox + DOOR_W * 8 and y >= oy
-                if inbay:
-                    d = min(1.0, (y - oy) / 40)  # a shaft receding into dark
-                    buf[y][x] = Wm(max(0, int(3 - 3 * d)))
-                else:
-                    lip = y < oy or x < ox or x >= ox + DOOR_W * 8
-                    buf[y][x] = Wm(13 if (y == oy - 8 or y == oy - 7) else
-                                   (10 if lip else 6))
-        for y in range(oy - 20, oy - 8):         # the header beam over the bay
-            for x in range(ox - 14, ox + (DOOR_W + 1) * 8 + 6):
-                if not 0 <= x < PX:
-                    continue
-                buf[y][x] = Wm(14 if y < oy - 18 else
-                               2 if y >= oy - 11 else 9 + ((x // 5) % 2))
-        for y in range(oy + 16, oy + 30):        # the call panel beside it
-            for x in range(ox + DOOR_W * 8 + 12, ox + DOOR_W * 8 + 22):
-                if x < PX:
-                    rim = y in (oy + 16, oy + 29)
-                    buf[y][x] = Br(11) if rim else Ml(8 + ((x + y) % 3) * 4)
     return buf
 
 
@@ -1500,8 +1614,10 @@ SMIL_LEAF_ROWS    = {LEAF_ROWS}      ; ...stacked this many deep to fill the ope
 
 ; --- the lobby ------------------------------------------------------------
 SMIL_LOBBY_FLOOR  = {LOBBY_FLOOR}     ; the deck's map row
-SMIL_DOOR_A       = {LOBBY_DOORS[0]}      ; the two lift bays' first map column
-SMIL_DOOR_B       = {LOBBY_DOORS[1]}
+SMIL_DOOR_AX      = {lobby_bays()[0][0]}     ; the two lift bays' left edge, in PIXELS,
+SMIL_DOOR_BX      = {lobby_bays()[1][0]}    ;   READ OFF THE WALL ART (not tile-aligned,
+                                ;   and it does not need to be: the leaves
+                                ;   that cover them are sprites)
 SMIL_DOOR_W       = {DOOR_W}      ; a bay, in columns
 SMIL_DOOR_ROWS    = {DOOR_ROWS}
 SMIL_DOOR_TOP     = {DOOR_TOP}     ; the opening's top map row
@@ -1528,6 +1644,11 @@ SMIL_BG2_REST     = 0
           f"({len(PAL_BG1)} BG1 + {len(PAL_BG2)} BG2), "
           f"row table {PHASES}+1 x {ROW_BYTES} B, "
           f"rider {len(rchr)} B ({len(RIDER_CELLS)} cells)")
+    if LOBBY_ART_FIT:
+        e, n, w = LOBBY_ART_FIT[0]
+        print(f"  mill: lobby wall imported — {e}/{n} colours exact, worst "
+              f"drift {w} of {LOBBY_ART_DRIFT} allowed; bays read at "
+              f"{[b[0] for b in lobby_bays()]} px")
 
 
 if __name__ == "__main__":
