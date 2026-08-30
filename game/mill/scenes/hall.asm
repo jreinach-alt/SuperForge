@@ -6,11 +6,16 @@
 ; BG1 in the left half of each, tread belts running horizontally on BG2 in the
 ; right half. Nothing else reaches the hardware per frame.
 ;
-; B HOLDS THE FLAT CONTROL. It selects the blob's last row — every column at
+; Y HOLDS THE FLAT CONTROL. It selects the blob's last row — every column at
 ; rest, every enable bit and every axis bit still set, the same channel moving
 ; the same 64 B into the same place. Exactly one variable moves between running
 ; and flat, which is what makes the flat frame a control rather than a second
 ; unexplained state.
+;
+; B HOLDS THE RIDE, which is a different control on a different subject: it
+; stops the car climbing so a still can be taken anywhere in the sequence. The
+; two were the same button between the lift landing and 2026-08-30, which meant
+; the flat control had no way to be selected at all — see mill.inc.
 .scope hall
 .include "engine_state_hall.inc"    ; GENERATED — this scene's map
 .include "mil_opt.asm"              ; the table walker. SCENE-SCOPED, because
@@ -108,6 +113,18 @@ tick:
     SF_ASSERT_WIDTH 16, 16, "hall::tick"
     TS_STEP z:US_TSC_ACC, SMIL_PHASE_BASE
     sta z:US_TSC
+    ; ---- Y SELECTS THE FLAT ROW, and it is a HOLD rather than a toggle ----
+    ; A hold is the honest shape for a control: the two states are the two
+    ; positions of one finger, so a still of either is reproducible without
+    ; knowing how many times the button has been pressed before.
+    lda z:ES_INP_CUR
+    and #JOY_Y
+    beq :+
+    lda #1
+:   .a16
+    .i16
+    and #1
+    sta z:ES_MIL_FLATSEL
     ; ---- the columns advance every frame, flat or not ---------------------
     ; UNCONDITIONALLY, and that is what makes the toggle a control: flattening
     ; changes ONE thing — which row the transfer reads — and leaves the

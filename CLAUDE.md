@@ -207,8 +207,15 @@ writing your first test.
   `ES_OPT_*` emission whose field set is derived from the declaration, the
   tilemap `shape` that completed the `BGnSC` encoding, and the stated limits →
   [`docs/100`](docs/100_video_mode_composition.md).
-  Exercised by one rail: `smelter` (four plates and a melt, every 8-pixel
-  column on its own scroll, for zero HDMA channels)
+  Exercised by two rails: `smelter` (mode 2 — four plates and a melt, every
+  8-pixel column on its own scroll, for zero HDMA channels) and `mill`
+  (**mode 4, where BIT 15 OF EACH WORD PICKS THE AXIS** — pistons pumping
+  vertically on BG1 beside conveyors running horizontally on BG2, in the same
+  32-word row; plus a lift whose car is a BG1 column, whose rider is occluded
+  by it for free at OBJ priority 0, and which carries the player between two
+  scenes. §13 also records the two things the falsification harness found here
+  that a look could not: an oracle that moved with its own defect, and an
+  occlusion mechanism that was doing no observable work)
 - **Color-math composition** — the screen/blend vocabulary (`claims.screen` / `claims.blend`), the one-blender refusal set R1–R7 and the line between refusing and warning, the `ES_SCR_*` emission (a symbol only for a port the composition OWNS — ownership is per half), the per-scene state and what that means at a transition edge, coexistence with raw claims, and the stated limits → [`docs/99`](docs/99_color_math_composition.md).
   Exercised by two rails: `lakeside` (the blend itself, asserted as an equality)
   and `heathaze` (the same per-scene disarm rule, on an HDMA-driven scroll port

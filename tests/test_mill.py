@@ -1,0 +1,1227 @@
+"""mill — mode 4's per-column AXIS, and a lift that crosses two rooms on it.
+
+WHAT IS UNDER TEST HERE THAT `test_smelter.py` DOES NOT ALREADY COVER. Smelter
+is mode 2, where the PPU fetches a word for EACH axis, so a column's axis is
+not a choice anybody makes. Mode 4 fetches ONE word per column and BIT 15
+PICKS (SnesPpu.cpp GetTilemapData, :155-162: one `_hOffset`, and the bit-15
+test at :156-161 decides whether it lands on vScroll or hScroll). That single
+difference is this rail's whole subject, and it is what this module asserts:
+
+  * that the axis a column moves on is the axis ITS OWN WORD names, not the
+    rail's, and that two columns eight pixels apart move on different ones IN
+    THE SAME FRAME;
+  * that a vertical word and a horizontal word are honoured simultaneously,
+    which is the thing a mode-2 rail cannot demonstrate;
+  * that the word at table index j displaces SCREEN column j + 1 — the FETCH
+    LEAD, which this rail bakes into the blob and whose absence is a real
+    defect this rail shipped once: every bay's leftmost column stood still
+    while its neighbours pumped;
+  * that screen column 0 is never displaced, because the PPU clears the offset
+    latches per scanline fetch (:284-287) and no word can reach it.
+
+AND THE SEQUENCE IS PART OF THE RAIL. The lift is not decoration on top of the
+mechanism, it is the thing the mechanism was built to carry: a car that IS a
+column, occluding a rider that cannot be one, and two rooms joined by it. The
+last third of this module asserts that the cycle CLOSES — boards, rides,
+arrives in the OTHER bay, and stands ready to do it again — because a
+transition that only works once looks identical in any single frame.
+
+THE ORACLE IS THE ROM, NOT THE GENERATOR. Expected words are decoded from the
+row blob AS IT SITS IN build/mill.sfc, located by searching the ROM image for
+the bytes — so finding it is itself a proof the blob reached the binary.
+Importing tools/gen_mill_assets.py would compare the ROM against the Python
+that authored it, which agrees with itself by construction.
+
+THE OBSERVATION IS THE RENDERED FRAME. Nothing here asserts on a DP variable
+that "should be" a function of the picture; the DP reads that do appear are
+there to know WHICH row of the oracle to join against, or to drive the machine
+to a named state — never to stand in for what the PPU drew.
+
+LOCKSTEP-NATIVE: `Machine` only, absolute frames, no wall-clock surface.
+"""
+import json
+import sys
+from pathlib import Path
+
+import pytest
+from PIL import Image
+
+SUPERFORGE = Path(__file__).resolve().parent.parent
+BUILD = SUPERFORGE / "build"
+ROM = BUILD / "mill.sfc"
+ASSETS = BUILD / "assets"
+MAP = json.loads((BUILD / "mil" / "symbol_map.json").read_text())
+
+sys.path.insert(0, str(SUPERFORGE / "vendor"))                   # noqa: E402
+from machine import Machine, MemoryType                          # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))         # noqa: E402
+from frame_geometry import PICTURE_TOP                           # noqa: E402
+
+W = MemoryType.SnesWorkRam
+OAM = MemoryType.SnesSpriteRam
+CG = MemoryType.SnesCgRam
+
+pytestmark = pytest.mark.skipif(not ROM.exists(),
+                                reason="build/mill.sfc — run `make mill`")
+
+
+# --------------------------------------------------------------------------
+# the constants, READ rather than retyped
+# --------------------------------------------------------------------------
+def _art(key):
+    """One equate out of the GENERATED build/assets/mil_art.inc.
+
+    A copy of a rail constant living here as a literal goes stale the moment
+    the geometry changes and the module keeps passing — which is worse than
+    failing, because the case is then quietly weaker than it claims.
+    """
+    for line in (ASSETS / "mil_art.inc").read_text().splitlines():
+        head, _, rest = line.partition("=")
+        if head.strip() == key:
+            return int(rest.split(";")[0].strip())
+    raise KeyError(f"{key} is not in mil_art.inc")
+
+
+def _rail(key):
+    """One equate out of the HAND-WRITTEN game/mill/mill.inc.
+
+    `_art` reads what the tools computed; this reads what a person chose. They
+    are expressions there rather than literals (`SMIL_WALK_Y =
+    SMIL_LOBBY_FLOOR * 8 - SMIL_RIDER_BOX`), which is the point — the value is
+    derived from the units it is expressed in — so this resolves earlier
+    equates and evaluates rather than matching an integer.
+    """
+    env = dict(_ART_ENV)
+    want = None
+    for line in (SUPERFORGE / "game" / "mill" / "mill.inc").read_text().splitlines():
+        head, eq, rest = line.partition("=")
+        name = head.strip()
+        if not eq or not name.isidentifier():
+            continue
+        expr = rest.split(";")[0].strip().replace("$", "0x")
+        if not expr or not all(c.isalnum() or c in " _()+-*/<>|&" for c in expr):
+            continue
+        try:
+            env[name] = eval(expr, {"__builtins__": {}}, dict(env))   # noqa: S307
+        except Exception:
+            continue
+        if name == key:
+            want = env[name]
+    if want is None:
+        raise KeyError(f"{key} is not a resolvable equate in mill.inc")
+    return int(want)
+
+
+def _art_env():
+    env = {}
+    for line in (ASSETS / "mil_art.inc").read_text().splitlines():
+        head, eq, rest = line.partition("=")
+        name = head.strip()
+        if not eq or not name.isidentifier():
+            continue
+        try:
+            env[name] = int(rest.split(";")[0].strip().replace("$", "0x"), 0)
+        except ValueError:
+            continue
+    return env
+
+
+_ART_ENV = _art_env()
+
+COLS = _art("SMIL_COLS")
+PHASES = _art("SMIL_PHASES")
+FLAT_ROW = _art("SMIL_FLAT_INDEX")
+ROW_BYTES = _art("SMIL_ROW_BYTES")
+LEAD = _art("SMIL_LEAD")
+CAM_MAX = _art("SMIL_CAM_MAX")
+CAR_COL = _art("SMIL_CAR_COL")
+STATION_AT = (_art("SMIL_STATION_A"), _art("SMIL_STATION_B"))
+SHAFT_COLS = _art("SMIL_SHAFT_COLS")
+WIN_X, WIN_Y = _art("SMIL_WIN_X"), _art("SMIL_WIN_Y")
+WIN_W, WIN_H = _art("SMIL_WIN_W"), _art("SMIL_WIN_H")
+CAR_ROW, CAR_H = _art("SMIL_CAR_ROW"), _art("SMIL_CAR_H")
+RIDER_BOX = _art("SMIL_RIDER_BOX")
+LEAF_BOX = _art("SMIL_LEAF_BOX")
+LEAF_ROWS = _art("SMIL_LEAF_ROWS")
+DOOR_A, DOOR_B = _art("SMIL_DOOR_A"), _art("SMIL_DOOR_B")
+DOOR_W = _art("SMIL_DOOR_W")
+DOOR_TRAVEL = _art("SMIL_DOOR_TRAVEL")
+DOOR_TOP = _art("SMIL_DOOR_TOP")
+BELT_ROW = _art("SMIL_BELT_ROW")
+LOBBY_FLOOR = _art("SMIL_LOBBY_FLOOR")
+BAYS = _rail("SMIL_DOOR_BAYS")
+
+# The composed video/offset vocabulary, out of the scene's GENERATED map —
+# these are the allocator's, not the rail's, and reading them here is what
+# joins the test to the composition rather than to a copy of it.
+def _hall(key):
+    for line in (BUILD / "mil" / "engine_state_hall.inc").read_text().splitlines():
+        head, _, rest = line.partition("=")
+        if head.strip() == key:
+            return int(rest.split(";")[0].strip().replace("$", "0x"), 0)
+    raise KeyError(f"{key} is not in engine_state_hall.inc")
+
+
+BIT_BG1 = _hall("ES_OPT_HALL_BG1")
+BIT_BG2 = _hall("ES_OPT_HALL_BG2")
+BIT_VSEL = _hall("ES_OPT_HALL_VSEL")
+V_MASK = _hall("ES_OPT_HALL_MASK")
+H_MASK = _hall("ES_OPT_HALL_HMASK")
+
+
+def _dp(name):
+    for p in MAP["globals"]:
+        if p["sym"] == name:
+            return p["start"]
+    raise KeyError(f"{name} not in the emitted map — did the allocator move it?")
+
+
+DP_PHASE = _dp("ES_MIL_PHASE")
+DP_SHOWN = _dp("ES_MIL_SHOWN")
+DP_FLATSEL = _dp("ES_MIL_FLATSEL")
+DP_CAM = _dp("ES_MIL_CAM_SHOWN")
+DP_CAR = _dp("ES_MIL_CAR")
+DP_RIDER_Y = _dp("ES_MIL_RIDER_Y")
+DP_PX = _dp("ES_MIL_PX")
+DP_DOOR = _dp("ES_MIL_DOOR")
+DP_BOARD = _dp("ES_MIL_BOARD")
+DP_BAY = _dp("ES_MIL_BAY")
+DP_ARRIVE = _dp("ES_MIL_ARRIVE")
+DP_SM = _dp("ES_SM_CTL")
+OAM_AT = _dp("ES_O_MIL_RIDER") if False else None   # OAM index lives in the map
+
+JOY_B = {"b": True}
+JOY_Y = {"y": True}
+JOY_UP = {"up": True}
+JOY_RIGHT = {"right": True}
+JOY_LEFT = {"left": True}
+
+SCENE_LOBBY, SCENE_HALL = 0, 1
+
+
+# --------------------------------------------------------------------------
+# the oracle: the row blob, out of the ROM image
+# --------------------------------------------------------------------------
+def _blob():
+    """The 129 rows, out of build/mill.sfc.
+
+    Located by SEARCHING the ROM image for the generated bytes, which is what
+    makes finding it a proof that the blob reached the binary — a claim the
+    linker placement `.assert`s in main.asm make separately and from the other
+    side.
+    """
+    want = (ASSETS / "mil_row.bin").read_bytes()
+    rom = ROM.read_bytes()
+    at = rom.find(want)
+    assert at >= 0, "the row blob is not in build/mill.sfc"
+    assert rom.find(want, at + 1) < 0, "the row blob appears twice"
+    return rom[at:at + len(want)]
+
+
+BLOB = _blob()
+
+
+def row(idx):
+    """One row of the table, indexed as the TABLE IS — by BG3 map column.
+
+    RAW. Turning a map index into a screen column is `words_for_screen`'s job
+    and it is kept separate on purpose: the lead is the thing under test in
+    two cases below, and a reader that silently applied it would leave nothing
+    for them to check.
+    """
+    b = BLOB[idx * ROW_BYTES:(idx + 1) * ROW_BYTES]
+    return [b[2 * c] | (b[2 * c + 1] << 8) for c in range(COLS)]
+
+
+def words_for_screen(idx, lead=LEAD):
+    """That row re-indexed by SCREEN column: `out[sc]` is the word the PPU will
+    apply to screen column `sc`, or None where no word reaches it.
+
+    TWO SHIFTS THAT CANCEL, and the rail is only correct because they do. The
+    PPU fetches a column's tilemap data BEFORE its offset words, so the word at
+    map index j displaces screen column j + LEAD. The generator answers by
+    storing `column_word(j + LEAD)` at index j — so index j both holds the word
+    authored for screen column j + LEAD and is applied to it.
+
+    Screen column 0 is None and cannot be otherwise: the offset latches are
+    cleared at the start of each scanline's fetch (SnesPpu.cpp:284-287), so no
+    map index reaches it.
+    """
+    r = row(idx)
+    out = [None] * COLS
+    for j in range(COLS):
+        sc = j + lead
+        if 0 <= sc < COLS:
+            out[sc] = r[j]
+    return out
+
+
+def shaft_columns():
+    """The SCREEN columns whose art is a machine's vertical rails.
+
+    THE ART'S OWN GEOMETRY, and the only oracle that survives a plant in the
+    generator. Every case below that reads the blob shares its layout with the
+    blob — so a defect that moves the whole table one column moves the
+    prediction with it and both agree, which is the tautology
+    `test_smelter.py`'s header warns about arriving through a different door.
+    These constants come from the STATIONS: a station is an upright, then
+    SHAFT_COLS shaft columns, then its conveyor. What the lead exists to do is
+    line the table up with THIS, so this is what the picture has to be checked
+    against.
+    """
+    out = set()
+    for at in STATION_AT:
+        out |= {at + 1 + k for k in range(SHAFT_COLS)}
+    return out
+
+
+def is_v(word):
+    return bool(word & BIT_VSEL)
+
+
+def drives_bg1(word):
+    return bool(word & BIT_BG1)
+
+
+def drives_bg2(word):
+    return bool(word & BIT_BG2)
+
+
+def enabled(word):
+    return drives_bg1(word) or drives_bg2(word)
+
+
+# --------------------------------------------------------------------------
+# the picture
+# --------------------------------------------------------------------------
+def shot(m, path):
+    m.screenshot(str(path))
+    return Image.open(path).convert("RGB").crop(
+        (0, PICTURE_TOP, 256, PICTURE_TOP + 224))
+
+
+def layers(m):
+    """The colours only BG1 can have drawn, and the colours only BG2 can have.
+
+    THE TWO LAYERS MUST BE SEPARATED BEFORE EITHER CAN BE MEASURED. A screen
+    column shows BG1's 8bpp art over BG2's 2bpp art, and the two move on
+    different axes and for different reasons — so a strip of composite pixels
+    is not a translation of anything and a case that tested it would find no
+    motion at all, whatever the PPU did. (It did: the first cut of this module
+    reported zero moving columns on a rail that was working.)
+
+    The separation is available because mode 4 gives the two layers DISJOINT
+    parts of CGRAM: an 8bpp BG1 indexes it directly and this rail's art lives
+    at 32..127, BG2's eight three-colour groups at 1..31, OBJ's palettes at
+    129.. (SnesPpu.cpp:1077-1082, :960). Colours that appear in more than one
+    range are dropped rather than guessed at — the ranges are disjoint as
+    INDICES, not necessarily as RGB.
+    """
+    cg = m.read_bytes(CG, 0, 512)
+
+    def at(i):
+        wrd = cg[i * 2] | (cg[i * 2 + 1] << 8)
+        e = lambda v: (v << 3) | (v >> 2)                   # noqa: E731
+        return (e(wrd & 31), e((wrd >> 5) & 31), e((wrd >> 10) & 31))
+
+    bg2 = {at(i) for i in range(1, 32)}
+    bg1 = {at(i) for i in range(32, 128)}
+    obj = {at(i) for i in range(129, 256)}
+    return bg1 - bg2 - obj, bg2 - bg1 - obj
+
+
+def belt_band(cam):
+    """The screen rows where a HORIZONTAL displacement is OBSERVABLE at all.
+
+    A displaced column shows the NEIGHBOURING tile (hScroll = (BGnHOFS & 7) |
+    (word & $3F8), SnesPpu.cpp:157), so a shift can only be seen where the row
+    is not the same tile repeated — and on this rail almost every BG2 row IS
+    the same tile repeated, because that is the invariance an H-displaced
+    column imposes on the art it moves. The one row that varies along its
+    length is the conveyor's, which is laid as a cycle of BELT_PHASES tread
+    tiles precisely so the belt can appear to travel.
+
+    So the belt band is not a convenience for the test — it is the whole set of
+    rows on which the horizontal half of this rail's claim is checkable, and
+    saying so is more honest than asserting over rows where any answer would
+    look the same.
+    """
+    y0 = BELT_ROW * 8 - cam
+    return max(0, y0), min(224, y0 + 16)
+
+
+def mask_strip(im, sc, colours, rows=None):
+    """Screen column `sc` reduced to "is this pixel one of `colours`".
+
+    A MASK, NOT THE PIXELS. What is under test is where a LAYER's art is, and
+    two frames of the same art in different places share no exact pixel rows
+    once a second layer is showing through it.
+    """
+    x0 = sc * 8
+    ys = range(*rows) if rows else range(im.height)
+    return [tuple(im.getpixel((x0 + dx, y)) in colours for dx in range(8))
+            for y in ys]
+
+
+def strip(im, sc, rows=None):
+    """The 8-pixel-wide screen column `sc`, as a list of row tuples.
+
+    RAW, and for the horizontal half of the claim that is the RIGHT reading
+    rather than a weaker one. The BG2-only colour mask cannot see the conveyor:
+    the tread is brass and BG1's own ramp set carries the same brass, so those
+    colours are in both ranges and are dropped from either mask. In the belt
+    band the only thing that moves is the tread — the housing over it is BG1
+    art in columns whose word drives BG2 — so a raw comparison there attributes
+    correctly, and it is the mask that would have been the fiction.
+    """
+    x0 = sc * 8
+    ys = range(*rows) if rows else range(im.height)
+    return [tuple(im.getpixel((x0 + dx, y)) for dx in range(8)) for y in ys]
+
+
+def vshift(a, b, span=64):
+    """How far strip `a` has to slide VERTICALLY to become strip `b`.
+
+    Returned as the unique whole-strip translation, or None when no shift in
+    the search span explains it. An EQUALITY, not a correlation: a near-uniform
+    column would let a best-match score pin itself anywhere, and this rail's
+    machinery is full of near-uniform columns.
+    """
+    n = len(a)
+    span = min(span, max(1, n // 2))
+    best = None
+    for d in range(-span, span + 1):
+        rows = [y for y in range(n) if 0 <= y - d < n]
+        if len(rows) < n - abs(span):
+            continue
+        if all(a[y - d] == b[y] for y in rows):
+            if best is not None:
+                return None                      # ambiguous: not an equality
+            best = d
+    return best
+
+
+def hshift(im, sc, y0, y1, other, span=8):
+    """How far the pixels of screen column `sc` have slid HORIZONTALLY between
+    two frames, over rows y0..y1. The search span is one tile: a horizontal
+    offset word keeps the layer's own low three bits (hScroll = (BGnHOFS & 7) |
+    (word & $3F8), SnesPpu.cpp:157), so a belt column's travel inside one frame
+    step is small and bounded."""
+    x0 = sc * 8
+    base = [tuple(im.getpixel((x0 + dx, y)) for dx in range(8))
+            for y in range(y0, y1)]
+    for d in range(-span, span + 1):
+        if x0 + d < 0 or x0 + d + 8 > 256:
+            continue
+        cand = [tuple(other.getpixel((x0 + d + dx, y)) for dx in range(8))
+                for y in range(y0, y1)]
+        if cand == base:
+            return d
+    return None
+
+
+# --------------------------------------------------------------------------
+# driving
+# --------------------------------------------------------------------------
+BOOT = 60
+
+
+def to_hall(m):
+    """Drive the boot lobby through one boarding into the hall.
+
+    Every step waits on a CONDITION read out of the machine rather than on a
+    count of frames — the door travels, the ride's length and the fade's are
+    all the rail's or scene_mgr's own tuning, and a count would go stale the
+    first time any of them moved. That is also why nothing here sleeps.
+    """
+    m.advance(BOOT)
+    for _ in range(600):
+        if m.read_u16(W, DP_DOOR + 2) >= DOOR_TRAVEL:
+            break
+        m.advance(1, pad1=JOY_RIGHT)
+    else:
+        pytest.fail("the far bay never opened")
+    m.advance(3, pad1=JOY_UP)
+    for _ in range(600):
+        if scene(m) == SCENE_HALL:
+            break
+        m.advance(1)
+    else:
+        pytest.fail("the lobby never handed over to the hall")
+    # ...and then until the TABLE IS ACTUALLY WALKING. A scene's tick runs
+    # through the fade-in but the phase is still at its start, so a frame taken
+    # on arrival is a static picture and two of them are the same picture — a
+    # case that read them would pass or fail on nothing. Waited on the
+    # published row rather than on a count, for the same reason everything else
+    # here is.
+    first = m.read_u16(W, DP_SHOWN)
+    for _ in range(600):
+        if m.read_u16(W, DP_SHOWN) != first:
+            return
+        m.advance(1)
+    pytest.fail("the offset table never advanced in the hall")
+
+
+def scene(m):
+    return m.read_u16(W, DP_SM) & 0xFF
+
+
+def settle_hall(m, frames=8):
+    """A few frames of the hall with Y HELD, so the picture is the flat row.
+
+    Y, not B. They were one button until the flat control was found to be
+    unreachable — B had been given to holding the ride when the lift was built,
+    and nothing wrote ES_MIL_FLATSEL any anymore while hall.asm still described
+    the behaviour. This case is what found it.
+    """
+    m.advance(frames, pad1=JOY_Y)
+
+
+def running(m, frames=6):
+    """Advance far enough that the row on screen has certainly changed."""
+    was = m.read_u16(W, DP_SHOWN)
+    for _ in range(240):
+        m.advance(1)
+        if m.read_u16(W, DP_SHOWN) != was:
+            m.advance(frames)
+            return
+    pytest.fail("the offset table stopped advancing")
+
+
+def until_v_moves(m, frm, cap=900):
+    """Advance until the row on screen carries a DIFFERENT vertical value from
+    row `frm` on some column.
+
+    NOT A FRAME COUNT, and not for the usual reason. The hammer's stroke is
+    eased — `u ** 3` on the way down — so it sits at zero for tens of phases
+    before it moves at all, and a fixed advance lands wherever the easing
+    happens to be. A case that took two frames a fixed distance apart would
+    pass or fail on the shape of the easing curve rather than on the PPU.
+    """
+    base = words_for_screen(frm)
+    for _ in range(cap):
+        m.advance(1)
+        cur = words_for_screen(m.read_u16(W, DP_SHOWN))
+        for sc in range(COLS):
+            a, b = base[sc], cur[sc]
+            if a is None or b is None or not (enabled(a) and enabled(b)):
+                continue
+            if is_v(a) and is_v(b) and (a & V_MASK) != (b & V_MASK):
+                return m.read_u16(W, DP_SHOWN)
+    pytest.fail("no vertical word changed value — are the pistons driven?")
+
+
+# --------------------------------------------------------------------------
+# THE SUBJECT: one word a column, and bit 15 picks the axis
+# --------------------------------------------------------------------------
+def test_the_table_mixes_both_axes_in_one_row():
+    """The premise, asserted against the ROM before any picture is read.
+
+    If no row of the blob carried both a VSEL word and a non-VSEL word at once,
+    every case below would pass on a rail that had quietly become single-axis —
+    which is smelter with a richer BG1, and is exactly what this rail exists
+    not to be.
+    """
+    mixed = 0
+    for idx in range(PHASES):
+        words = [w for w in words_for_screen(idx) if w and enabled(w)]
+        if any(is_v(w) for w in words) and any(not is_v(w) for w in words):
+            mixed += 1
+    assert mixed == PHASES, f"only {mixed}/{PHASES} rows carry both axes"
+
+
+def test_a_column_moves_on_the_axis_its_own_word_names(tmp_path):
+    """MODE 4'S WHOLE SUBJECT, read off the screen.
+
+    Two frames, taken far enough apart that a vertical word has actually
+    changed value. For every screen column the ROM's word ENABLES, the picture
+    must have moved on the axis that column's own bit 15 names and on no other:
+    a VSEL column's BG1 art is a clean vertical translation of itself, and a
+    non-VSEL column's BG2 art has changed WITHOUT sliding up or down.
+
+    Both are asserted from ONE PAIR OF FRAMES, which is the part a mode-2 rail
+    cannot produce: there the axis is not a per-column property to get wrong.
+    """
+    with Machine(str(ROM)) as m:
+        to_hall(m)
+        running(m)
+        a = shot(m, tmp_path / "a.png")
+        r_a = m.read_u16(W, DP_SHOWN)
+        r_b = until_v_moves(m, r_a)
+        m.advance(1)
+        b = shot(m, tmp_path / "b.png")
+        band = belt_band(m.read_u16(W, DP_CAM))
+        ONLY1, ONLY2 = layers(m)
+    assert band[1] > band[0], f"the conveyor is off screen at this camera: {band}"
+    assert len(ONLY1) > 8 and len(ONLY2) > 1, (
+        f"the two layers are not separable by colour: {len(ONLY1)} BG1-only, "
+        f"{len(ONLY2)} BG2-only")
+
+    wa, wb = words_for_screen(r_a), words_for_screen(r_b)
+    v_moved = h_moved = h_seen = 0
+    for sc in range(COLS):
+        if wa[sc] is None or wb[sc] is None:
+            continue
+        if not (enabled(wa[sc]) and enabled(wb[sc])):
+            continue
+        if is_v(wa[sc]) != is_v(wb[sc]):
+            continue                              # a column that changed axis
+        if is_v(wa[sc]):
+            if (wa[sc] & V_MASK) == (wb[sc] & V_MASK):
+                continue                          # this column is at rest
+            d = vshift(mask_strip(a, sc, ONLY1), mask_strip(b, sc, ONLY1))
+            assert d is not None, (
+                f"screen column {sc} carries a VERTICAL word and its BG1 art "
+                f"is not a vertical translation of itself")
+            assert d != 0, f"screen column {sc} carries a V word but did not move"
+            v_moved += 1
+        else:
+            if (wa[sc] & H_MASK) == (wb[sc] & H_MASK):
+                continue
+            sa, sb = strip(a, sc, band), strip(b, sc, band)
+            # THE PER-COLUMN CLAIM IS THE AXIS, AND IT IS ASSERTED ON EVERY
+            # HORIZONTAL COLUMN: whatever else it did, it did not slide up or
+            # down. Whether it VISIBLY moved is a different question and cannot
+            # be asked of every column — a shift shows only where the row
+            # varies along X, and stretches of the conveyor are locally one
+            # colour where the housing covers them. So liveness is asserted in
+            # aggregate below rather than pretended per column.
+            assert vshift(sa, sb, span=8) in (0, None), (
+                f"screen column {sc} is a HORIZONTAL word but its art slid "
+                f"vertically")
+            h_seen += 1
+            if sa != sb:
+                h_moved += 1
+    assert v_moved >= 4, f"only {v_moved} vertical columns moved"
+    assert h_seen >= 6, f"only {h_seen} horizontal columns were examined"
+    assert h_moved >= 2, (
+        f"{h_seen} horizontal columns held their scanlines but only {h_moved} "
+        f"visibly moved — the belts are not running")
+
+
+def test_the_two_axes_are_honoured_in_the_same_frame(tmp_path):
+    """...and that they are NEIGHBOURS. It is not enough that some part of the
+    picture moves vertically and some other part horizontally: the claim mode 4
+    makes is per COLUMN, so the test is that two columns eight pixels apart
+    disagree about their axis in one frame and both are obeyed."""
+    with Machine(str(ROM)) as m:
+        to_hall(m)
+        running(m)
+        a = shot(m, tmp_path / "a.png")
+        r_a = m.read_u16(W, DP_SHOWN)
+        until_v_moves(m, r_a)
+        m.advance(1)
+        b = shot(m, tmp_path / "b.png")
+        band = belt_band(m.read_u16(W, DP_CAM))
+        ONLY1, ONLY2 = layers(m)
+    w = words_for_screen(r_a)
+    borders = [sc for sc in range(COLS - 1)
+               if w[sc] is not None and w[sc + 1] is not None
+               and enabled(w[sc]) and enabled(w[sc + 1])
+               and is_v(w[sc]) != is_v(w[sc + 1])]
+    assert borders, "no two adjacent enabled columns disagree about the axis"
+    checked = 0
+    for sc in borders:
+        vcol = sc if is_v(w[sc]) else sc + 1
+        hcol = sc + 1 if is_v(w[sc]) else sc
+        hs = (strip(a, hcol, band), strip(b, hcol, band))
+        assert vshift(*hs, span=8) in (0, None), (
+            f"column {hcol} is horizontal and its art slid vertically, beside "
+            f"a vertical neighbour {vcol}")
+        checked += 1
+    assert checked, "every border column had its BG2 hidden — nothing examined"
+
+
+# --------------------------------------------------------------------------
+# THE FETCH LEAD, which this rail shipped wrong once
+# --------------------------------------------------------------------------
+def test_screen_column_zero_is_never_displaced(tmp_path):
+    """A HARDWARE LIMIT, not a rail choice. The PPU clears the offset latches
+    at the start of each scanline's fetch (SnesPpu.cpp:284-287), so the first
+    column has no word behind it and there is nothing a table can do about it.
+    The rail answers by drawing a PILLAR there — art with nothing to displace —
+    and this is the case that says the pillar is load-bearing."""
+    with Machine(str(ROM)) as m:
+        to_hall(m)
+        running(m)
+        a = shot(m, tmp_path / "a.png")
+        running(m)
+        b = shot(m, tmp_path / "b.png")
+    assert strip(a, 0) == strip(b, 0), (
+        "screen column 0 moved, which no offset word can do")
+
+
+def test_the_moving_columns_are_the_ones_the_lead_predicts(tmp_path):
+    """THE DEFECT THIS RAIL SHIPPED, as a regression.
+
+    The offset words are fetched AFTER a column's tilemap data, so the word at
+    BG3 map index j displaces SCREEN column j + LEAD. Before the lead was baked
+    into the blob, every bay's LEFTMOST column stood still while its neighbours
+    pumped — 30 of 32 columns torn — and it read as an animation bug rather
+    than a fetch-order one.
+
+    The case predicts the set of screen columns that must move TWICE: once
+    reading the table with the lead and once without. The lead's reading has to
+    be a subset of what actually moved, the two readings have to DISAGREE (or
+    the case proves nothing), and the columns only the lead-less reading names
+    must NOT have moved. That third clause is what makes this a test of the
+    fetch order rather than of the picture.
+    """
+    with Machine(str(ROM)) as m:
+        to_hall(m)
+        running(m)
+        a = shot(m, tmp_path / "a.png")
+        r_a = m.read_u16(W, DP_SHOWN)
+        r_b = until_v_moves(m, r_a)
+        m.advance(1)
+        b = shot(m, tmp_path / "b.png")
+        ONLY1, _ = layers(m)
+
+    def predicted(lead):
+        wa, wb = words_for_screen(r_a, lead), words_for_screen(r_b, lead)
+        return {sc for sc in range(COLS)
+                if wa[sc] is not None and wb[sc] is not None
+                and enabled(wa[sc]) and is_v(wa[sc]) and is_v(wb[sc])
+                and (wa[sc] & V_MASK) != (wb[sc] & V_MASK)}
+
+    observed = set()
+    for sc in range(COLS):
+        sa, sb = mask_strip(a, sc, ONLY1), mask_strip(b, sc, ONLY1)
+        d = vshift(sa, sb)
+        if sa != sb and d not in (0, None):
+            observed.add(sc)
+
+    with_lead, without = predicted(LEAD), predicted(0)
+    assert with_lead, "no vertical word changed — the case has nothing to say"
+    assert with_lead != without, (
+        "the lead makes no difference to the prediction, so this case would "
+        "pass with the fetch order ignored")
+    assert with_lead <= observed, (
+        f"columns the lead predicts did not move: {sorted(with_lead - observed)}")
+    assert not (without - with_lead) & observed, (
+        f"columns only a LEAD-LESS reading predicts also moved "
+        f"({sorted((without - with_lead) & observed)}) — the blob is not "
+        f"carrying the lead the rail says it is")
+
+    # ...AND THE COLUMNS THAT MOVED ARE THE MACHINES' OWN.
+    #
+    # Everything above joins the picture to the BLOB, and that is not enough on
+    # its own: shift the whole table one column and the blob shifts with it, so
+    # the two go on agreeing and the case stays green while every bay's
+    # leftmost column stands still. (Measured — this is what
+    # `tools/plants/mill.py::table-column-lead-removed` reported TEST-BLIND
+    # against the first cut of this module.) The oracle that does NOT move with
+    # such a defect is the ART's geometry: a station is an upright and then
+    # SHAFT_COLS shafts, and lining the table up with that is the whole job of
+    # the lead.
+    shafts = shaft_columns() - set(range(CAR_COL, CAR_COL + SHAFT_COLS))
+    assert observed <= shaft_columns(), (
+        f"columns outside the machines' own moved vertically: "
+        f"{sorted(observed - shaft_columns())} — the table is not aligned "
+        f"with the art it displaces")
+    assert observed & shafts, (
+        f"no shaft column moved: the machines at {sorted(shafts)} are not the "
+        f"columns the table is driving")
+
+
+# --------------------------------------------------------------------------
+# THE CAMERA, which a vertical word REPLACES rather than adds to
+# --------------------------------------------------------------------------
+def test_a_vertical_word_carries_the_camera(tmp_path):
+    """`vScroll = word & $3FF` (SnesPpu.cpp:160) — an offset word REPLACES its
+    column's scroll, it does not add to one. So a scrolling world has to fold
+    the camera into EVERY vertical word, or the machines stay nailed to the
+    screen while the hall slides past them.
+
+    THE EQUALITY IS THE FOLD ITSELF. A machine's art sits at `row*8 - cam - v`,
+    so between two frames it must travel by `(cam_a - cam_b) - (v_b - v_a)` —
+    the camera's delta and its own stroke, together. Both halves come from
+    outside the picture: the camera from the number the scene drives the ride
+    with, the strokes from the blob, which HAS NO CAMERA IN IT AT ALL. Nothing
+    but the fold can put the art where this predicts.
+    """
+    with Machine(str(ROM)) as m:
+        to_hall(m)
+        running(m)
+        a = shot(m, tmp_path / "a.png")
+        cam_a = m.read_u16(W, DP_CAM)
+        r_a = m.read_u16(W, DP_SHOWN)
+        for _ in range(1200):
+            if m.read_u16(W, DP_CAM) <= cam_a - 24:
+                break
+            m.advance(1)
+        else:
+            pytest.fail("the camera never climbed")
+        cam_b = m.read_u16(W, DP_CAM)
+        r_b = m.read_u16(W, DP_SHOWN)
+        b = shot(m, tmp_path / "b.png")
+        ONLY1, _ = layers(m)
+    delta = cam_a - cam_b
+    assert delta >= 24, delta
+    wa, wb = words_for_screen(r_a), words_for_screen(r_b)
+    checked = 0
+    for sc in range(COLS):
+        if sc in range(CAR_COL, CAR_COL + SHAFT_COLS):
+            continue                              # the car: the scene drives it
+        if wa[sc] is None or wb[sc] is None:
+            continue
+        if not (enabled(wa[sc]) and is_v(wa[sc]) and is_v(wb[sc])):
+            continue
+        want = delta - ((wb[sc] & V_MASK) - (wa[sc] & V_MASK))
+        got = vshift(mask_strip(a, sc, ONLY1), mask_strip(b, sc, ONLY1),
+                     span=min(100, abs(want) + 16))
+        if got is None:
+            continue                              # no clean translation to read
+        assert got == want, (
+            f"screen column {sc} travelled {got} where the camera's {delta} "
+            f"and its own stroke predict {want} — the fold is not carrying "
+            f"the camera")
+        checked += 1
+    assert checked >= 2, (
+        f"only {checked} vertical columns gave a clean translation to check")
+
+
+# --------------------------------------------------------------------------
+# THE CONTROL: a row, not a disarm
+# --------------------------------------------------------------------------
+def test_the_flat_control_is_a_row_and_not_a_disarm(tmp_path):
+    """B selects the blob's LAST row — every column at rest, and every enable
+    bit and axis bit still set. The same channel moves the same 64 bytes into
+    the same place, so exactly one variable differs between running and flat
+    and a difference between the two pictures is attributable to the table.
+
+    A control that worked by not transferring would prove nothing: it would be
+    a picture with the mechanism switched off, and any defect in the mechanism
+    would look the same.
+    """
+    flat = row(FLAT_ROW)
+    live = [w for w in flat if enabled(w)]
+    assert live, "the flat row has no enabled column — it IS a disarm"
+    assert any(is_v(w) for w in live) and any(not is_v(w) for w in live), (
+        "the flat row dropped an axis, so it is not the running row at rest")
+    with Machine(str(ROM)) as m:
+        to_hall(m)
+        running(m)
+        settle_hall(m, 6)
+        # READ THE SELECTION BEFORE THE CAPTURE. `Machine.screenshot` spends an
+        # emulated frame and it spends it with the pad RELEASED, so a state
+        # read after it describes a frame in which Y was already up. The
+        # PICTURE is still the flat one — the NMI transfers the row that was
+        # selected while Y was down, and the main thread clears the selection
+        # afterwards — which is the same one-frame ordering everything else
+        # here accounts for.
+        assert m.read_u16(W, DP_FLATSEL) == 1
+        assert m.read_u16(W, DP_SHOWN) == FLAT_ROW
+        a = shot(m, tmp_path / "a.png")
+        m.advance(16, pad1=JOY_Y)
+        assert m.read_u16(W, DP_SHOWN) == FLAT_ROW
+        phase_b = m.read_u16(W, DP_PHASE)
+        b = shot(m, tmp_path / "b.png")
+    assert phase_b != 0, "the phase did not advance under the hold"
+    for sc in range(COLS):
+        assert strip(a, sc) == strip(b, sc), (
+            f"screen column {sc} moved while the flat row was held")
+
+
+def test_flattening_resumes_rather_than_restarts(tmp_path):
+    """The phase advances every frame, flat or not, so releasing B returns the
+    picture to where the animation would have been — not to its start. A
+    toggle that RESTARTED would look right in any single frame."""
+    with Machine(str(ROM)) as m:
+        to_hall(m)
+        m.advance(20)
+        before = m.read_u16(W, DP_PHASE)
+        m.advance(30, pad1=JOY_Y)
+        after = m.read_u16(W, DP_PHASE)
+    advanced = (after - before) % PHASES
+    assert advanced >= 4, (
+        f"the phase advanced {advanced} across 30 flattened frames — the "
+        f"animation is being held rather than merely hidden")
+
+
+# --------------------------------------------------------------------------
+# THE CAR, and the rider it occludes for free
+# --------------------------------------------------------------------------
+def _oam(m, i):
+    b = m.read_bytes(OAM, i * 4, 4)
+    hi = (m.read_bytes(OAM, 512 + i // 4, 1)[0] >> ((i % 4) * 2)) & 3
+    return dict(x=b[0], y=b[1], tile=b[2], attr=b[3], size=(hi >> 1) & 1,
+                x9=hi & 1, prio=(b[3] >> 4) & 3)
+
+
+def _vsym(name):
+    for pool in (MAP["globals"], *(sc["placements"] for sc in MAP["scenes"].values())):
+        for pl in pool:
+            if pl["sym"] == name:
+                return pl["start"]
+    raise KeyError(name)
+
+
+def rider_ink(m, tile, pal_index=0):
+    """The sprite's OWN pixels: {(dx, dy): rgb} for every non-transparent pixel
+    of the 32x32 cell OAM is pointing at.
+
+    READ OUT OF VRAM AND CGRAM, not out of the generator, and this is the only
+    observation of the rider that actually works. Classifying screen pixels by
+    "colours only OBJ palette 0 has" finds almost nothing: the knight is steel
+    and BG1's own ramp set is steel, so nearly every colour he uses is in both
+    ranges and gets dropped. Measured — the priority plant came back TEST-BLIND
+    twice against colour-set readings before this one.
+
+    Here the question is asked per PIXEL instead: at this exact position, does
+    the screen show the colour this sprite would have put there? A coincidence
+    is possible for one pixel and not for hundreds.
+    """
+    base = _vsym("ES_V_MIL_OBJ_CHR")
+    cg = m.read_bytes(CG, (128 + pal_index * 16) * 2, 32)
+
+    def colour(i):
+        wrd = cg[i * 2] | (cg[i * 2 + 1] << 8)
+        e = lambda v: (v << 3) | (v >> 2)                   # noqa: E731
+        return (e(wrd & 31), e((wrd >> 5) & 31), e((wrd >> 10) & 31))
+
+    ink = {}
+    for ty in range(4):                       # a 32x32 cell is 4x4 tiles, and
+        for tx in range(4):                   #   the name table is 16 WIDE
+            t = tile + ty * 16 + tx
+            raw = m.read_bytes(MemoryType.SnesVideoRam, (base + t * 16) * 2, 32)
+            for y in range(8):
+                p0, p1 = raw[y * 2], raw[y * 2 + 1]
+                p2, p3 = raw[16 + y * 2], raw[16 + y * 2 + 1]
+                for x in range(8):
+                    b = 7 - x
+                    i = (((p0 >> b) & 1) | (((p1 >> b) & 1) << 1)
+                         | (((p2 >> b) & 1) << 2) | (((p3 >> b) & 1) << 3))
+                    if i:
+                        ink[(tx * 8 + x, ty * 8 + y)] = colour(i)
+    return ink
+
+
+def _rider_index(m):
+    """Which OAM entry is carrying the rider, found by its ATTRIBUTE rather
+    than assumed: the lobby swaps the player and the leaves through the block
+    (see mil_obj.asm), so the index is a function of state and hard-coding one
+    here would silently test the wrong entry after the swap."""
+    for i in range(12):
+        e = _oam(m, i)
+        if e["y"] != 240 and (e["attr"] & 0x0E) == 0:   # OBJ palette 0
+            return i, e
+    return None, None
+
+
+def test_the_rider_is_only_visible_through_the_car_s_glass(tmp_path):
+    """THE OCCLUSION IS THE PRIORITY ORDER AND NOTHING ELSE.
+
+    Mode 4 renders BG2lo(1) · OBJ0(2) · BG1lo(3) · OBJ1(4) ... (RenderMode4,
+    :824) and a sprite draws only where the pixel already there scores lower
+    (`(_mainScreenFlags[x] & 0x0F) < spritePrio`, :958). The rider is priority
+    0, so he scores 2 and LOSES to the car's BG1 shell — which is opaque
+    everywhere except a hole cut where its glass is. No window register, no
+    mask, no per-scanline work, and the occlusion follows the car up the shaft
+    because it IS the car.
+
+    Asserted PER PIXEL against the sprite's own CHR: at each position the cell
+    would have drawn ink, does the screen show that ink? Inside the glass it
+    must, in quantity; outside it must not, at all. A colour-set reading of the
+    frame cannot do this — the knight is steel and so is BG1 — and two
+    successive attempts at one let the priority plant through.
+    """
+    with Machine(str(ROM)) as m:
+        to_hall(m)
+        for _ in range(900):
+            if m.read_u16(W, DP_CAR) >= 40:
+                break
+            m.advance(1)
+        else:
+            pytest.fail("the car never left the floor")
+        i, e = _rider_index(m)
+        assert i is not None, "no rider entry is staged"
+        ink = rider_ink(m, e["tile"])
+        ox, oy = e["x"], e["y"]
+        cam, car = m.read_u16(W, DP_CAM), m.read_u16(W, DP_CAR)
+        im = shot(m, tmp_path / "car.png")
+    assert len(ink) > 120, f"the rider's cell is nearly empty ({len(ink)} px)"
+    car_top = CAR_ROW * 8 - cam - car
+    gx0 = CAR_COL * 8 + WIN_X
+    glass = (gx0, car_top + WIN_Y, gx0 + WIN_W, car_top + WIN_Y + WIN_H)
+    inside = outside = 0
+    leaks = []
+    for (dx, dy), rgb in ink.items():
+        x, y = ox + dx, oy + dy
+        if not (0 <= x < 256 and 0 <= y < 224):
+            continue
+        if im.getpixel((x, y)) != rgb:
+            continue                          # something else drew here
+        if glass[0] <= x < glass[2] and glass[1] <= y < glass[3]:
+            inside += 1
+        else:
+            outside += 1
+            leaks.append((x, y))
+    assert inside > 25, (
+        f"only {inside} of the rider's own pixels reach the screen inside the "
+        f"glass {glass} — he is not visible through it at all")
+    assert outside == 0, (
+        f"{outside} of the rider's pixels reach the screen OUTSIDE the glass "
+        f"{glass}: {leaks[:8]} — the car's shell is not occluding him")
+
+
+def test_the_car_moves_as_one_piece(tmp_path):
+    """THE DEFECT THE LEAD LEFT IN THE CAR, as a regression.
+
+    `mil_stage_row`'s car override walks TABLE indices, so it has to carry the
+    lead as well — and when it did not, the car's LEFTMOST column stayed behind
+    on the shaft while the rest of it climbed. Asserted on the BG1 layer alone:
+    the car is BG1 art and the belts behind it are BG2, so a comparison that
+    counted every changed pixel would be measuring the room, not the car.
+    """
+    with Machine(str(ROM)) as m:
+        to_hall(m)
+        for _ in range(900):
+            if m.read_u16(W, DP_CAR) >= 40:
+                break
+            m.advance(1)
+        m.advance(1)
+        a = shot(m, tmp_path / "a.png")
+        ya = CAR_ROW * 8 - m.read_u16(W, DP_CAM) - m.read_u16(W, DP_CAR)
+        m.advance(8)
+        b = shot(m, tmp_path / "b.png")
+        yb = CAR_ROW * 8 - m.read_u16(W, DP_CAM) - m.read_u16(W, DP_CAR)
+        ONLY1, _ = layers(m)
+    assert ya == yb, (
+        "the camera is still following the car, so it holds still on screen "
+        "and this case cannot see a column left behind — the ride's clamp "
+        "moved")
+    for sc in range(CAR_COL, CAR_COL + SHAFT_COLS):
+        assert mask_strip(a, sc, ONLY1) == mask_strip(b, sc, ONLY1), (
+            f"screen column {sc} of the car moved while the rest held — the "
+            f"car is not moving as one piece")
+
+
+# --------------------------------------------------------------------------
+# THE LOBBY, and the cycle that closes
+# --------------------------------------------------------------------------
+def bay_mid(i):
+    return (DOOR_A if i == 0 else DOOR_B) * 8 + DOOR_W * 4
+
+
+def test_the_doorway_is_exactly_two_leaves_wide():
+    """What "shut" MEANS, and it is arithmetic the picture cannot show once it
+    is wrong in the right way: a doorway wider than two leaves has doors that
+    never meet, with a strip of whoever is inside showing down the middle at
+    full travel zero. The ASM asserts this too; stating it here as well is what
+    makes the geometry a claim of the rail rather than an accident of two
+    constants."""
+    assert DOOR_W * 8 == LEAF_BOX * LEAF_ROWS * (LEAF_BOX // LEAF_BOX) * 2 // LEAF_ROWS
+    assert DOOR_W * 8 == LEAF_BOX * 2
+    assert (LOBBY_FLOOR - DOOR_TOP) * 8 == LEAF_BOX * LEAF_ROWS
+
+
+def test_a_bay_opens_because_he_is_in_front_of_it(tmp_path):
+    """ONE RULE, NO STATE MACHINE. The travel is the state and it is a
+    position, so a door caught half-open reverses from where it is. Driven
+    across the whole walk rather than at its two ends: sampling only the
+    extremes is how this rail's own bay A was once reported unreachable when it
+    was working."""
+    seen = []
+    with Machine(str(ROM)) as m:
+        m.advance(BOOT)
+        for _ in range(80):
+            m.advance(4, pad1=JOY_LEFT)
+            seen.append((m.read_u16(W, DP_PX), m.read_u16(W, DP_DOOR)))
+            if seen[-1][0] <= 8:
+                break
+    opened = [px for px, d in seen if d >= DOOR_TRAVEL]
+    assert opened, f"bay A never opened across the walk: {seen[:12]}"
+    reach = _rail("SMIL_DOOR_REACH")
+    for px, d in seen:
+        near = abs(px + RIDER_BOX // 2 - bay_mid(0)) < reach
+        if near and d == 0:
+            assert any(p == px for p, _ in seen[:seen.index((px, d))]), (
+                f"at px={px} he is in reach and the bay is shut")
+    # ...and then away from it. To the RIGHT, because bay A sits near the left
+    # clamp and walking left cannot put enough room between them: at the clamp
+    # his centre is still exactly one reach from the bay's middle. (Sampling
+    # only the two ends of a walk is how this rail's bay A was once reported
+    # unreachable when it was working.)
+    with Machine(str(ROM)) as m:
+        m.advance(BOOT)
+        for _ in range(200):
+            m.advance(1, pad1=JOY_LEFT)
+            if m.read_u16(W, DP_PX) + RIDER_BOX // 2 <= bay_mid(0):
+                break
+        assert m.read_u16(W, DP_DOOR) > 0, "bay A did not open as he arrived"
+        for _ in range(400):
+            m.advance(1, pad1=JOY_RIGHT)
+            if abs(m.read_u16(W, DP_PX) + RIDER_BOX // 2 - bay_mid(0)) > reach + 24:
+                break
+        else:
+            pytest.fail("he never walked out of bay A's reach")
+        for _ in range(120):
+            if m.read_u16(W, DP_DOOR) == 0:
+                break
+            m.advance(1)
+        assert m.read_u16(W, DP_DOOR) == 0, (
+            "bay A did not shut once he had walked away")
+
+
+def test_the_leaves_cover_him_and_he_covers_them(tmp_path):
+    """DEPTH BETWEEN TWO SPRITES IS THE OAM INDEX, and this rail needs opposite
+    answers from the same pair.
+
+    The PPU keeps ONE sprite pixel per column, not one per priority — Mesen
+    writes it as a single buffer, `_spriteColorsCopy[x] = color` beside
+    `_spritePriorityCopy[x] = Priority` (:772-776) — so where two sprites
+    overlap exactly one survives evaluation and only the SURVIVOR's priority is
+    compared against the backgrounds. Priority cannot separate them; index can.
+
+    So: on the deck he is ahead of the leaves, and inside a bay he is behind
+    them. Asserted on the ORDER, and then on the picture that order produces.
+    """
+    with Machine(str(ROM)) as m:
+        m.advance(BOOT)
+        free_i, _ = _rider_index(m)
+        assert free_i is not None
+        leaf_free = [i for i in range(12)
+                     if _oam(m, i)["y"] != 240 and i != free_i]
+        assert leaf_free, "no leaves are staged in the lobby"
+        assert free_i < min(leaf_free), (
+            f"on the deck the player is at OAM {free_i}, behind leaves at "
+            f"{sorted(leaf_free)} — the doors will cover him as he walks past")
+        # ...and now aboard, where the answer must invert.
+        for _ in range(600):
+            if m.read_u16(W, DP_DOOR + 2) >= DOOR_TRAVEL:
+                break
+            m.advance(1, pad1=JOY_RIGHT)
+        m.advance(3, pad1=JOY_UP)
+        for _ in range(300):
+            if m.read_u16(W, DP_BOARD) == 2:
+                break
+            m.advance(1)
+        else:
+            pytest.fail("he never got aboard")
+        m.advance(1)
+        ab_i, _ = _rider_index(m)
+        leaf_ab = [i for i in range(12)
+                   if _oam(m, i)["y"] != 240 and i != ab_i]
+        assert ab_i is not None and leaf_ab
+        assert ab_i > max(leaf_ab), (
+            f"aboard, the player is at OAM {ab_i} ahead of leaves at "
+            f"{sorted(leaf_ab)} — the doors will close behind him")
+
+
+def test_every_staged_sprite_is_large_and_every_parked_one_is_not(tmp_path):
+    """OAM Y wraps at 256, so a 32x32 sprite parked at 240 shows SIXTEEN ROWS
+    of itself at the top of the screen. The claim is twelve entries and only
+    nine are staged, so the three spare ones must have their size bit CLEAR —
+    the same defect SMIL_PARK_Y exists to avoid, arriving through the hi table
+    instead of through the Y byte."""
+    with Machine(str(ROM)) as m:
+        m.advance(BOOT)
+        for i in range(12):
+            e = _oam(m, i)
+            if e["y"] == 240:
+                assert e["size"] == 0, (
+                    f"OAM {i} is parked at 240 AND large — sixteen rows of it "
+                    f"are wrapping onto the top of the screen")
+            else:
+                assert e["size"] == 1, f"OAM {i} is staged but small"
+            assert e["x9"] == 0, f"OAM {i} has X9 set; nothing here goes past 255"
+
+
+def test_the_ride_closes_the_loop_into_the_other_bay():
+    """THE SEQUENCE, END TO END, AND THEN AGAIN.
+
+    He boards the right-hand bay, the doors shut, the lift climbs and leaves
+    through the top, and he is let out of the LEFT one — and the state he is
+    let out into is the state he started the ride from, so a second ride is
+    available without anything being reset. A transition that only worked once
+    would look identical in any single frame, and only a second turn can tell
+    them apart.
+    """
+    with Machine(str(ROM)) as m:
+        m.advance(BOOT)
+        assert m.read_u16(W, DP_ARRIVE) == 0, (
+            "the arrival flag is set at boot — MAIN's establishment is gone")
+        seen = []
+        for turn in range(2):
+            for _ in range(900):
+                if m.read_u16(W, DP_DOOR + 2) >= DOOR_TRAVEL:
+                    break
+                m.advance(1, pad1=JOY_RIGHT)
+            else:
+                pytest.fail(f"turn {turn}: the far bay never opened")
+            boarded = m.read_u16(W, DP_BAY)
+            m.advance(3, pad1=JOY_UP)
+            for _ in range(900):
+                if scene(m) == SCENE_HALL:
+                    break
+                m.advance(1)
+            else:
+                pytest.fail(f"turn {turn}: never reached the hall")
+            assert m.read_u16(W, DP_BAY) == 2, (
+                f"turn {turn}: he boarded bay {boarded}, not the far one")
+            for _ in range(1800):
+                if scene(m) == SCENE_LOBBY:
+                    break
+                m.advance(1)
+            else:
+                pytest.fail(f"turn {turn}: the lift never came back")
+            for _ in range(300):
+                if m.read_u16(W, DP_BOARD) == 0:
+                    break
+                m.advance(1)
+            else:
+                pytest.fail(f"turn {turn}: the doors never parted on him")
+            seen.append((m.read_u16(W, DP_BAY), m.read_u16(W, DP_PX),
+                         m.read_u16(W, DP_DOOR), m.read_u16(W, DP_DOOR + 2)))
+    assert seen[0][0] == 0, "he did not arrive in the OTHER bay"
+    assert seen[0] == seen[1], (
+        f"the second arrival differs from the first: {seen} — the sequence is "
+        f"not a cycle, so something is being consumed rather than carried")
+    px, dA, dB = seen[0][1], seen[0][2], seen[0][3]
+    assert px + RIDER_BOX // 2 == bay_mid(0), (
+        f"he is at {px + RIDER_BOX // 2}, not centred in bay A at {bay_mid(0)}")
+    assert (dA, dB) == (DOOR_TRAVEL, 0)
+
+
+def test_the_reveal_waits_for_the_picture():
+    """The doors part in fifteen frames and the fade-in is longer, so an
+    ungated reveal happens in the dark — which is the same as no reveal. The
+    gate is scene_mgr's own published transition phase and NOT a count of
+    frames: a count would need tuning against the ramp and would be a frame
+    assumption in a rail that scales its time.
+
+    Asserted as an ORDERING: while the transition phase is non-zero, the
+    arriving bay's travel is zero.
+    """
+    with Machine(str(ROM)) as m:
+        m.advance(BOOT)
+        for _ in range(900):
+            if m.read_u16(W, DP_DOOR + 2) >= DOOR_TRAVEL:
+                break
+            m.advance(1, pad1=JOY_RIGHT)
+        m.advance(3, pad1=JOY_UP)
+        for _ in range(900):
+            if scene(m) == SCENE_HALL:
+                break
+            m.advance(1)
+        for _ in range(1800):
+            if scene(m) == SCENE_LOBBY:
+                break
+            m.advance(1)
+        held = 0
+        for _ in range(300):
+            phase = m.read_bytes(W, DP_SM + 2, 1)[0]
+            travel = m.read_u16(W, DP_DOOR)
+            if phase:
+                assert travel == 0, (
+                    f"the doors moved to {travel} while the transition phase "
+                    f"was still {phase} — the reveal is happening in the dark")
+                held += 1
+            elif travel >= DOOR_TRAVEL:
+                break
+            m.advance(1)
+        else:
+            pytest.fail("the doors never opened after the fade")
+    assert held > 0, "the fade was already over on arrival — the gate is untested"

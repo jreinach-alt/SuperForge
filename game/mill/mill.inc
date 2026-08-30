@@ -16,10 +16,21 @@ SMIL_PHASE_BASE = $0060
 ; The screen the picture is drawn into, for the tests' geometry.
 SMIL_SCREEN_W = 256
 
-; The pad bit the flat control reads. A BIT POSITION in the joypad word the
-; input feature publishes, not an address — every rail in this tree spells its
-; own, because which button a rail uses is the rail's choice.
+; The pad bits this rail reads. A BIT POSITION in the joypad word the input
+; feature publishes, not an address — every rail in this tree spells its own,
+; because which button a rail uses is the rail's choice.
+;
+; B AND Y ARE TWO DIFFERENT CONTROLS AND THEY WERE ONE BUTTON FOR A WHILE.
+; B originally held the FLAT CONTROL — the blob's last row, every column at
+; rest with every enable and axis bit still set, which is what makes the flat
+; frame a control rather than a second unexplained state. When the lift was
+; built B was given to holding the RIDE so a still could be taken anywhere in
+; it, and the flat control silently became unreachable: nothing wrote
+; ES_MIL_FLATSEL any more, while hall.asm still described the behaviour. Found
+; by tests/test_mill.py, which asserted the control and could not select it.
+; Y now holds the flat row; B still holds the ride.
 JOY_B     = 1 << 15
+JOY_Y     = 1 << 14
 JOY_UP    = 1 << 11
 JOY_DOWN  = 1 << 10
 
@@ -42,11 +53,18 @@ SMIL_RIDER_VIS_SPAN = 224 + SMIL_RIDER_BOX
 ; its left mullion. The pack does not centre Arthur in his 32x32 cell.
 SMIL_RIDER_DX = 3
 
-; How far UP the art sits inside the glass. The pack frames Arthur with
-; transparent rows under the feet, so his drawn content does not start at the
-; top of his 32x32 box; this is what lands his head in the window rather than
-; above it. Expressed as a RAISE and subtracted, for the same reason.
-SMIL_RIDER_RAISE = 4
+; How far UP the art sits inside the glass. The pack frames Arthur with eleven
+; transparent rows above the helmet, so his drawn content does not start at the
+; top of his 32x32 box; this is what lands his head near the TOP of the port
+; rather than halfway down it. Expressed as a RAISE and subtracted, for the
+; same reason the other biases here are.
+;
+; Raised from 4 to 9 when the port was narrowed: at 4 his head sat nine rows
+; below the glass and the ten rows the shell cut were most of him, so the
+; window showed a sliver. Measured against the sprite's own CHR read out of
+; VRAM — see tests/test_mill.py::rider_ink, which is also what the numbers
+; below are checked by.
+SMIL_RIDER_RAISE = 9
 
 ; THE PARK ROW IS A FUNCTION OF THE SPRITE'S SIZE, and 240 is not it.
 ;

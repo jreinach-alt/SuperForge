@@ -776,7 +776,97 @@ crust lines the table put in place are smeared away. Measured: fourteen
 consecutive captures at 6-15 unexplained columns, bracketed on both sides by
 exact fits. A cut has no such run.
 
-## 13. Stated limits
+## 13. `mill` — mode 4, where the AXIS is the per-column choice
+
+`smelter` (§§10–12) is the rail this vocabulary was built for, and it cannot
+demonstrate half of what the vocabulary describes. Mode 2 fetches a word for
+EACH axis (`SnesPpu.cpp` `GetTilemapData`, :155-162), so a column's axis is not
+something a rail chooses — it has both. **Mode 4 fetches ONE word and bit 15
+picks.** That single difference is what `game/mill` exists to exercise, and it
+is what makes a mixed table possible and necessary at the same time: a mode-4
+rail that used one axis would be smelter with a richer BG1.
+
+### 13.1 What the rail is
+
+Two stations of machinery in a two-screen hall. Each is an upright, four SHAFT
+columns whose words are VERTICAL and drive BG1, then a conveyor run whose words
+are HORIZONTAL and drive BG2 — thirty-two columns, both axes, one 64-byte
+transfer a frame and no HDMA channel anywhere. `tests/test_mill.py` asserts the
+axis per column and asserts that two columns eight pixels apart disagree about
+it in ONE frame, which is the statement mode 2 cannot make.
+
+The second station's shaft carries a **lift**, and the lift is the rail's
+argument that the mechanism composes with a game rather than only with a demo:
+the car is a BG1 column like any other, the rider inside it is a sprite that
+cannot be one, and the two rooms the lift joins are one mode, one CHR page and
+one OBJ sheet apart.
+
+### 13.2 The three things it added that smelter did not have
+
+**The fetch lead is baked into the blob.** Offset words are fetched AFTER a
+column's tilemap data, so the word at map index *j* displaces SCREEN column
+*j+1*. Smelter pays that at the DMA's read head because its table is
+world-space; mill's is screen-space, so the generator stores
+`column_word(j + LEAD)` at index *j* and the two shifts cancel. **The rail
+shipped without it once** — every bay's leftmost column stood still while its
+neighbours pumped, 30 of 32 columns displaced by their neighbour's word, and it
+was reported as an animation defect because that is what a fetch-order defect
+looks like when you are not looking for one.
+
+**A column can be OCCLUDED by a sprite's absence.** Mode 4 renders
+`BG2lo(1) · OBJ0(2) · BG1lo(3) · OBJ1(4)` (`RenderMode4`, :824) and a sprite
+draws only where the pixel already there scores lower (:958). An OBJ at
+priority 0 therefore scores 2 and LOSES to BG1's 3 — so the car's shell, opaque
+everywhere but a hole cut where its port is, hides the rider and the port does
+not. No window register, no mask, no per-scanline work, and the occlusion
+follows the car up the shaft because it IS the car.
+
+**Sprite-versus-sprite depth is the OAM INDEX, not the priority.** This is the
+one the priority table actively misleads you about, and it cost a defect: the
+PPU keeps ONE sprite pixel per column, not one per priority. Mesen writes it as
+a single buffer — `_spriteColorsCopy[x] = color` beside
+`_spritePriorityCopy[x] = Priority` (:772-776) — so where two sprites overlap,
+exactly one survives evaluation and only the SURVIVOR's priority is compared
+against the backgrounds. Raising the lobby player to priority 2 to put him in
+front of a retracted lift door changed nothing, measured. The rail answers by
+swapping the player and the leaves through its OAM block by ride state: ahead
+of them on the deck, behind them inside a bay.
+
+### 13.3 What the falsification harness found here
+
+`tools/plants/mill.py` is eight plants and two of them came back **TEST-BLIND**
+on their first run — the plant reached the artifact and the assertion stayed
+green. Both findings were about the ORACLE rather than the picture:
+
+- `table-column-lead-removed` edits the generator, so the blob moves with the
+  defect; a test that joins the picture to the blob goes on agreeing with
+  itself. The oracle that does not move is the ART's geometry — a station is an
+  upright and then `SHAFT_COLS` shafts — and lining the table up with that is
+  the entire job of the lead.
+- `the-rider-outranks-the-car` found something sharper: with the port at
+  22x30 in a 32x48 car and the rider's ink 11x17, **the shell had nothing to
+  cut**. Priority 0 was doing no observable work at all, and no amount of
+  looking at the picture would have said so, because the picture is right
+  either way. The harness reported that the mechanism could be REMOVED without
+  the screen changing. The port is 18x16 now — a viewing port down to about the
+  knees — which is both what the plant needs and what a lift door looks like.
+
+The second is the more useful shape to remember: a plant that stays green is
+not always a hole in a test. Sometimes it is a mechanism that is not yet
+load-bearing, and the honest response is to make it so or to retire the claim.
+
+### 13.4 A control that lost its button
+
+The rail's flat control — the blob's last row, every column at rest with every
+enable and axis bit still set, so exactly one variable differs between running
+and flat — was on B. When the lift was built, B was given to holding the ride
+so a still could be taken anywhere in the sequence, and **nothing wrote
+`ES_MIL_FLATSEL` any more** while `hall.asm` went on describing the behaviour.
+The control was unreachable for the whole of the lift's development. It was
+found by `test_the_flat_control_is_a_row_and_not_a_disarm`, which selected it
+and could not. Y holds the flat row now; B still holds the ride.
+
+## 14. Stated limits
 
 - **The offset TABLE'S CONTENT is not modelled.** The claim says BG3's tilemap
   is a table of scroll words; it does not say which words, how they get there,

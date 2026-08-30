@@ -252,7 +252,16 @@ STATION_PHASE = (0, 0)        #   phase at all — the scene drives it
 ELEVATOR = 1                  # ...which station's shaft carries the car
 CAR_ROW = CAP_ROW             # the car's map row, same as a ram's
 CAR_H = HEAD_ROWS * 8         # ...and its height
-WINDOW = (5, 8, 22, 30)       # x0, y0, w, h of the glass, inside the car.
+# THE PORT HAS TO BE SMALLER THAN THE MAN, or the occlusion it exists for
+# never happens. The first cut was 22x30 in a 32x48 car and the rider's ink is
+# 11x17 — eight pixels of clearance on every side — so the shell had nothing to
+# cut and priority 0 was doing no observable work at all. That is not a defect
+# a look would find, because the picture is right either way; it was found by
+# tools/plants/mill.py::the-rider-outranks-the-car coming back TEST-BLIND, i.e.
+# by the harness reporting that the mechanism could be REMOVED without the
+# screen changing. A viewing port down to about the knees cuts his legs, which
+# is both what the plant needs and what a lift door actually looks like.
+WINDOW = (7, 4, 18, 16)       # x0, y0, w, h of the glass, inside the car.
                               #   THE HOLE IS THE EFFECT: BG1 is transparent
                               #   here and opaque everywhere else on the car,
                               #   and an OBJ at priority 0 loses to BG1's
@@ -1187,10 +1196,20 @@ def column_word(col, phase):
     k = kind(col)
     if k == "pier":
         return 0                                 # unreachable, or at rest
-    if k == "leg":
-        return BIT_BG1 | BIT_VSEL | 0            # driven, and held AT REST:
-    if k == "shaft":                             #   the frame does not move
+    if k == "shaft":
         return BIT_BG1 | BIT_VSEL | (piston_v(col, phase) & V_MASK)
+    # AN UPRIGHT TAKES THE BELT'S WORD, and that is deliberate rather than a
+    # fall-through nobody noticed. The obvious reading is that a pillar should
+    # hold BG1 at rest — but its BG1 art does not move either way, because the
+    # word drives BG2, and what the choice actually decides is what happens
+    # BEHIND the pillar. Driving BG2 runs the tread on unbroken past it; the
+    # alternative leaves those columns on BG2HOFS and puts a visible step in
+    # the belt at every upright in the hall.
+    #
+    # (There was a dead `"leg"` branch here for the other choice until
+    # 2026-08-30, matching a name `kind` has never returned. It was never
+    # reached, so the rail has always behaved this way — the branch was
+    # documentation of an intention the code did not carry out.)
     return BIT_BG2 | (belt_h(col, phase) & H_MASK)
 
 
@@ -1323,6 +1342,8 @@ SMIL_PIER_COLS    = {PIER_COLS}      ; ...so screen column 0 gets no word at all
                            ;   and is drawn as the hall's wall, not as a
                            ;   machine that never moves
 SMIL_STATIONS     = {len(STATION_AT)}
+SMIL_STATION_A    = {STATION_AT[0]}      ; each station's first SCREEN column:
+SMIL_STATION_B    = {STATION_AT[1]}     ;   the upright, then SHAFT_COLS shafts
 SMIL_BELT_AT      = {BELT_AT}
 SMIL_SHAFT_COLS   = {SHAFT_COLS}
 SMIL_WORLD_H      = {WORLD_H}    ; the world is two screens tall...

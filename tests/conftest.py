@@ -1126,6 +1126,9 @@ MAPS = {
     "build/smt/symbol_map.json": (
         "smelter",
         ["--game", "game/smelter", "--features-dir", "engine/features"]),
+    "build/mil/symbol_map.json": (
+        "mill",
+        ["--game", "game/mill", "--features-dir", "engine/features"]),
     "build/cf/symbol_map.json": (
         "camera_follow",
         ["--game", "game/camera_follow", "--features-dir", "engine/features"]),
@@ -1208,6 +1211,7 @@ MAPS = {
 #   SUPERFORGE / "build" / "mz" / "symbol_map.json"
 _SUBDIR_MAP = {"hz": "build/hz/symbol_map.json",
                "smt": "build/smt/symbol_map.json",
+               "mil": "build/mil/symbol_map.json",
                "mz": "build/mz/symbol_map.json",
                "rm": "build/rm/symbol_map.json",
                "bk": "build/bk/symbol_map.json",
