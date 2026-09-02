@@ -1,51 +1,76 @@
-"""Fit mill's BG1 ramps to the art instead of to a curve through it.
+"""Fit mill's BG1 palette to WHAT IS ON SCREEN, and choose the split.
 
 WHY THIS EXISTS. `mil`'s four ramps were built by interpolating swatches read
-off the concept sheet — `_stretch(_anchors(SW_*), n)` — and the kit art was
-then quantised onto them by nearest-entry. That places the entries along a 1-D
-CURVE, and the art is a 3-D CLOUD around it: measured on the shipped tree, only
-76 of 96 claimed CGRAM entries were ever drawn, and the cold ramp used 19 of
-its 36. An 8bpp layer indexes CGRAM directly with no palette field, which means
-the palette can be chosen FROM the art rather than the art fitted onto it — and
-that is the difference between 8bpp buying addressing and 8bpp buying depth.
+off the concept sheet, and the kit art was quantised onto them by nearest
+entry. That places the entries along a 1-D CURVE while the art is a 3-D CLOUD
+around it: measured on the tree that shipped it, only 76 of 96 claimed CGRAM
+entries were ever drawn. An 8bpp layer indexes CGRAM directly with no palette
+field, which means the palette can be chosen FROM the art rather than the art
+fitted onto it -- and that is the difference between 8bpp buying addressing
+and 8bpp buying depth.
 
-WHAT IT DOES. Per family, k-means over the source pixels the family owns, then
-sorted by luminance so the ramp stays MONOTONE and `Wm(k)` / `Ml(k)` / `Br(k)`
-keep meaning "k steps from dark to light" — the procedural painting indexes
-them by hand and those indices must not change meaning.
+WHAT IS FITTED. The first cut of this file fitted the SHEETS: every pixel of
+every kit asset, sampled at its source resolution, whether or not the rail
+ever painted it and however small it was painted. That weights a 778-row rail
+strip that became a 32-pixel cross-section the same as the lobby wall that
+covers a whole scene. This cut fits the PICTURE instead: it runs the painters
+with `gen_mill_assets.SOURCE` set, which makes the two quantisers hand back
+source colours in place of entries, and takes every BG1 pixel of the hall's
+two screens and the lobby's one, each counted once. A colour's weight is the
+area it covers, a sheet the rail never draws weighs nothing, and the delivered
+art -- which is most of what is on screen -- is in the cloud, which the sheet
+fit never saw.
 
-Measured against the even-stretched ramps it replaces, weighted per-pixel
-error: cold -81%, warm -49%, molten -93%, brass -57%, overall -74%.
+WHAT IS CHOSEN. The ramp lengths. Ninety-six entries across four families
+used to be split by hand (36/16/32/12); here each family's error is measured
+at every candidate length and the split that minimises the total on-screen
+error is taken, subject to a FLOOR per family: no ramp shorter than eight
+steps, and the warm ramp no shorter than the sixteen tones the painters
+dither on by hand (`TONES`, recorded by the same run). The painters address
+tones as FRACTIONS of a ramp, so a split can move without any of them being
+retouched.
 
-WHY THE OUTPUT IS COMMITTED rather than computed at build time: the same
-argument KIT_BOX carries. A build must not depend on a clustering pass agreeing
-with itself run to run, and reading three large sheets at import would cost
-every build. Regenerate deliberately:
+Per family, weighted k-means over the on-screen cloud, then sorted by
+luminance so the ramp stays MONOTONE and `Wm(t)` keeps meaning "t of the way
+from dark to light".
 
-    python3 tools/fit_mill_palette.py            # prints the block to paste
+WHY THE OUTPUT IS COMMITTED rather than computed at build time: the argument
+KIT_BOX carries. A build must not depend on a clustering pass agreeing with
+itself run to run, and running the painters twice would cost every build.
+Regenerate deliberately:
 
-SEEDED, so the same tree gives the same palette.
+    python3 tools/fit_mill_palette.py            # prints the block
+    python3 tools/fit_mill_palette.py --write    # ...and splices it into
+                                                 #   gen_mill_assets.py
+
+DETERMINISTIC: no randomness anywhere -- the seeding walks the sorted cloud
+-- so the same tree gives the same palette, and a second run on the tree it
+just wrote changes nothing (the cloud does not depend on the palette).
 """
-import random
 import sys
+from collections import Counter
 from pathlib import Path
 
+HERE = Path(__file__).resolve().parent
+GEN = HERE / "gen_mill_assets.py"
+_argv = sys.argv
 sys.argv = [sys.argv[0], "/tmp/_fit_scratch"]
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(HERE))
 import gen_mill_assets as G                                  # noqa: E402
-import kit_import as K                                       # noqa: E402
-from PIL import Image                                        # noqa: E402
+sys.argv = _argv
 
-SEED = 7
-STRIDE = 2                       # every 2nd pixel each way — 4x fewer, same cloud
 ITERS = 14
 WEIGHT = (2, 4, 1)               # the eye's, and map_to_palette's own weighting
-FRINGE = 2                       # px of silhouette edge dropped: the key's halo
-
-FAMILIES = [("SW_STEEL_COLD", G.SW_STEEL_COLD, G.N_COLD),
-            ("SW_STEEL_WARM", G.SW_STEEL_WARM, G.N_WARM),
-            ("SW_MOLTEN", G.SW_MOLTEN, G.N_MOLTEN),
-            ("SW_BRASS", G.SW_BRASS, G.N_BRASS)]
+TOTAL = 96                       # BG1's claim: CGRAM 32..127
+FLOOR = 8                        # no ramp shorter than this
+STEP = 4                         # the split is searched on this grid
+SCREEN_ROWS = 224
+FAMILIES = [("STEEL_COLD", "cold", G.SW_STEEL_COLD, G.IX_COLD, G.N_COLD),
+            ("STEEL_WARM", "warm", G.SW_STEEL_WARM, G.IX_WARM, G.N_WARM),
+            ("MOLTEN", "molten", G.SW_MOLTEN, G.IX_MOLTEN, G.N_MOLTEN),
+            ("BRASS", "brass", G.SW_BRASS, G.IX_BRASS, G.N_BRASS)]
+BEGIN = "# --- GENERATED by tools/fit_mill_palette.py: begin ---"
+END = "# --- GENERATED by tools/fit_mill_palette.py: end ---"
 
 
 def _exp(c):
@@ -53,112 +78,176 @@ def _exp(c):
 
 
 def _d2(p, q):
-    return sum(WEIGHT[i] * (p[i] - q[i]) ** 2 for i in range(3))
+    return (WEIGHT[0] * (p[0] - q[0]) ** 2 + WEIGHT[1] * (p[1] - q[1]) ** 2
+            + WEIGHT[2] * (p[2] - q[2]) ** 2)
 
 
-def _is_key_hue(r, g, b):
-    """On the KEY'S HUE AXIS: red and blue both up, green well down.
+def on_screen():
+    """{family: {rgb888: pixels}} for every BG1 pixel the two rooms show, plus
+    the per-family area the painters draw by hand and what was rejected."""
+    G.SOURCE, G.TONES = {}, {}
+    pictures = ((G.paint_bg1(), G.WORLD_H), (G.paint_lobby(), SCREEN_ROWS))
+    anchors = [(f, [_exp(c) for c in G._anchors(sw)]) for _, f, sw, _, _ in FAMILIES]
+    ix = {f: (ix0, n) for _, f, _, ix0, n in FAMILIES}
 
-    Erosion alone does not finish the job. A halo on continuous-tone art is
-    wider than any fixed erosion, and what survives is dark magenta — whose
-    nearest anchor is the DARKEST MOLTEN one, because a dark purple is closer
-    to a dark red than to any steel. So it does not scatter, it piles into one
-    family and takes entries there.
+    def family_of_index(v):
+        for f, (ix0, n) in ix.items():
+            if ix0 <= v < ix0 + n:
+                return f
+        raise ValueError(v)
 
-    This is safe here for a reason particular to this art and not general:
-    the four families are steel (neutral to blue), molten (red to white
-    through orange) and brass (brown to gold), and NONE of them puts red and
-    blue up together with green down. A deep molten red has b LOW and is not
-    matched. Measured on the sheets it rejects 3.19% of opaque pixels, present
-    in all fifteen assets — the signature of a halo, not of a feature.
-    """
-    return r > 48 and b > 48 and g < 0.60 * min(r, b)
-
-
-def gather():
-    """Every kit pixel, bucketed by the family whose anchors it is nearest.
-
-    THE KEY FRINGE IS NOT ART, AND IT WILL TAKE ENTRIES IF YOU LET IT. The
-    sheets are keyed on magenta and `kit_import.is_key` matches it loosely
-    (g < 110, r > 150, b > 150) — loose enough for the grain, not loose enough
-    for the HALO, because the sheets are continuous-tone and every asset's
-    edge blends the key toward the art through values like (107, 8, 115) that
-    no key test can claim without eating real pixels too.
-
-    Snapping onto hand-picked ramps hid that: a fringe pixel simply landed on
-    whatever entry was nearest. Fitting the palette TO the pixels does not
-    hide it — the fringe is a dense, tight cluster and k-means rewards it with
-    entries of its own. The first cut of this file spent ELEVEN of ninety-six
-    that way, most of the middle of the molten ramp, so the hall's channel and
-    the lobby's deck drew key bleed as though it were hot metal.
-
-    So the fringe is removed geometrically rather than by colour: a pixel
-    within FRINGE of a transparent one is an edge pixel and is not sampled.
-    That costs a thin outline of genuine art at every silhouette, which is the
-    right trade — those pixels are the least representative in the sheet.
-    """
-    anchors = [(n, [_exp(c) for c in G._anchors(sw)]) for n, sw, _ in FAMILIES]
-    out = {n: [] for n, _, _ in FAMILIES}
-    for name, (sheet, box) in G.KIT_BOX.items():
-        im = K.key_to_alpha(Image.open(G.KIT / f"{sheet}.png").crop(box))
-        px = im.load()
-        w, h = im.size
-        solid = [[px[x, y][3] != 0 for x in range(w)] for y in range(h)]
-        keep = [[solid[y][x]
-                 and all(solid[j][i]
-                         for j in range(max(0, y - FRINGE), min(h, y + FRINGE + 1))
-                         for i in range(max(0, x - FRINGE), min(w, x + FRINGE + 1)))
-                 for x in range(w)] for y in range(h)]
-        for y in range(0, im.size[1], STRIDE):
-            for x in range(0, im.size[0], STRIDE):
-                r, g, b, a = px[x, y]
-                if not keep[y][x] or _is_key_hue(r, g, b):
-                    continue
-                fam = min(anchors, key=lambda f: min(_d2((r, g, b), q) for q in f[1]))
-                out[fam[0]].append((r, g, b))
-    return out
+    hist, hand = Counter(), Counter()
+    for buf, rows in pictures:
+        for y in range(rows):
+            for v in buf[y]:
+                if v >= 256:
+                    hist[G.SOURCE[v]] += 1
+                elif v:
+                    hand[family_of_index(v)] += 1
+    cloud = {f: {} for _, f, _, _, _ in FAMILIES}
+    rejected = 0
+    for c, w in hist.items():
+        if G.is_key_hue(*c):
+            rejected += w
+            continue
+        f = min(anchors, key=lambda a: min(_d2(c, q) for q in a[1]))[0]
+        cloud[f][c] = w
+    tones = {f: len(G.TONES.get(ix0, ())) for _, f, _, ix0, _ in FAMILIES}
+    G.SOURCE, G.TONES = None, None
+    return cloud, hand, tones, rejected
 
 
-def kmeans(pts, k):
-    """k centroids, seeded evenly through the SORTED cloud so the run is
-    reproducible without depending on dict or file order."""
-    pts = sorted(pts)
-    cent = [list(pts[i * len(pts) // k]) for i in range(k)]
+def kmeans(cloud, k):
+    """k weighted centroids.
+
+    SEEDED BY FARTHEST POINT, not by walking the cloud. The first cut walked
+    the sorted cloud by cumulative weight, and on a cloud that is mostly one
+    delivered wall of twenty flat colours that put thirteen of fifty-two seeds
+    inside the same colour, where Lloyd's step left them: a ramp a quarter
+    duplicates while the hall's kit art, six hundred colours of it, shared
+    what was left. Here the heaviest colour seeds first and each next seed is
+    the colour with the largest weight x squared-distance to the seeds so
+    far -- k-means++'s choice, made deterministically -- so every seed starts
+    somewhere the cloud actually has weight and nobody else covers. Sorted
+    input, so the run does not depend on dict order."""
+    pts = sorted(cloud.items())
+    cent = [list(max(pts, key=lambda pw: pw[1])[0])]
+    near = [_d2(p, cent[0]) for p, _ in pts]
+    while len(cent) < k:
+        i = max(range(len(pts)), key=lambda i: pts[i][1] * near[i])
+        if near[i] == 0:                     # the cloud has no more colours
+            cent.append(list(cent[-1]))
+            continue
+        cent.append(list(pts[i][0]))
+        near = [min(d, _d2(p, cent[-1])) for d, (p, _) in zip(near, pts)]
     for _ in range(ITERS):
-        acc = [[0, 0, 0, 0] for _ in range(k)]
-        for p in pts:
-            j = min(range(k), key=lambda j: _d2(p, cent[j]))
-            for t in range(3):
-                acc[j][t] += p[t]
-            acc[j][3] += 1
-        for j in range(k):
-            if acc[j][3]:
-                cent[j] = [acc[j][t] / acc[j][3] for t in range(3)]
+        sums = [[0, 0, 0, 0] for _ in range(k)]
+        for p, w in pts:
+            i = min(range(k), key=lambda i: _d2(p, cent[i]))
+            s = sums[i]
+            s[0] += p[0] * w
+            s[1] += p[1] * w
+            s[2] += p[2] * w
+            s[3] += w
+        for i in range(k):
+            if sums[i][3]:
+                cent[i] = [sums[i][t] / sums[i][3] for t in range(3)]
     return cent
 
 
+def ramp_of(cloud, k):
+    """The family's k-entry ramp in BGR555, monotone by luminance. Exactly k:
+    the painters address the ramp by fraction and every step must exist, so
+    duplicates after rounding are kept -- a family that cannot fill its ramp
+    is saying the art has no more steps to give."""
+    ramp = [tuple(min(31, max(0, round(v / 8))) for v in c) for c in kmeans(cloud, k)]
+    ramp.sort(key=lambda c: 2 * c[0] + 4 * c[1] + c[2])
+    return ramp
+
+
+def error(cloud, ramp):
+    """Area-weighted squared error of the cloud against the ramp, total."""
+    exp = [_exp(c) for c in ramp]
+    return sum(w * min(_d2(p, q) for q in exp) for p, w in cloud.items())
+
+
+def choose(cloud, floors, log=lambda *_: None):
+    """The split: per-family error at every candidate length on the STEP
+    grid, then the combination summing to TOTAL with the least total error."""
+    names = [f for _, f, _, _, _ in FAMILIES]
+    err, ramps = {}, {}
+    for f in names:
+        lo = floors[f]
+        hi = TOTAL - sum(floors[g] for g in names if g != f)
+        for n in range(lo, hi + 1):
+            if (n - lo) % STEP and n != hi:
+                continue
+            ramps[f, n] = ramp_of(cloud[f], n)
+            err[f, n] = error(cloud[f], ramps[f, n])
+            log(f, n, err[f, n])
+    best = None
+    sizes = {f: sorted(n for g, n in err if g == f) for f in names}
+    for a in sizes[names[0]]:
+        for b in sizes[names[1]]:
+            for c in sizes[names[2]]:
+                d = TOTAL - a - b - c
+                if (names[3], d) not in err:
+                    continue
+                e = err[names[0], a] + err[names[1], b] + err[names[2], c] + err[names[3], d]
+                if best is None or e < best[0]:
+                    best = (e, (a, b, c, d))
+    return best[1], {f: ramps[f, n] for f, n in zip(names, best[1])}, err
+
+
 def main():
-    random.seed(SEED)
-    buckets = gather()
-    print("# GENERATED by tools/fit_mill_palette.py — do not hand-edit.")
-    print("# Per-family k-means over the kit's own pixels, sorted by luminance so")
-    print("# the ramp stays monotone and Wm/Ml/Br keep their index meaning.")
-    for name, sw, n in FAMILIES:
-        pts = buckets[name]
-        cent = kmeans(pts, n)
-        # back to BGR555, keeping exactly n entries: the indices are addressed by
-        # hand in the painter and must all stay valid, so duplicates after
-        # rounding are kept rather than collapsed — a family that cannot fill
-        # its ramp is saying so.
-        ramp = [tuple(min(31, max(0, round(v / 8))) for v in c) for c in cent]
-        ramp.sort(key=lambda c: 2 * c[0] + 4 * c[1] + c[2])
-        err_old = sum(min(_d2(p, _exp(q)) for q in G._stretch(G._anchors(sw), n))
-                      for p in pts) / len(pts)
-        err_new = sum(min(_d2(p, _exp(q)) for q in ramp) for p in pts) / len(pts)
-        print(f"# {name}: {len(pts)} px, {len(set(ramp))} distinct of {n}; "
-              f"error {err_old:.0f} -> {err_new:.0f} ({100*(err_new-err_old)/err_old:+.0f}%)")
-        body = ", ".join(f"({c[0]},{c[1]},{c[2]})" for c in ramp)
-        print(f"FIT_{name.replace('SW_', '')} = [{body}]")
+    write = "--write" in sys.argv
+    cloud, hand, tones, rejected = on_screen()
+    area = {f: sum(cloud[f].values()) for f in cloud}
+    total = sum(area.values())
+    floors = {f: FLOOR for f in cloud}
+    floors["warm"] = max(FLOOR, tones["warm"])     # the ramp the painters dither on
+    # THE BASELINE IS THE BLOCK THIS RUN REPLACES -- the ramps and split in
+    # the file now -- so the numbers say what this run changed. A second run
+    # on the tree it just wrote reports 0% everywhere, which is the
+    # determinism claim above made visible.
+    old = {f: [tuple(c) for c in getattr(G, f"FIT_{fit}")]
+           for fit, f, _, _, _ in FAMILIES}
+    old_n = {f: n for _, f, _, _, n in FAMILIES}
+    old_err = {f: error(cloud[f], old[f]) for f in cloud}
+    split, ramps, _ = choose(cloud, floors,
+                             log=lambda f, n, e: print(f"  {f:6} {n:3} {e / total:8.1f}",
+                                                       file=sys.stderr))
+    new_n = dict(zip([f for _, f, _, _, _ in FAMILIES], split))
+    new_err = {f: error(cloud[f], ramps[f]) for f in cloud}
+
+    out = [BEGIN,
+           "# Do not hand-edit. Fitted to the PICTURE -- every BG1 pixel of the hall's",
+           "# two screens and the lobby's one, each counted once -- and the split chosen",
+           "# to minimise the total on-screen error (floor 8 a ramp; the warm ramp",
+           f"# floors at its {tones['warm']} hand-dithered tones). {total} source px in the",
+           f"# cloud, {sum(hand.values())} drawn by hand on the ramps, {rejected} rejected as key",
+           "# fringe. Error is the eye-weighted squared distance per on-screen source",
+           "# pixel, against the ramps and split this run replaced:"]
+    for f in cloud:
+        out.append(f"#   {f:6} {area[f]:6} px ({100 * area[f] / total:4.1f}%)  "
+                   f"{old_n[f]:2} -> {new_n[f]:2} entries ({len(set(ramps[f]))} distinct)  error "
+                   f"{old_err[f] / total:6.1f} -> {new_err[f] / total:6.1f}  "
+                   f"(hand-drawn area {hand[f]} px, {tones[f]} tones)")
+    te0, te1 = sum(old_err.values()) / total, sum(new_err.values()) / total
+    out.append(f"#   total                          error {te0:6.1f} -> {te1:6.1f} "
+               f"({100 * (te1 - te0) / te0:+.0f}%)")
+    out.append("N_COLD, N_WARM, N_MOLTEN, N_BRASS = " + ", ".join(str(n) for n in split))
+    for fit, f, _, _, _ in FAMILIES:
+        body = ", ".join(f"({c[0]},{c[1]},{c[2]})" for c in ramps[f])
+        out.append(f"FIT_{fit} = [{body}]")
+    out.append(END)
+    block = "\n".join(out)
+    print(block)
+    if write:
+        src = GEN.read_text()
+        a, b = src.index(BEGIN), src.index(END) + len(END)
+        GEN.write_text(src[:a] + block + src[b:])
+        print(f"wrote {GEN}", file=sys.stderr)
     return 0
 
 

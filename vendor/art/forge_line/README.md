@@ -61,23 +61,37 @@ WAS taken from them was a **cross-section** — each x the mean of that column
 over the strip's uniform middle, mapped to the palette, then repeated. One row,
 invariant by construction, keeping the flute spacing and losing every edge. It
 was a third of the screen, and it is superseded by the delivered strip below;
-the sheets still inform the palette fit, which is why they stay.
+the sheets still supply the ram, the footing, the posts, the rollers and the
+panels, which is why they stay.
+
+**The palette is fitted to the picture, not to the sheets.** Since 2026-09-02
+`tools/fit_mill_palette.py` runs the rail's painters and fits BG1's 96 entries
+to every pixel the two rooms put on screen, choosing the four ramp lengths by
+the same measure — so a sheet weighs exactly the area the rail paints from it,
+and the delivered files below, which are most of that area, are in the cloud.
+The refit moved the split from 36/16/32/12 to 24/24/8/40 (cold/warm/molten/
+brass) and cut the on-screen error 68% against the sheet fit it replaced.
 
 ## Delivered to this palette (2026-08-30 to 2026-09-02)
 
-Three further files were drawn **to the rail's own BG1 palette** from a
-published swatch sheet (`tools/gen_mill_assets.py` emits it; the request text
-is in the session log), at final pixel size with hard edges, and are imported
-by LOOKUP rather than by resample — `art_to_indices`: nearest entry, exact
-count reported, and a refusal past `ART_DRIFT` counts, which is what "authored
-against a different palette" looks like. Each carries its own structural
-check on import.
+Three further files were drawn **to the rail's BG1 palette as it then was**
+from a published swatch sheet (`tools/gen_mill_assets.py` emits it; the
+request text is in the session log), at final pixel size with hard edges, and
+are imported by LOOKUP rather than by resample — `art_to_indices`: nearest
+entry, exact count reported, and a refusal past `ART_DRIFT` counts, which is
+what "authored against a different palette" looks like. The palette has since
+been refitted to the picture these files are most of (above), so the drift
+figures below are the refit's residual on them rather than the artist's; the
+gate covers the rows a room SHOWS, and a colour on the chroma key's hue axis
+(`is_key_hue`) is imported nearest and not gated, because it is the old
+sheet fit's bleed and no entry will be near it again. Each file carries its
+own structural check on import.
 
 | file | answers | on import |
 |---|---|---|
-| `mode4_asset01_lobby_interior_wall.png` 256×176 | the lobby wall: cornice, clerestory louvres, pilasters, two 64×64 bays left as flat dark recesses for the sprite doors | the bays are FOUND (tall runs of the darkest index) and the wall is seated on both axes so they land on the tile grid and on the deck; 18/20 colours exact, worst drift 9 |
+| `mode4_asset01_lobby_interior_wall.png` 256×176 | the lobby wall: cornice, clerestory louvres, pilasters, two 64×64 bays left as flat dark recesses for the sprite doors | the bays are FOUND (tall runs of the darkest tone) and the wall is seated on both axes so they land on the tile grid and on the deck; 19/20 colours exact, worst drift 8 |
 | `mode4_guide_rail_cross_section_32x8.png` | the shaft columns' profile: four fluted rails, mirrored | every row byte-identical and the row mirrored, or the build stops — the invariant a vertically displaced column needs; 6/7 exact, worst 8 |
-| `mode4_molten_metal_channel_256x88.png` | the channel under the deck, replacing a hash-noise formula | tiles on 64 px exactly; 7/18 exact, worst drift 25 — it was drawn against the MOLTEN ramp *before* the chroma-key bleed was refitted out, and its darkest crust tone moved that far; every other colour sits within 17 |
+| `mode4_molten_metal_channel_256x88.png` | the channel under the deck, replacing a hash-noise formula | tiles on 64 px exactly; over the 24 rows the hall shows, 5/8 colours exact and worst drift 8; the whole file drifts 74 in rows no camera reaches, and one shown crust tone, (66,8,74), is the old darkest-molten bleed the artist was given — on the key's hue axis, imported nearest (a dark brown) and not gated |
 
 Only the channel's top rows are ever in frame (the hall's camera bottoms out
 at `SMIL_CAM_MAX`), which the request did not say and should have.

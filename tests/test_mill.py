@@ -360,15 +360,26 @@ def belt_band(cam):
 
 
 def mask_strip(im, sc, colours, rows=None):
-    """Screen column `sc` reduced to "is this pixel one of `colours`".
+    """Screen column `sc` reduced to ONE LAYER: each pixel's colour where it is
+    one of `colours`, and None where it is not.
 
-    A MASK, NOT THE PIXELS. What is under test is where a LAYER's art is, and
-    two frames of the same art in different places share no exact pixel rows
-    once a second layer is showing through it.
+    THE LAYER'S PIXELS, NOT A MASK OF THEM. What is under test is where a
+    layer's art is, and two frames of the same art in different places share
+    no exact pixel rows once a second layer is showing through it -- so the
+    other layer's pixels are blanked. They are blanked to None rather than
+    the whole strip reduced to a boolean, because a boolean strip of a column
+    the layer fills top to bottom is all True, and all True slides onto
+    itself by every distance: `vshift` then answers None for "ambiguous" and
+    the case fails on a column whose picture is a clean translation. The
+    boolean form passed for as long as it did only because one colour of the
+    ram's art happened to be shared with an OBJ palette and was dropped,
+    which punched the structure back in -- the palette refit closed that
+    coincidence and the case went red on a working rail.
     """
     x0 = sc * 8
     ys = range(*rows) if rows else range(im.height)
-    return [tuple(im.getpixel((x0 + dx, y)) in colours for dx in range(8))
+    return [tuple(p if p in colours else None
+                  for p in (im.getpixel((x0 + dx, y)) for dx in range(8)))
             for y in ys]
 
 

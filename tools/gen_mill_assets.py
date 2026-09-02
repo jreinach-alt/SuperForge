@@ -137,45 +137,66 @@ SW_SHADOW = [(0, 0, 0), (0, 0, 2), (0, 1, 3), (0, 1, 4), (1, 2, 6), (1, 2, 7),
 # moment this hall wants a sprite in it, everything at or above 128 belongs to
 # OBJ. The budget is drawn for that now rather than re-cut later.
 BG1_IX0 = 32
-N_COLD, N_WARM, N_MOLTEN, N_BRASS = 36, 16, 32, 12
-IX_COLD = BG1_IX0                       # 32.. 67  machined steel: the shafts
-IX_WARM = IX_COLD + N_COLD              # 68.. 83  worked iron: the machine
-                                        #   housings and the lift frames.
-                                        # TICK: ok -- a CGRAM index. `frames`
-                                        #   here is ironwork, not animation
-IX_MOLTEN = IX_WARM + N_WARM            # 84..115  the melt, the glow, hot metal
-IX_BRASS = IX_MOLTEN + N_MOLTEN         # 116..127 fittings, bands, plaques
 
-# THE PALETTE IS FITTED TO THE ART, NOT A CURVE THROUGH IT.
+# THE PALETTE IS FITTED TO THE PICTURE, NOT A CURVE THROUGH THE ART.
 #
 # The four ramps above are the sheet's own swatches, and the first cut built
-# the palette by INTERPOLATING them — `_stretch(_anchors(SW_*), n)` — then
+# the palette by INTERPOLATING them -- `_stretch(_anchors(SW_*), n)` -- then
 # quantised the kit art onto the result by nearest entry. That places the
 # entries along a 1-D CURVE while the art is a 3-D CLOUD around it, and the
-# shipped tree measured the cost: only 76 of 96 claimed CGRAM entries were
-# ever drawn, and the cold ramp used 19 of its 36.
+# tree that shipped it measured the cost: only 76 of 96 claimed CGRAM entries
+# were ever drawn, and the cold ramp used 19 of its 36.
 #
 # An 8bpp layer indexes CGRAM DIRECTLY with no palette field, so the palette
-# can be chosen FROM the art instead. These four lists are per-family k-means
-# over the kit's own pixels, sorted by luminance so each ramp stays MONOTONE —
-# `C(k)` / `Wm(k)` / `Ml(k)` / `Br(k)` are indexed by hand all through the
-# painter and must keep meaning "k steps from dark to light".
-#
-# Weighted per-pixel error against the ramps they replace: cold -81%, warm
-# -49%, molten -93%, brass -57%. Molten is the largest because the melt spans
-# the widest cloud and an interpolated curve through it was furthest from the
-# pixels it had to represent.
+# can be chosen FROM the art instead. The second cut fitted the SHEETS --
+# per-family k-means over every kit pixel at source resolution -- which
+# weighted a rail strip the rail paints as one 32-pixel row the same as the
+# lobby wall that covers a whole scene, and never saw the delivered art at
+# all. This cut fits WHAT IS ON SCREEN: `tools/fit_mill_palette.py` runs the
+# painters below with SOURCE set (see `kit`), takes every BG1 pixel of every
+# room the rail shows, and fits each family to its share of that cloud. It
+# also CHOOSES THE SPLIT -- the four ramp lengths were 36/16/32/12 by hand;
+# now each family's error is measured at every length and the split with the
+# least total on-screen error is taken. The painters address tones as
+# FRACTIONS of a ramp (`Wm(t)`, below) so a split can move without any of
+# them being retouched; every ramp stays MONOTONE by luminance so a fraction
+# keeps meaning "that far from dark to light".
 #
 # GENERATED, and committed rather than computed at build time for the reason
 # KIT_BOX carries: a build must not depend on a clustering pass agreeing with
-# itself run to run. Regenerate with `python3 tools/fit_mill_palette.py`.
-# A family with fewer DISTINCT entries than its length keeps the duplicates —
-# the indices are addressed by hand and must all stay valid, and a ramp that
-# cannot fill itself is saying the art has no more steps to give.
-FIT_STEEL_COLD = [(2,3,6), (2,3,6), (2,3,6), (3,3,4), (2,3,7), (4,3,3), (3,3,7), (3,4,4), (3,4,5), (3,4,5), (4,4,3), (4,4,4), (3,4,7), (5,4,3), (5,4,3), (3,4,8), (5,4,4), (5,4,4), (3,4,9), (4,5,6), (4,5,6), (5,5,4), (5,5,4), (5,5,5), (5,5,5), (6,5,4), (4,5,9), (5,6,7), (5,6,10), (5,7,10), (7,8,10), (8,9,12), (10,10,13), (14,14,14), (21,21,21), (27,25,24)]
-FIT_STEEL_WARM = [(6,5,5), (6,6,5), (5,6,8), (7,6,6), (8,6,5), (8,7,6), (9,7,6), (8,8,7), (9,8,8), (9,9,9), (10,9,8), (11,10,9), (12,11,11), (14,13,12), (16,15,14), (19,18,16)]
-FIT_MOLTEN = [(5,0,7), (7,1,1), (10,1,1), (12,2,1), (16,3,1), (21,4,1), (26,6,1), (29,8,1), (30,10,0), (26,12,1), (31,11,1), (31,13,1), (31,15,2), (31,17,3), (31,18,4), (28,19,7), (31,20,6), (28,21,9), (31,21,7), (27,22,14), (31,22,8), (31,24,7), (31,24,11), (31,26,12), (30,26,17), (31,29,16), (31,28,21), (30,29,26), (31,31,22), (31,30,28), (31,31,29), (31,31,31)]
-FIT_BRASS = [(0,0,0), (1,0,0), (1,1,1), (1,1,2), (2,1,1), (1,1,3), (3,2,2), (2,2,5), (4,3,2), (8,5,2), (14,7,3), (21,14,5)]
+# itself run to run. A family with fewer DISTINCT entries than its length
+# keeps the duplicates -- every fraction must land on a real step, and a ramp
+# that cannot fill itself is saying the art has no more steps to give.
+# Regenerate with `python3 tools/fit_mill_palette.py --write` -- and do so
+# whenever a room is added or its art changes, because the cloud is the
+# picture.
+# --- GENERATED by tools/fit_mill_palette.py: begin ---
+# Do not hand-edit. Fitted to the PICTURE -- every BG1 pixel of the hall's
+# two screens and the lobby's one, each counted once -- and the split chosen
+# to minimise the total on-screen error (floor 8 a ramp; the warm ramp
+# floors at its 16 hand-dithered tones). 84506 source px in the
+# cloud, 28714 drawn by hand on the ramps, 188 rejected as key
+# fringe. Error is the eye-weighted squared distance per on-screen source
+# pixel, against the ramps and split this run replaced:
+#   cold    65283 px (77.3%)  24 -> 24 entries (23 distinct)  error   11.6 ->   11.6  (hand-drawn area 0 px, 0 tones)
+#   warm    10015 px (11.9%)  24 -> 24 entries (24 distinct)  error    1.5 ->    1.5  (hand-drawn area 26882 px, 16 tones)
+#   molten   2174 px ( 2.6%)   8 ->  8 entries (8 distinct)  error    1.6 ->    1.6  (hand-drawn area 688 px, 31 tones)
+#   brass    7034 px ( 8.3%)  40 -> 40 entries (38 distinct)  error    4.4 ->    4.4  (hand-drawn area 1144 px, 34 tones)
+#   total                          error   19.0 ->   19.0 (+0%)
+N_COLD, N_WARM, N_MOLTEN, N_BRASS = 24, 24, 8, 40
+FIT_STEEL_COLD = [(2,3,5), (3,3,4), (2,3,6), (2,3,6), (3,3,7), (3,4,5), (3,4,8), (5,4,4), (3,4,9), (6,4,5), (4,5,6), (5,5,5), (4,5,9), (5,6,10), (5,7,10), (6,7,9), (7,8,11), (8,9,12), (10,10,13), (14,14,14), (18,19,20), (22,22,22), (27,25,23), (28,29,29)]
+FIT_STEEL_WARM = [(7,5,6), (5,6,7), (6,6,5), (7,6,5), (6,6,9), (7,7,6), (9,6,8), (9,7,6), (8,8,7), (9,8,8), (8,8,11), (11,9,6), (12,8,9), (11,10,9), (12,11,11), (11,11,13), (13,12,10), (14,13,12), (18,12,12), (16,15,14), (17,16,15), (20,17,14), (19,18,16), (20,19,17)]
+FIT_MOLTEN = [(8,2,2), (12,1,2), (18,3,1), (22,4,0), (25,5,1), (26,8,0), (26,12,0), (25,20,13)]
+FIT_BRASS = [(1,0,0), (1,0,1), (1,1,1), (1,1,3), (2,1,1), (2,1,3), (2,1,4), (4,0,4), (2,1,4), (1,2,4), (3,1,4), (3,1,5), (3,2,2), (2,2,5), (2,2,5), (4,2,1), (3,2,5), (3,3,2), (4,3,2), (5,3,1), (4,3,4), (5,4,3), (7,3,4), (7,4,1), (6,4,3), (7,5,3), (9,5,2), (8,6,4), (10,7,3), (13,5,6), (13,7,3), (12,8,4), (14,11,6), (17,10,4), (18,13,7), (22,13,5), (26,14,0), (23,18,10), (23,19,13), (25,20,10)]
+# --- GENERATED by tools/fit_mill_palette.py: end ---
+IX_COLD = BG1_IX0                       # machined steel: the shafts, and the
+                                        #   lobby's wall
+IX_WARM = IX_COLD + N_COLD              # worked iron: the machine housings
+                                        #   and the lift frames.
+                                        # TICK: ok -- a CGRAM index. `frames`
+                                        #   here is ironwork, not animation
+IX_MOLTEN = IX_WARM + N_WARM            # the melt, the glow, hot metal
+IX_BRASS = IX_MOLTEN + N_MOLTEN         # fittings, bands, plaques
 
 PAL_BG1 = [rgb(*c) for c in
            (FIT_STEEL_COLD + FIT_STEEL_WARM + FIT_MOLTEN + FIT_BRASS)]
@@ -451,6 +472,46 @@ KIT_BOX = {
 }
 _KIT_CACHE = {}
 
+# PROVENANCE, FOR THE FITTER. `tools/fit_mill_palette.py` fits the palette to
+# what is ON SCREEN, and the only honest way to know what is on screen is to
+# run the painters. So when SOURCE is a dict, the two quantisers below stop
+# quantising: every opaque source pixel gets a SOURCE ID (256 and up, so it
+# can never be mistaken for a CGRAM index) whose RGB888 is recorded in SOURCE,
+# and the painters paint those ids exactly where they would have painted the
+# nearest entry. A pixel the painters draw by hand -- `Wm(t)`, a tone rather
+# than a colour -- stays an ordinary index, and the fitter counts it but does
+# not fit it: it will be whatever the ramp has at that fraction.
+#
+# Nothing in a normal build sets SOURCE, and the build does not read it.
+SOURCE = None
+_SOURCE_IX = {}
+
+
+def _source_id(rgb):
+    if rgb not in _SOURCE_IX:
+        _SOURCE_IX[rgb] = 256 + len(SOURCE)
+        SOURCE[_SOURCE_IX[rgb]] = rgb
+    return _SOURCE_IX[rgb]
+
+
+def rgb888(v):
+    """A painted value -> its RGB888: a CGRAM index through the palette, or a
+    source id through SOURCE."""
+    if v >= 256:
+        return SOURCE[v]
+    w = PAL_BG1[v - BG1_IX0]
+    return ((w & 31) << 3 | (w & 31) >> 2,
+            ((w >> 5) & 31) << 3 | ((w >> 5) & 31) >> 2,
+            ((w >> 10) & 31) << 3 | ((w >> 10) & 31) >> 2)
+
+
+def rgb555(v):
+    """...and the same in the palette's own 5-bit units."""
+    if v >= 256:
+        return tuple(c >> 3 for c in SOURCE[v])
+    w = PAL_BG1[v - BG1_IX0]
+    return (w & 31, (w >> 5) & 31, (w >> 10) & 31)
+
 
 def kit(name, size):
     """One converted asset as an index buffer, cached. Imported lazily because
@@ -460,14 +521,41 @@ def kit(name, size):
     if key not in _KIT_CACHE:
         import kit_import
         sheet, box = KIT_BOX[name]
-        _KIT_CACHE[key] = kit_import.convert(str(KIT / f"{sheet}.png"), box, size)
+        if SOURCE is None:
+            _KIT_CACHE[key] = kit_import.convert(str(KIT / f"{sheet}.png"),
+                                                 box, size)
+        else:
+            from PIL import Image
+            im = kit_import.resample(kit_import.key_to_alpha(
+                Image.open(KIT / f"{sheet}.png").crop(box)), size)
+            px = im.load()
+            _KIT_CACHE[key] = [[_source_id(px[x, y][:3]) if px[x, y][3] else 0
+                                for x in range(size[0])]
+                               for y in range(size[1])]
     return _KIT_CACHE[key]
 
 
-def C(k):  return IX_COLD + max(0, min(N_COLD - 1, int(k)))
-def Wm(k): return IX_WARM + max(0, min(N_WARM - 1, int(k)))
-def Ml(k): return IX_MOLTEN + max(0, min(N_MOLTEN - 1, int(k)))
-def Br(k): return IX_BRASS + max(0, min(N_BRASS - 1, int(k)))
+# A TONE IS A FRACTION OF ITS RAMP, 0 dark to 1 light -- NOT A STEP COUNT.
+# The painters used to say `Wm(9)`, nine steps up a sixteen-step ramp, and
+# that number meant something only while the ramp was sixteen long. The
+# ramp lengths are now the FITTER'S to choose (N_* above are generated), so
+# a step count would silently point at a different tone every time the
+# split moved. The literal denominators in the painters (`Wm(9 / 15)`) are
+# the step counts each tone was picked on, frozen as fractions; they are not
+# the ramp's length and do not track it.
+TONES = None                    # the fitter: {family ix0: {t, ...}} drawn by hand
+
+
+def _tone(ix0, n, t):
+    if TONES is not None:
+        TONES.setdefault(ix0, set()).add(round(t, 4))
+    return ix0 + max(0, min(n - 1, round(t * (n - 1))))
+
+
+def C(t):  return _tone(IX_COLD, N_COLD, t)
+def Wm(t): return _tone(IX_WARM, N_WARM, t)
+def Ml(t): return _tone(IX_MOLTEN, N_MOLTEN, t)
+def Br(t): return _tone(IX_BRASS, N_BRASS, t)
 
 PX = COLS * 8                                   # 256 px wide
 PXH = ROWS * 8                                  # ...and 512 tall, the whole map
@@ -539,15 +627,15 @@ def car_pixels(wcols):
             # FLAT PANELS, no dither. A 1-index checker on a 32 px box reads
             # as noise at this size and fights the one thing the car exists to
             # frame; the shell gets its form from the bands and the rivets.
-            buf[y][x] = Wm(1) if edge else (Br(6) if band else
-                                            Wm(9 if 4 <= x < w - 4 else 6))
+            buf[y][x] = Wm(1 / 15) if edge else (Br(6 / 11) if band else
+                                            Wm((9 if 4 <= x < w - 4 else 6) / 15))
     for y in range(3, h - 3, 9):                 # rivet courses on the shell
         for x in range(3, w - 3, 6):
-            buf[y][x] = Br(9)
+            buf[y][x] = Br(9 / 11)
     wx, wy, ww, wh = WINDOW
     for y in range(wy, wy + wh):                 # the frame around the glass...
         for x in range(wx, wx + ww):
-            buf[y][x] = Br(4)
+            buf[y][x] = Br(4 / 11)
     for y in range(wy + 2, wy + wh - 2):         # ...and the glass itself: a
         for x in range(wx + 2, wx + ww - 2):     #   HOLE, so the rider shows
             buf[y][x] = 0
@@ -580,11 +668,17 @@ def paint_pier(buf):
             course = (y % 24) < 2
             lit = x == 7
             v = 3 if course else 7 + ((x * 5 + (y // 24) * 3) % 5)
-            buf[y][x] = Wm(13 if lit else v)
-    for y in range(FLOOR * 8 + 72, FLOOR * 8 + 104):   # a furnace hatch
+            buf[y][x] = Wm((13 if lit else v) / 15)
+    # A FURNACE HATCH, lit from below. `y` here is a MAP row and the edge and
+    # glow tests used to compare it with canvas-relative numbers (72, 74):
+    # every row failed the edge test and the glow ran off the ramp's dark end,
+    # so the hatch drew as a flat darkest-molten rectangle with no rim. Found
+    # when the tone fractions were recorded: thirty-two "hand tones" below 0.
+    for y in range(FLOOR * 8 + 72, FLOOR * 8 + 104):
+        r = y - FLOOR * 8
         for x in range(1, 7):
-            edge = y in (72, 73, 102, 103) or x in (1, 6)
-            buf[y][x] = Br(9) if edge else Ml(6 + 20 * (1 - (y - 74) / 28))
+            edge = r in (72, 73, 102, 103) or x in (1, 6)
+            buf[y][x] = Br(9 / 11) if edge else Ml((6 + 20 * (1 - (r - 74) / 28)) / 31)
 
 
 def paint_crown(buf, cx, w, st):
@@ -602,11 +696,11 @@ def paint_crown(buf, cx, w, st):
         for y in range(top, top + 20):
             for x in range(8):
                 if y < top + 4:
-                    v = Wm(15 if 1 <= x < 7 else 3)
+                    v = Wm((15 if 1 <= x < 7 else 3) / 15)
                 elif y < top + 7:
-                    v = Br(9 - (y - top - 4))
+                    v = Br((9 - (y - top - 4)) / 11)
                 else:
-                    v = Wm(2 if x in (0, 7) else 10 + ((x + st) % 3))
+                    v = Wm((2 if x in (0, 7) else 10 + ((x + st) % 3)) / 15)
                 buf[y][x0 + x] = v
 
 
@@ -634,26 +728,26 @@ def paint_upright(buf, cx, st, side):
             edge = x in (0, w - 1)
             inner = 2 <= x < w - 2
             v = 1 if edge else (9 if inner else 5)
-            buf[y][cx + x] = Br(2 + 5 * glow) if (glow > 0.45 and not edge) \
-                else Wm(v)
+            buf[y][cx + x] = Br((2 + 5 * glow) / 11) if (glow > 0.45 and not edge) \
+                else Wm(v / 15)
     for y in range(top, top + 12):                    # the capital
         for x in range(w):
             over = y < top + 3
-            buf[y][cx + x] = Wm(0 if x in (0, w - 1) else (13 if over else 7))
+            buf[y][cx + x] = Wm((0 if x in (0, w - 1) else (13 if over else 7)) / 15)
     for gy in range(top + 20, bot - 12, 32):          # bolt courses
         for y in (gy, gy + 1, gy + 2):
             for x in range(1, w - 1):
-                buf[y][cx + x] = Br(3 + (5 if y == gy + 1 else 0))
+                buf[y][cx + x] = Br((3 + (5 if y == gy + 1 else 0)) / 11)
     if side == 0:                                     # one plaque a station
         py = top + 46 + st * 4
         for y in range(py, py + 10):
             for x in range(1, w - 1):
                 rim = y in (py, py + 9) or x in (1, w - 2)
-                buf[y][cx + x] = Br(10 if rim else 4 + ((x + y + st) % 3) * 2)
+                buf[y][cx + x] = Br((10 if rim else 4 + ((x + y + st) % 3) * 2) / 11)
     for y in range(bot - 12, bot):                    # the splayed foot
         k = (y - (bot - 12)) // 4
         for x in range(w):
-            buf[y][cx + x] = Wm(4 if x < k or x >= w - k else 8)
+            buf[y][cx + x] = Wm((4 if x < k or x >= w - k else 8) / 15)
 
 
 def paint_overhead(buf, cx, w):
@@ -685,7 +779,7 @@ def paint_overhead(buf, cx, w):
                         buf[y0 + y][x0 + x] = v
     for x in range(cx, cx + w):                  # a shadow line under the plant
         for y in (top + 32, top + 33):
-            buf[y][x] = Wm(1)
+            buf[y][x] = Wm(1 / 15)
 
 
 def paint_belt_front(buf, cx, w):
@@ -730,7 +824,7 @@ def melt_art():
     bottoms out at SMIL_CAM_MAX, so the channel's first (224 + CAM_MAX) -
     MELT_ROW*8 rows are the visible ones."""
     if not _MELT:
-        art = art_to_indices(MELT_ART)
+        art = art_to_indices(MELT_ART, shown=224 + CAM_MAX - MELT_ROW * 8)
         if len(art) != PXH - MELT_ROW * 8 or len(art[0]) != PX:
             raise SystemExit(f"{MELT_ART}: {len(art[0])}x{len(art)}, need "
                              f"{PX}x{PXH - MELT_ROW * 8}")
@@ -755,9 +849,9 @@ def paint_deck_and_melt(buf, cx, w):
             if v:
                 buf[y][x] = v
         for y in range(d0 + 16, m0):             # ...and its shadowed under-run
-            buf[y][x] = Wm(3 + ((x // 4 + y) % 2))
+            buf[y][x] = Wm((3 + ((x // 4 + y) % 2)) / 15)
         for y in range(m0 - 3, m0):              # the lip catching the glow
-            buf[y][x] = Ml(24 + (y - m0 + 3) * 3)
+            buf[y][x] = Ml((24 + (y - m0 + 3) * 3) / 31)
         for y in range(m0, PXH):                 # the channel: delivered art
             buf[y][x] = melt_art()[y - m0][x % PX]
 
@@ -776,14 +870,14 @@ def paint_shaft_house(buf, cx, w):
         for x in range(cx, cx + w):               # a landing platform
             for y in range(y0, y0 + 6):
                 r = y - y0
-                buf[y][x] = Wm(14 if r < 2 else (3 if r > 3 else 8))
+                buf[y][x] = Wm((14 if r < 2 else (3 if r > 3 else 8)) / 15)
             for y in range(y0 + 6, y0 + 10):      # ...and its shadowed soffit
-                buf[y][x] = Wm(2 + ((x // 5 + y) % 2))
+                buf[y][x] = Wm((2 + ((x // 5 + y) % 2)) / 15)
         for x in range(cx, cx + w, 24):           # hangers up to the beam above
             for k in range(3):
                 for y in range(max(0, y0 - 18), y0):
                     if x + k < cx + w:
-                        buf[y][x + k] = Wm(4 + (3 if k == 1 else 0))
+                        buf[y][x + k] = Wm((4 + (3 if k == 1 else 0)) / 15)
 
 
 def paint_bg1():
@@ -903,16 +997,47 @@ ART_DRIFT = 28                 # counts a delivered colour may sit from an entry
 ART_FIT = {}                   # name -> (exact, distinct, worst), for the summary
 
 
-def art_to_indices(name, drift=ART_DRIFT):
-    """A delivered PNG under the kit -> a 2-D list of BG1 CGRAM indices."""
+def is_key_hue(r, g, b):
+    """On the KEY'S HUE AXIS: red and blue both up, green well down.
+
+    The sheets are keyed on magenta and every asset's edge blends the key
+    toward the art through values no key test can claim without eating real
+    pixels; the sheet fit once spent eleven of ninety-six entries on that
+    halo, and one of them -- the old darkest molten, (5,0,7) -- was then
+    AUTHORED INTO the delivered channel as a crust tone. So a colour on this
+    axis is not art whichever file it arrives in: the fitter drops it from
+    the cloud, and `art_to_indices` imports it nearest and does not gate it,
+    because no entry will ever be near it again and that is the point.
+
+    Safe here for a reason particular to this art: steel is neutral to blue,
+    molten runs red to white through orange, brass brown to gold, and NONE of
+    them puts red and blue up together with green down.
+    """
+    return r > 48 and b > 48 and g < 0.60 * min(r, b)
+
+
+def art_to_indices(name, drift=ART_DRIFT, shown=None):
+    """A delivered PNG under the kit -> a 2-D list of BG1 CGRAM indices.
+
+    `shown` is how many of its rows a room ever puts on screen; the drift
+    gate covers THOSE. The palette is fitted to what is shown (see
+    `tools/fit_mill_palette.py`), so a colour that exists only in rows no
+    camera reaches has no entry near it by construction, and refusing the
+    file for it would be refusing the fit. The whole file is still imported
+    -- every row lands on its nearest entry -- and the summary reports the
+    drift of the shown rows beside the file's."""
     from PIL import Image
     im = Image.open(KIT / name).convert("RGB")
     W, H = im.size
+    shown = H if shown is None else shown
     rgbs = [((w & 31) << 3 | (w & 31) >> 2,
              ((w >> 5) & 31) << 3 | ((w >> 5) & 31) >> 2,
              ((w >> 10) & 31) << 3 | ((w >> 10) & 31) >> 2) for w in PAL_BG1]
     px = im.load()
-    cache, worst, exact = {}, 0, 0
+    if SOURCE is not None:                       # the fitter: colours, not entries
+        return [[_source_id(px[x, y]) for x in range(W)] for y in range(H)]
+    cache, worst, exact, worst_all = {}, 0, 0, 0
+    on_screen = {px[x, y] for y in range(shown) for x in range(W)}
     for c in {px[x, y] for y in range(H) for x in range(W)}:
         j = min(range(len(rgbs)),
                 key=lambda i: (2 * (rgbs[i][0] - c[0]) ** 2
@@ -920,13 +1045,17 @@ def art_to_indices(name, drift=ART_DRIFT):
                                + (rgbs[i][2] - c[2]) ** 2))
         d = max(abs(rgbs[j][k] - c[k]) for k in range(3))
         cache[c] = BG1_IX0 + j
-        worst = max(worst, d)
-        exact += (d == 0)
+        if is_key_hue(*c):                   # the bleed: imported, not gated
+            continue
+        worst_all = max(worst_all, d)
+        if c in on_screen:
+            worst = max(worst, d)
+            exact += (d == 0)
     if worst > drift:
-        raise SystemExit(f"{name}: a colour is {worst} counts from the nearest "
-                         f"BG1 entry -- this was authored against a different "
-                         f"palette")
-    ART_FIT[name] = (exact, len(cache), worst)
+        raise SystemExit(f"{name}: a shown colour is {worst} counts from the "
+                         f"nearest BG1 entry -- this was authored against a "
+                         f"different palette")
+    ART_FIT[name] = (exact, len(on_screen), worst, shown, H, worst_all)
     return [[cache[px[x, y]] for x in range(W)] for y in range(H)]
 
 
@@ -975,21 +1104,22 @@ def _lobby_art():
     im = Image.open(LOBBY_ART).convert("RGB")
     if im.size != (PX, LOBBY_ART_H):
         raise SystemExit(f"lobby art is {im.size}, expected {(PX, LOBBY_ART_H)}")
-    look = {}
-    for i, w in enumerate(PAL_BG1):
-        look.setdefault(((w & 31) << 3 | (w & 31) >> 2,
-                         ((w >> 5) & 31) << 3 | ((w >> 5) & 31) >> 2,
-                         ((w >> 10) & 31) << 3 | ((w >> 10) & 31) >> 2),
-                        BG1_IX0 + i)
     raw = art_to_indices(LOBBY_ART.name)
-    LOBBY_ART_FIT.append(ART_FIT[LOBBY_ART.name])
+    if SOURCE is None:
+        LOBBY_ART_FIT.append(ART_FIT[LOBBY_ART.name])
 
-    # A BAY IS A TALL RUN OF COLUMNS WHOSE PIXELS ARE ALL THE DARKEST INDEX.
+    def lum(i):                     # in BGR555 units: the +28 below is in them
+        r, g, b = rgb555(i)
+        return 2 * r + 4 * g + b
+
+    # A BAY IS A TALL RUN OF COLUMNS WHOSE PIXELS ARE ALL THE DARKEST TONE.
     # The brief asked for flat dark recesses precisely so the sprites could
     # cover them, which makes "flat and dark" the thing to search for. The
     # reserved band at the top is the same colour across the full width, so a
-    # bay is the run that does NOT reach row 0.
-    dark = min(v for r in raw for v in r)
+    # bay is the run that does NOT reach row 0. Darkest by LUMINANCE, not the
+    # lowest index: an index is a position in one ramp and the ramps are not
+    # ordered against each other.
+    dark = min({v for r in raw for v in r}, key=lum)
     def dark_runs(xs):
         """Contiguous row runs where every column in `xs` is the dark index."""
         col = [y for y in range(LOBBY_ART_H)
@@ -1063,9 +1193,6 @@ def _lobby_art():
     # first cut of this drew beams one luminance step off the ground they sat
     # on. The beam is the tone the art already outlines with, so the ceiling
     # belongs to the same drawing as the wall under it.
-    def lum(i):
-        w = PAL_BG1[i - BG1_IX0]
-        return 2 * (w & 31) + 4 * ((w >> 5) & 31) + ((w >> 10) & 31)
     used = sorted({v for r in raw for v in r}, key=lum)
     beam = max(used, key=lambda i: -abs(lum(i) - (lum(dark) + 28)))
     for y in range(slide + CEIL_BAND):
@@ -1162,9 +1289,9 @@ def paint_lobby():
     for y in range(fl, PXH):                     # the deck
         for x in range(PX):
             r = y - fl
-            buf[y][x] = (Wm(15) if r < 2 else
-                         Wm(3) if r % 12 in (0, 1) else
-                         Wm(6 + ((x // 4 + r) % 3)))
+            buf[y][x] = (Wm(1.0) if r < 2 else
+                         Wm(3 / 15) if r % 12 in (0, 1) else
+                         Wm((6 + ((x // 4 + r) % 3)) / 15))
     return buf
 
 
@@ -1795,8 +1922,10 @@ SMIL_BG2_REST     = 0
           f"({len(PAL_BG1)} BG1 + {len(PAL_BG2)} BG2), "
           f"row table {PHASES}+1 x {ROW_BYTES} B, "
           f"rider {len(rchr)} B ({len(RIDER_CELLS)} cells)")
-    for name, (e, n, w) in sorted(ART_FIT.items()):
-        print(f"  mill: {name}: {e}/{n} colours exact, worst drift {w} of "
+    for name, (e, n, w, shown, h, w_all) in sorted(ART_FIT.items()):
+        rows = "" if shown == h else (f" over the {shown} rows shown of {h}"
+                                      f" (whole file {w_all})")
+        print(f"  mill: {name}: {e}/{n} colours exact, worst drift {w}{rows} of "
               f"{ART_DRIFT} allowed")
     print(f"  mill: lobby bays read at {[b[0] for b in lobby_bays()]} px")
 
