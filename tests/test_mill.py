@@ -1029,15 +1029,28 @@ def test_the_car_moves_as_one_piece(tmp_path):
         m.advance(8)
         b = shot(m, tmp_path / "b.png")
         yb = CAR_ROW * 8 - m.read_u16(W, DP_CAM) - m.read_u16(W, DP_CAR)
-        ONLY1, _ = layers(m)
     assert ya == yb, (
         "the camera is still following the car, so it holds still on screen "
         "and this case cannot see a column left behind — the ride's clamp "
         "moved")
+    # RAW PIXELS, OUTSIDE THE GLASS. This compared BG1-only colours, and that
+    # was seeing the defect by luck: a column left on the shaft scrolls the
+    # CHANNEL below the car past the camera, and the channel's colours were
+    # nothing BG2 had. The delivered channel's dark crust shares BG2's dark
+    # range, `layers()` dropped every changed pixel as ambiguous, and the plant
+    # went TEST-BLIND. The car is opaque everywhere but the glass, and BG2's
+    # belt runs behind him there (6-10 px a sample, on the clean ROM); so the
+    # band the glass covers is excluded and everything else in the car's four
+    # columns must be identical eight frames apart, whatever colour it is.
+    g0, g1 = ya + _art("SMIL_WIN_Y") - 1, ya + _art("SMIL_WIN_Y") + _art("SMIL_WIN_H")
+    pa, pb = a.load(), b.load()
     for sc in range(CAR_COL, CAR_COL + SHAFT_COLS):
-        assert mask_strip(a, sc, ONLY1) == mask_strip(b, sc, ONLY1), (
-            f"screen column {sc} of the car moved while the rest held — the "
-            f"car is not moving as one piece")
+        moved = [(x, y) for x in range(sc * 8, sc * 8 + 8) for y in range(224)
+                 if not g0 <= y < g1 and pa[x, y] != pb[x, y]]
+        assert not moved, (
+            f"screen column {sc} of the car changed in {len(moved)} pixel(s) "
+            f"(first {moved[0]}) while the car held still — a column is being "
+            f"left on the shaft; the car is not moving as one piece")
 
 
 # --------------------------------------------------------------------------
