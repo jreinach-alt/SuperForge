@@ -37,7 +37,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from schemas import (BLEND_REGS, MATH_LAYERS, MODE_BPP, MODE_LAYERS,  # noqa: E402
                      OFFSET_H_VALUE_MASK, OFFSET_LAYER_BITS, OFFSET_MODES,
-                     OFFSET_REGS, OFFSET_VALUE_MASK, OFFSET_VSEL_BIT,
+                     OFFSET_REGS, OFFSET_ROW_VOFS, OFFSET_ROWSEL_MODE,
+                     OFFSET_ROWSEL_REG, OFFSET_VALUE_MASK, OFFSET_VSEL_BIT,
                      REGISTER_FOOTPRINT, TILEMAP_SHAPES, VIDEO_REGS,
                      SCREEN_LAYERS, SCREEN_REGS, WINDOW_MODES,
                      BytesClaim, DmaInitClaim,
@@ -859,7 +860,8 @@ def check_chr_depth(video: list[tuple], vram: list[tuple],
 
 
 def compose_video_offset(video: list[tuple], offset: list[tuple],
-                         screen: list[tuple], scope: str) -> dict | None:
+                         screen: list[tuple], scope: str,
+                         bands: list[tuple] = ()) -> dict | None:
     """Compose a scene's video-mode and offset-per-tile claims, or REFUSE.
 
     `video`/`offset`/`screen` are [(claim, who)] over the globals+scene UNION,
@@ -876,10 +878,40 @@ def compose_video_offset(video: list[tuple], offset: list[tuple],
     ordinary intersection. What is here is the arm no register can see — a
     [[claims.screen]] designation of a layer the mode does not render.
     """
-    if not video and not offset:
+    if not video and not offset and not bands:
         return None
     checks = 0
     warnings: list[str] = []
+
+    # O10 — bands are rows OF A TABLE. A scene that selects between rows of
+    # an offset table it does not have is declaring a transfer onto a port
+    # that means nothing here (BG3VOFS scrolls a drawable BG3 in every other
+    # mode), and two bands claims are two HDMA channels on one port.
+    if bands:
+        checks += 1
+        bc, bwho = bands[0]
+        if not offset:
+            raise AllocationError(
+                f"OFFSET BANDS in scene '{scope}': {bc.name} ({bwho}) "
+                f"declares {bc.rows} bands, but no [[claims.offset]] holds "
+                f"this scene. A band is one ROW of the scene's offset table "
+                f"selected per scanline through BG3VOFS (rowOffset = "
+                f"VScroll >> 3, SnesPpu.cpp:262); with no table BG3 is a "
+                f"drawable layer here, or absent from the mode, and the "
+                f"channel this would synthesize on BG3VOFS would scroll a "
+                f"picture, not select a row. Compose the feature that "
+                f"declares the table into this scene, or drop the bands "
+                f"claim (docs/100 §5, O10)")
+        if len(bands) >= 2:
+            c, who = bands[1]
+            raise AllocationError(
+                f"OFFSET BANDS contention in scene '{scope}': {bc.name} "
+                f"({bwho}) and {c.name} ({who}) both declare bands over this "
+                f"scene's one offset table. There is one BG3VOFS and one row "
+                f"it names per scanline, so two band sets are two HDMA "
+                f"channels driving one write-twice port on the same lines — "
+                f"the contention split-mode died on. One feature declares "
+                f"the scene's bands (docs/100 §5, O10)")
 
     # O1 — one video mode, one owner. BGMODE is a write-only byte and the
     # OWNERSHIP of it, not the value, is the resource: two features declaring
@@ -1121,6 +1153,13 @@ def compose_video_offset(video: list[tuple], offset: list[tuple],
             fields["HMASK"] = OFFSET_H_VALUE_MASK
         if mode == 4:
             fields["VSEL"] = OFFSET_VSEL_BIT
+        if bands:
+            # The band count and the row stride the HDMA table is built
+            # from. Whether the rows a band names EXIST in the table's VRAM
+            # claim is not reachable from here (docs/100 §14, the placement
+            # limit); the parser holds the hardware ceiling.
+            fields["BANDS"] = bands[0][0].rows
+            fields["ROW_VOFS"] = OFFSET_ROW_VOFS
 
     regs = ((VIDEO_REGS if video else ())
             + (OFFSET_REGS if offset else ()))
@@ -1130,8 +1169,10 @@ def compose_video_offset(video: list[tuple], offset: list[tuple],
             "mode": mode,
             "axis": offset[0][0].axis if offset else None,
             "layers": list(offset[0][0].layers) if offset else [],
+            "bands": bands[0][0].rows if bands else 1,
             "video": [(c, who) for c, who in video],
             "offset": [(c, who) for c, who in offset],
+            "bands_claims": [(c, who) for c, who in bands],
             "warnings": warnings,
             "modes": len(video), "offsets": len(offset), "checks": checks}
 
@@ -1905,6 +1946,7 @@ def allocate(sub: Substrate, features: dict[str, FeatureDecl],
     gblend: list[tuple] = []
     gvideo: list[tuple] = []
     goffset: list[tuple] = []
+    gbands: list[tuple] = []
     g_vram, g_dp, g_wram, g_cgram, g_oam, g_rom = [], [], [], [], [], []
     for f in global_feats:
         who = f"engine:{f.name}"
@@ -1921,6 +1963,7 @@ def allocate(sub: Substrate, features: dict[str, FeatureDecl],
         gblend += [(c, who) for c in f.blend]
         gvideo += [(c, who) for c in f.video]
         goffset += [(c, who) for c in f.offset]
+        gbands += [(c, who) for c in f.offset_bands]
         gvblank += f.vblank_bytes_per_frame
         gxfers += f.vblank_transfers_per_frame
         g_init_zero += list(f.init_zero)
@@ -1958,6 +2001,7 @@ def allocate(sub: Substrate, features: dict[str, FeatureDecl],
         s_blend: list[tuple] = []
         s_video: list[tuple] = []
         s_offset: list[tuple] = []
+        s_bands: list[tuple] = []
         sm.vblank_bytes = gvblank
         sm.vblank_transfers = gxfers
         for f in feats:
@@ -1975,6 +2019,7 @@ def allocate(sub: Substrate, features: dict[str, FeatureDecl],
             s_blend += [(c, who) for c in f.blend]
             s_video += [(c, who) for c in f.video]
             s_offset += [(c, who) for c in f.offset]
+            s_bands += [(c, who) for c in f.offset_bands]
             sm.vblank_bytes += f.vblank_bytes_per_frame
             sm.vblank_transfers += f.vblank_transfers_per_frame
             sm.init_zero += list(f.init_zero)
@@ -2009,14 +2054,32 @@ def allocate(sub: Substrate, features: dict[str, FeatureDecl],
         # settled until R1 has passed.
         sm.video_offset = compose_video_offset(
             [*gvideo, *s_video], [*goffset, *s_offset],
-            [*gscreen, *s_screen], sc.id)
+            [*gscreen, *s_screen], sc.id, [*gbands, *s_bands])
         if sm.video_offset is not None:
             sm.video_offset["checks"] += 1     # O5's register arm, via the union
+            vo_who = f"{MODE_WHO} <- {', '.join(sm.video_offset['features'])}"
+            # BANDS: the composition drives BG3VOFS per scanline ITSELF, so
+            # it synthesizes the HDMA claim that does it — one channel, mode
+            # 2 (BG3VOFS is write-twice), active phase, the whole frame —
+            # and marks its ownership `seed`: the scene's enter write is the
+            # base the channel overrides from line 0. A second active claim
+            # on BG3VOFS meets this one in assign_channels as an HDMA
+            # register contention (O10). Without bands there is no seed, so
+            # a foreign channel on the port still refuses in check 2 below.
+            if sm.video_offset["bands"] > 1:
+                bc, bwho = sm.video_offset["bands_claims"][0]
+                hdma_claims.append((HdmaClaim(
+                    name=f"{bc.name}_rowsel", channels=1,
+                    registers=(OFFSET_ROWSEL_REG,),
+                    band=(0, sub.visible_lines), phase="active",
+                    mode=OFFSET_ROWSEL_MODE), vo_who))
+                sm.video_offset["rowsel"] = f"{bc.name}_rowsel"
             sm.regs.append((
                 RegClaim(name="video_offset",
                          registers=sm.video_offset["registers"],
-                         scene_writes=sm.video_offset["registers"]),
-                f"{MODE_WHO} <- {', '.join(sm.video_offset['features'])}"))
+                         scene_writes=sm.video_offset["registers"],
+                         seed=sm.video_offset["bands"] > 1),
+                vo_who))
 
         def g_of(cls: str) -> list[tuple[str, int]]:
             """The globals already occupying this class — blame-list context."""
@@ -2073,6 +2136,7 @@ def allocate(sub: Substrate, features: dict[str, FeatureDecl],
                 sm.video_offset = {"bgmode": None, "fields": {}, "registers": (),
                                    "features": [], "mode": None, "axis": None,
                                    "layers": [], "video": [], "offset": [],
+                                   "bands": 1, "bands_claims": [],
                                    "warnings": [], "modes": 0, "offsets": 0,
                                    "checks": 0, "chr_only": True}
             sm.video_offset["checks"] += chr_checks
@@ -2269,7 +2333,8 @@ def verify(alloc: Allocation):
             try:
                 again = compose_video_offset(
                     vo["video"], vo["offset"],
-                    (sm.screen_blend or {}).get("screen", []), sid)
+                    (sm.screen_blend or {}).get("screen", []), sid,
+                    vo.get("bands_claims", []))
                 # O9 re-run over the same claims, and appended in the same
                 # order the solver appended them — the chr check contributes
                 # to this scene's warnings, so a verify that skipped it would
@@ -2563,9 +2628,18 @@ def _video_offset_lines(sid: str, vo: dict | None) -> list[str]:
             "MASK": "the vertical offset field: vScroll = word & $3FF",
             "HMASK": "...horizontal: the layer keeps its own low 3 bits",
             "VSEL": "mode 4 bit 15 — this word is a V offset, not an H one",
+            "BANDS": "table rows this scene selects between PER SCANLINE",
+            "ROW_VOFS": "BG3VOFS = row * this selects table row `row` "
+                        "(rowOffset = VScroll >> 3, SnesPpu.cpp:262)",
         }
         for k, v in vo["fields"].items():
             lines.append(f"ES_OPT_{up}_{k} = ${v:04X}    ; {notes[k]}")
+        if vo.get("rowsel"):
+            lines.append(f";   bands: {vo['rowsel']} is the composition's own "
+                         f"HDMA channel on BG3VOFS (ES_H_"
+                         f"{vo['rowsel'].upper()}_*, above). Arm it through "
+                         f"the scene_mgr HDMA shadow at enter; the enter-time "
+                         f"BG3VOFS write is the SEED it overrides from line 0")
     else:
         lines.append(f"; ES_OPT_{up}_* absent — no [[claims.offset]] in this "
                      f"scene: BG3 is an ordinary layer here (or absent from "
@@ -2958,7 +3032,9 @@ def emit(alloc: Allocation, out_dir: str | Path) -> list[Path]:
                                  "fields": sm.video_offset["fields"],
                                  "registers": list(
                                      sm.video_offset["registers"]),
-                                 "features": sm.video_offset["features"]}}
+                                 "features": sm.video_offset["features"],
+                                 "bands": sm.video_offset["bands"],
+                                 "rowsel": sm.video_offset.get("rowsel")}}
                             if sm.video_offset is not None else {})}
                    for sid, sm in alloc.scenes.items()},
     }

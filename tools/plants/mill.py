@@ -65,14 +65,15 @@ OPT_ASM = SUPERFORGE / "engine" / "features" / "mil_opt" / "mil_opt.asm"
 OBJ_ASM = SUPERFORGE / "engine" / "features" / "mil_obj" / "mil_obj.asm"
 OPT_TOML = SUPERFORGE / "engine" / "features" / "mil_opt" / "feature.toml"
 HALL_ASM = SUPERFORGE / "game" / "mill" / "scenes" / "hall.asm"
+MELT_ASM = SUPERFORGE / "engine" / "features" / "mil_melt" / "mil_melt.asm"
 ROM = SUPERFORGE / "build" / "mill.sfc"
 T = "tests/test_mill.py::"
 
 PLANTS = [
     Plant(id="table-column-lead-removed",
           file=GEN,
-          old="""        w = column_word(j + LEAD, phase) if j + LEAD < COLS else 0""",
-          new="""        w = column_word(j, phase)         # PLANT: the lead undone""",
+          old="""        w = word_of(j + LEAD) if j + LEAD < COLS else 0""",
+          new="""        w = word_of(j)                    # PLANT: the lead undone""",
           artifact=ROM,
           build=["mill"],
           tests=[
@@ -132,11 +133,11 @@ PLANTS = [
 
     Plant(id="the-camera-is-not-folded-in",
           file=OPT_ASM,
-          old="""    and #ES_OPT_HALL_MASK
+          old="""    and #MIL_OPT_MASK
     clc
     adc z:ES_MIL_CAM
-    and #ES_OPT_HALL_MASK           ; ...back inside the ten value bits""",
-          new="""    and #ES_OPT_HALL_MASK           ; PLANT: the camera is not folded in""",
+    and #MIL_OPT_MASK           ; ...back inside the ten value bits""",
+          new="""    and #MIL_OPT_MASK               ; PLANT: the camera is not folded in""",
           artifact=ROM,
           build=["mill"],
           tests=[T + "test_a_vertical_word_carries_the_camera"],
@@ -167,8 +168,8 @@ PLANTS = [
 
     Plant(id="the-car-override-ignores-the-lead",
           file=OPT_ASM,
-          old="""    cpx #((SMIL_CAR_COL - SMIL_LEAD) * 2)""",
-          new="""    cpx #(SMIL_CAR_COL * 2)         ; PLANT: the override drops the lead""",
+          old="""    cpy #((SMIL_CAR_COL - SMIL_LEAD) * 2)""",
+          new="""    cpy #(SMIL_CAR_COL * 2)         ; PLANT: the override drops the lead""",
           artifact=ROM,
           build=["mill"],
           tests=[T + "test_the_car_moves_as_one_piece"],
@@ -358,6 +359,73 @@ PLANTS = [
               "the left wall, and the frame the car moves they drop behind it. "
               "The case counts his ink outside the glass on each sample and "
               "holds his whole OAM entry to one value from rest to riding.",),
+
+    # ---- THE MELT: the table in bands -------------------------------------
+    Plant(id="the-deck-band-reads-the-ripple-row",
+          file=MELT_ASM,
+          old="""    lda #<(2 * ES_OPT_MELT_ROW_VOFS)
+    sta f:ES_MIL_BANDTAB_LONG + 4   ;   ...read row 2, the zero row""",
+          new="""    lda #<(1 * ES_OPT_MELT_ROW_VOFS)
+    sta f:ES_MIL_BANDTAB_LONG + 4   ; PLANT: the deck reads the ripple""",
+          artifact=ROM,
+          build=["mill"],
+          tests=[
+              T + "test_the_melt_reads_three_rows_and_the_deck_band_stands_still",
+          ],
+          why="band B's entry names the wrong row: the deck ripples with the "
+              "channel. The picture still has three bands and a moving "
+              "surface, so only a case that asserts the deck band holds "
+              "STILL between two frames on which both restaged rows moved "
+              "can tell it from the intended picture.",),
+
+    Plant(id="the-channel-band-reads-the-machine-row",
+          file=MELT_ASM,
+          old="""    lda #<(1 * ES_OPT_MELT_ROW_VOFS)
+    sta f:ES_MIL_BANDTAB_LONG + 7   ;   ...read row 1, the ripple""",
+          new="""    lda #0
+    sta f:ES_MIL_BANDTAB_LONG + 7   ; PLANT: the channel reads the hall's row""",
+          artifact=ROM,
+          build=["mill"],
+          tests=[
+              T + "test_a_column_carries_an_h_word_in_one_band_and_a_v_word_in_another",
+          ],
+          why="band C's entry names row 0: the channel shows the machine "
+              "row's words, so a belt column's channel art holds still "
+              "while the ripple row in VRAM — which the case reads — says "
+              "it should slide. The case joins the picture to the words of "
+              "the row the band DECLARES, and only that join fails here.",),
+
+    Plant(id="the-ripple-is-staged-from-the-hall-s-row",
+          file=MELT_ASM,
+          old="""    jsr mil_ripple_source           ; the ripple row for this phase...""",
+          new="""    jsr mil_row_source              ; PLANT: the hall's row, twice""",
+          artifact=ROM,
+          build=["mill"],
+          tests=[
+              T + "test_a_column_carries_an_h_word_in_one_band_and_a_v_word_in_another",
+          ],
+          why="the second staged row is a copy of the first, so table row 1 "
+              "carries the machine words and no belt column carries a "
+              "vertical word in band C — the axis is no longer per band. "
+              "The case selects its columns by exactly that property and "
+              "refuses to run without them, which is the honest failure.",),
+
+    Plant(id="the-band-channel-is-never-armed",
+          file=MELT_ASM,
+          old="""    ora #(1 << ES_H_MIL_BANDS_ROWSEL_CH)""",
+          new="""    ora #0                          ; PLANT: the bit never reaches HDMAEN""",
+          artifact=ROM,
+          build=["mill"],
+          tests=[
+              T + "test_the_band_channel_is_the_composition_s_own_and_is_armed",
+              T + "test_a_column_carries_an_h_word_in_one_band_and_a_v_word_in_another",
+          ],
+          why="the slot is filled and the table built but the enable bit "
+              "never reaches the shadow scene_mgr commits, so the whole frame "
+              "reads the seed row — no bands at all. Two cases see it from "
+              "two sides: the shadow byte in the melt lacks the declared "
+              "channel's bit, and the channel band does not follow the "
+              "ripple words the ROM restages every frame.",),
 
     Plant(id="hall-declares-mode-1",
           file=OPT_TOML,

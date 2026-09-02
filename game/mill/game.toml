@@ -74,6 +74,15 @@ features = []
 id = "hall"
 features = []
 
+# THE MELT: the lift's other stop, below the deck. The same map at its last
+# screen, and the table read in THREE BANDS -- the machines from the hall's
+# row, the deck from a row with no enable bit, the channel from a ripple row
+# -- which is the mechanism the hall cannot show: one BG3VOFS write per band,
+# from the composition's own channel (`mil_melt`, [[claims.offset_bands]]).
+[[scene]]
+id = "melt"
+features = ["mil_melt"]
+
 # The ride out and the ride back. Both are FADES: the lift is a cut in the
 # fiction and a fade on the hardware, because every scene here re-establishes
 # BG1SC, BG3's row and all four scroll ports at enter, and a hard cut would
@@ -90,4 +99,18 @@ style = "fade"
 [[edge]]
 from = "hall"
 to = "lobby"
+style = "fade"
+
+# Down from the hall, and back up. Fades, for the hall<->lobby reason: every
+# room re-establishes BG3's rows and the scroll ports at enter, and the melt
+# also arms a channel the hall does not -- a cut would show one frame of the
+# melt's bands against the hall's single row.
+[[edge]]
+from = "hall"
+to = "melt"
+style = "fade"
+
+[[edge]]
+from = "melt"
+to = "hall"
 style = "fade"

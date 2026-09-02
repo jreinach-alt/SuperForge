@@ -179,6 +179,11 @@ SMIL_BOARD_ABOARD = 2         ; he is inside; the doors shut OVER him (OAM
                               ;   scene switches when they are shut
 SMIL_BOARD_OUT    = 3         ; he has just arrived; the doors part to reveal
                               ;   him, and he is free when they are open
+SMIL_BOARD_DOWN   = 4         ; he pressed DOWN on the parked car: the hall
+                              ;   requests the melt on its next tick
+SMIL_BOARD_GONE   = 5         ; ...and has: the lift has left this room with
+                              ;   him, and nothing here answers the pad. The
+                              ;   next room's enter sets what he is there
 SMIL_BOARD_DEST   = SMIL_DOOR_W * 4 - SMIL_RIDER_BOX / 2   ; ...a bay's left
                               ; edge to the px that centres him in it
 

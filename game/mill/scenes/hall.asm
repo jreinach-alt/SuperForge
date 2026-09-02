@@ -18,10 +18,11 @@
 ; the flat control had no way to be selected at all — see mill.inc.
 .scope hall
 .include "engine_state_hall.inc"    ; GENERATED — this scene's map
-.include "mil_opt.asm"              ; the table walker. SCENE-SCOPED, because
-                                    ;   it reads ES_OPT_HALL_* — the offset
-                                    ;   composition emits one constant set per
-                                    ;   scene, and the lobby has its own
+MIL_OPT_BG1  = ES_OPT_HALL_BG1      ; the walker reads THIS scene's field set
+MIL_OPT_BG2  = ES_OPT_HALL_BG2      ;   through these four names — the offset
+MIL_OPT_VSEL = ES_OPT_HALL_VSEL     ;   composition emits one set per scene,
+MIL_OPT_MASK = ES_OPT_HALL_MASK     ;   and the melt aliases its own
+.include "mil_opt.asm"              ; the table walker. SCENE-SCOPED
 
 ; --- enter: the whole picture, under forced blank --------------------------
 ; CONTRACT hall::enter
@@ -175,6 +176,23 @@ tick:
     ; shaft sliding past it — which is what riding a lift looks like, and it is
     ; the one column on screen whose word is not changing while every other
     ; column's is.
+    ; ---- DOWN ON THE CAR: the other stop -----------------------------------
+    ; He pressed DOWN standing on the lift (mil_try_descend). One request, and
+    ; then the room stops answering him: the melt's enter takes over.
+    lda z:ES_MIL_BOARD
+    cmp #SMIL_BOARD_DOWN
+    bne @not_down
+    lda #SMIL_BOARD_GONE
+    sta z:ES_MIL_BOARD
+    sep #$20
+    .a8
+    SM_SWITCH "HALL", "MELT"
+    rep #$20
+    .a16
+    bra @hold
+@not_down:
+    .a16
+    .i16
     lda z:ES_MIL_BOARD              ; ...and only once he is aboard. The beat
     cmp #SMIL_BOARD_ABOARD          ;   before it moves is his to take now
     bne @hold

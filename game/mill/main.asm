@@ -126,6 +126,10 @@ mil_map2_bin:
     .incbin "mil_map2.bin"
 .assert ^mil_map2_bin = ES_R_MIL_MAP2_BANK, error, "mil_map2 bank drifted from allocator claim"
 .assert .loword(mil_map2_bin) = ES_R_MIL_MAP2_ADDR, error, "mil_map2 addr drifted from allocator claim"
+mil_ripple_bin:
+    .incbin "mil_ripple.bin"
+.assert ^mil_ripple_bin = ES_R_MIL_RIPPLE_BANK, error, "mil_ripple bank drifted from allocator claim"
+.assert .loword(mil_ripple_bin) = ES_R_MIL_RIPPLE_ADDR, error, "mil_ripple addr drifted from allocator claim"
 mil_chr2_bin:
     .incbin "mil_chr2.bin"
 .assert ^mil_chr2_bin = ES_R_MIL_CHR2_BANK, error, "mil_chr2 bank drifted from allocator claim"
@@ -152,6 +156,7 @@ mil_obj_pal_bin:
 ; --- the scene -------------------------------------------------------------
 .include "scenes/lobby.asm"
 .include "scenes/hall.asm"
+.include "scenes/melt.asm"          ; the lift's other stop: the table in BANDS
 
 ; --- sm_nmi_hook: per-frame VBlank work -----------------------------------
 ; In: A8/I16, DB=0 (from sm_nmi_core). May clobber A/X/Y.
@@ -171,17 +176,25 @@ sm_nmi_hook:
     jsr oam_nmi_dma                 ; the OAM shadow, every armed VBlank
     lda z:ES_SM_CTL                 ; the scene now running
     cmp #ES_E_LOBBY_TO_HALL_DST     ; ...the hall?
-    bne @done
+    bne @not_hall
     jsr hall::mil_nmi_row           ; the phase -> BG3's offset row, 64 B
+    bra @done
+@not_hall:
+    .a8
+    .i16
+    cmp #ES_E_HALL_TO_MELT_DST      ; ...the melt?
+    bne @done
+    jsr melt::mil_nmi_rows          ; the phase -> TWO rows, 128 B: the hall's
+                                    ;   and the ripple's, for the bands
 @done:
     .a8
     .i16
     rts
 
 ; --- scene dispatch tables (manifest order: lobby=0, hall=1) --------------
-sm_enter_tab:   .word lobby::enter, hall::enter
-sm_tick_tab:    .word lobby::tick,  hall::tick
-sm_exit_tab:    .word lobby::exit,  hall::exit
+sm_enter_tab:   .word lobby::enter, hall::enter, melt::enter
+sm_tick_tab:    .word lobby::tick,  hall::tick,  melt::tick
+sm_exit_tab:    .word lobby::exit,  hall::exit,  melt::exit
 
 ; --- MAIN: boot -----------------------------------------------------------
 ; init.inc leaves: native, A16/I16, DB=0, forced blank, NMI+HDMA off.

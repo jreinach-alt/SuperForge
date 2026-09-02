@@ -91,10 +91,12 @@ own structural check on import.
 |---|---|---|
 | `mode4_asset01_lobby_interior_wall.png` 256×176 | the lobby wall: cornice, clerestory louvres, pilasters, two 64×64 bays left as flat dark recesses for the sprite doors | the bays are FOUND (tall runs of the darkest tone) and the wall is seated on both axes so they land on the tile grid and on the deck; 19/20 colours exact, worst drift 8 |
 | `mode4_guide_rail_cross_section_32x8.png` | the shaft columns' profile: four fluted rails, mirrored | every row byte-identical and the row mirrored, or the build stops — the invariant a vertically displaced column needs; 6/7 exact, worst 8 |
-| `mode4_molten_metal_channel_256x88.png` | the channel under the deck, replacing a hash-noise formula | tiles on 64 px exactly; over the 24 rows the hall shows, 5/8 colours exact and worst drift 8; the whole file drifts 74 in rows no camera reaches, and one shown crust tone, (66,8,74), is the old darkest-molten bleed the artist was given — on the key's hue axis, imported nearest (a dark brown) and not gated |
+| `mode4_molten_metal_channel_256x88.png` | the channel under the deck, replacing a hash-noise formula | tiles on 64 px exactly; 7/18 colours exact, worst drift 9 — the whole file, now that the melt shows all 88 rows; one crust tone, (66,8,74), is the old darkest-molten bleed the artist was given — on the key's hue axis, imported nearest (a dark brown) and not gated |
 
-Only the channel's top rows are ever in frame (the hall's camera bottoms out
-at `SMIL_CAM_MAX`), which the request did not say and should have.
+The hall shows only the channel's top 24 rows (its camera bottoms out at
+`SMIL_CAM_MAX`); the melt, the lift's other stop, shows all 88 — which is why
+the refit took the whole file into the cloud and the molten ramp grew from 8
+entries to 12.
 
 ## Provenance note
 

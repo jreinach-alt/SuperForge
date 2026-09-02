@@ -14,6 +14,13 @@ role = "blob"
 name = "mil_row"
 bytes = 8256             # 128 phases + the flat control, x 32 words
 
+# THE RIPPLE ROWS -- the melt's band C. 32 phases of a downward surface wave
+# and a flat control, one 32-word row each at the hall row's stride, so the
+# same walker stages either blob and the same shift indexes both.
+[[claims.rom]]
+name = "mil_ripple"
+bytes = 2112             # (32 + 1) x 64 B
+
 [[claims.rom]]
 name = "mil_chr1"
 bytes = 24576            # 384 tiles x 64 B. EIGHT bpp: a tile is 64 bytes, not

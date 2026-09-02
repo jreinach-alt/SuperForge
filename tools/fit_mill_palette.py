@@ -86,7 +86,11 @@ def on_screen():
     """{family: {rgb888: pixels}} for every BG1 pixel the two rooms show, plus
     the per-family area the painters draw by hand and what was rejected."""
     G.SOURCE, G.TONES = {}, {}
-    pictures = ((G.paint_bg1(), G.WORLD_H), (G.paint_lobby(), SCREEN_ROWS))
+    # EVERY ROW A ROOM SHOWS: the hall's two screens and the melt's one are
+    # the same map from 0 to MELT_CAM + 224 = its full height, and the lobby
+    # is one screen of its own. A room added later adds its rows here.
+    pictures = ((G.paint_bg1(), max(G.WORLD_H, G.MELT_CAM + SCREEN_ROWS)),
+                (G.paint_lobby(), SCREEN_ROWS))
     anchors = [(f, [_exp(c) for c in G._anchors(sw)]) for _, f, sw, _, _ in FAMILIES]
     ix = {f: (ix0, n) for _, f, _, ix0, n in FAMILIES}
 
@@ -222,7 +226,7 @@ def main():
 
     out = [BEGIN,
            "# Do not hand-edit. Fitted to the PICTURE -- every BG1 pixel of the hall's",
-           "# two screens and the lobby's one, each counted once -- and the split chosen",
+           "# two screens, the melt's one and the lobby's, each counted once -- and the split chosen",
            "# to minimise the total on-screen error (floor 8 a ramp; the warm ramp",
            f"# floors at its {tones['warm']} hand-dithered tones). {total} source px in the",
            f"# cloud, {sum(hand.values())} drawn by hand on the ramps, {rejected} rejected as key",

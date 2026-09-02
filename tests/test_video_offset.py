@@ -638,3 +638,85 @@ def test_a_32x32_claim_is_unchanged_by_the_shape_field(tmp_path):
     inc, _ = _emit(tmp_path, f, "m")
     line = [l for l in inc.splitlines() if "ES_V_MAP_SC_BASE" in l][0]
     assert int(line.split("=")[1].split(";")[0].strip().lstrip("$"), 16) & 3 == 0
+
+
+# -- O10: bands — the offset table read in ROWS, per scanline ---------------
+# `[[claims.offset_bands]]` is a claim of the SCENE's use of the table: the
+# composition synthesizes its own active-phase HDMA claim on BG3VOFS, marks
+# its BG3VOFS ownership `seed`, and emits the band count and the row stride.
+
+M4 = '[[claims.video]]\nmode = 4\n' + LAYERS
+TAB = '[[claims.offset]]\naxis = "both"\nlayers = ["bg1", "bg2"]\n'
+BANDS = '[[claims.offset_bands]]\nrows = 3\n'
+
+
+def test_bands_parse_with_a_default_name_and_a_row_range(tmp_path):
+    f = feature(tmp_path, "z", BANDS)
+    assert f.offset_bands[0].name == "z_bands"
+    assert f.offset_bands[0].rows == 3
+    for rows in (1, 33):
+        with pytest.raises(SchemaError) as e:
+            feature(tmp_path, f"r{rows}", f'[[claims.offset_bands]]\nrows = {rows}\n')
+        assert "BG3VOFS >> 3" in str(e.value)
+
+
+def test_o10_bands_need_a_table_in_the_scene(tmp_path):
+    f = features(tmp_path, m=M4, b=BANDS)
+    msg = _refuse(tmp_path, f, "m", "b")
+    assert "OFFSET BANDS" in msg and "b_bands" in msg
+    assert "no [[claims.offset]] holds this scene" in msg
+
+
+def test_o10_two_band_sets_refuse(tmp_path):
+    f = features(tmp_path, m=M4, t=TAB, a=BANDS, b=BANDS)
+    msg = _refuse(tmp_path, f, "m", "t", "a", "b")
+    assert "OFFSET BANDS contention" in msg
+    assert "a_bands" in msg and "b_bands" in msg
+
+
+def test_bands_synthesize_the_row_selecting_channel_and_emit_it(tmp_path):
+    """The composition owns the per-scanline BG3VOFS write: a channel is
+    assigned, its DMAP/BBAD derive from the port, and the scene's include
+    carries the band count and the row stride beside it."""
+    f = features(tmp_path, m=M4, t=TAB, b=BANDS)
+    inc, jm = _emit(tmp_path, f, "m", "t", "b")
+    assert "ES_OPT_S_BANDS = $0003" in inc
+    assert "ES_OPT_S_ROW_VOFS = $0008" in inc
+    assert "ES_H_B_BANDS_ROWSEL_CH = " in inc
+    assert "ES_H_B_BANDS_ROWSEL_BBAD = $12" in inc      # BG3VOFS = $2112
+    assert "ES_H_B_BANDS_ROWSEL_DMAP = $02" in inc      # write-twice
+    assert "SEED it overrides from line 0" in inc
+    vo = jm["scenes"]["s"]["video_offset"]
+    assert vo["bands"] == 3 and vo["rowsel"] == "b_bands_rowsel"
+    chans = [c for c in jm["scenes"]["s"]["channels"]
+             if c["name"] == "b_bands_rowsel"]
+    assert chans and chans[0]["phase"] == "active"
+    assert chans[0]["registers"] == ["BG3VOFS"]
+
+
+def test_o10_a_foreign_active_channel_on_bg3vofs_meets_the_rowsel_claim(tmp_path):
+    """The seed does NOT open the port to another channel: with bands the
+    foreign claim collides with the synthesized one in assign_channels."""
+    f = features(tmp_path, m=M4, t=TAB, b=BANDS,
+                 x='[[claims.hdma]]\nregisters = ["BG3VOFS"]\nmode = 2\n')
+    msg = _refuse(tmp_path, f, "m", "t", "b", "x")
+    assert "HDMA register contention" in msg
+    assert "b_bands_rowsel" in msg and "x_hdma" in msg
+
+
+def test_a_foreign_active_channel_on_bg3vofs_without_bands_still_refuses(tmp_path):
+    """...and without bands there is no seed, so the raw shape keeps refusing
+    on O5's register arm — the vocabulary's own consent is not a channel's."""
+    f = features(tmp_path, m=M4, t=TAB,
+                 x='[[claims.hdma]]\nregisters = ["BG3VOFS"]\nmode = 2\n')
+    msg = _refuse(tmp_path, f, "m", "t", "x")
+    assert "x_hdma" in msg and "BG3VOFS" in msg
+
+
+def test_a_raw_cpu_writer_of_bg3vofs_beside_bands_still_refuses(tmp_path):
+    """A seed exempts an HDMA overrider only; a second CPU establisher of the
+    port is still O5's register arm."""
+    f = features(tmp_path, m=M4, t=TAB, b=BANDS,
+                 x='[[claims.reg]]\nregisters = ["BG3VOFS"]\n')
+    msg = _refuse(tmp_path, f, "m", "t", "b", "x")
+    assert "x_reg" in msg and "BG3VOFS" in msg

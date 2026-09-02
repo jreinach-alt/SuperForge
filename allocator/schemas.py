@@ -983,6 +983,20 @@ OFFSET_VSEL_BIT = 0x8000        # mode 4 only: this word is a V offset
 # claiming it would be a declaration that lies. The bg_text collision the
 # vocabulary exists to catch fires on BG3SC regardless.
 OFFSET_REGS = ("BG3SC", "BG3HOFS", "BG3VOFS")
+# A BG3 tilemap's rows, and therefore the most bands a scene can select
+# between: BG3SC's 1K-word page is 32 rows of 32 words, and the row the PPU
+# reads is (BG3VOFS >> 3) & 0x1F for a 32-row map (SnesPpu.cpp:262).
+OFFSET_MAX_ROWS = 32
+# ...and the BG3VOFS value that selects row r of the table: r * 8, because
+# the row index is the scroll value's bits 3-7 (same line). Emitted so a
+# scene's HDMA table is built from the declaration, not a narrated shift.
+OFFSET_ROW_VOFS = 8
+# The port the row selection is written through, and the HDMA shape that
+# writes it: BG3VOFS is a write-twice port, so the transfer is DMAP mode 2
+# (two bytes to one address) — the shape platformer_bg's parallax uses on
+# BG2HOFS.
+OFFSET_ROWSEL_REG = "BG3VOFS"
+OFFSET_ROWSEL_MODE = 2
 VIDEO_REGS = ("BGMODE",)
 
 
@@ -1026,6 +1040,35 @@ class OffsetClaim:
     name: str
     axis: str                     # h | v | both  (OFFSET_AXES)
     layers: tuple[str, ...]       # bg1 | bg2 — the enable bits it may set
+
+
+@dataclass(frozen=True)
+class OffsetBandsClaim:
+    """OFFSET BANDS — this SCENE reads its offset table in `rows` bands, and
+    the seventeenth claim class.
+
+    The PPU reads ONE row of BG3's tilemap as the table: the row BG3VOFS
+    names (rowOffset = VScroll >> 3, SnesPpu.cpp:257-276). Rewrite BG3VOFS
+    per scanline and each band of the picture reads its own 32 words — the
+    same screen column carrying a vertical word in one band, a horizontal one
+    in the next, and no word at all in a third. That is a property of a
+    SCENE's use of the table, not of the table: `mill`'s table is one global
+    feature's claim in every room of the rail, and only the melt reads it in
+    bands, so this is a claim of its own that a scene-scoped feature carries
+    beside the table rather than a field on the table.
+
+    What it composes is a TRANSFER: the composition synthesizes its own
+    active-phase HDMA claim on BG3VOFS (one channel, mode 2 — the port is
+    write-twice — the whole frame), assigned a channel and emitted like any
+    other, and marks its BG3VOFS ownership `seed` so the scene's enter write
+    is the base value the channel overrides from line 0. A second active
+    channel on BG3VOFS then meets THIS claim in assign_channels as an HDMA
+    register contention (O10) — the refusal the raw shape could not reach,
+    because with `seed` alone a foreign channel is exactly what a seed
+    consents to.
+    """
+    name: str
+    rows: int                     # 2..OFFSET_MAX_ROWS table rows, per scanline
 
 
 @dataclass(frozen=True)
@@ -1191,13 +1234,15 @@ class FeatureDecl:
     # ...and the video/offset vocabulary, defaulted for the same reason.
     video: tuple[VideoClaim, ...] = ()
     offset: tuple[OffsetClaim, ...] = ()
+    offset_bands: tuple[OffsetBandsClaim, ...] = ()
 
     def claim_names(self) -> set[str]:
         return {c.name for group in (self.vram, self.dp, self.wram, self.sram,
                                      self.cgram, self.oam, self.hdma,
                                      self.dma_init, self.rom, self.reg,
                                      self.spc, self.screen, self.blend,
-                                     self.video, self.offset)
+                                     self.video, self.offset,
+                                     self.offset_bands)
                 for c in group}
 
 
@@ -1297,7 +1342,8 @@ def load_feature(path: str | Path, substrate: Substrate) -> FeatureDecl:
             "rom": (list, dict), "dma": dict, "dma_init": (list, dict),
             "reg": (list, dict), "spc": (list, dict), "sram": (list, dict),
             "screen": (list, dict), "blend": (list, dict),
-            "video": (list, dict), "offset": (list, dict)})
+            "video": (list, dict), "offset": (list, dict),
+            "offset_bands": (list, dict)})
 
     vram = []
     for i, t in enumerate(_as_list_of_tables(claims.get("vram", []), where)):
@@ -1664,6 +1710,26 @@ def load_feature(path: str | Path, substrate: Substrate) -> FeatureDecl:
         offset.append(OffsetClaim(
             name=t.get("name", f"{name}_offset{i if i else ''}"),
             axis=t["axis"], layers=layers))
+    offset_bands = []
+    for i, t in enumerate(_as_list_of_tables(claims.get("offset_bands", []),
+                                             where)):
+        w = f"{where} [[claims.offset_bands]] #{i}"
+        _table(t, w, {"rows": int}, {"name": str})
+        rows = t["rows"]
+        if not 2 <= rows <= OFFSET_MAX_ROWS:
+            raise SchemaError(
+                f"{w}: rows = {rows}. A band is one row of the scene's offset "
+                f"table selected per scanline (the row is BG3VOFS >> 3), so "
+                f"one row is not bands at all — that is the plain table — and "
+                f"a BG3 tilemap has {OFFSET_MAX_ROWS} rows, the 1K-word page "
+                f"BG3SC addresses. 2..{OFFSET_MAX_ROWS}")
+        offset_bands.append(OffsetBandsClaim(
+            name=t.get("name", f"{name}_bands{i if i else ''}"), rows=rows))
+    if len(offset_bands) > 1:
+        raise SchemaError(
+            f"{where}: {len(offset_bands)} [[claims.offset_bands]] claims on "
+            f"one feature — a scene reads its one table in one set of bands")
+
     if len(offset) > 1:
         raise SchemaError(
             f"{where}: {len(offset)} [[claims.offset]] entries — a feature "
@@ -1757,7 +1823,8 @@ def load_feature(path: str | Path, substrate: Substrate) -> FeatureDecl:
                        vblank_transfers_per_frame=vblank_tpf,
                        init_zero=init_zero,
                        screen=tuple(screen), blend=tuple(blend),
-                       video=tuple(video), offset=tuple(offset))
+                       video=tuple(video), offset=tuple(offset),
+                       offset_bands=tuple(offset_bands))
 
     names = [c.name for group in (decl.vram, decl.dp, decl.wram, decl.sram,
                                   decl.cgram, decl.oam, decl.hdma,

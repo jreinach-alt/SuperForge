@@ -129,6 +129,9 @@ tiles16 = []               # optional: bg1|bg2|bg3|bg4  (b4-7)
 [[claims.offset]]          # OFFSET-PER-TILE: BG3's tilemap IS the table
 axis   = "v"               # h | v | both
 layers = ["bg1", "bg2"]    # the enable bits it may set: 13 -> BG1, 14 -> BG2
+
+[[claims.offset_bands]]    # BANDS: this SCENE reads the table in `rows` bands
+rows   = 3                 # 2..32 table rows, selected per scanline
 ```
 
 A video claim declares the scene's display shape; it has one owner per scene,
@@ -158,6 +161,18 @@ what it composes is **ownership**: the synthesized per-scene claim holds
 offset mode, so the offset path never reads a BG3 chr base and claiming that
 port would be a declaration that lies. The collision the vocabulary exists to
 catch fires on `BG3SC` regardless — `bg_text` claims all four.
+
+A bands claim declares that **this scene reads the table in more than one
+row**. The PPU fetches the row `BG3VOFS` names — `rowOffset = VScroll >> 3`
+(`SnesPpu.cpp:257-276`) — so a per-scanline rewrite of that one port hands
+each band of the picture its own 32 words, and the composition synthesizes
+the transfer that does it: an active-phase HDMA claim on `BG3VOFS`, one
+channel, DMAP mode 2 (the port is write-twice), the whole frame, named
+`<claim>_rowsel` and assigned and emitted like any channel. It is a claim of
+the SCENE's use of the table and not of the table, and it lives on a
+scene-scoped feature beside the table claim: `mill`'s table is one global
+feature's claim in every room of the rail and only the melt reads it in
+bands (§13.7).
 
 A scene that declares neither claim has **no composition at all**, not an
 empty one, which is what keeps every rail predating the vocabulary
@@ -302,6 +317,25 @@ about what it can*.
 Each warning is counted in the allocator's summary line beside the refusal
 checks, so a run that examined nothing reads as having examined nothing.
 
+- **O10 — bands are rows OF A TABLE, and the row-selecting channel is the
+  composition's.** Two arms. A `[[claims.offset_bands]]` in a scene with no
+  offset claim refuses: with no table BG3 is a drawable layer here (or absent
+  from the mode) and the channel this would synthesize on `BG3VOFS` would
+  scroll a picture, not select a row. Two bands claims refuse: one port, one
+  row per scanline, two channels driving it. And a feature's own active
+  HDMA claim on `BG3VOFS` beside a bands claim meets the synthesized
+  `_rowsel` claim in `assign_channels` as an ordinary HDMA register
+  contention — which is the refusal the raw shape could not reach. The
+  composition's `BG3VOFS` ownership is marked `seed` when bands are declared
+  (the scene's enter write is the base value the channel overrides from line
+  0), and a `seed` beside a raw hdma claim is exactly what check 2 of the
+  register gate CONSENTS to; without the synthesized claim a foreign channel
+  would have slipped through as the seed's own overrider. Without bands there
+  is no seed and the raw channel still refuses in check 2, as before. The
+  parser holds the hardware ceiling — a BG3 tilemap has 32 rows, the 1K-word
+  page `BG3SC` addresses — and whether the rows a band names EXIST in the
+  table's VRAM claim is not reachable (§14, the placement limit).
+
 ## 6. Emission
 
 For every scene carrying at least one vocabulary claim, the scene's generated
@@ -312,6 +346,9 @@ ES_VID_<SCENEID>_BGMODE            where the scene declares a video mode
 ES_OPT_<SCENEID>_BG1 / _BG2        the enable bits its offset claim declares
 ES_OPT_<SCENEID>_MASK / _HMASK     the value field for the axes it declares
 ES_OPT_<SCENEID>_VSEL              mode 4 only: the axis-select bit
+ES_OPT_<SCENEID>_BANDS             with a bands claim: the rows selected between
+ES_OPT_<SCENEID>_ROW_VOFS          ...and BG3VOFS = row * this selects a row
+ES_H_<CLAIM>_ROWSEL_CH/_BBAD/_DMAP ...and the synthesized channel, as any channel
 ```
 
 **The field set is derived from the declaration, not fixed.** `layers` decides
@@ -939,6 +976,77 @@ Once the lift could leave on its own, the camera panned away from the man
 standing on the deck every time it was called elsewhere. It follows the RIDE
 now, not the car.
 
+### 13.7 The melt — the table read in bands, and the room built to show it
+
+The hall reads one row of the table for the whole frame. The lift's other
+stop reads THREE. `DOWN` on the parked car takes him through the deck to the
+melt: the same map seen from its last screen, camera at `SMIL_MELT_CAM`, and
+an HDMA channel rewriting `BG3VOFS` at each band's first line:
+
+| band | screen lines | table row | what it shows |
+|---|---|---|---|
+| A | 0..119 | 0, the hall's running row, restaged every VBlank | the pistons' feet pumping, the belts running, the car with him in it |
+| B | 120..135 | 2, a row of zeros written once at enter | the deck — no enable bit, both layers at their fallback scroll |
+| C | 136..223 | 1, a ripple row, restaged every VBlank | the whole molten channel, every column a VERTICAL word |
+
+Band C is what the room exists for. Its columns are the same screen columns
+that carry a HORIZONTAL word in band A — a belt column's tread slides
+sideways above the deck while its channel art slides up or down below it, by
+exactly the difference of its two ripple words, and one pair of frames shows
+both. Mode 4 made the axis a per-column choice; bands make it per-column
+PER BAND. Band B is the control the picture carries itself: a still band
+between two moving ones, from the same table, in the same frame. `Y` holds
+both moving bands flat (the hall's control row and the ripple's) and the
+whole picture stops, pixel for pixel.
+
+**The ripple displaces DOWNWARD only.** A vertical word replaces the layer's
+scroll, so a column pushed up by k samples k rows past the map's bottom
+edge, which wrap to its top — the hall's roof at the foot of the melt.
+Pushed down by k it samples k rows of the deck's lip instead, which reads as
+the surface lifting under the floor. Thirty-two ripple rows and a flat one
+at the hall row's stride (`mil_ripple.bin`, 2,112 B), one ripple row per
+four phases, and the same walker stages both rows into one 128 B transfer
+to two consecutive table rows — the walker took a destination offset and
+lost its car override on any row but the first, because below the deck the
+lift's columns are channel and the channel ripples.
+
+**What was measured.** The band edges land on the declared lines: the first
+screen row that moves below the deck is 136, the row the table names, with
+no lead. And the room's first frame read 382 bytes of RAM nobody had written
+(`$7E:0003` up to `$7E:01B9`). The NMI copies a channel's shadow slot to
+`$43x0-$43xA` and sets `HDMAEN` in the same VBlank, and a channel enabled
+mid-frame runs on that VBlank's remaining lines from whatever `$43xA` (the
+line counter) and `$43x8/9` (the current table address) hold — the init that
+reloads them comes at the NEXT frame's line 0. Each line decrements the
+counter first; from zero that wraps to `$FF`, "repeat, 127 lines", a transfer
+every line from an address stepping by the transfer's width
+(`SnesDmaController.cpp ProcessHdmaChannels`: decrement, DoTransfer = bit 7,
+a new entry only when the low seven bits reach 0). Seeding the address alone
+moved the walk to the table's end (291 bytes, from `$052C`); seeding the
+counter to `$7F`, the longest plain hold, ended it: zero reads. Harmless to
+the picture — `BG3VOFS` means nothing in VBlank and line 0 re-inits — and a
+rule-5 finding all the same, and one every rail that arms a channel through
+the scene_mgr shadow shares: theirs walk from `$7E:0000` through DP that
+happens to be written. §14 records it as a limit of the shadow.
+
+**What the harness said.** Four plants on the melt — the deck band reading
+the ripple row, the channel band reading the machine row, the ripple staged
+from the hall's row, and the band channel never armed — all FIRED, each on
+the case written for it, alongside the hall's sixteen (`tools/plants/mill.py`,
+20/20). Three of the hall's older plants stopped applying when the walker
+was refactored for a second row and were re-anchored; a plant whose anchor
+drifts is reported as PLANT-NOT-APPLIED rather than counted, which is the
+harness refusing to pass on nothing.
+
+**A defect the zero row found.** `mil_zero_row` and the lobby's `lobby_flat`
+wrote their 32 zero words with 16-bit `stz` to `$2118` and `$2119`: the
+first store writes both port bytes and steps the address, the second writes
+the NEXT word's high byte and `$211A` (M7SEL), so every odd word kept a
+stale low byte and the loop's 32 turns reached 64 words. Harmless by luck —
+the enable bits are in the high byte, which was zeroed, and mode 4 never
+reads M7SEL — and visible the moment the melt read its zero row back:
+`0000 0075 0000 007f`. Both loops store 8-bit now.
+
 ## 14. Stated limits
 
 - **The offset TABLE'S CONTENT is not modelled.** The claim says BG3's tilemap
@@ -982,6 +1090,19 @@ now, not the car.
   the art in them can be is the rail's to know. §13.5 is the case for why that
   line is in the right place — a vocabulary that tried to model it would be
   modelling the picture.
+- **A channel armed through the scene_mgr shadow runs on the arming VBlank's
+  remaining lines from a stale counter.** §13.7 measured it: the NMI copies
+  the slot and sets HDMAEN in one VBlank, and until the next frame's line 0
+  the channel decrements whatever `$43xA` holds — zero wraps to a 127-line
+  repeat that walks memory two bytes a line. The shadow's contract does not
+  say so, and no other rail's slot seeds `$43xA`; `mil_melt` seeds it to
+  `$7F` and reads nothing. A fix in the shadow itself (seed every armed
+  slot's counter, or defer the HDMAEN write to the frame's own init) is the
+  right shape and is not in this sprint.
+- **The rows a band names are not checked to exist.** `rows = 3` promises
+  three rows of the table; the composition cannot see the table's VRAM claim
+  (below), so it holds the hardware ceiling of 32 and stops. A band naming a
+  row the table does not hold reads whatever is there.
 - **Nothing here reaches the offset table's VRAM PLACEMENT.** BG3SC bases are
   1K-word granular and the fetch reads two rows of the claimed region, so 30 of
   a 32-row map are addressable and never read. That is what the granularity

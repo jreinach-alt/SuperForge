@@ -172,17 +172,17 @@ lobby_flat:
     .a16
     lda #ES_V_MIL_TAB
     sta a:$2116
+    sep #$20
+    .a8
     ldx #0
 @word:
-    .a16
+    .a8
     .i16
-    stz a:$2118                     ; the word port, low
-    stz a:$2119                     ; ...and high
+    stz a:$2118                     ; the word port, low -- 8-BIT stores, one
+    stz a:$2119                     ;   word a turn (mil_zero_row_at says why)
     inx
     cpx #SMIL_COLS
     bcc @word
-    sep #$20
-    .a8
     stz a:$210E                     ; BG1VOFS, low
     stz a:$210E                     ; ...high
     stz a:$2110                     ; BG2VOFS

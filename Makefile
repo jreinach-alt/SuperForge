@@ -1404,7 +1404,7 @@ MIL_ASM  := $(MIL)/main.asm $(wildcard $(MIL)/scenes/*.asm) \
 MIL_ASSETS := $(BUILD)/assets/mil_chr1.bin $(BUILD)/assets/mil_chr2.bin \
               $(BUILD)/assets/mil_map1.bin $(BUILD)/assets/mil_map2.bin \
               $(BUILD)/assets/mil_pal.bin $(BUILD)/assets/mil_row.bin \
-              $(BUILD)/assets/mil_art.inc
+              $(BUILD)/assets/mil_ripple.bin $(BUILD)/assets/mil_art.inc
 
 $(MIL_ASSETS): tools/gen_mill_assets.py | $(BUILD)
 	$(PY) tools/gen_mill_assets.py $(BUILD)/assets
@@ -1422,7 +1422,8 @@ MIL_INC := -I $(MIL_MAP) -I $(VROM) -I $(MIL) -I $(BUILD)/assets \
            -I engine/features/tick_scale \
            -I engine/features/mil_bg -I engine/features/mil_opt \
            -I engine/features/mil_obj -I engine/features/oam_sprites \
-           -I engine/features/mil_tint
+           -I engine/features/mil_tint \
+           -I engine/features/mil_melt
 
 $(BUILD)/mill.sfc: $(MIL_ASM) $(MIL)/mill.inc \
 		$(MIL_MAP)/engine_state_globals.inc $(MIL_ASSETS) \

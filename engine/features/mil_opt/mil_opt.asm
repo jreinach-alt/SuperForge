@@ -23,6 +23,15 @@
 
 MIL_ROW_REGS = $4300 + ES_H_MIL_VROW_CH * 16
 
+; THE FIELD CONSTANTS ARE THE INCLUDING SCENE'S. The composition emits one
+; set per scene (ES_OPT_HALL_*, ES_OPT_MELT_*), and this file is included
+; inside each scene's .scope after the scene has aliased its own set to the
+; four names below -- so the walker reads the declaration of the room it is
+; serving, and a room that forgot to alias does not assemble.
+.ifndef MIL_OPT_BG1
+    .error "mil_opt.asm: alias MIL_OPT_BG1/BG2/VSEL/MASK to this scene's ES_OPT_* before including it"
+.endif
+
 ; --- mil_nmi_row: the offset row, every armed VBlank ------------------------
 ; CONTRACT mil_nmi_row
 ;   entry:    A8 I16 DB=0
@@ -43,6 +52,36 @@ mil_nmi_row:
     .a8
     .i16
     SF_ASSERT_WIDTH 8, 16, "mil_nmi_row"
+    jsr mil_row_regs
+    rep #$20
+    .a16
+    lda #SMIL_ROW_BYTES
+    sta a:MIL_ROW_REGS + 5          ; DAS (re-armed for THIS transfer)
+    jsr mil_row_source
+    ldx #0
+    jsr mil_stage_row_into
+    jsr mil_commit_vofs             ; ...and the fallback both layers use
+    sep #$20
+    .a8
+    lda #(1 << ES_H_MIL_VROW_CH)
+    sta a:$420B                     ; MDMAEN: fire
+    rts
+
+; --- mil_row_regs: the transfer's registers, bar DAS ------------------------
+; CONTRACT mil_row_regs
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   out:      VMAIN, the channel's DMAP/BBAD/A1T/A1B and VMADD programmed for
+;             a word-port transfer from the staging buffer to the table's
+;             first row. DAS is NOT here: it is the caller's, because it is
+;             the one thing the hall (one row) and the melt (two) disagree on
+;   clobbers: A, N, Z
+;   assumes:  VBlank
+;   tail:     rts
+mil_row_regs:
+    .a8
+    .i16
+    SF_ASSERT_WIDTH 8, 16, "mil_row_regs"
     lda #$80
     sta a:$2115                     ; VMAIN: +1 word after the high byte
     lda #ES_H_MIL_VROW_DMAP
@@ -50,18 +89,36 @@ mil_nmi_row:
     lda #ES_H_MIL_VROW_BBAD
     sta a:MIL_ROW_REGS + 1
     lda #^ES_MIL_STAGE_LONG
-    sta a:MIL_ROW_REGS + 4          ; the source is WRAM now, not ROM: the
-                                    ;   camera has to be folded in first
+    sta a:MIL_ROW_REGS + 4          ; the source is WRAM, not ROM: the camera
+                                    ;   has to be folded in first
     rep #$20
     .a16
-    ; ---- WHICH ROW OF BG3'S MAP. Mode 4 reads the row BG3VOFS selects, and
-    ; only that one — there is no second row to keep in step, which is the
-    ; other half of what "one word a column" buys.
+    ; ---- WHICH ROW OF BG3'S MAP. Mode 4 reads the row BG3VOFS selects; the
+    ; hall keeps that at row 0 for the whole frame, and the melt's channel
+    ; walks it per band (mil_melt.asm). Both restage from row 0 up.
     lda #ES_V_MIL_TAB
     sta a:$2116
-    lda #SMIL_ROW_BYTES
-    sta a:MIL_ROW_REGS + 5          ; DAS (re-armed for THIS transfer)
-    ; ---- which phase, and publish the one this frame is drawn FROM --------
+    lda #.loword(ES_MIL_STAGE_LONG)
+    sta a:MIL_ROW_REGS + 2          ; A1T: the STAGED rows, not the ROM rows
+    sep #$20
+    .a8
+    rts
+
+; --- mil_row_source: this phase's hall row (or the flat control) -----------
+; CONTRACT mil_row_source
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       ES_MIL_PHASE — the current phase, 0..SMIL_PHASES-1
+;             ES_MIL_FLATSEL — 0 = the running row, 1 = the flat control
+;   out:      ES_MIL_NMI_SCRATCH+0..2 — the ROM row's 24-bit address, and
+;             ES_MIL_SHOWN published with the phase it came from
+;   clobbers: A, N, Z, C
+;   assumes:  VBlank
+;   tail:     rts
+mil_row_source:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_row_source"
     lda z:ES_MIL_FLATSEL
     bne @flat
     lda z:ES_MIL_PHASE
@@ -87,14 +144,6 @@ mil_nmi_row:
     sta z:ES_MIL_NMI_SCRATCH + 2    ; ...and the bank, for the long read
     rep #$20
     .a16
-    lda #.loword(ES_MIL_STAGE_LONG)
-    sta a:MIL_ROW_REGS + 2          ; A1T: the STAGED row, not the ROM row
-    jsr mil_stage_row
-    jsr mil_commit_vofs             ; ...and the fallback both layers use
-    sep #$20
-    .a8
-    lda #(1 << ES_H_MIL_VROW_CH)
-    sta a:$420B                     ; MDMAEN: fire
     rts
 
 ; --- mil_commit_vofs: the two V fallbacks, every armed VBlank ---------------
@@ -140,17 +189,24 @@ mil_commit_vofs:
     .a16
     rts
 
-; --- mil_stage_row: the ROM row + the camera, into WRAM --------------------
-; CONTRACT mil_stage_row
+; --- mil_stage_row_into: a ROM row + the camera, into a staged row ---------
+; CONTRACT mil_stage_row_into
 ;   entry:    A16 I16 DB=0
 ;   exit:     A16 I16
-;   in:       ES_MIL_NMI_SCRATCH+0..2 — the ROM row's 24-bit address
-;   out:      SMIL_COLS words at ES_MIL_STAGE_LONG, each VERTICAL word carrying
-;             the camera, and ES_MIL_CAM_SHOWN published with the camera they
-;             were built from
+;   in:       X — the destination's byte offset in the staging buffer: 0 for
+;             the table's first row, SMIL_ROW_BYTES for its second
+;             ES_MIL_NMI_SCRATCH+0..2 — the ROM row's 24-bit address
+;   out:      SMIL_COLS words at ES_MIL_STAGE_LONG + X, each VERTICAL word
+;             carrying the camera, and ES_MIL_CAM_SHOWN published with the
+;             camera they were built from
 ;   clobbers: A, X, Y, N, Z, C
-;   assumes:  VBlank, called only from mil_nmi_row
+;   assumes:  VBlank, called only from a rail's NMI row routine
 ;   tail:     rts
+;
+; THE CAR RIDES IN ROW 0 ONLY. The override that puts the scene's car
+; displacement into the lift's four columns applies to the hall's row; a
+; ripple row staged at another offset gets its own words unchanged, because
+; below the deck those columns are channel, and the channel ripples.
 ;
 ; AN OFFSET WORD REPLACES A LAYER'S SCROLL, IT DOES NOT ADD TO IT — the
 ; hardware computes vScroll = word & $3FF for that column (SnesPpu.cpp:160) and
@@ -174,29 +230,32 @@ mil_commit_vofs:
 ; WIDTH-RISK: A16 throughout. The add is 16-bit and the mask puts it back
 ; inside the ten value bits — a carry into bit 10 sets no enable bit but does
 ; silently halve the offset the PPU reads.
-mil_stage_row:
+mil_stage_row_into:
     .a16
     .i16
-    SF_ASSERT_WIDTH 16, 16, "mil_stage_row"
+    SF_ASSERT_WIDTH 16, 16, "mil_stage_row_into"
     lda z:ES_MIL_CAM
     sta z:ES_MIL_CAM_SHOWN          ; ...the camera THIS frame is drawn from
-    ldx #0
+    stx z:ES_MIL_NMI_SCRATCH + 8    ; the destination's base: 0 = the car's row
+    ldy #0
 @word:
     .a16
     .i16
-    txy
     lda [ES_MIL_NMI_SCRATCH], y     ; the ROM row's word for this column
-    ; ...the ELEVATOR's four columns — MINUS THE LEAD, because X walks TABLE
+    ; ...the ELEVATOR's four columns — in ROW 0 ONLY (see above)...
+    ldx z:ES_MIL_NMI_SCRATCH + 8
+    bne @not_car
+    ; ...MINUS THE LEAD, because Y walks TABLE
     ; INDICES and index j displaces SCREEN column j + SMIL_LEAD. Without it the
     ; override lands one column right of the car: its three right-hand columns
     ; ride and its LEFT EDGE STAYS BEHIND, driven by the phase table it should
     ; have stopped reading. The generator bakes the same lead into the blob;
     ; this is the one place that reads the blob back and has to undo it.
-    cpx #((SMIL_CAR_COL - SMIL_LEAD) * 2)
+    cpy #((SMIL_CAR_COL - SMIL_LEAD) * 2)
     bcc @not_car
-    cpx #((SMIL_CAR_COL - SMIL_LEAD + SMIL_SHAFT_COLS) * 2)
+    cpy #((SMIL_CAR_COL - SMIL_LEAD + SMIL_SHAFT_COLS) * 2)
     bcs @not_car
-    and #(ES_OPT_HALL_BG1 | ES_OPT_HALL_BG2 | ES_OPT_HALL_VSEL)
+    and #(MIL_OPT_BG1 | MIL_OPT_BG2 | MIL_OPT_VSEL)
     ora z:ES_MIL_CAR                ; THE CAR IS DRIVEN BY THE SCENE, not by
                                     ;   the phase: a cutscene is a performance.
                                     ;   The ROM row still supplies its ENABLE
@@ -206,24 +265,30 @@ mil_stage_row:
 @not_car:
     .a16
     .i16
-    bit #ES_OPT_HALL_VSEL           ; ...vertical?
+    bit #MIL_OPT_VSEL           ; ...vertical?
     beq @store                      ; no: a belt phase, not the camera's business
     sta z:ES_MIL_NMI_SCRATCH + 4
-    and #ES_OPT_HALL_MASK
+    and #MIL_OPT_MASK
     clc
     adc z:ES_MIL_CAM
-    and #ES_OPT_HALL_MASK           ; ...back inside the ten value bits
+    and #MIL_OPT_MASK           ; ...back inside the ten value bits
     sta z:ES_MIL_NMI_SCRATCH + 6
     lda z:ES_MIL_NMI_SCRATCH + 4
-    and #(ES_OPT_HALL_BG1 | ES_OPT_HALL_BG2 | ES_OPT_HALL_VSEL)
+    and #(MIL_OPT_BG1 | MIL_OPT_BG2 | MIL_OPT_VSEL)
     ora z:ES_MIL_NMI_SCRATCH + 6
 @store:
     .a16
     .i16
+    sta z:ES_MIL_NMI_SCRATCH + 4    ; park the word while X is computed
+    tya
+    clc
+    adc z:ES_MIL_NMI_SCRATCH + 8    ; the destination: base + the index
+    tax
+    lda z:ES_MIL_NMI_SCRATCH + 4
     sta f:ES_MIL_STAGE_LONG, x
-    inx
-    inx
-    cpx #SMIL_ROW_BYTES
+    iny
+    iny
+    cpy #SMIL_ROW_BYTES
     bcc @word
     rts
 
@@ -337,21 +402,44 @@ mil_zero_row:
     .a16
     .i16
     SF_ASSERT_WIDTH 16, 16, "mil_zero_row"
+    lda #ES_V_MIL_TAB
+    ; falls into mil_zero_row_at with A = the table's first row
+
+; --- mil_zero_row_at: a row of zeros at the word address in A --------------
+; CONTRACT mil_zero_row_at
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       A — the VRAM word address of the row
+;   out:      SMIL_COLS zero words written there through the word port
+;   clobbers: A, X, N, Z, C
+;   assumes:  forced blank
+;   tail:     rts
+mil_zero_row_at:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_zero_row_at"
+    sta a:$2116                     ; VMADD
     sep #$20
     .a8
     lda #$80
     sta a:$2115                     ; VMAIN: +1 word after the high byte
-    rep #$20
-    .a16
-    lda #ES_V_MIL_TAB
-    sta a:$2116
     ldx #0
-@word:
-    .a16
+@zero:
+    .a8
     .i16
+    ; EIGHT-BIT STORES, ONE WORD A TURN. This loop ran in A16 until the melt
+    ; read its zero row back: a 16-bit `stz $2118` writes both port bytes and
+    ; steps the address, and the 16-bit `stz $2119` after it writes the NEXT
+    ; word's high byte and $211A (M7SEL) -- two words consumed per iteration,
+    ; every odd word's low byte left stale, and the loop's 32 turns reaching
+    ; 64 words. Harmless by luck: the enable bits are in the high byte, which
+    ; was zeroed, and mode 4 does not read M7SEL. Not harmless as a
+    ; statement of what the row holds.
     stz a:$2118                     ; the word port, low
     stz a:$2119                     ; ...and high
     inx
     cpx #SMIL_COLS
-    bcc @word
+    bcc @zero
+    rep #$20
+    .a16
     rts
