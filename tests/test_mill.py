@@ -1688,3 +1688,80 @@ def test_he_holds_one_pose_for_the_whole_ride():
     assert len(spans) == 1, (
         f"the part of him showing through the glass moved: rows (rel. to his "
         f"OAM row) {sorted(spans)} — he is bobbing in the car")
+
+
+def test_standing_on_the_car_is_the_same_picture_as_riding_it(tmp_path):
+    """FROM STEPPING ONTO THE CAR TO RIDING IT, NOTHING ABOUT HIM CHANGES.
+
+    Standing on the lift at rest he was staged like anywhere else on the deck:
+    in FRONT of BG1, breathing, cells and facing from the walk. The ride
+    stages him BEHIND the car, still, and without his facing. So the frame the
+    car moved: his cape and boots vanished behind the sill and the left wall
+    (the owner saw the lower left of the figure snap), the breath stopped, and
+    a man who had boarded facing left turned to face right. Three snaps, one
+    cause -- two stagings of one man in one place.
+
+    THE OBSERVATION IS HIS WHOLE OAM ENTRY plus what reaches the screen:
+    (x, y, tile, attr) sampled at rest on the car, again after he has walked
+    along it and back to face LEFT, and on every frame of the climb -- all one
+    value. And on each sample, none of his own ink may land outside the glass:
+    the car is opaque everywhere else, so a pixel of him beside the window is
+    him drawn in front of it.
+    """
+    lift = _art("SMIL_LIFT_COL") * 8
+    car_top = _art("SMIL_CAR_ROW") * 8 - CAM_MAX
+    wx, wy = _art("SMIL_WIN_X"), _art("SMIL_WIN_Y")
+    ww, wh = _art("SMIL_WIN_W"), _art("SMIL_WIN_H")
+
+    def sample(m, tag):
+        oam = m.read_bytes(OAM, 0, 12 * 4)
+        him = [tuple(oam[i * 4:i * 4 + 4]) for i in range(12)
+               if oam[i * 4 + 1] < 240 and oam[i * 4 + 2] != LEAF_TILE]
+        assert him, f"{tag}: he is not staged"
+        x, y, tile, attr = him[0]
+        ink = rider_ink(m, tile)
+        px = shot(m, tmp_path / f"{tag}.png").load()
+        outside = [(x + dx, y + dy) for (dx, dy), c in ink.items()
+                   if 0 <= x + dx < 256 and 0 <= y + dy < 224 and px[x + dx, y + dy] == c
+                   and not (lift + wx <= x + dx < lift + wx + ww
+                            and car_top + wy - 1 <= y + dy < car_top + wy + wh)]
+        assert not outside, (f"{tag}: {len(outside)} of his pixels show OUTSIDE the "
+                             f"glass, first {outside[0]} -- he is drawn in front of the car")
+        return (x, y, tile, attr)
+
+    seen = {}
+    with Machine(str(ROM)) as m:
+        to_hall(m)
+        for _ in range(400):
+            if m.read_bytes(W, DP_SM + 2, 1)[0] == 0:
+                break
+            m.advance(1)
+        seen["at rest"] = sample(m, "rest")
+        m.advance(2, pad1=JOY_RIGHT)              # along the car...
+        m.advance(2, pad1=JOY_LEFT)               # ...and back, facing LEFT
+        m.advance(2)                               # the walk cell settles
+        seen["faced left"] = sample(m, "left")
+        assert seen["faced left"][3] & 0x40, "he is not facing left -- the flip bit is clear"
+        m.advance(6, pad1=JOY_UP)
+        rode = 0
+        for k in range(40):
+            m.advance(1)
+            if m.read_u16(W, DP_CAR):
+                rode += 1
+                if k % 5 == 0:
+                    seen[f"riding@{k}"] = sample(m, f"ride{k}")
+    assert rode >= 20, f"the lift did not climb ({rode} moving frames)"
+    FLIP = 0x40
+    # The turn between the first two samples is deliberate, so the facing bit
+    # is the ONE thing allowed to differ across the whole set...
+    shape = {(x, y, t, a & ~FLIP) for x, y, t, a in seen.values()}
+    assert len(shape) == 1, (
+        "his OAM entry (x, y, tile, attr sans facing) changed between standing "
+        "on the car and riding it:\n  "
+        + "\n  ".join(f"{k:12s} {v}" for k, v in seen.items()))
+    # ...and from the turn onward, NOTHING differs: the facing he boarded with
+    # is the facing he rides with.
+    after = {v for k, v in seen.items() if k != "at rest"}
+    assert len(after) == 1, (
+        "he changed between boarding facing left and riding:\n  "
+        + "\n  ".join(f"{k:12s} {v}" for k, v in seen.items() if k != "at rest"))

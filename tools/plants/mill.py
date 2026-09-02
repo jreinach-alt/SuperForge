@@ -344,6 +344,21 @@ PLANTS = [
               "The case reads the rows of his ink that reach the screen, so "
               "a cell whose head sits elsewhere is a moved span.",),
 
+    Plant(id="he-stands-in-front-of-the-car",
+          file=OBJ_ASM,
+          old="""    lda #MIL_RIDER_ATTR             ; priority 0: behind the car, as riding""",
+          new="""    lda #MIL_LOBBY_ATTR             ; PLANT: in front of it, as on the deck""",
+          artifact=ROM,
+          build=["mill"],
+          tests=[
+              T + "test_standing_on_the_car_is_the_same_picture_as_riding_it",
+          ],
+          why="the deck staging as shipped, applied on the lift: priority 3 "
+              "over BG1, so at rest his cape and boots draw over the sill and "
+              "the left wall, and the frame the car moves they drop behind it. "
+              "The case counts his ink outside the glass on each sample and "
+              "holds his whole OAM entry to one value from rest to riding.",),
+
     Plant(id="hall-declares-mode-1",
           file=OPT_TOML,
           old="""name = "mil_mode"

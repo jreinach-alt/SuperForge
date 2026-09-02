@@ -254,7 +254,10 @@ mil_rider_stage:
     .a8
     sta a:MIL_RIDER_OAM + 2         ; tile, low 8
     lda #MIL_RIDER_ATTR             ; PRIORITY 0 — the whole point: it scores 2
-    sta a:MIL_RIDER_OAM + 3         ;   and loses to BG1's 3 (SnesPpu.cpp:958)
+    ora z:ES_MIL_FACE               ;   and loses to BG1's 3 (SnesPpu.cpp:958).
+                                    ;   ...AND HIS FACING, or a man who boarded
+                                    ;   facing left turns right as the car moves
+    sta a:MIL_RIDER_OAM + 3
     lda #MIL_RIDER_SIZE_LARGE       ; ...and the size bit for a 32x32 sprite
     sta a:MIL_RIDER_HI              ; whole byte: the three parked neighbours'
                                     ;   fields are zero and stay zero
@@ -1137,6 +1140,21 @@ mil_deck_stage:
     .a16
     .i16
     SF_ASSERT_WIDTH 16, 16, "mil_deck_stage"
+    ; ---- ON THE CAR, HE IS INSIDE IT. Standing on the lift at rest he was
+    ; staged like anywhere else on the deck: in FRONT of BG1, walk and idle
+    ; cells and all. The ride stages him BEHIND it, still, with only the glass
+    ; showing him. So the frame the car moved, his cape and boots vanished
+    ; behind the sill and the left wall and he stopped breathing -- a snap
+    ; into the layering the ride uses, seen by the owner in the lower left of
+    ; the figure. What the ride does is right for a man in a lift, and it is
+    ; right the moment he steps onto it, so this path asks whether he is on
+    ; the car and, if so, does what the ride does: priority 0 and the standing
+    ; cell. He still walks across it with the walk cells -- through the glass.
+    ; WIDTH-RISK: the answer is pushed as a WORD in A16 and pulled in A16 at
+    ; the tail; the A8 stretch between reads its low byte via 1,s only.
+    lda z:ES_MIL_PX
+    jsr mil_on_lift                 ; A = 1 on the car, 0 on the deck
+    pha                             ; [on_lift], two bytes
     lda #(SMIL_STAND_Y - SMIL_RIDER_BOX)
     sec
     sbc z:ES_MIL_CAM
@@ -1163,6 +1181,8 @@ mil_deck_stage:
 @idle:
     .a16
     .i16
+    lda 1, s                        ; on the car: no breath in the glass --
+    bne @still                      ;   the same rule the ride keeps
     lda z:ES_MIL_PHASE
     .repeat 5
     lsr a
@@ -1170,6 +1190,11 @@ mil_deck_stage:
     and #(SMIL_RIDER_IDLE_N - 1)
     clc
     adc #SMIL_RIDER_IDLE0
+    bra @cell
+@still:
+    .a16
+    .i16
+    lda #SMIL_RIDER_IDLE0
 @cell:
     .a16
     .i16
@@ -1177,13 +1202,22 @@ mil_deck_stage:
     sep #$20
     .a8
     sta a:MIL_RIDER_OAM + 2
-    lda #MIL_LOBBY_ATTR             ; priority 1: over the deck he stands on
+    lda 1, s                        ; low byte of [on_lift]
+    bne @inside
+    lda #MIL_LOBBY_ATTR             ; priority 3: over the deck he stands on
+    bra @attr
+@inside:
+    .a8
+    lda #MIL_RIDER_ATTR             ; priority 0: behind the car, as riding
+@attr:
+    .a8
     ora z:ES_MIL_FACE
     sta a:MIL_RIDER_OAM + 3
     lda #MIL_RIDER_SIZE_LARGE
     sta a:MIL_RIDER_HI
     rep #$20
     .a16
+    pla                             ; [on_lift]
     rts
 
 ; --- mil_lift_call: the car comes when he is near, and leaves when he is not -
