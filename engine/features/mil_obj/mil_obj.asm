@@ -242,17 +242,14 @@ mil_rider_stage:
                                     ;   because it is the same floor
     rep #$20
     .a16
-    ; ---- which idle cell, from the PHASE and not from a frame count ------
-    lda z:ES_MIL_PHASE
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    and #(SMIL_RIDER_FRAMES - 1)
-    .repeat 2
-    asl a                           ; ...one 32x32 cell is 4 tiles across
-    .endrepeat
+    ; ---- ONE CELL, RIDING. This used to pick an idle cell from the PHASE —
+    ; the pack's two idle frames, which are a breath: same feet, head and
+    ; crown two rows lower on the second. On the deck that reads as breathing
+    ; because his boots stay planted. In the car only his head and torso show
+    ; through the glass, so the same two frames read as the whole man hopping
+    ; up a line and back every eighty-odd frames, which is what the owner saw
+    ; and rightly did not accept as idle. A man riding a lift stands still.
+    lda #0                          ; the standing cell, tile 0
     sep #$20
     .a8
     sta a:MIL_RIDER_OAM + 2         ; tile, low 8

@@ -1642,3 +1642,49 @@ def test_he_does_not_shift_when_the_lift_starts_under_him():
         f"his OAM (x, y) moved when the car started: standing {rest}, riding "
         f"{sorted(seen)} -- the boarding snap and the ride stage disagree on "
         f"where he stands")
+
+
+def test_he_holds_one_pose_for_the_whole_ride():
+    """NOTHING ABOUT HIM CHANGES BETWEEN THE CAR STARTING AND THE CAR LEAVING.
+
+    The ride used to pick his cell from the phase, cycling the pack's two idle
+    frames. They are a breath -- same feet, head two rows lower on the second
+    -- and on the deck that is what it looks like. Through the glass his boots
+    are behind the sill, so the visible part of him simply moves up a line and
+    back, every eighty-odd frames, for the length of the climb. The owner saw
+    it, and said it was probably not idle; it was, and that was the defect.
+
+    THE OBSERVATION IS WHAT THE PPU DRAWS HIM FROM AND WHAT REACHES THE SCREEN:
+    his OAM tile, and the rows of his own ink that survive the glass, taken
+    relative to his OAM row so the climb itself cancels out. Both are held to
+    one value across the entire ride, sampled every fourth frame from the car
+    starting until it leaves the scene.
+    """
+    tiles, spans, samples = set(), set(), 0
+    with Machine(str(ROM)) as m:
+        to_hall(m)
+        board_and_ride(m)
+        for k in range(120):
+            if scene(m) != SCENE_HALL:
+                break
+            oam = m.read_bytes(OAM, 0, 12 * 4)
+            him = [(oam[i * 4], oam[i * 4 + 1], oam[i * 4 + 2]) for i in range(12)
+                   if oam[i * 4 + 1] < 240 and oam[i * 4 + 2] != LEAF_TILE]
+            if not him:
+                break                           # parked: the car is gone
+            x, y, tile = him[0]
+            tiles.add(tile)
+            if k % 4 == 0:
+                ink = rider_ink(m, tile)
+                im = shot(m, Path("build") / "pose.png").load()
+                seen = [dy for (dx, dy), c in ink.items()
+                        if 0 <= x + dx < 256 and 0 <= y + dy < 224 and im[x + dx, y + dy] == c]
+                if seen:
+                    spans.add((min(seen), max(seen)))
+                    samples += 1
+            m.advance(1)
+    assert samples >= 8, f"only {samples} samples reached the glass — nothing was ridden"
+    assert len(tiles) == 1, f"his cell changed during the ride: tiles {sorted(tiles)}"
+    assert len(spans) == 1, (
+        f"the part of him showing through the glass moved: rows (rel. to his "
+        f"OAM row) {sorted(spans)} — he is bobbing in the car")

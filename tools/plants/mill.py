@@ -288,8 +288,10 @@ PLANTS = [
     Plant(id="the-new-room-shows-the-old-room-s-pose",
           file=HALL_ASM,
           old="""    jsr mil_rider_stage             ; ...AND THE MAN HIMSELF, for exactly the""",
-          new="""    nop                             ; PLANT: the arrival is not staged
-    .byte 0                         ; ...AND THE MAN HIMSELF, for exactly the""",
+          new="""    nop                             ; PLANT: the arrival is not staged --
+    nop                             ;   three bytes, the width of the jsr, and
+    nop                             ;   NOT `.byte 0`: $00 is BRK, which plants
+                                    ;   a crash instead of a missing stage""",
           artifact=ROM,
           build=["mill"],
           tests=[
@@ -317,6 +319,30 @@ PLANTS = [
               "to the other the frame the car moves. A case that reads only "
               "his Y passes on it -- that reading is the one this rail spent a "
               "whole abandoned fix on -- so the case reads both coordinates.",),
+
+    Plant(id="he-breathes-in-the-glass",
+          file=OBJ_ASM,
+          old="""    lda #0                          ; the standing cell, tile 0""",
+          new="""    lda z:ES_MIL_PHASE              ; PLANT: the idle bob, back
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    and #(SMIL_RIDER_FRAMES - 1)
+    asl a
+    asl a""",
+          artifact=ROM,
+          build=["mill"],
+          tests=[
+              T + "test_he_holds_one_pose_for_the_whole_ride",
+          ],
+          why="the ride as shipped: the pack's two idle frames cycled from "
+              "the phase, and they differ by a two-row breath at the head. "
+              "With his boots behind the sill, that breath is the only thing "
+              "moving in the glass, and it reads as him shifting up a line. "
+              "The case reads the rows of his ink that reach the screen, so "
+              "a cell whose head sits elsewhere is a moved span.",),
 
     Plant(id="hall-declares-mode-1",
           file=OPT_TOML,
