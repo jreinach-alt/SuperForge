@@ -49,9 +49,22 @@ SMIL_CAM_STEP = 3
 ; immediate in ca65 is a hex mask, which is a raw address operand.
 SMIL_RIDER_VIS_SPAN = 224 + SMIL_RIDER_BOX
 
-; ...and a nudge right, so he stands centred in the glass rather than against
-; its left mullion. The pack does not centre Arthur in his 32x32 cell.
-SMIL_RIDER_DX = 3
+; WHERE HE STANDS TO RIDE, STATED ONCE AND DERIVED FROM THE ART. He was placed
+; at a hand-picked "nudge right" of 3 (the comment said the pack does not centre
+; Arthur in his cell). Measured, his ink runs +8..+21 in the 32 px cell -- centre
+; +14.5 -- and the glass runs +7..+24 in the car -- centre +15.5 -- so the
+; centred X is car + 1, and the nudge of 3 was LESS centred than no nudge. The
+; UP that boarded him snapped PX to the car's left edge under a comment saying
+; it was "the one place the glass is cut for", three pixels from where the ride
+; then staged him: the frame the car moved he was drawn 3 px to the right, and
+; drawn back on arrival. Every path that puts him on the car uses this number.
+;
+; ROUNDED DOWN TO THE WALK STEP. He walks in SMIL_WALK_STEP px, and every clamp
+; in the hall is an exact-edge stop that assumes his X keeps that parity; an odd
+; rest X put him past every edge by one (measured: 49 for 48, 223 for 224).
+SMIL_RIDE_X = ((SMIL_CAR_COL * 8 * 2 + SMIL_WIN_X * 2 + SMIL_WIN_W - 1 - SMIL_RIDER_INK_L - SMIL_RIDER_INK_R) / 2) / SMIL_WALK_STEP * SMIL_WALK_STEP
+.assert SMIL_RIDE_X .MOD SMIL_WALK_STEP = 0, error, "mill: the ride X is off the walk step's parity"
+.assert SMIL_RIDE_X >= SMIL_CAR_COL * 8, error, "mill: the ride X is left of the car"
 
 ; How far UP the art sits inside the glass. The pack frames Arthur with eleven
 ; transparent rows above the helmet, so his drawn content does not start at the

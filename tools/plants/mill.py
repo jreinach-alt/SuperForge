@@ -303,6 +303,21 @@ PLANTS = [
               "shipped exactly that, under a comment two lines above stating "
               "the principle for the leaves.",),
 
+    Plant(id="the-boarding-snap-and-the-ride-disagree",
+          file=OBJ_ASM,
+          old="""    lda #SMIL_RIDE_X                ; ...the SAME X the boarding snap uses, or""",
+          new="""    lda #(SMIL_RIDE_X + 2)          ; PLANT: the ride stages him 2 px from where he stood""",
+          artifact=ROM,
+          build=["mill"],
+          tests=[
+              T + "test_he_does_not_shift_when_the_lift_starts_under_him",
+          ],
+          why="the defect as shipped: two sites each stating where he stands "
+              "to ride, three pixels apart, and the picture switching from one "
+              "to the other the frame the car moves. A case that reads only "
+              "his Y passes on it -- that reading is the one this rail spent a "
+              "whole abandoned fix on -- so the case reads both coordinates.",),
+
     Plant(id="hall-declares-mode-1",
           file=OPT_TOML,
           old="""name = "mil_mode"

@@ -52,7 +52,7 @@ enter:
     stz z:ES_MIL_STEP
     stz z:ES_MIL_FACE
     stz z:ES_MIL_BOARD              ; HE ARRIVES STANDING ON THE CAR, not shut
-    lda #(SMIL_LIFT_COL * 8)        ;   in it. The car is on the deck — its
+    lda #SMIL_RIDE_X                ;   in it, at the X the ride staged him. The car is on the deck — its
     sta z:ES_MIL_PX                 ;   bottom IS the deck's top, which the
                                     ;   generator asserts — so its four columns
                                     ;   are ground, and he can walk straight off

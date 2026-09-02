@@ -232,7 +232,8 @@ mil_rider_stage:
     cmp #SMIL_RIDER_VIS_SPAN
     bcs @park
     ; ---- his X: the car's column, plus the glass, centred on the box -----
-    lda #(SMIL_CAR_COL * 8 + SMIL_WIN_X + SMIL_WIN_W / 2 - SMIL_RIDER_BOX / 2 + SMIL_RIDER_DX)
+    lda #SMIL_RIDE_X                ; ...the SAME X the boarding snap uses, or
+                                    ;   he shifts when the car starts (mill.inc)
     sep #$20
     .a8
     sta a:MIL_RIDER_OAM + 0         ; X, low 8
@@ -1110,8 +1111,10 @@ mil_try_ride:
     lda z:ES_MIL_PX
     jsr mil_on_lift
     beq @no
-    lda #(SMIL_LIFT_COL * 8)        ; snapped, so the ride starts from the one
-    sta z:ES_MIL_PX                 ;   place the glass is cut for
+    lda #SMIL_RIDE_X                ; snapped, so the ride starts from the one
+    sta z:ES_MIL_PX                 ;   place the glass is cut for -- which is
+                                    ;   the X the ride STAGES, not the car's
+                                    ;   left edge 3 px away
     lda #SMIL_BOARD_ABOARD
     sta z:ES_MIL_BOARD
 @no:

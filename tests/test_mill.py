@@ -1048,6 +1048,14 @@ LEAF_TILE = 192                     # the leaf cell's tile id, so the
 DP_FADE_CTL = _dp("ES_FADE_CTL")
 
 
+def rider_xy(m):
+    """His staged OAM (x, y), or None when no non-leaf entry is on screen."""
+    oam = m.read_bytes(OAM, 0, 12 * 4)
+    him = [(oam[i * 4], oam[i * 4 + 1]) for i in range(12)
+           if oam[i * 4 + 1] < 240 and oam[i * 4 + 2] != LEAF_TILE]
+    return him[0] if him else None
+
+
 def gen_pocket_columns():
     """Screen columns a retracted leaf reaches that lie outside every bay.
 
@@ -1596,3 +1604,41 @@ def test_the_handover_does_not_show_him_where_the_last_room_left_him():
         f"{len(lit_stale)} LIT frame(s) drew him away from ES_MIL_PX, first "
         f"{lit_stale[0]} (frame, staged x, PX, fade) — the new room is showing "
         f"the pose the old one left behind")
+
+
+def test_he_does_not_shift_when_the_lift_starts_under_him():
+    """THE MAN MUST NOT MOVE ON EITHER AXIS WHEN THE CAR STARTS.
+
+    He was drawn at ES_MIL_PX while standing on the car and at a glass-centred
+    constant while riding, and the UP that boarded him snapped PX to the car's
+    LEFT EDGE -- three pixels short of that constant, under a comment saying it
+    was the same place. So the first moving frame shoved him 3 px right, and
+    arrival shoved him 3 px back. Every probe written for this defect printed
+    only Y; the owner said "jumps", the report was read as vertical, and the
+    horizontal axis went unmeasured through a whole abandoned fix.
+
+    THE OBSERVATION IS HIS OAM ENTRY, both coordinates, held against the last
+    frame before the car moves. A constant Y alone is exactly the reading that
+    hid this.
+    """
+    with Machine(str(ROM)) as m:
+        to_hall(m)
+        for _ in range(400):
+            if m.read_bytes(W, DP_SM + 2, 1)[0] == 0:
+                break
+            m.advance(1)
+        rest = rider_xy(m)
+        assert rest is not None, "he is not staged while standing on the car"
+        seen, cars = set(), []
+        for k in range(24):
+            m.advance(1, pad1=JOY_UP if k < 6 else {})
+            car = m.read_u16(W, DP_CAR)
+            if car:
+                cars.append(car)
+                seen.add(rider_xy(m))
+    assert len(cars) >= 12 and cars[-1] > cars[0], \
+        f"the lift never climbed ({cars[:4]}...) -- this case tested nothing"
+    assert seen == {rest}, (
+        f"his OAM (x, y) moved when the car started: standing {rest}, riding "
+        f"{sorted(seen)} -- the boarding snap and the ride stage disagree on "
+        f"where he stands")

@@ -1325,6 +1325,18 @@ def rider_head():
                    if c.load()[x, y][3] > 127) for c in _rider_cells())
 
 
+def rider_ink_x():
+    """(leftmost, rightmost) inked column across every pose -- the same idea
+    as rider_feet on the other axis, and for the same reason: the box is not
+    the figure, so 'centred in the glass' has to be computed from the ink."""
+    l, r = RIDER_BOX, 0
+    for c in _rider_cells():
+        px = c.load()
+        xs = [x for y in range(RIDER_BOX) for x in range(RIDER_BOX) if px[x, y][3] > 127]
+        l, r = min(l, min(xs)), max(r, max(xs))
+    return l, r
+
+
 def rider_feet():
     """The lowest INKED row in the rider's cells, which is not the box's floor.
 
@@ -1707,6 +1719,8 @@ SMIL_WIN_Y        = {WINDOW[1]}
 SMIL_WIN_W        = {WINDOW[2]}
 SMIL_WIN_H        = {WINDOW[3]}
 SMIL_RIDER_BOX    = {RIDER_BOX}     ; the OBJ box: OBSEL's 32x32 size pair
+SMIL_RIDER_INK_L  = {rider_ink_x()[0]}      ; leftmost / rightmost column his ART reaches
+SMIL_RIDER_INK_R  = {rider_ink_x()[1]}     ;   in the box, across every pose
 SMIL_RIDER_HEAD   = {rider_head()}     ; the highest row his ART reaches in the box
 SMIL_RIDER_FEET   = {rider_feet()}     ; ...and the lowest row his ART reaches
                                 ;   inside it. The two differ by four blank
