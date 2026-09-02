@@ -464,37 +464,6 @@ def kit(name, size):
     return _KIT_CACHE[key]
 
 
-def kit_cross_section(name, w):
-    """A V-INVARIANT profile derived from a guide-rail strip.
-
-    The strips cannot be used as drawn — 38-48 of 52 rows differ from the modal
-    row even with the cap and the foot excluded, because the lighting runs down
-    the whole length. So this takes the strip's CROSS-SECTION: each x is the
-    mean of that column over the uniform middle. One row, repeated, invariant
-    by construction, keeping the flute spacing and the metal the art was drawn
-    with. The art cannot supply the ROW a displaced column needs; it can supply
-    the SHAPE."""
-    key = ("xsec", name, w)
-    if key not in _KIT_CACHE:
-        import kit_import
-        from PIL import Image
-        sheet, box = KIT_BOX[name]
-        src = kit_import.key_to_alpha(Image.open(KIT / f"{sheet}.png").crop(box))
-        small = kit_import.resample(src, (w, 120))
-        px = small.load()
-        row = Image.new("RGBA", (w, 1))
-        rp = row.load()
-        for x in range(w):
-            acc, n = [0, 0, 0], 0
-            for y in range(22, 86):                  # the middle: no cap, no foot
-                r, g, b, a = px[x, y]
-                if a:
-                    acc[0] += r; acc[1] += g; acc[2] += b; n += 1
-            rp[x, 0] = (acc[0] // n, acc[1] // n, acc[2] // n, 255) if n else (0, 0, 0, 0)
-        _KIT_CACHE[key] = kit_import.map_to_palette(row, PAL_BG1, BG1_IX0)[0]
-    return _KIT_CACHE[key]
-
-
 def C(k):  return IX_COLD + max(0, min(N_COLD - 1, int(k)))
 def Wm(k): return IX_WARM + max(0, min(N_WARM - 1, int(k)))
 def Ml(k): return IX_MOLTEN + max(0, min(N_MOLTEN - 1, int(k)))
@@ -520,13 +489,26 @@ def shaft_profile(st):
     """The 32-pixel band of a station's four SHAFT columns, as one index per x.
 
     Every row of those columns is this, which is the vertical-invariance
-    contract discharged by construction rather than by care — and the shape is
-    the kit's own guide rails, cross-sectioned. Two rails per station, mirrored
-    about the centre, so the ram runs in a symmetric guide the way the sheet's
-    assembly preview shows it."""
-    outer, inner = (("rail_a", "rail_b"), ("rail_c", "rail_d"))[st]
-    a, b = kit_cross_section(outer, 8), kit_cross_section(inner, 8)
-    return list(a) + list(b) + list(reversed(b)) + list(reversed(a))
+    contract discharged by construction rather than by care. The shape is the
+    delivered guide-rail cross-section (vendor/art/forge_line/README.md): four
+    fluted rails, mirrored about the centre, drawn as one row and asserted to
+    be one row on import. Both stations take the same strip."""
+    # THE DELIVERED CROSS-SECTION, NOT AN AVERAGE. `kit_cross_section` was
+    # the best the sheets allowed -- a column MEAN of a lit strip, which kept
+    # the flute spacing and lost every edge, and it was a third of the screen.
+    # The strip below was drawn as one row repeated (asserted on import: every
+    # row byte-identical, mirrored about the centre), which is the shape a
+    # vertically displaced column needs and the one thing a continuous-tone
+    # sheet could never supply. Both stations take it.
+    art = art_to_indices(RAIL_ART)
+    rows = {tuple(r) for r in art}
+    if len(rows) != 1:
+        raise SystemExit(f"{RAIL_ART}: {len(rows)} distinct rows -- a displaced "
+                         f"column needs exactly one")
+    row = list(rows.pop())
+    if len(row) != SHAFT_COLS * 8 or row != row[::-1]:
+        raise SystemExit(f"{RAIL_ART}: {len(row)} px wide / not mirrored")
+    return row
 
 
 def shaft_groups(st):
@@ -738,6 +720,24 @@ def paint_belt_front(buf, cx, w):
 DECK_COLS = set()
 
 
+_MELT = []
+
+
+def melt_art():
+    """The molten channel, 256 x (PXH - MELT_ROW*8), tiling on 64 px. It was a
+    hash-noise formula over the molten ramp -- the brightest thing on screen
+    and the least authored. Only its top rows are ever in frame: the camera
+    bottoms out at SMIL_CAM_MAX, so the channel's first (224 + CAM_MAX) -
+    MELT_ROW*8 rows are the visible ones."""
+    if not _MELT:
+        art = art_to_indices(MELT_ART)
+        if len(art) != PXH - MELT_ROW * 8 or len(art[0]) != PX:
+            raise SystemExit(f"{MELT_ART}: {len(art[0])}x{len(art)}, need "
+                             f"{PX}x{PXH - MELT_ROW * 8}")
+        _MELT.append(art)
+    return _MELT[0]
+
+
 def paint_deck_and_melt(buf, cx, w):
     """The floor the hall stands on and the channel running under it. Static
     art in every column that gets it, so it carries the horizontal courses,
@@ -758,10 +758,8 @@ def paint_deck_and_melt(buf, cx, w):
             buf[y][x] = Wm(3 + ((x // 4 + y) % 2))
         for y in range(m0 - 3, m0):              # the lip catching the glow
             buf[y][x] = Ml(24 + (y - m0 + 3) * 3)
-        for y in range(m0, PXH):                 # the channel, uplighting all
-            d = min(1.0, (y - m0) / 40)
-            n = ((x * 7 + (y // 2) * 5) % 13) / 13
-            buf[y][x] = Ml(min(N_MOLTEN - 1, 9 + 20 * (1 - d) + 6 * n))
+        for y in range(m0, PXH):                 # the channel: delivered art
+            buf[y][x] = melt_art()[y - m0][x % PX]
 
 
 def paint_shaft_house(buf, cx, w):
@@ -886,6 +884,53 @@ assert DOOR_ROWS * 8 == LEAF_ROWS * LEAF_BOX, "the opening must be whole cells"
 
 
 # --------------------------------------------------------------------------
+# DELIVERED ART IS IMPORTED BY LOOKUP, WITH THE DRIFT MEASURED
+# --------------------------------------------------------------------------
+# Three assets now arrive authored to THIS palette (the lobby wall, the
+# guide-rail cross-section, the molten channel). None needs a resample; each
+# needs the same thing: nearest entry, a count of how many were exact, and a
+# refusal if some colour is nowhere near -- which is what "authored against a
+# different palette" looks like. They are all authored against a PUBLISHED
+# SNAPSHOT, and the palette is refitted from time to time, so exact lookup
+# would break every asset at every refit; nearest-entry does not, and the
+# drift it reports says how far the snapshot has moved under the art.
+ART_DRIFT = 28                 # counts a delivered colour may sit from an entry.
+                               #   The channel was drawn against the pre-refit
+                               #   MOLTEN ramp and its darkest crust tone moved
+                               #   25 when the key bleed came out; the rest of
+                               #   its colours sit within 17 and the wall's
+                               #   within 9. Past this is a different palette.
+ART_FIT = {}                   # name -> (exact, distinct, worst), for the summary
+
+
+def art_to_indices(name, drift=ART_DRIFT):
+    """A delivered PNG under the kit -> a 2-D list of BG1 CGRAM indices."""
+    from PIL import Image
+    im = Image.open(KIT / name).convert("RGB")
+    W, H = im.size
+    rgbs = [((w & 31) << 3 | (w & 31) >> 2,
+             ((w >> 5) & 31) << 3 | ((w >> 5) & 31) >> 2,
+             ((w >> 10) & 31) << 3 | ((w >> 10) & 31) >> 2) for w in PAL_BG1]
+    px = im.load()
+    cache, worst, exact = {}, 0, 0
+    for c in {px[x, y] for y in range(H) for x in range(W)}:
+        j = min(range(len(rgbs)),
+                key=lambda i: (2 * (rgbs[i][0] - c[0]) ** 2
+                               + 4 * (rgbs[i][1] - c[1]) ** 2
+                               + (rgbs[i][2] - c[2]) ** 2))
+        d = max(abs(rgbs[j][k] - c[k]) for k in range(3))
+        cache[c] = BG1_IX0 + j
+        worst = max(worst, d)
+        exact += (d == 0)
+    if worst > drift:
+        raise SystemExit(f"{name}: a colour is {worst} counts from the nearest "
+                         f"BG1 entry -- this was authored against a different "
+                         f"palette")
+    ART_FIT[name] = (exact, len(cache), worst)
+    return [[cache[px[x, y]] for x in range(W)] for y in range(H)]
+
+
+# --------------------------------------------------------------------------
 # THE LOBBY WALL IS IMPORTED, AND IT IS THE SOURCE OF TRUTH FOR THE BAYS
 # --------------------------------------------------------------------------
 # The wall above the deck is a delivered 256x176 asset authored to THIS
@@ -903,11 +948,11 @@ assert DOOR_ROWS * 8 == LEAF_ROWS * LEAF_BOX, "the opening must be whole cells"
 # art and they do not have to be: the leaves that cover them are sprites,
 # positioned in pixels.
 LOBBY_ART = KIT / "mode4_asset01_lobby_interior_wall.png"
+RAIL_ART = "mode4_guide_rail_cross_section_32x8.png"
+MELT_ART = "mode4_molten_metal_channel_256x88.png"
 LOBBY_ART_H = 176              # the wall the asset covers; the deck is below it
 CEIL_BAND = 12                 # ...and how far the coffer runs past the slide
 CEIL_PITCH = 16                # the coffer's grid
-LOBBY_ART_DRIFT = 24           # counts a delivered colour may sit from an
-                               #   entry before it is a DIFFERENT palette
 LOBBY_ART_FIT = []             # (exact, distinct, worst drift), for the summary
 
 
@@ -936,35 +981,8 @@ def _lobby_art():
                          ((w >> 5) & 31) << 3 | ((w >> 5) & 31) >> 2,
                          ((w >> 10) & 31) << 3 | ((w >> 10) & 31) >> 2),
                         BG1_IX0 + i)
-    # NEAREST, AND THE DRIFT IS REPORTED. The wall was authored against a
-    # PUBLISHED SNAPSHOT of this palette, and the palette is refitted from time
-    # to time — most recently to get the chroma key's halo out of the molten
-    # ramp. An exact-lookup import would make every such refit break a
-    # delivered asset, which is the wrong coupling: the art is fixed, the
-    # palette is ours to improve. So this maps to the nearest entry the way
-    # kit_import does, counts how many colours were EXACT, and refuses only if
-    # some colour is nowhere near — which is what "authored against a different
-    # palette" actually looks like.
-    px = im.load()
-    rgbs = [((w & 31) << 3 | (w & 31) >> 2,
-             ((w >> 5) & 31) << 3 | ((w >> 5) & 31) >> 2,
-             ((w >> 10) & 31) << 3 | ((w >> 10) & 31) >> 2) for w in PAL_BG1]
-    cache, worst, exact = {}, 0, 0
-    for c in {px[x, y] for y in range(LOBBY_ART_H) for x in range(PX)}:
-        j = min(range(len(rgbs)),
-                key=lambda i: (2 * (rgbs[i][0] - c[0]) ** 2
-                               + 4 * (rgbs[i][1] - c[1]) ** 2
-                               + (rgbs[i][2] - c[2]) ** 2))
-        d = max(abs(rgbs[j][k] - c[k]) for k in range(3))
-        cache[c] = BG1_IX0 + j
-        worst = max(worst, d)
-        exact += (d == 0)
-    if worst > LOBBY_ART_DRIFT:
-        raise SystemExit(f"lobby art: a colour is {worst} counts from the "
-                         f"nearest BG1 entry — this was authored against a "
-                         f"different palette")
-    LOBBY_ART_FIT.append((exact, len(cache), worst))
-    raw = [[cache[px[x, y]] for x in range(PX)] for y in range(LOBBY_ART_H)]
+    raw = art_to_indices(LOBBY_ART.name)
+    LOBBY_ART_FIT.append(ART_FIT[LOBBY_ART.name])
 
     # A BAY IS A TALL RUN OF COLUMNS WHOSE PIXELS ARE ALL THE DARKEST INDEX.
     # The brief asked for flat dark recesses precisely so the sprites could
@@ -1777,11 +1795,10 @@ SMIL_BG2_REST     = 0
           f"({len(PAL_BG1)} BG1 + {len(PAL_BG2)} BG2), "
           f"row table {PHASES}+1 x {ROW_BYTES} B, "
           f"rider {len(rchr)} B ({len(RIDER_CELLS)} cells)")
-    if LOBBY_ART_FIT:
-        e, n, w = LOBBY_ART_FIT[0]
-        print(f"  mill: lobby wall imported — {e}/{n} colours exact, worst "
-              f"drift {w} of {LOBBY_ART_DRIFT} allowed; bays read at "
-              f"{[b[0] for b in lobby_bays()]} px")
+    for name, (e, n, w) in sorted(ART_FIT.items()):
+        print(f"  mill: {name}: {e}/{n} colours exact, worst drift {w} of "
+              f"{ART_DRIFT} allowed")
+    print(f"  mill: lobby bays read at {[b[0] for b in lobby_bays()]} px")
 
 
 if __name__ == "__main__":

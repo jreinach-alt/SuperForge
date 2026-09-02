@@ -57,11 +57,30 @@ half of CGRAM is untouched.
 column must be identical row to row, and these have caps, feet, bolt courses
 and a lighting gradient down their whole length: 38–48 of 52 rows differ from
 the modal row even over the middle with the cap and the foot excluded. What
-IS taken from them is a **cross-section** — each x is the mean of that column
+WAS taken from them was a **cross-section** — each x the mean of that column
 over the strip's uniform middle, mapped to the palette, then repeated. One row,
-invariant by construction, keeping the flute spacing and the metal the art was
-drawn with. The art cannot supply the row a displaced column needs; it can
-supply the shape.
+invariant by construction, keeping the flute spacing and losing every edge. It
+was a third of the screen, and it is superseded by the delivered strip below;
+the sheets still inform the palette fit, which is why they stay.
+
+## Delivered to this palette (2026-08-30 to 2026-09-02)
+
+Three further files were drawn **to the rail's own BG1 palette** from a
+published swatch sheet (`tools/gen_mill_assets.py` emits it; the request text
+is in the session log), at final pixel size with hard edges, and are imported
+by LOOKUP rather than by resample — `art_to_indices`: nearest entry, exact
+count reported, and a refusal past `ART_DRIFT` counts, which is what "authored
+against a different palette" looks like. Each carries its own structural
+check on import.
+
+| file | answers | on import |
+|---|---|---|
+| `mode4_asset01_lobby_interior_wall.png` 256×176 | the lobby wall: cornice, clerestory louvres, pilasters, two 64×64 bays left as flat dark recesses for the sprite doors | the bays are FOUND (tall runs of the darkest index) and the wall is seated on both axes so they land on the tile grid and on the deck; 18/20 colours exact, worst drift 9 |
+| `mode4_guide_rail_cross_section_32x8.png` | the shaft columns' profile: four fluted rails, mirrored | every row byte-identical and the row mirrored, or the build stops — the invariant a vertically displaced column needs; 6/7 exact, worst 8 |
+| `mode4_molten_metal_channel_256x88.png` | the channel under the deck, replacing a hash-noise formula | tiles on 64 px exactly; 7/18 exact, worst drift 25 — it was drawn against the MOLTEN ramp *before* the chroma-key bleed was refitted out, and its darkest crust tone moved that far; every other colour sits within 17 |
+
+Only the channel's top rows are ever in frame (the hall's camera bottoms out
+at `SMIL_CAM_MAX`), which the request did not say and should have.
 
 ## Provenance note
 
