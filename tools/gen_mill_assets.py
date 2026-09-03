@@ -293,7 +293,9 @@ BELT_AT = 6                   # ...and the conveyor fills the rest
 TAIL_AT = 25                  # ...then a conveyor run out to the right edge
 
 # THE STROKE, in pixels of vertical displacement. A head drawn at map row
-# CAP_ROW appears at screen row CAP_ROW*8 - v.
+# CAP_ROW appears at screen row CAP_ROW*8 - cam - v, so the camera is half
+# of where it lands and a row picked against cam=0 goes off the top once the
+# camera rests at the map's bottom. See CAP_ROW.
 FLOOR = 28                    # the forge floor's first map row: the lower
                               #   screen is rows 28..55, the shaft house above
 # TWO HEADS, TWO ROWS, and they were one constant until the deck became a place
@@ -313,7 +315,21 @@ FLOOR = 28                    # the forge floor's first map row: the lower
 # (An earlier cut of this split moved the ram DOWN so it would bite into a
 # figure standing under it. Measured afterwards: nobody can stand under it.)
 HEAD_ROWS = 6                 # the kit's ram is 48 px, six tiles tall
-CAP_ROW = FLOOR + 13          # the ram's top map row
+CAP_ROW = FLOOR + 18          # the ram's top map row -- EIGHTEEN, not
+                              #   thirteen. The camera now rests at the
+                              #   map's bottom so the channel is on
+                              #   screen, and at that camera a head at
+                              #   FLOOR+13 spends half its stroke ABOVE
+                              #   the picture: measured, the whole of
+                              #   v=0..72 changed nine screen rows,
+                              #   because the only part of the hammer
+                              #   ever in frame was the bottom of it.
+                              #   The band the machines read is screen
+                              #   rows 0..SMIL_FLOOR_Y, so the head has
+                              #   to travel inside that: at FLOOR+18 it
+                              #   hangs at 80..128 and lifts to 8..56,
+                              #   clear of both edges. THIS ROW IS THE
+                              #   SUBJECT'S VISIBILITY, not decoration.
 STROKE = (72, 0)              # station 0 is the drop hammer; station 1 is the
 PERIOD = (1, 1)               #   ELEVATOR and its column is not driven by the
 STATION_PHASE = (0, 0)        #   phase at all — the scene drives it
@@ -361,7 +377,20 @@ GANTRY_ROW = FLOOR + 10               # the overhead girder, on BG2 so it can cr
                                       #   The uprights hang from it, so moving
                                       #   it moves them, which is why there is
                                       #   one number here and not three
-BELT_ROW = FLOOR + 20                 # the conveyor's map row
+BELT_ROW = FLOOR + 24                 # the conveyor's map row -- and it is
+                                      #   DOWN here against the deck, not
+                                      #   seven rows above it, because the
+                                      #   hammer needs a clear run. At the
+                                      #   camera's rest the girder is screen
+                                      #   row 16 and the deck 152, and a
+                                      #   48 px head with a 72 px stroke
+                                      #   wants 120 of the 136 between them:
+                                      #   with the belt at FLOOR+20 it sat
+                                      #   in the middle of that run and the
+                                      #   head spent most of its stroke
+                                      #   BEHIND it. Now the hammer comes
+                                      #   down ONTO the conveyor, which is
+                                      #   also what a drop hammer is for
 BELT_PHASES = 8               # EIGHT, not four: at four the belt has only four
                               #   distinct appearances in a whole turn of the
                               #   table (measured), and that reads as a
@@ -857,6 +886,58 @@ def melt_art():
     return _MELT[0]
 
 
+_MELT_JOIN = []               # (period, wrap cost, worst interior, median)
+
+
+def _col_cost(a, b):
+    return sum(1 for u, v in zip(a, b) if u != v)
+
+
+def melt_join():
+    """How the delivered channel meets ITSELF, measured on the rows a room
+    shows: (repeat period, the cost of its wrap, its worst interior join, its
+    median join) -- each a count of rows that change across one column pair.
+
+    NOTHING CHECKED THIS UNTIL A ROOM SHOWED IT. The vendor README has said
+    the file "tiles on 64 px exactly" since it arrived, and it does: its 256
+    px are one 64 px tile four times over. What it does NOT do is WRAP -- the
+    tile's column 63 does not continue into its column 0 -- so the repeat
+    lays three vertical breaks across the picture at x = 64, 128 and 192. The
+    hall hides all three behind its rails and station fronts; the lobby, whose
+    channel runs the full width under a flat floor, shows every one.
+    """
+    if not _MELT_JOIN:
+        art = melt_art()
+        shown = PXH - MELT_ROW * 8
+        col = [tuple(art[y][x] for y in range(shown)) for x in range(PX)]
+        period = next((p for p in range(8, PX + 1, 8)
+                       if PX % p == 0
+                       and all(col[x] == col[(x + p) % PX] for x in range(PX))),
+                      PX)
+        inner = [_col_cost(col[x], col[x + 1]) for x in range(period - 1)]
+        _MELT_JOIN.append((period, _col_cost(col[period - 1], col[0]),
+                           max(inner), sorted(inner)[len(inner) // 2]))
+    return _MELT_JOIN[0]
+
+
+def melt_x(x):
+    """The channel art's column for screen column `x`.
+
+    MIRRORED ON THE REPEAT WHEN -- AND ONLY WHEN -- THE TILE DOES NOT WRAP. A
+    mirrored join puts a column beside ITSELF, which is continuous whatever
+    the art does, and it costs nothing but a symmetry every period. It is a
+    repair and not a design: the fix is a tile whose right edge continues into
+    its left, and this reads the measurement rather than a constant, so the
+    day one is delivered the picture goes back to the artist's own repeat with
+    no edit here. The summary prints which of the two it drew.
+    """
+    period, wrap, worst, med = melt_join()
+    if wrap <= worst:                        # it wraps as well as it joins
+        return x % PX                        #   anywhere else: draw it straight
+    p = x % (2 * period)
+    return p if p < period else 2 * period - 1 - p
+
+
 def paint_deck_and_melt(buf, cx, w):
     """The HALL's floor: the deck it stands on and the channel under it."""
     DECK_COLS.update(range(cx // 8, (cx + w) // 8))
@@ -900,7 +981,7 @@ def paint_floor(buf, cx, w, d0, m0, bottom):
         for y in range(m0 - RIPPLE_AMP, m0):
             buf[y][x] = Ml((24 + (y - m0 + RIPPLE_AMP) * 3 / RIPPLE_AMP) / 31)
         for y in range(m0, bottom):              # the channel: delivered art
-            buf[y][x] = melt_art()[y - m0][x % PX]
+            buf[y][x] = melt_art()[y - m0][melt_x(x)]
 
 
 def paint_shaft_house(buf, cx, w):
@@ -1349,6 +1430,20 @@ def paint_lobby():
     for y in range(fl):
         buf[y][:] = art[y]
     paint_floor(buf, 0, PX, fl, fl + DECK_PLATE, SCREEN_H)
+    # THE CHANNEL HAS AN END WALL, and it is where the mechanism has one. A
+    # column's offset word displaces the column to its RIGHT and the PPU
+    # clears the latches at each scanline's first fetch, so SCREEN COLUMN 0
+    # CANNOT BE DISPLACED AT ALL -- the hall answers that by putting its
+    # masonry buttress there, and until this line the lobby answered it with
+    # eight pixels of flow that stood still beside a neighbour six pixels
+    # away. It is the trough's end now: the deck's own iron, carried down.
+    # ITS GRAIN RUNS ACROSS, not down. A vertical banding here is a hard edge
+    # every four pixels, and one of them lands INSIDE the wall rather than at
+    # its end -- which `assert_channel_joins` reported as a seam, correctly: a
+    # join that changes every row of the band is a seam whatever drew it.
+    for y in range(fl + DECK_PLATE, SCREEN_H):
+        for x in range(PIER_COLS * 8):
+            buf[y][x] = Wm((3 + (y % 2)) / 15)
     for y in range(SCREEN_H, PXH):               # ...and nothing below it: the
         for x in range(PX):                      #   lobby does not scroll, so
             buf[y][x] = art[0][0]                #   these rows are unreachable
@@ -1830,9 +1925,30 @@ RIPPLE_AMP = 6                # px, the surface's rise, 0..AMP -- and the lip
                               #   the floor plate above it
 RIPPLE_WAVES = 2              # across the 32 columns
 assert PHASES % RIPPLE_PHASES == 0
-BAND_MAX = 127                # the longest hold ONE HDMA entry can carry: a
-                              #   non-repeat count byte is 7 bits, so a band
-                              #   deeper than this is written as two entries
+# NINETY-SIX, NOT THE HARDWARE'S 127, AND THE DIFFERENCE IS A MEASUREMENT.
+# A non-repeat HDMA count byte is seven bits, so 127 is what one entry can
+# hold and 96 is what this one is allowed to. The reason is the shape of the
+# table it produces: the picture is SCREEN_H lines, and 224 > 2 * 96, so every
+# table this ever builds has AT LEAST THREE ENTRIES.
+#
+# At 127 the hall's table collapses to two -- 127 + 97 -- at exactly the
+# camera where the deck's band and the channel's have both closed off the
+# bottom (car 80, cam 216 on the climb). Measured there, the band channel then
+# drove BG3VOFS not once in the whole picture: every row read whichever row
+# the port last held, which is the channel's, so the machines stood still and
+# the lift car with its rider in it left the screen. Three entries or more
+# drove every band from the top of the picture at every camera, at each of
+# 96+96+32, 75+75+74, 127+83+14 and 127+63+16+18.
+#
+# WHY the third entry matters is NOT ESTABLISHED. The channel is armed through
+# the scene_mgr shadow and takes its first transfer of a frame from the seeded
+# $4308/9 and $430A before the frame-start init reloads them (docs/100 §13.7),
+# and a two-entry table is the case where that transfer's own reload lands on
+# the table's terminator -- but why a third entry survives the same seed is
+# not something reading SnesDmaController.cpp settled, and two other seeds
+# were measured and each broke a different part of the picture. So this is the
+# measurement, held as a rule, and said to be one. See mil_band.asm.
+BAND_MAX = 96
 
 
 def ripple_k(col, phase):
@@ -1867,12 +1983,44 @@ def ripple_table():
 # --------------------------------------------------------------------------
 # emit
 # --------------------------------------------------------------------------
+def assert_channel_joins(buf, m0, bottom, from_x=0):
+    """No column join in the PICTURE may be worse than the art's own worst.
+
+    THE PROPERTY IS THE PICTURE'S, NOT THE FILE'S, and that is the whole
+    point: the art may wrap, or be mirrored into wrapping (`melt_x`), or one
+    day be authored the full width with no repeat, and a continuous flow is
+    what has to hold through all three. The threshold is the art's OWN worst
+    interior join, because a molten surface is meant to change across a
+    column -- an absolute count would pass a seam in busy art and refuse a
+    calm picture -- so what this rejects is a join the repeat INTRODUCED.
+
+    `from_x` is where the CHANNEL starts: the lobby caps its trough with an
+    end wall in the pier column, because screen column 0 cannot be displaced
+    at all, and that wall's outer edge is a wall edge rather than a seam in
+    the flow. Named as a number rather than skipped quietly, so a room that
+    grew a wider cap has to say so here.
+    """
+    _, _, worst_ok, _ = melt_join()
+    col = [tuple(buf[y][x] for y in range(m0, bottom)) for x in range(PX)]
+    d = [_col_cost(col[x], col[x + 1]) for x in range(from_x, PX - 1)]
+    worst = max(d)
+    if worst > worst_ok:
+        bad = [from_x + x for x, v in enumerate(d) if v > worst_ok]
+        raise SystemExit(
+            f"the channel has a SEAM at x={bad}: those joins change up to "
+            f"{worst} of {bottom - m0} rows where the art's own worst "
+            f"adjacency changes {worst_ok}. The repeat introduced it -- "
+            f"see melt_x")
+    return worst, worst_ok
+
+
 def main():
     buf = paint_bg1()
     assert_shaft_invariance(buf)
     shared, ix = [], {}
     tiles1, map1 = cut(buf, shared, ix)
-    lobby_tiles, map_lobby = cut(paint_lobby(), shared, ix)
+    lobby_buf = paint_lobby()
+    lobby_tiles, map_lobby = cut(lobby_buf, shared, ix)
     assert lobby_tiles is tiles1
 
     assert len(tiles1) <= CHR1_TILES, (
@@ -2074,6 +2222,14 @@ SMIL_BG1_REST     = 0
 SMIL_BG2_REST     = 0
 """
     (OUT / "mil_art.inc").write_text(inc)
+    period, wrap, worst_ok, med = melt_join()
+    worst, _ = assert_channel_joins(lobby_buf, LOBBY_FLOOR * 8 + DECK_PLATE,
+                                    SCREEN_H, from_x=PIER_COLS * 8)
+    how = ("drawn straight: it wraps" if wrap <= worst_ok
+           else f"MIRRORED on {period} px: it does not wrap")
+    print(f"  mill: the channel repeats every {period} px and its wrap costs "
+          f"{wrap} rows against a worst interior join of {worst_ok} and a "
+          f"median of {med} -- {how}; the picture's worst join is {worst}")
     print(f"  mill: the floor is screen row {FLOOR_Y} in both rooms and the "
           f"channel {224 - CHANNEL_Y} lines under it; ripple "
           f"{RIPPLE_PHASES}+1 rows x {ROW_BYTES} B, amplitude {RIPPLE_AMP} px")

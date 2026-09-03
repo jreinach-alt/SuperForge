@@ -157,6 +157,8 @@ DOOR_TRAVEL = _art("SMIL_DOOR_TRAVEL")
 WALK_STEP = _rail("SMIL_WALK_STEP")
 DOOR_TOP = _art("SMIL_DOOR_TOP")
 BELT_ROW = _art("SMIL_BELT_ROW")
+DECK_ROW = _art("SMIL_DECK_ROW")
+SCREEN_H = _art("SMIL_SCREEN_H")
 LOBBY_FLOOR = _art("SMIL_LOBBY_FLOOR")
 BAYS = _rail("SMIL_DOOR_BAYS")
 
@@ -357,6 +359,20 @@ def belt_band(cam):
     """
     y0 = BELT_ROW * 8 - cam
     return max(0, y0), min(224, y0 + 16)
+
+
+def machine_band(cam):
+    """The screen rows that read the room's OWN offset row.
+
+    THE HALL READS ITS TABLE IN THREE BANDS and only the top one carries the
+    machines: under it the deck reads a row with no enable bit and the molten
+    channel reads the surface's row (docs/100 §13.7). So a case about a
+    COLUMN's word has to say which rows it is talking about, or it compares a
+    strip that changes rows partway down and finds no translation at any
+    offset. The deck's screen row is the band's floor, and it climbs with the
+    camera, which is why this takes one.
+    """
+    return 0, max(0, min(SCREEN_H, DECK_ROW * 8 - cam))
 
 
 def mask_strip(im, sc, colours, rows=None):
@@ -601,7 +617,8 @@ def test_a_column_moves_on_the_axis_its_own_word_names(tmp_path):
         r_b = until_v_moves(m, r_a)
         m.advance(1)
         b = shot(m, tmp_path / "b.png")
-        band = belt_band(m.read_u16(W, DP_CAM))
+        cam = m.read_u16(W, DP_CAM)
+        band = belt_band(cam)
         ONLY1, ONLY2 = layers(m)
     assert band[1] > band[0], f"the conveyor is off screen at this camera: {band}"
     assert len(ONLY1) > 8 and len(ONLY2) > 1, (
@@ -609,6 +626,7 @@ def test_a_column_moves_on_the_axis_its_own_word_names(tmp_path):
         f"{len(ONLY2)} BG2-only")
 
     wa, wb = words_for_screen(r_a), words_for_screen(r_b)
+    band_a = machine_band(cam)        # the rows that read the machines' row
     v_moved = h_moved = h_seen = 0
     for sc in range(COLS):
         if wa[sc] is None or wb[sc] is None:
@@ -620,7 +638,8 @@ def test_a_column_moves_on_the_axis_its_own_word_names(tmp_path):
         if is_v(wa[sc]):
             if (wa[sc] & V_MASK) == (wb[sc] & V_MASK):
                 continue                          # this column is at rest
-            d = vshift(mask_strip(a, sc, ONLY1), mask_strip(b, sc, ONLY1))
+            d = vshift(mask_strip(a, sc, ONLY1, band_a),
+                       mask_strip(b, sc, ONLY1, band_a))
             assert d is not None, (
                 f"screen column {sc} carries a VERTICAL word and its BG1 art "
                 f"is not a vertical translation of itself")
@@ -727,7 +746,9 @@ def test_the_moving_columns_are_the_ones_the_lead_predicts(tmp_path):
         m.advance(1)
         b = shot(m, tmp_path / "b.png")
         ONLY1, _ = layers(m)
+        cam = m.read_u16(W, DP_CAM)
 
+    band_a = machine_band(cam)
     def predicted(lead):
         wa, wb = words_for_screen(r_a, lead), words_for_screen(r_b, lead)
         return {sc for sc in range(COLS)
@@ -737,7 +758,8 @@ def test_the_moving_columns_are_the_ones_the_lead_predicts(tmp_path):
 
     observed = set()
     for sc in range(COLS):
-        sa, sb = mask_strip(a, sc, ONLY1), mask_strip(b, sc, ONLY1)
+        sa, sb = (mask_strip(a, sc, ONLY1, band_a),
+                  mask_strip(b, sc, ONLY1, band_a))
         d = vshift(sa, sb)
         if sa != sb and d not in (0, None):
             observed.add(sc)
@@ -810,6 +832,7 @@ def test_a_vertical_word_carries_the_camera(tmp_path):
         ONLY1, _ = layers(m)
     delta = cam_a - cam_b
     assert delta >= 24, delta
+    band_a = machine_band(max(cam_a, cam_b))   # the band BOTH frames share
     wa, wb = words_for_screen(r_a), words_for_screen(r_b)
     checked = 0
     for sc in range(COLS):
@@ -820,7 +843,8 @@ def test_a_vertical_word_carries_the_camera(tmp_path):
         if not (enabled(wa[sc]) and is_v(wa[sc]) and is_v(wb[sc])):
             continue
         want = delta - ((wb[sc] & V_MASK) - (wa[sc] & V_MASK))
-        got = vshift(mask_strip(a, sc, ONLY1), mask_strip(b, sc, ONLY1),
+        got = vshift(mask_strip(a, sc, ONLY1, band_a),
+                     mask_strip(b, sc, ONLY1, band_a),
                      span=min(100, abs(want) + 16))
         if got is None:
             continue                              # no clean translation to read
@@ -869,9 +893,11 @@ def test_the_flat_control_is_a_row_and_not_a_disarm(tmp_path):
         assert m.read_u16(W, DP_SHOWN) == FLAT_ROW
         phase_b = m.read_u16(W, DP_PHASE)
         b = shot(m, tmp_path / "b.png")
+        cam = m.read_u16(W, DP_CAM)
     assert phase_b != 0, "the phase did not advance under the hold"
+    band_a = machine_band(cam)
     for sc in range(COLS):
-        assert strip(a, sc) == strip(b, sc), (
+        assert strip(a, sc, band_a) == strip(b, sc, band_a), (
             f"screen column {sc} moved while the flat row was held")
 
 

@@ -70,6 +70,14 @@ mil_band_one:
 ;   clobbers: A, X, N, Z, C
 ;   tail:     rts
 ;
+; THE CHUNK SIZE IS SMIL_BAND_MAX AND IT IS NOT THE HARDWARE'S 127. The cap
+; is 96 so that every table this builds has at least three entries (the
+; picture is 224 lines and 224 > 2 * 96); at 127 the hall's table collapses to
+; two the moment its lower bands close, and a two-entry table was measured to
+; leave the port undriven for the whole picture. tools/gen_mill_assets.py's
+; BAND_MAX carries the measurement and says plainly that the mechanism is not
+; established.
+;
 ; A DEPTH OF ZERO WRITES NOTHING, which is what an empty band is: the hall's
 ; channel band closes as the lift rises and its deck band after it, and a band
 ; that has gone off the bottom of the picture must leave no entry rather than a

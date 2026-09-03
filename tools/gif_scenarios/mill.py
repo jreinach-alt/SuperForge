@@ -54,11 +54,10 @@ from vendor.mesen_runner import MemoryType
 ROOT = Path(__file__).resolve().parent.parent.parent
 
 ROM = "mill"
-CAPTURES = 340                  # a CEILING over the lead-in trip and the take,
+CAPTURES = 260                  # a CEILING over the lead-in trip and the take,
                                 #   not a schedule: the cycle closing is what
-                                #   ends it. One trip measured 348 emulated
-                                #   frames before the melt was on it and ~510
-                                #   with, so two is ~330 captures at STEP 3.
+                                #   ends it. One trip measures ~360 emulated
+                                #   frames, so two is ~240 captures at STEP 3.
 
 # THE TAKE IS A CLIMB, not a turn of the animation. The world is two screens
 # tall and the camera goes up it and back, because the question the clip has to
@@ -92,9 +91,6 @@ FADE = _dp("ES_FADE_CTL")
 SHOWN = _dp("ES_MIL_SHOWN")
 CAM = _dp("ES_MIL_CAM")
 CAR = _dp("ES_MIL_CAR")
-PHASE = _dp("ES_MIL_PHASE")
-MELT_BEAT = 24                  # phases below before he goes back up: three
-                                #   ripple rows at the melt's rate, ~64 frames
 ACC = _dp("US_TSC_ACC", "hall")
 
 CAM_MAX = 224                   # SMIL_CAM_MAX, and it is asserted below rather
@@ -106,7 +102,7 @@ CAM_MAX = 224                   # SMIL_CAM_MAX, and it is asserted below rather
 # lobby's own id, and passed on the first frame of a room this take never
 # meant to film. The recorder then waited for a car that nothing was driving
 # and stored 7 static frames of a shut lift lobby. Both ids are named now.
-LOBBY, HALL, MELT = 0, 1, 2              # scene ids, and the LOBBY is where it boots
+LOBBY, HALL = 0, 1              # scene ids, and the LOBBY is where it boots
 SM_RUN = 0                      # scene_mgr's phase machine: 0 is "running"
 FADE_FULL, FADE_IDLE = 15, 0    # fade.asm's own end stop and direction enum
 DOOR = _dp("ES_MIL_DOOR")       # per-bay leaf travel, and the far bay is +2
@@ -153,13 +149,6 @@ TRIP = (
      lambda r: _u16(r, DOOR + 2) >= DOOR_TRAVEL, 200),
     ("board", {"up": True}, lambda r: _scene(r) == HALL, 200),
     ("the hall settles", {}, lambda r: _at_rest(r, HALL), 200),
-    # THE OTHER STOP. Down through the deck to the melt, where the table is
-    # read in three bands; a beat there for the surface to move; then up.
-    ("down to the melt", {"down": True}, lambda r: _scene(r) == MELT, 200),
-    ("the melt settles", {}, lambda r: _at_rest(r, MELT), 200),
-    ("watch the surface", {}, lambda r: _u16(r, PHASE) >= MELT_BEAT, 200),
-    ("back up", {"up": True}, lambda r: _scene(r) == HALL, 200),
-    ("the hall settles again", {}, lambda r: _at_rest(r, HALL), 200),
     ("start the climb", {"up": True}, lambda r: _u16(r, CAR) > 0, 200),
     ("ride to the top", {}, lambda r: _scene(r) == LOBBY, 400),
     ("arrive", {}, lambda r: _at_rest(r, LOBBY), 200),

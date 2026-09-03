@@ -101,8 +101,8 @@ mil_nmi_ripple:
     lda #SMIL_ROW_BYTES
     sta a:MIL_ROW_REGS + 5          ; DAS (re-armed for THIS transfer)
     jsr mil_ripple_source
-    ldx #0
-    jsr mil_stage_row_into
+    ldx #SMIL_ROW_BYTES             ; ...into the SURFACE's slot, which is
+    jsr mil_stage_row_into          ;   what keeps the car override off it
     jsr mil_commit_vofs
     sep #$20
     .a8
@@ -139,8 +139,22 @@ mil_row_regs:
     stx a:$2116                     ; VMADD -- I16, so both halves
     rep #$20
     .a16
-    lda #.loword(ES_MIL_STAGE_LONG)
-    sta a:MIL_ROW_REGS + 2          ; A1T: the STAGED rows, not the ROM rows
+    ; ---- A1T: THE STAGING BUFFER MIRRORS THE TABLE'S ROWS, and deriving the
+    ; source from the destination is what makes that true rather than merely
+    ; intended. Row k of the table is staged at k * SMIL_ROW_BYTES, so a room
+    ; that writes one row writes it in ITS OWN SLOT -- which is what tells
+    ; `mil_stage_row_into` whether it is staging the room's row (slot 0, where
+    ; the lift's columns carry the car) or the surface's. The lobby stages
+    ; only the surface, and while it staged that into slot 0 the car override
+    ; fired on it: the lift's four columns held still in a rippling channel,
+    ; six pixels from their neighbours.
+    txa
+    sec
+    sbc #ES_V_MIL_TAB               ; ...which row of the table this is,
+    asl                             ;   in words -> in bytes
+    clc
+    adc #.loword(ES_MIL_STAGE_LONG)
+    sta a:MIL_ROW_REGS + 2
     sep #$20
     .a8
     rts
