@@ -21,8 +21,11 @@
 MIL_OPT_BG1  = ES_OPT_HALL_BG1      ; the walker reads THIS scene's field set
 MIL_OPT_BG2  = ES_OPT_HALL_BG2      ;   through these four names — the offset
 MIL_OPT_VSEL = ES_OPT_HALL_VSEL     ;   composition emits one set per scene,
-MIL_OPT_MASK = ES_OPT_HALL_MASK     ;   and the melt aliases its own
+MIL_OPT_MASK = ES_OPT_HALL_MASK     ;   and the lobby aliases its own
+MIL_OPT_ROW_VOFS = ES_OPT_HALL_ROW_VOFS
 .include "mil_opt.asm"              ; the table walker. SCENE-SCOPED
+.include "mil_band.asm"             ; ...and the bands: the machines, the deck
+                                    ;   and the channel read three rows of it
 
 ; --- enter: the whole picture, under forced blank --------------------------
 ; CONTRACT hall::enter
@@ -95,10 +98,20 @@ enter:
     sta a:$2109                     ; BG3SC — the table's page, from the claim
     stz a:$2111                     ; BG3HOFS, low
     stz a:$2111                     ; ...high
-    stz a:$2112                     ; BG3VOFS, low
-    stz a:$2112                     ; ...high
+    stz a:$2112                     ; BG3VOFS, low — and it is only the SEED
+    stz a:$2112                     ;   now: the band channel overrides this
+                                    ;   port from line 0 of every frame
     rep #$20
     .a16
+    lda #(ES_V_MIL_TAB + 2 * SMIL_COLS)
+    jsr mil_zero_row_at             ; the ZERO ROW the deck's band reads: no
+                                    ;   enable bit, so the one course of floor
+                                    ;   between the machines and the melt shows
+                                    ;   at the ports. Written once
+    jsr mil_band_arm                ; the row-selecting channel. Its TABLE is
+                                    ;   rebuilt every VBlank from the camera —
+                                    ;   see mil_band_hall — because this room's
+                                    ;   band edges climb with the lift
     ; ---- the composed screen ----------------------------------------------
     ; BGMODE and TM/TS come from the vocabulary, not from a narrated byte: the
     ; mode is [[claims.video]] mode 4 and the two layers are this rail's screen
@@ -176,23 +189,6 @@ tick:
     ; shaft sliding past it — which is what riding a lift looks like, and it is
     ; the one column on screen whose word is not changing while every other
     ; column's is.
-    ; ---- DOWN ON THE CAR: the other stop -----------------------------------
-    ; He pressed DOWN standing on the lift (mil_try_descend). One request, and
-    ; then the room stops answering him: the melt's enter takes over.
-    lda z:ES_MIL_BOARD
-    cmp #SMIL_BOARD_DOWN
-    bne @not_down
-    lda #SMIL_BOARD_GONE
-    sta z:ES_MIL_BOARD
-    sep #$20
-    .a8
-    SM_SWITCH "HALL", "MELT"
-    rep #$20
-    .a16
-    bra @hold
-@not_down:
-    .a16
-    .i16
     lda z:ES_MIL_BOARD              ; ...and only once he is aboard. The beat
     cmp #SMIL_BOARD_ABOARD          ;   before it moves is his to take now
     bne @hold

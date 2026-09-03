@@ -21,6 +21,15 @@
 ; because a ram fills its column; a door does not fill anything.
 .scope lobby
 .include "engine_state_lobby.inc"   ; GENERATED — this scene's map
+MIL_OPT_BG1  = ES_OPT_LOBBY_BG1     ; the walker reads THIS scene's field set
+MIL_OPT_BG2  = ES_OPT_LOBBY_BG2     ;   through these five names — the offset
+MIL_OPT_VSEL = ES_OPT_LOBBY_VSEL    ;   composition emits one set per scene,
+MIL_OPT_MASK = ES_OPT_LOBBY_MASK    ;   and the hall aliases its own
+MIL_OPT_ROW_VOFS = ES_OPT_LOBBY_ROW_VOFS
+.include "mil_opt.asm"              ; the table walker: THIS ROOM HAS A FLOOR
+                                    ;   too, and the molten channel under it
+                                    ;   is the same 32 words the hall's is
+.include "mil_band.asm"             ; ...and the bands that put it there
 
 ; --- enter: the room, under forced blank ------------------------------------
 ; CONTRACT lobby::enter
@@ -81,7 +90,44 @@ enter:
     jsr mil_obj_arm                 ; the OBJ sheet, its two palettes, OBSEL
     jsr mil_lobby_up                ; the lobby map into its own page...
     jsr mil_lobby_bases             ; ...and BG1SC re-pointed at it
-    jsr lobby_flat                  ; BG3 zeroed, and the four ports at rest
+    stz z:ES_MIL_CAM                ; THIS ROOM DOES NOT SCROLL, and the walker
+    stz z:ES_MIL_CAM_SHOWN          ;   folds this into every vertical word:
+                                    ;   zero is what makes the ripple's words
+                                    ;   mean "k pixels down the map" here and
+                                    ;   in the hall alike
+    stz z:ES_MIL_FLATSEL
+    stz z:ES_MIL_SHOWN
+    jsr lobby_flat                  ; BG3's first row zeroed, and the four
+                                    ;   ports at rest
+    ; ---- BG3 BECOMES THE TABLE HERE TOO, and it never did before ----------
+    ; The offset composition synthesizes ownership of BG3SC/BG3HOFS/BG3VOFS
+    ; and grants the SCENE's enter code the consent to write them (hall.asm
+    ; carries the argument). This room only ever wrote a row of zeros to the
+    ; table's VRAM and left the three ports alone — and a room that reads no
+    ; offsets does not care where BG3SC points, so nothing showed. It pointed
+    ; at VRAM 0, which on this rail is the OBJ CHR page: the PPU was reading
+    ; sprite pixels as offset words every scanline of this room, and what kept
+    ; it invisible was that those words happen not to carry bits 13 or 14.
+    ; The moment the room got bands, they selected rows of that page.
+    sep #$20
+    .a8
+    lda #ES_V_MIL_TAB_SC_BASE
+    sta a:$2109                     ; BG3SC — the table's page, from the claim
+    stz a:$2111                     ; BG3HOFS, low
+    stz a:$2111                     ; ...high
+    stz a:$2112                     ; BG3VOFS, low — the SEED the band channel
+    stz a:$2112                     ;   overrides from line 0
+    rep #$20
+    .a16
+    lda #(ES_V_MIL_TAB + 2 * SMIL_COLS)
+    jsr mil_zero_row_at             ; ...and the ZERO ROW the room's own band
+                                    ;   reads: no enable bit, so the wall, the
+                                    ;   bays and the floor plate show at the
+                                    ;   ports above. It is written once —
+                                    ;   nothing restages it
+    jsr mil_band_lobby              ; the two bands: the room, then the channel
+    jsr mil_band_arm                ; ...and the channel that selects between
+                                    ;   them, in the shadow the NMI commits
     jsr mil_lobby_stage             ; ...and the nine OAM entries, NOW. The
                                     ;   shadow carries across a scene edge, so
                                     ;   without this his entry keeps whatever
@@ -122,16 +168,20 @@ tick:
     SF_ASSERT_WIDTH 16, 16, "lobby::tick"
     TS_STEP z:US_TSC_ACC, SMIL_PHASE_BASE
     sta z:US_TSC
-    lda z:US_TSC                    ; the idle cell rides the phase. Advanced
-    clc                             ;   here rather than through the hall's
-    adc z:ES_MIL_PHASE              ;   `mil_advance`, whose file is scoped to
-    cmp #SMIL_PHASES                ;   that scene — six lines against a
-    bcc :+                          ;   cross-scope call into a walker this
-    sec                             ;   room does not otherwise use
-    sbc #SMIL_PHASES
+    ; ---- Y HOLDS THE SURFACE FLAT, and this is the room to hold it in: the
+    ; channel is under the whole floor here and nothing else on screen moves,
+    ; so one finger is the difference between a table that is driving the
+    ; picture and a table that is not.
+    lda z:ES_INP_CUR
+    and #JOY_Y
+    beq :+
+    lda #1
 :   .a16
     .i16
-    sta z:ES_MIL_PHASE
+    and #1
+    sta z:ES_MIL_FLATSEL
+    lda z:US_TSC                    ; the idle cell and the surface both ride
+    jsr mil_advance                 ;   the phase
     jsr mil_lobby_walk
     jsr mil_lobby_doors
     jsr mil_lobby_stage

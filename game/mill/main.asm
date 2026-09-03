@@ -156,7 +156,6 @@ mil_obj_pal_bin:
 ; --- the scene -------------------------------------------------------------
 .include "scenes/lobby.asm"
 .include "scenes/hall.asm"
-.include "scenes/melt.asm"          ; the lift's other stop: the table in BANDS
 
 ; --- sm_nmi_hook: per-frame VBlank work -----------------------------------
 ; In: A8/I16, DB=0 (from sm_nmi_core). May clobber A/X/Y.
@@ -176,25 +175,29 @@ sm_nmi_hook:
     jsr oam_nmi_dma                 ; the OAM shadow, every armed VBlank
     lda z:ES_SM_CTL                 ; the scene now running
     cmp #ES_E_LOBBY_TO_HALL_DST     ; ...the hall?
-    bne @not_hall
-    jsr hall::mil_nmi_row           ; the phase -> BG3's offset row, 64 B
+    bne @lobby
+    jsr hall::mil_nmi_rows          ; the phase -> TWO rows, 128 B: the
+                                    ;   machines' and the surface's
+    jsr hall::mil_band_hall         ; ...and WHICH LINES READ WHICH, from the
+                                    ;   camera, because this room's deck and
+                                    ;   channel climb out of the picture as the
+                                    ;   lift rises
     bra @done
-@not_hall:
+@lobby:
     .a8
     .i16
-    cmp #ES_E_HALL_TO_MELT_DST      ; ...the melt?
-    bne @done
-    jsr melt::mil_nmi_rows          ; the phase -> TWO rows, 128 B: the hall's
-                                    ;   and the ripple's, for the bands
+    jsr lobby::mil_nmi_ripple       ; the surface alone, 64 B: nothing above
+                                    ;   the channel moves in that room, so its
+                                    ;   bands are a constant table built once
 @done:
     .a8
     .i16
     rts
 
 ; --- scene dispatch tables (manifest order: lobby=0, hall=1) --------------
-sm_enter_tab:   .word lobby::enter, hall::enter, melt::enter
-sm_tick_tab:    .word lobby::tick,  hall::tick,  melt::tick
-sm_exit_tab:    .word lobby::exit,  hall::exit,  melt::exit
+sm_enter_tab:   .word lobby::enter, hall::enter
+sm_tick_tab:    .word lobby::tick,  hall::tick
+sm_exit_tab:    .word lobby::exit,  hall::exit
 
 ; --- MAIN: boot -----------------------------------------------------------
 ; init.inc leaves: native, A16/I16, DB=0, forced blank, NMI+HDMA off.

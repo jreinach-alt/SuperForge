@@ -32,14 +32,15 @@ MIL_ROW_REGS = $4300 + ES_H_MIL_VROW_CH * 16
     .error "mil_opt.asm: alias MIL_OPT_BG1/BG2/VSEL/MASK to this scene's ES_OPT_* before including it"
 .endif
 
-; --- mil_nmi_row: the offset row, every armed VBlank ------------------------
-; CONTRACT mil_nmi_row
+; --- mil_nmi_rows: BOTH the room's rows, every armed VBlank -----------------
+; CONTRACT mil_nmi_rows
 ;   entry:    A8 I16 DB=0
 ;   exit:     A8 I16
 ;   in:       ES_MIL_PHASE — the current phase, 0..SMIL_PHASES-1
 ;             ES_MIL_FLATSEL — 0 = the running row, 1 = the flat control
-;   out:      BG3's offset row rewritten with the 32 words for this phase, and
-;             ES_MIL_SHOWN published with the phase they came from
+;   out:      BG3's rows 0 and 1 rewritten -- the room's own 32 words and the
+;             surface's -- and ES_MIL_SHOWN published with the phase they
+;             came from
 ;   clobbers: A, X, N, Z, C
 ;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
 ;             convention. It programs its own VMAIN and VMADD, so where it sits
@@ -48,19 +49,61 @@ MIL_ROW_REGS = $4300 + ES_H_MIL_VROW_CH * 16
 ;
 ; DAS is single-shot — the transfer consumes it — so it is armed inside this
 ; routine, once, for the one transfer it fires.
-mil_nmi_row:
+mil_nmi_rows:
     .a8
     .i16
-    SF_ASSERT_WIDTH 8, 16, "mil_nmi_row"
+    SF_ASSERT_WIDTH 8, 16, "mil_nmi_rows"
+    ldx #ES_V_MIL_TAB               ; ...from the table's first row
+    jsr mil_row_regs
+    rep #$20
+    .a16
+    lda #(2 * SMIL_ROW_BYTES)
+    sta a:MIL_ROW_REGS + 5          ; DAS: BOTH rows in one transfer -- they
+                                    ;   are consecutive in the map and
+                                    ;   consecutive in the staging buffer
+    jsr mil_row_source              ; the room's row for this phase...
+    ldx #0
+    jsr mil_stage_row_into          ;   ...folded with the camera, into row 0
+    jsr mil_ripple_source           ; ...and the surface's row for it
+    ldx #SMIL_ROW_BYTES
+    jsr mil_stage_row_into          ;   ...into row 1
+    jsr mil_commit_vofs             ; ...and the fallback both layers use
+    sep #$20
+    .a8
+    lda #(1 << ES_H_MIL_VROW_CH)
+    sta a:$420B                     ; MDMAEN: fire
+    rts
+
+; --- mil_nmi_ripple: the RIPPLE row alone, every armed VBlank ---------------
+; CONTRACT mil_nmi_ripple
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   in:       ES_MIL_PHASE, ES_MIL_FLATSEL, ES_MIL_CAM
+;   out:      BG3's row 1 rewritten with the surface's 32 words for this
+;             phase, and ES_MIL_SHOWN published with the phase they came from
+;   clobbers: A, X, Y, N, Z, C
+;   assumes:  VBlank, from the rail's sm_nmi_hook, in that hook's A8/I16
+;             convention
+;   tail:     rts
+;
+; A ROOM WITH NO MACHINES STILL HAS A FLOOR. The lobby's picture above the
+; channel does not move at all -- its band reads the zero row -- so it stages
+; ONE row where the hall stages two, at half the VBlank bytes, and the surface
+; under both rooms is the same 32 words either way.
+mil_nmi_ripple:
+    .a8
+    .i16
+    SF_ASSERT_WIDTH 8, 16, "mil_nmi_ripple"
+    ldx #(ES_V_MIL_TAB + SMIL_COLS) ; ...the table's SECOND row
     jsr mil_row_regs
     rep #$20
     .a16
     lda #SMIL_ROW_BYTES
     sta a:MIL_ROW_REGS + 5          ; DAS (re-armed for THIS transfer)
-    jsr mil_row_source
+    jsr mil_ripple_source
     ldx #0
     jsr mil_stage_row_into
-    jsr mil_commit_vofs             ; ...and the fallback both layers use
+    jsr mil_commit_vofs
     sep #$20
     .a8
     lda #(1 << ES_H_MIL_VROW_CH)
@@ -71,10 +114,12 @@ mil_nmi_row:
 ; CONTRACT mil_row_regs
 ;   entry:    A8 I16 DB=0
 ;   exit:     A8 I16
+;   in:       X — the VRAM WORD ADDRESS the transfer writes from, which is
+;             which row of the table it lands on
 ;   out:      VMAIN, the channel's DMAP/BBAD/A1T/A1B and VMADD programmed for
-;             a word-port transfer from the staging buffer to the table's
-;             first row. DAS is NOT here: it is the caller's, because it is
-;             the one thing the hall (one row) and the melt (two) disagree on
+;             a word-port transfer out of the staging buffer. DAS is NOT here:
+;             it is the caller's, because it is the one thing a room staging
+;             one row and a room staging two disagree on
 ;   clobbers: A, N, Z
 ;   assumes:  VBlank
 ;   tail:     rts
@@ -91,13 +136,9 @@ mil_row_regs:
     lda #^ES_MIL_STAGE_LONG
     sta a:MIL_ROW_REGS + 4          ; the source is WRAM, not ROM: the camera
                                     ;   has to be folded in first
+    stx a:$2116                     ; VMADD -- I16, so both halves
     rep #$20
     .a16
-    ; ---- WHICH ROW OF BG3'S MAP. Mode 4 reads the row BG3VOFS selects; the
-    ; hall keeps that at row 0 for the whole frame, and the melt's channel
-    ; walks it per band (mil_melt.asm). Both restage from row 0 up.
-    lda #ES_V_MIL_TAB
-    sta a:$2116
     lda #.loword(ES_MIL_STAGE_LONG)
     sta a:MIL_ROW_REGS + 2          ; A1T: the STAGED rows, not the ROM rows
     sep #$20
@@ -185,6 +226,59 @@ mil_commit_vofs:
     sta a:$2110                     ; BG2VOFS, low
     xba
     sta a:$2110
+    rep #$20
+    .a16
+    rts
+
+; --- mil_ripple_source: this phase's ripple row (or the flat control) ------
+; CONTRACT mil_ripple_source
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       ES_MIL_PHASE, ES_MIL_FLATSEL
+;   out:      ES_MIL_NMI_SCRATCH+0..2 — the ripple row's 24-bit ROM address,
+;             and ES_MIL_SHOWN published with the phase it came from
+;   clobbers: A, N, Z, C
+;   assumes:  VBlank
+;   tail:     rts
+;
+; ONE RIPPLE ROW PER PHASE, WRAPPED: the surface's wave is SMIL_RIPPLE_PHASES
+; long and the machines' cycle divides by it, so the blob is a quarter their
+; table and the two never drift. The same flat select flattens both, so Y is
+; one control over every band that moves.
+;
+; It publishes ES_MIL_SHOWN with the PHASE rather than with the ripple row
+; index — the same value and the same convention `mil_row_source` uses, so the
+; two agree in the hall, where both run, and the word means one thing in both
+; rooms.
+mil_ripple_source:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "mil_ripple_source"
+    lda z:ES_MIL_FLATSEL
+    bne @rflat
+    lda z:ES_MIL_PHASE
+    sta z:ES_MIL_SHOWN
+    and #SMIL_RIPPLE_MASK           ; the surface's wave is shorter than the
+    bra @rpick                      ;   machines' cycle and divides it
+@rflat:
+    .a16
+    .i16
+    lda #SMIL_FLAT_INDEX
+    sta z:ES_MIL_SHOWN
+    lda #SMIL_RIPPLE_FLAT
+@rpick:
+    .a16
+    .i16
+    .repeat ::SMIL_PHASE_SHIFT      ; `::` — this file is included inside the
+    asl a                           ;   scene's .scope and .repeat needs its
+    .endrepeat                      ;   count as a constant at parse time
+    clc
+    adc #.loword(mil_ripple_bin)    ; the blob fits one 32 KB window, so this
+    sta z:ES_MIL_NMI_SCRATCH        ;   16-bit add cannot leave the bank
+    sep #$20
+    .a8
+    lda #^mil_ripple_bin
+    sta z:ES_MIL_NMI_SCRATCH + 2
     rep #$20
     .a16
     rts

@@ -24,6 +24,3 @@ tsc_acc = "u16@dp"       # TICK: ok -- the carried FRACTION of a scaled rate.
 tsc = "u16@dp"           # TICK: ok -- the OUTPUT of the scaler; already
                          # expressed against the declared tick.
 
-[scene.melt]
-tsc_acc = "u16@dp"       # TICK: ok -- the carried FRACTION of a scaled rate.
-tsc = "u16@dp"           # TICK: ok -- the OUTPUT of the scaler.

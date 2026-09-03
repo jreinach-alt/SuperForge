@@ -1423,7 +1423,7 @@ MIL_INC := -I $(MIL_MAP) -I $(VROM) -I $(MIL) -I $(BUILD)/assets \
            -I engine/features/mil_bg -I engine/features/mil_opt \
            -I engine/features/mil_obj -I engine/features/oam_sprites \
            -I engine/features/mil_tint \
-           -I engine/features/mil_melt
+           -I engine/features/mil_band
 
 $(BUILD)/mill.sfc: $(MIL_ASM) $(MIL)/mill.inc \
 		$(MIL_MAP)/engine_state_globals.inc $(MIL_ASSETS) \

@@ -1012,13 +1012,6 @@ mil_walk_hall:
     .a16
     .i16
     lda z:ES_INP_CUR
-    and #JOY_DOWN
-    beq @not_down
-    jsr mil_try_descend             ; DOWN over the lift: the other stop
-@not_down:
-    .a16
-    .i16
-    lda z:ES_INP_CUR
     and #JOY_RIGHT
     beq @not_right
     lda z:ES_MIL_PX
@@ -1123,36 +1116,6 @@ mil_try_ride:
                                     ;   the X the ride STAGES, not the car's
                                     ;   left edge 3 px away
     lda #SMIL_BOARD_ABOARD
-    sta z:ES_MIL_BOARD
-@no:
-    .a16
-    .i16
-    rts
-
-; --- mil_try_descend: DOWN over the lift — the same test, the other stop ---
-; CONTRACT mil_try_descend
-;   entry:    A16 I16 DB=0
-;   exit:     A16 I16
-;   out:      ES_MIL_BOARD = SMIL_BOARD_DOWN and ES_MIL_PX snapped to the ride
-;             X iff the car is here and he is on it; else nothing
-;   clobbers: A, N, Z, C
-;   tail:     rts
-;
-; The hall's tick reads DOWN and requests the melt; he keeps the standing
-; picture until the fade takes it (standing on the car IS the riding
-; picture — tests/test_mill.py says so).
-mil_try_descend:
-    .a16
-    .i16
-    SF_ASSERT_WIDTH 16, 16, "mil_try_descend"
-    lda z:ES_MIL_CAR
-    bne @no
-    lda z:ES_MIL_PX
-    jsr mil_on_lift
-    beq @no
-    lda #SMIL_RIDE_X
-    sta z:ES_MIL_PX
-    lda #SMIL_BOARD_DOWN
     sta z:ES_MIL_BOARD
 @no:
     .a16

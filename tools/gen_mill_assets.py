@@ -243,7 +243,11 @@ ROWS = 64                     # ...and its height. 512 px, a 32x64 tilemap:
                               #   climbs it. A V displacement wraps in the map,
                               #   which is what lets a shaft run the full
                               #   height with no seam to slide
-WORLD_H = 448                 # ...of which this much is drawn: two 224-line
+WORLD_H = ROWS * 8            # ...of which this much is drawn: ALL of it now.
+                              #   The camera bottoms out at the map's last
+                              #   screen, because that is where the molten
+                              #   channel is and the channel is the floor both
+                              #   rooms share (SMIL_FLOOR_Y below)
                               #   screens. The 64 rows past it are the shaft
                               #   columns' wrap and are never shown undisplaced
 CAM_MAX = WORLD_H - 224       # the camera's travel, in pixels
@@ -348,16 +352,35 @@ WINDOW = (7, 26, 18, 18)      # x0, y0, w, h of the glass, inside the car.
 # keeps its own low three bits — so only multiples of 8 do anything.
 BELT_STEP = 4
 BELT_DIR = (1, -1, 1, -1)
-GANTRY_ROW = FLOOR + 2                # the overhead girder, on BG2 so it can cross
+GANTRY_ROW = FLOOR + 10               # the overhead girder, on BG2 so it can cross
+                                      #   -- and it is TEN rows down, not two,
+                                      #   because the camera now rests at the
+                                      #   map's bottom to put the channel on
+                                      #   screen and a girder at FLOOR+2 sat
+                                      #   sixteen pixels above the picture.
+                                      #   The uprights hang from it, so moving
+                                      #   it moves them, which is why there is
+                                      #   one number here and not three
 BELT_ROW = FLOOR + 20                 # the conveyor's map row
 BELT_PHASES = 8               # EIGHT, not four: at four the belt has only four
                               #   distinct appearances in a whole turn of the
                               #   table (measured), and that reads as a
                               #   flicker rather than as travel
 
-DECK_ROW = FLOOR + 23                 # the floor deck: y 184..199
-MELT_ROW = FLOOR + 25                 # ...and the channel under it, y 200..223 — the
-                              #   last three rows the 224-line picture shows
+# THE FLOOR IS THE SAME LINE IN BOTH ROOMS, AND THE CHANNEL UNDER IT IS THE
+# SAME ART AT THE SAME HEIGHT. The lobby is the ground floor at the bottom of
+# the shaft and the hall is what the lift opens onto, so a molten channel that
+# jumped between them would be two channels. These two rows and LOBBY_FLOOR
+# below are the one statement of that, asserted rather than commented: the
+# deck lands at SMIL_FLOOR_Y on screen in each room and the channel runs from
+# there to the bottom of the picture.
+DECK_ROW = FLOOR + 27                 # the floor deck...
+MELT_ROW = FLOOR + 29                 # ...and the channel under it, running to
+                              #   the map's last row: 56 lines of the picture,
+                              #   where the hall used to show three
+FLOOR_Y = DECK_ROW * 8 - (ROWS * 8 - 224)   # the deck's SCREEN row at rest, in
+                                            #   both rooms (see LOBBY_FLOOR)
+CHANNEL_Y = MELT_ROW * 8 - (ROWS * 8 - 224)  # ...and the channel's
 
 # ...and now the two heads can be derived from it, which is the whole reason
 # they were split. STAND_Y is where a figure's feet go; RAM_BITE is how far
@@ -557,6 +580,9 @@ def Wm(t): return _tone(IX_WARM, N_WARM, t)
 def Ml(t): return _tone(IX_MOLTEN, N_MOLTEN, t)
 def Br(t): return _tone(IX_BRASS, N_BRASS, t)
 
+SCREEN_H = 224                                  # the picture, in lines
+DECK_PLATE = 16                                 # the footing plate's height:
+                                                #   the deck band, in both rooms
 PX = COLS * 8                                   # 256 px wide
 PXH = ROWS * 8                                  # ...and 512 tall, the whole map
 
@@ -823,20 +849,35 @@ def melt_art():
     and the least authored. The hall shows only its top rows (its camera
     bottoms out at SMIL_CAM_MAX); the melt, from MELT_CAM, shows all of it."""
     if not _MELT:
-        art = art_to_indices(MELT_ART)       # the melt shows every row of it
-        if len(art) != PXH - MELT_ROW * 8 or len(art[0]) != PX:
+        art = art_to_indices(MELT_ART, shown=PXH - MELT_ROW * 8)
+        if len(art) < PXH - MELT_ROW * 8 or len(art[0]) != PX:
             raise SystemExit(f"{MELT_ART}: {len(art[0])}x{len(art)}, need "
-                             f"{PX}x{PXH - MELT_ROW * 8}")
+                             f"{PX} wide and at least {PXH - MELT_ROW * 8} tall")
         _MELT.append(art)
     return _MELT[0]
 
 
 def paint_deck_and_melt(buf, cx, w):
-    """The floor the hall stands on and the channel running under it. Static
-    art in every column that gets it, so it carries the horizontal courses,
-    the hazard skirt and the lit lip that no displaced column could hold."""
+    """The HALL's floor: the deck it stands on and the channel under it."""
     DECK_COLS.update(range(cx // 8, (cx + w) // 8))
-    d0, m0 = DECK_ROW * 8, MELT_ROW * 8
+    paint_floor(buf, cx, w, DECK_ROW * 8, MELT_ROW * 8, PXH)
+
+
+def paint_floor(buf, cx, w, d0, m0, bottom):
+    """The floor and the channel under it, at pixel rows d0 and m0.
+
+    BOTH ROOMS PAINT THEIR FLOOR THROUGH HERE, and that is what makes the
+    channel one channel rather than two that agree. The hall's deck is at
+    DECK_ROW and the lobby's at LOBBY_FLOOR, and those two rows are chosen so
+    that each lands on the SAME SCREEN LINE in its own room (asserted below
+    the constants); the channel is then the same art rows at the same screen
+    rows in both, because this function samples `melt_art()[y - m0]` and both
+    callers pass a m0 sixteen pixels under their own floor.
+
+    Static art in every column that gets it, so it carries the horizontal
+    courses, the hazard skirt and the lit lip that no displaced column could
+    hold.
+    """
     # THE DECK IS THE KIT'S BASE FOOTING, tiled. It is 96 px of authored
     # riveted plate with arches under it; the rail lays it down repeating and
     # every column that gets it is static, so it keeps every horizontal course
@@ -849,9 +890,16 @@ def paint_deck_and_melt(buf, cx, w):
                 buf[y][x] = v
         for y in range(d0 + 16, m0):             # ...and its shadowed under-run
             buf[y][x] = Wm((3 + ((x // 4 + y) % 2)) / 15)
-        for y in range(m0 - 3, m0):              # the lip catching the glow
-            buf[y][x] = Ml((24 + (y - m0 + 3) * 3) / 31)
-        for y in range(m0, PXH):                 # the channel: delivered art
+        # THE LIP, AND IT IS AS DEEP AS THE SURFACE RISES. A rippling column
+        # is displaced DOWNWARD, so at its highest it shows RIPPLE_AMP rows
+        # from above the channel at the top of its band — and if those rows
+        # were floor plate the melt would look like it had swallowed the
+        # decking. They are the crust the plate sits on instead, brightening
+        # into the channel, which is also what the deck band shows where it
+        # meets the melt.
+        for y in range(m0 - RIPPLE_AMP, m0):
+            buf[y][x] = Ml((24 + (y - m0 + RIPPLE_AMP) * 3 / RIPPLE_AMP) / 31)
+        for y in range(m0, bottom):              # the channel: delivered art
             buf[y][x] = melt_art()[y - m0][x % PX]
 
 
@@ -957,7 +1005,17 @@ def paint_bg1():
 # serves both sides — the right-hand one sets the OAM H-flip bit — and the
 # whole animation costs nothing but the OAM shadow that is already committed
 # every frame.
-LOBBY_FLOOR = 22              # the deck's map row
+LOBBY_FLOOR = 19              # the deck's map row -- and THE SAME SCREEN LINE
+                              #   the hall's deck lands on, which is what
+                              #   carries the channel across the lift's edge
+assert LOBBY_FLOOR * 8 == FLOOR_Y, (
+    f"the lobby's floor is at screen {LOBBY_FLOOR * 8} and the hall's at "
+    f"{FLOOR_Y}: a rider stepping out of the lift would change height and the "
+    f"channel under him would jump")
+assert LOBBY_FLOOR * 8 + DECK_PLATE == CHANNEL_Y
+assert PXH - MELT_ROW * 8 == 224 - CHANNEL_Y, (
+    "the hall's channel must run from the deck to the map's last row: the "
+    "camera rests at the bottom, so those are the same rows the lobby shows")
 DOOR_W = 8                    # a bay is this wide in COLUMNS: two 32 px leaves
 DOOR_ROWS = 8                 # ...and the opening is this tall, in rows: 64 px,
                               #   which is a 32 px figure with headroom over him
@@ -1078,14 +1136,13 @@ def art_to_indices(name, drift=ART_DRIFT, shown=None):
 LOBBY_ART = KIT / "mode4_asset01_lobby_interior_wall.png"
 RAIL_ART = "mode4_guide_rail_cross_section_32x8.png"
 MELT_ART = "mode4_molten_metal_channel_256x88.png"
-LOBBY_ART_H = 176              # the wall the asset covers; the deck is below it
-CEIL_BAND = 12                 # ...and how far the coffer runs past the slide
-CEIL_PITCH = 16                # the coffer's grid
+LOBBY_ART_H = 176              # the wall the asset covers; the floor is inside
+                               #   it and the channel below that
 LOBBY_ART_FIT = []             # (exact, distinct, worst drift), for the summary
 
 
 def _lobby_art():
-    """(index buffer 256xLOBBY_ART_H, [(x0, w), ...] for each bay found).
+    """(index buffer 256 x LOBBY_FLOOR*8, [(x0, w), ...] for each bay found).
 
     THE ART IS SEATED, NOT ASSUMED. It was authored on its own 176 px canvas
     with its floor line at y=164 and a band reserved at the top — the shape a
@@ -1159,7 +1216,17 @@ def _lobby_art():
 
     # SEAT IT ON BOTH AXES.
     #
-    # Vertically: the bays' bottom edge meets this lobby's deck.
+    # Vertically: the bays' bottom edge meets this lobby's floor, and THE ART
+    # RIDES UP TO MEET IT. The wall was authored on its own 176 px canvas with
+    # a band reserved at the top — the shape a wall elevation takes when it
+    # expects a HUD over it, which this rail does not have — and its floor
+    # line at y=164. This lobby's floor is at LOBBY_FLOOR*8, twelve pixels
+    # higher, because the twelve rows that buys at the bottom are where the
+    # molten channel goes: the room is the ground floor at the foot of the
+    # shaft and the channel is what is under it. So the slide is NEGATIVE and
+    # what it drops off the top is exactly the reserved band, which was a
+    # coffered ceiling this file drew and nobody needed. The number is still
+    # derived, so a redrawn wall with its floor somewhere else still seats.
     #
     # Horizontally: THE BAYS MUST LAND ON THE TILE GRID. They arrive at x=44
     # and x=148, which are not multiples of 8, and a bay whose edge falls
@@ -1171,9 +1238,13 @@ def _lobby_art():
     # the 71st percentile of this image's own column-to-column change), so the
     # roll wraps rather than padding, and the joint it moves inland is one the
     # picture already contained.
-    slide = LOBBY_FLOOR * 8 - (bottoms.pop() + 1)
-    if slide < 0:
-        raise SystemExit("lobby art: the wall sits below this lobby's deck")
+    fl = LOBBY_FLOOR * 8
+    slide = fl - (bottoms.pop() + 1)
+    if slide > 0:
+        raise SystemExit(
+            f"lobby art: the wall's bays end {slide} px above this lobby's "
+            f"floor, so seating it would open a band at the top with nothing "
+            f"authored in it")
     roll = -(spans[0][0] % 8)                    # ...left, to the nearest grid
     raw = [[row[(x - roll) % PX] for x in range(PX)] for row in raw]
     spans = [((x0 + roll) % PX, w) for x0, w in spans]
@@ -1181,23 +1252,11 @@ def _lobby_art():
         if x0 % 8 or w % 8:
             raise SystemExit(f"lobby art: bay at x={x0} w={w} is not whole "
                              f"tiles even after seating")
-    buf = [[dark] * PX for _ in range(LOBBY_ART_H)]
-    for y in range(LOBBY_ART_H - slide):
-        buf[y + slide][:] = raw[y]
-
-    # THE COFFERED CEILING FILLING THE BAND THE SLIDE OPENED. Both tones are
-    # the ART'S OWN, chosen by LUMINANCE rather than by index — an index is
-    # only a position in a ramp and the ramps are not ordered against each
-    # other, so `sorted(indices)[1]` picks a number, not a colour, and the
-    # first cut of this drew beams one luminance step off the ground they sat
-    # on. The beam is the tone the art already outlines with, so the ceiling
-    # belongs to the same drawing as the wall under it.
-    used = sorted({v for r in raw for v in r}, key=lum)
-    beam = max(used, key=lambda i: -abs(lum(i) - (lum(dark) + 28)))
-    for y in range(slide + CEIL_BAND):
-        for x in range(PX):
-            buf[y][x] = beam if (x % CEIL_PITCH) < 2 or (y % CEIL_PITCH) < 2 \
-                else dark
+    buf = [[dark] * PX for _ in range(fl)]
+    for y in range(fl):
+        src = y - slide
+        if 0 <= src < LOBBY_ART_H:
+            buf[y][:] = raw[src]
     return buf, spans
 
 
@@ -1278,19 +1337,21 @@ def paint_lobby():
 
     THE BAYS ARE NOT DRAWN HERE. They are in the art, and `lobby_bays` reads
     them back out of it, so there is exactly one statement of where a lift
-    opening is and the sprites that cover them cannot drift from the hole."""
+    opening is and the sprites that cover them cannot drift from the hole.
+
+    THE FLOOR AND THE CHANNEL ARE THE HALL'S OWN, through `paint_floor` — the
+    same footing plate and the same rows of the same delivered channel, at the
+    same screen height. What is under this room is what is under that one.
+    """
     buf = [[0] * PX for _ in range(PXH)]
     art, _ = lobby_art()
     fl = LOBBY_FLOOR * 8
-    assert fl == LOBBY_ART_H, "the art's height must be the wall's height"
-    for y in range(LOBBY_ART_H):
+    for y in range(fl):
         buf[y][:] = art[y]
-    for y in range(fl, PXH):                     # the deck
-        for x in range(PX):
-            r = y - fl
-            buf[y][x] = (Wm(1.0) if r < 2 else
-                         Wm(3 / 15) if r % 12 in (0, 1) else
-                         Wm((6 + ((x // 4 + r) % 3)) / 15))
+    paint_floor(buf, 0, PX, fl, fl + DECK_PLATE, SCREEN_H)
+    for y in range(SCREEN_H, PXH):               # ...and nothing below it: the
+        for x in range(PX):                      #   lobby does not scroll, so
+            buf[y][x] = art[0][0]                #   these rows are unreachable
     return buf
 
 
@@ -1723,41 +1784,60 @@ def row_table():
 
 
 # --------------------------------------------------------------------------
-# THE MELT — a third room, and the row a BAND selects
+# THE CHANNEL RIPPLES, AND IT IS THE FLOOR OF BOTH ROOMS
 # --------------------------------------------------------------------------
-# The hall reads ONE row of the table for the whole frame. The melt reads
-# THREE, one per band of the picture, because BG3VOFS names the row the PPU
-# fetches (rowOffset = VScroll >> 3, SnesPpu.cpp:262) and an HDMA channel
-# rewrites it per scanline -- `[[claims.offset_bands]]`, the composition's
-# own channel. Its camera sits at the bottom of the map so the whole channel
-# is in frame:
+# Every room shows the same molten channel at the same screen rows, and the
+# rows above it are a different picture in each. So each room reads the offset
+# table in BANDS: the PPU fetches the row BG3VOFS names (rowOffset =
+# VScroll >> 3, SnesPpu.cpp:257-276), and an HDMA channel rewriting that port
+# at each band's first line hands every band of the picture its own 32 words.
 #
-#   band A  the machines, the belts and the car  -> the hall's running row
-#   band B  the deck                             -> a row with no enable bit:
-#                                                   the control, in-picture
-#   band C  the channel                          -> a RIPPLE row: every column
-#                                                   a vertical word, the same
-#                                                   columns that carry a
-#                                                   horizontal word in band A
+#   the LOBBY   the wall and the doors  -> a row with NO enable bit: nothing
+#                                          in the room above the floor moves
+#               the channel             -> the RIPPLE row
+#
+#   the HALL    the machines and the car -> the running row, as ever
+#               the deck                 -> the same zero row
+#               the channel              -> the RIPPLE row
+#
+# ...and the hall's band edges MOVE, because its deck and channel are at fixed
+# world rows and the camera climbs: the channel band shrinks to nothing as the
+# lift rises, which is the per-scanline claim visible as motion rather than as
+# a static split.
 #
 # THE RIPPLE DISPLACES DOWNWARD ONLY. A vertical word replaces the layer's
 # scroll (vScroll = word & $3FF), so a column pushed UP by k samples k rows
-# past the map's bottom edge, which wrap to its TOP -- the hall's roof at the
-# foot of the melt. Pushed DOWN by k it samples k rows of the deck's lip above
-# the channel instead, which reads as the surface lifting under the floor.
-MELT_CAM = PXH - 224          # the melt's camera: the map's last screen
-RIPPLE_PHASES = 32            # a full wave, in table rows...
-RIPPLE_SHIFT = 2              # ...one ripple row per 2**RIPPLE_SHIFT phases
-RIPPLE_AMP = 6                # px, the surface's rise, 0..AMP
+# past the map's bottom edge, which wrap to its TOP -- a room's ceiling at the
+# foot of its own channel. Pushed DOWN by k it samples k rows of the deck's
+# lip above the channel instead, which reads as the surface lifting under the
+# floor.
+RIPPLE_PHASES = 32            # a full wave, in table rows -- and in PHASES:
+                              #   the row is `phase & (RIPPLE_PHASES - 1)`, so
+                              #   the surface completes a wave four times in
+                              #   the machines' own cycle.
+                              #
+                              #   IT WAS A ROW PER FOUR PHASES, and at the
+                              #   rail's 0.375 phases a frame that is 341
+                              #   frames a wave: measured over twelve frames,
+                              #   not one pixel of the picture moved. A demo
+                              #   nobody can see the mechanism in is not a
+                              #   demo, so the surface now swells in about 85
+                              #   frames and the columns step visibly against
+                              #   each other
+RIPPLE_AMP = 6                # px, the surface's rise, 0..AMP -- and the lip
+                              #   above the channel is drawn this deep, so a
+                              #   fully risen column shows lit crust and never
+                              #   the floor plate above it
 RIPPLE_WAVES = 2              # across the 32 columns
-assert PHASES == RIPPLE_PHASES << RIPPLE_SHIFT
-BAND_DECK = DECK_ROW * 8 - MELT_CAM     # band B's first screen line
-BAND_MELT = MELT_ROW * 8 - MELT_CAM     # band C's
+assert PHASES % RIPPLE_PHASES == 0
+BAND_MAX = 127                # the longest hold ONE HDMA entry can carry: a
+                              #   non-repeat count byte is 7 bits, so a band
+                              #   deeper than this is written as two entries
 
 
 def ripple_k(col, phase):
     import math
-    t = phase / RIPPLE_PHASES
+    t = (phase % RIPPLE_PHASES) / RIPPLE_PHASES
     x = col / COLS
     return int(round(RIPPLE_AMP * (0.5 + 0.5 * math.sin(
         2 * math.pi * (RIPPLE_WAVES * x + t)))))
@@ -1922,15 +2002,18 @@ SMIL_DECK_LO      = ${sum(1 << c for c in DECK_COLS if c < 16):04X}     ; screen
 SMIL_DECK_HI      = ${sum(1 << (c - 16) for c in DECK_COLS if c >= 16):04X}     ; ...and 16..31
 SMIL_ELEVATOR     = {ELEVATOR}      ; ...which station's shaft carries the car
 
-; THE MELT, the room that reads the table in BANDS (see ripple_table).
-SMIL_MELT_CAM     = {MELT_CAM}    ; its camera: the map's last screen
+; THE FLOOR BOTH ROOMS SHARE, and the bands that put the channel under it.
+SMIL_SCREEN_H     = {SCREEN_H}    ; the picture, in lines
+SMIL_FLOOR_Y      = {FLOOR_Y}    ; the deck's SCREEN row -- in the lobby always,
+                           ;   in the hall at rest. The rooms agree on it
+SMIL_CHANNEL_Y    = {CHANNEL_Y}    ; ...and the channel's, likewise
+SMIL_MELT_ROW     = {MELT_ROW}     ; the channel's MAP row, for the hall's band
+                           ;   edges, which move with its camera
+SMIL_BAND_MAX     = {BAND_MAX}    ; the longest hold one HDMA entry carries
 SMIL_RIPPLE_PHASES = {RIPPLE_PHASES}    ; ripple rows in mil_ripple.bin, then a flat one
-SMIL_RIPPLE_SHIFT = {RIPPLE_SHIFT}      ; phase >> this = the ripple row
+SMIL_RIPPLE_MASK  = {RIPPLE_PHASES - 1}     ; phase AND this = the ripple row
 SMIL_RIPPLE_FLAT  = {RIPPLE_PHASES}    ; ...and the control row's index
 SMIL_RIPPLE_AMP   = {RIPPLE_AMP}      ; the surface's rise, px, downward
-SMIL_BAND_A_LINES = {BAND_DECK}    ; screen lines 0..: the hall's row
-SMIL_BAND_B_LINES = {BAND_MELT - BAND_DECK}     ; ...then the deck: the zero row
-SMIL_BAND_C_LINES = {224 - BAND_MELT}     ; ...then the channel: the ripple row
 SMIL_CAR_COL      = {STATION_AT[ELEVATOR] + 1}     ; its first SCREEN column
 SMIL_CAR_ROW      = {CAR_ROW}     ; the car's map row
 SMIL_CAR_H        = {CAR_H}     ; ...and its height in pixels
@@ -1991,8 +2074,8 @@ SMIL_BG1_REST     = 0
 SMIL_BG2_REST     = 0
 """
     (OUT / "mil_art.inc").write_text(inc)
-    print(f"  mill: melt at camera {MELT_CAM}: bands {BAND_DECK}/"
-          f"{BAND_MELT - BAND_DECK}/{224 - BAND_MELT} lines, ripple "
+    print(f"  mill: the floor is screen row {FLOOR_Y} in both rooms and the "
+          f"channel {224 - CHANNEL_Y} lines under it; ripple "
           f"{RIPPLE_PHASES}+1 rows x {ROW_BYTES} B, amplitude {RIPPLE_AMP} px")
     print(f"  mill: chr1 {len(chr1)} B ({len(tiles1)}/{CHR1_TILES} x 8bpp), "
           f"chr2 {len(chr2)} B ({len(tiles2)}/{CHR2_TILES} x 2bpp), "

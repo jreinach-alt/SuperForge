@@ -1,0 +1,48 @@
+# mil_band — the offset table read in BANDS, in every room of the rail.
+#
+# The PPU reads ONE row of BG3's tilemap as the offset table: the row BG3VOFS
+# names (rowOffset = VScroll >> 3, SnesPpu.cpp:257-276). Rewrite that port per
+# scanline and each band of the picture gets its own 32 words — so a screen
+# column can carry a horizontal word in one band and a vertical one in
+# another, in the same frame.
+#
+# THE RAIL USES IT FOR ITS FLOOR. Both rooms stand on the same molten channel
+# at the same screen rows (`SMIL_CHANNEL_Y`), and what is above the channel is
+# a different picture in each: a wall with two lift bays in the lobby, four
+# bays of machinery in the hall. So each room reads the table in bands — the
+# channel from a RIPPLE row, everything above it from the room's own row —
+# and the hall's band edges MOVE, because its deck and channel are at fixed
+# world rows and its camera climbs. The channel band shrinks to nothing as the
+# lift rises, which is the per-scanline claim seen as motion rather than as a
+# static split.
+#
+# GLOBAL, because both rooms band. The claim is a claim about a SCENE's use of
+# the table (it composes per scene, and the composition synthesizes one
+# channel per scene); it rides on a global feature here because every scene of
+# this rail happens to make it.
+name = "mil_band"
+role = "feature"
+depends = ["mil_opt"]
+
+# THREE ROWS: the room's own row at 0, the ripple at 1, a row of zeros at 2.
+# A scene's HDMA table names which row each of its bands reads; the count here
+# is how many rows of the table its bands may select among, and 3 is what the
+# rail keeps. (The lobby names two of them; the hall all three. Which rows a
+# scene's table names is the table's CONTENT, which docs/100 §14 records as
+# outside the vocabulary.)
+[[claims.offset_bands]]
+name = "mil_bands"
+rows = 3
+
+# THE HDMA TABLE: non-repeat entries, three bytes each (a line count, then
+# BG3VOFS written twice), and a terminator. The hall's is rebuilt every VBlank
+# from the camera, the lobby's once at enter.
+#
+# WORST CASE IS FIVE ENTRIES. A band deeper than SMIL_BAND_MAX = 127 lines is
+# written as two, and the hall's top band reaches the whole 224 during the
+# ride: 2 + 1 + 1 entries + the terminator = 16 bytes. 24 is the next clean
+# size and leaves a fourth band's room.
+[[claims.wram]]
+name = "mil_bandtab"
+bytes = 24
+dma_source = true        # HDMA reads it; it must not straddle a WRAM bank
