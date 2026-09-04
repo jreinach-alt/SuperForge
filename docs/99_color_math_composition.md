@@ -125,10 +125,13 @@ A scene with screen claims and **no** blend claims composes
 `vendor/rom/ppu_reset.inc` establishes at boot, in which the math unit is
 structurally off. That off state appears in the allocation report and in
 `symbol_map.json`, but **no symbol is emitted for it**: ownership is
-per-half (§7), a scene with no blend claims does not own `CGWSEL`/`CGADSUB`,
-and publishing `ES_SCR_<ID>_CGWSEL` for a port another feature owns would
-hand scene code a value that is not this composition's to write. §6 states
-the emission rule; the composed state is what the scene owns, and only that.
+per-half (§7), a scene with no blend claims **and no `direct_color`** does
+not own `CGWSEL`/`CGADSUB`, and publishing `ES_SCR_<ID>_CGWSEL` for a port
+another feature owns would hand scene code a value that is not this
+composition's to write. §6 states the emission rule; the composed state is
+what the scene owns, and only that. (`direct_color` is the one thing that
+turns this case around without a blend claim: it composes a bit OF CGWSEL, so
+the scene owns that port and gets its symbol — and still not `CGADSUB`.)
 
 **The composed state is per scene, and nothing carries it across an edge.**
 A scene that composes a blend programs the blender on enter; a successor
