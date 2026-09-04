@@ -1061,6 +1061,91 @@ def compose_video_offset(video: list[tuple], offset: list[tuple],
                     f"no pass draws. Drop {lyr} from `layers`, or declare a "
                     f"mode that renders it")
 
+        # O11 — 16x16 TILES AND A HORIZONTALLY DISPLACED LAYER. The one
+        # interaction between the two halves of this vocabulary, and it is
+        # not symmetric between the axes:
+        #
+        #   the TILEMAP ENTRY a column reads is picked from the DISPLACED
+        #        scroll — `column = columnIndex + (hScroll >> 3)`, then
+        #        `column >>= 1` for LargeTiles (SnesPpu.cpp:195, :199), and
+        #        `row = (realY + vScroll) >> 4` (:186) — so both axes reach it
+        #   WHICH HALF of a 16-wide tile is drawn is picked from the LAYER's
+        #        OWN register: `useSecondTile = (((column << 3) +
+        #        config.HScroll) & 0x08) == 0x08` (:235) — `config.HScroll`,
+        #        not the displaced `hScroll`
+        #   the VERTICAL half IS displaced: it is taken from
+        #        `tileData.VScroll` (:243, :250), which GetTilemapData wrote
+        #        from the displaced value (:206)
+        #
+        # So 16x16 is COHERENT with a vertical offset and INCOHERENT with a
+        # horizontal one: a horizontally displaced column fetches the right
+        # tile and draws the wrong half of it. MEASURED on this emulator, not
+        # only read: a 16x16 BG1 driven by a horizontal word of 8 rendered
+        # every EVEN screen column as though the word were 0 and every ODD one
+        # as though it were 16 — 30 of 31 columns matched that model and none
+        # matched a coherent one (the odd column out is a rail override, and
+        # the same probe measured a VERTICAL word coherent at 27 of 27).
+        #
+        # A REFUSAL where the composition can PROVE the layer takes horizontal
+        # words — `h` (every word) and `both` (every column, both axes). Under
+        # `per_column` the axis is bit 15 of each WORD, which is DATA in a
+        # blob the composition cannot read, so it warns and names the two
+        # conditions the table has to satisfy instead. That is the docs/99
+        # rule (refuse what the silicon cannot express, warn about what it
+        # can) resolved the way the bg2-under-mode-7 arm resolves it: where
+        # the thing that would make the composition correct is outside what
+        # this vocabulary models, over-refusal is its own defect.
+        if video:
+            vc, vwho = video[0]
+            checks += 1                      # O11 live
+            for lyr in [x for x in oc.layers if x in vc.tiles16]:
+                if oc.axis in ("h", "both"):
+                    raise AllocationError(
+                        f"VIDEO/OFFSET contention in scene '{scope}': "
+                        f"{vc.name} ({vwho}) declares 16x16 tiles for {lyr}, "
+                        f"and {oc.name} ({owho}) drives {lyr} from the offset "
+                        f"table on a HORIZONTAL axis (axis = "
+                        f"\"{oc.axis}\"). A 16x16 layer picks its TILEMAP "
+                        f"ENTRY from the displaced scroll (column = "
+                        f"columnIndex + (hScroll >> 3), then column >>= 1 — "
+                        f"Mesen2 SnesPpu.cpp:195, :199) but picks WHICH HALF "
+                        f"of that 16-wide tile to draw from the LAYER's own "
+                        f"register (useSecondTile = (((column << 3) + "
+                        f"config.HScroll) & 8) == 8, :235), so a displaced "
+                        f"column fetches the right tile and draws the wrong "
+                        f"half of it: measured here, a word of 8 moves an "
+                        f"EVEN column by 0 and an ODD column by 16, which "
+                        f"pulls the two halves of every large tile apart "
+                        f"rather than shearing the picture. The VERTICAL axis "
+                        f"has no such split — the vertical half comes from "
+                        f"the displaced tileData.VScroll (:243, :206) — so "
+                        f"drive {lyr} vertically, drive the horizontal axis "
+                        f"on a layer this scene does not declare 16x16, or "
+                        f"drop {lyr} from `tiles16` (docs/100)")
+                notes = []
+                if oc.axis == "per_column":
+                    notes.append(
+                        "any HORIZONTAL word it carries for that layer is "
+                        "incoherent — the tilemap entry moves with the "
+                        "displaced scroll and the half-select does not "
+                        "(SnesPpu.cpp:195/:199 against :235), so a value of 8 "
+                        "renders as 0 on an even screen column and 16 on an "
+                        "odd one; only values whose bit 3 equals the layer's "
+                        "own BGnHOFS bit 3 survive, i.e. whole 16-pixel steps")
+                notes.append(
+                    "two adjacent screen columns SHARE one tilemap entry "
+                    "(column >>= 1, :199) but each keeps its own row from its "
+                    "OWN displaced vScroll (row = (realY + vScroll) >> 4, "
+                    ":186), so the two halves of a large tile must carry the "
+                    "SAME vertical displacement or the tile reads two "
+                    "different map rows and tears down the middle")
+                warnings.append(
+                    f"{vc.name} ({vwho}) declares 16x16 tiles for {lyr} and "
+                    f"{oc.name} ({owho}) drives {lyr} from the offset table "
+                    f"(axis = \"{oc.axis}\"). Two conditions on the TABLE'S "
+                    f"WORDS follow, and the composition cannot read a word: "
+                    + "; and ".join(notes))
+
         # O5, the designation arm — BG3 IS the table. The register arm of the
         # same rule fires in check_reg_ownership against the synthesized
         # claim below; this one catches the claimant that draws on BG3 by
@@ -1194,6 +1279,9 @@ def compose_video_offset(video: list[tuple], offset: list[tuple],
     return {"bgmode": bgmode, "fields": fields, "registers": regs,
             "features": feats,
             "mode": mode,
+            # ...and the size bits, so a test can join a ROM's $2105 on the
+            # DECLARATION rather than on a literal.
+            "tiles16": list(video[0][0].tiles16) if video else [],
             "axis": offset[0][0].axis if offset else None,
             "layers": list(offset[0][0].layers) if offset else [],
             "bands": bands[0][0].rows if bands else 1,
@@ -3053,6 +3141,7 @@ def emit(alloc: Allocation, out_dir: str | Path) -> list[Path]:
                          **({"video_offset": {
                                  "bgmode": sm.video_offset["bgmode"],
                                  "mode": sm.video_offset["mode"],
+                                 "tiles16": sm.video_offset["tiles16"],
                                  "offset_axis": sm.video_offset["axis"],
                                  "offset_layers":
                                      sm.video_offset["layers"],

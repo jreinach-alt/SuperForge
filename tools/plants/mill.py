@@ -1,10 +1,14 @@
 """mill — what mode 4's per-column AXIS can get wrong without looking wrong.
 
-Eight plants. Six are silent-corruption defects that still produce a plausible
-picture of a forge, one is the allocator refusing a declaration that lies, and
-one is the control's own failure mode. THREE ARE DEFECTS THE RAIL SHIPPED and a
-person caught by looking, put here so the next one is caught by the harness
-instead.
+Twenty-three plants. Twenty are silent-corruption defects that still produce a
+plausible picture of a forge (one of them the control's own failure mode), and
+THREE are the allocator refusing a declaration that lies. THREE ARE DEFECTS THE
+RAIL SHIPPED and a person caught by looking, put here so the next one is caught
+by the harness instead.
+
+(The count in this paragraph had gone stale at "eight" while the set grew; it
+is a number nothing checks, so treat it as a description of the SHAPE and the
+list below as the roll.)
 
 THE SET IS BUILT AROUND THE THING THIS RAIL ADDS TO `smelter`. Mode 2 fetches a
 word for each axis, so a column's axis is not a choice anybody can make wrong.
@@ -46,6 +50,15 @@ everything proves only that the ROM boots.
   * `hall-declares-mode-1` is the allocator half. The scene's video claim is
     what the offset claim is checked against, so moving it to a mode with no
     offset path must stop the BUILD, not the picture.
+  * `table-declares-both-under-mode-4` is the second allocator half, and it is
+    the one no picture could ever carry: `both` and `per_column` EMIT THE SAME
+    THREE CONSTANTS under mode 4, so the ROM is byte-identical and every
+    frame agrees. Only the declaration is wrong — a column displaced on both
+    axes at once, which mode 4 has no state for — and only the allocator can
+    say so.
+  * `tiles16-on-the-layer-the-belts-drive` is the third, and it is a JOIN:
+    16x16 tiles on a layer the table drives HORIZONTALLY. One plant carries
+    both declarations because neither refuses alone.
 
 WHAT IS DELIBERATELY NOT HERE: a plant on the lobby's OAM ordering. The
 arrangement is asserted directly by
@@ -469,4 +482,68 @@ mode = 1""",
               "disbelieve. A rail whose mode and whose table disagreed would "
               "otherwise ship a BG3 full of scroll words being drawn as a "
               "text layer."),
+
+    Plant(id="table-declares-both-under-mode-4",
+          file=OPT_TOML,
+          old='axis = "per_column"',
+          new='axis = "both"',
+          artifact=ROM,
+          build=["mill"],
+          expect="build-fails",
+          build_names="axis",
+          tests=[],
+          why="the MIGRATION hazard, and the whole reason `both` and "
+              "`per_column` are two names. `both` is a column displaced on "
+              "BOTH axes at once and mode 4 has no such state -- one word is "
+              "fetched and bit 15 picks -- so this declares something the "
+              "hardware cannot do while rendering EXACTLY THE SAME PICTURE, "
+              "because the emission is identical under both values (MASK, "
+              "HMASK, VSEL). That is what makes it worth planting: no frame "
+              "could ever disagree with it, so only the allocator can. It "
+              "was a warning until 2026-09-04, and a warning cannot stop a "
+              "table moved from mode 2 to mode 4 keeping its declaration and "
+              "changing its meaning (refusal O7 of docs/100)."),
+
+    Plant(id="tiles16-on-the-layer-the-belts-drive",
+          file=OPT_TOML,
+          old='''axis = "per_column"
+layers = ["bg1", "bg2"]
+
+# Mode 4: bg1 8bpp + bg2 2bpp. The depths are the reason the art is split into
+# two CHR claims at 64 and 16 bytes a tile (mil_bg), and O9 checks each of them
+# against this number.
+[[claims.video]]
+name = "mil_mode"
+mode = 4''',
+          new='''axis = "h"                       # PLANT: the whole table horizontal...
+layers = ["bg1", "bg2"]
+
+# Mode 4: bg1 8bpp + bg2 2bpp. The depths are the reason the art is split into
+# two CHR claims at 64 and 16 bytes a tile (mil_bg), and O9 checks each of them
+# against this number.
+[[claims.video]]
+name = "mil_mode"
+mode = 4
+tiles16 = ["bg2"]                # PLANT: ...and the belts' layer 16x16''',
+          artifact=ROM,
+          build=["mill"],
+          expect="build-fails",
+          build_names="16x16 tiles for bg2",
+          tests=[],
+          why="O11, and it is a JOIN -- 16x16 tiles on a layer the offset "
+              "table drives HORIZONTALLY -- so no single-sided plant reaches "
+              "it. THIS PLANT CARRIES BOTH SIDES: the table committed to the "
+              "horizontal axis, and `tiles16 = [\"bg2\"]` on the video claim "
+              "it is joined against. Neither half refuses alone -- mill's own "
+              "`per_column` leaves the axis in the WORDS, where the "
+              "composition cannot read it, so a bare `tiles16` there only "
+              "warns. What the join protects: a 16x16 layer picks its "
+              "tilemap ENTRY from the DISPLACED scroll and WHICH HALF of the "
+              "16-wide tile from the LAYER's own BGnHOFS (SnesPpu.cpp:195 / "
+              ":199 against :235), so a horizontal word of 8 moves an EVEN "
+              "screen column by 0 and an ODD one by 16 and the two halves of "
+              "every large tile come apart. Measured on a probe build at "
+              "30/31 columns; no picture case can carry it on the shipping "
+              "tree, because no rail can afford 16x16 on this art "
+              "(docs/100 O11)."),
 ]

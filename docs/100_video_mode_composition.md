@@ -341,6 +341,12 @@ about what it can*.
 - every offset claim: the word REPLACES the layer's scroll rather than adding
   to it, and a column with its enable bit clear falls back to the layer's own
   register — so the table holds absolute positions, not deltas.
+- a `tiles16` layer an offset table drives: the two 8-pixel halves of a large
+  tile share one tilemap entry and keep their own rows, so they must carry the
+  same vertical displacement or the tile tears down the middle — and under
+  `axis = "per_column"`, any horizontal word for that layer renders as 0 on an
+  even screen column and 16 on an odd one. Both are conditions on the table's
+  WORDS, which the composition cannot read (O11).
 - an offset claim driving a layer no `[[claims.screen]]` claim in the scene
   designates: displacing a layer that is on neither screen displaces nothing
   visible. A warning and not a refusal for the WOBJSEL reason (docs/99 §8) —
@@ -368,6 +374,66 @@ checks, so a run that examined nothing reads as having examined nothing.
   parser holds the hardware ceiling — a BG3 tilemap has 32 rows, the 1K-word
   page `BG3SC` addresses — and whether the rows a band names EXIST in the
   table's VRAM claim is not reachable (§14, the placement limit).
+
+- **O11 — 16x16 tiles and a HORIZONTALLY displaced layer.** The one
+  interaction between this vocabulary's two halves, and it is **not symmetric
+  between the axes**. A `tiles16` layer that an offset claim drives on an axis
+  the composition can prove horizontal — `axis = "h"` (every word) or
+  `axis = "both"` (every column, both axes) — refuses. Under
+  `axis = "per_column"` it **warns**, because there the axis is bit 15 of each
+  WORD: data in a blob, which the composition cannot read.
+
+  **The mechanism.** With `LargeTiles` a layer picks its tilemap ENTRY from the
+  DISPLACED scroll — `column = columnIndex + (hScroll >> 3)` then
+  `column >>= 1` (`SnesPpu.cpp:195`, `:199`), and
+  `row = (realY + vScroll) >> 4` (`:186`) — but it picks **which half of the
+  16-wide tile to draw** from the LAYER's own register:
+
+  ```cpp
+  useSecondTile = (((column << 3) + config.HScroll) & 0x08) == 0x08;   // :235
+  ```
+
+  `config.HScroll`, not the displaced `hScroll`. The vertical half has no such
+  split: it is taken from `tileData.VScroll` (`:243`, `:250`), which
+  `GetTilemapData` wrote from the *displaced* value (`:206`). So **16x16 is
+  coherent with a vertical offset and incoherent with a horizontal one**: a
+  horizontally displaced column fetches the right tile and draws the wrong half
+  of it.
+
+  **Measured, not only read** (a throwaway 16x16 build of `mill`, one probe
+  colour per tile, decoded off the rendered frame):
+
+  | probe | result |
+  |---|---|
+  | horizontal word = 8 on a 16x16 BG1 | **30/31** screen columns rendered as *"the entry moves, the half-select does not"* predicts — an EVEN column as though the word were 0, an ODD one as though it were 16. **0 of the 14** genuinely displaced columns matched a coherent model. (The odd column out is the rail's own car override, which zeroes those four words.) |
+  | vertical word = 8 on the same layer | **27/27** columns, over six scanlines, matched the per-column *displaced* vScroll; **0/27** matched the layer's own |
+
+  So an 8-pixel horizontal word does not shear the picture coarsely — it pulls
+  the two halves of every large tile 16 pixels apart.
+
+  **Why the `per_column` arm warns rather than refusing.** The docs/99 rule is
+  *refuse what the silicon cannot express, warn about what it can*, and the
+  bg2-under-mode-7 arm is the precedent for what to do when the thing that
+  would make a composition correct is outside what this vocabulary models.
+  Here that thing exists twice over: a mode-4 table may carry only VERTICAL
+  words for its 16x16 layer and horizontal ones for the other (which is
+  exactly `mill`'s shape — BG1 vertical, BG2 horizontal), and a horizontal
+  word whose bit 3 matches the layer's own `BGnHOFS` bit 3 — a whole 16-pixel
+  step — is coherent even on a 16x16 layer. Neither is visible to the
+  composition, because `axis` is a property of the TABLE and the axis bit is a
+  property of each WORD. Refusing would make both undeclarable, which is the
+  mistake O7's first refusal made (§2). **What would turn the warning into a
+  refusal is a declaration that can say it: a per-LAYER axis on
+  `[[claims.offset]]`.** That is not built, because no rail needs it — said
+  here so it is a known limit rather than a hole.
+
+  **The second condition, on both axes, and also unreadable from here.** Two
+  adjacent screen columns SHARE one tilemap entry (`column >>= 1`) but each
+  keeps its own row from its OWN displaced vScroll (`row = (realY + vScroll)
+  >> 4`). So **the two 8-pixel halves of a large tile must carry the same
+  vertical displacement**, or they read different map rows and the tile tears
+  down its middle. Every `tiles16` layer an offset table drives gets that
+  warning, whatever its axis.
 
 ## 6. Emission
 
@@ -397,10 +463,10 @@ instead of a symbol, saying so.
 
 The composition also lands machine-readably: the scene's entry in
 `symbol_map.json` gains a `video_offset` object — the composed BGMODE, the
-mode, the offset table's declared axis and layers, the emitted fields, the
-registers the composition owns, and the contributing features — so a test can
-assert a ROM's mode and its per-column words against the DECLARATION instead of
-re-typing either.
+mode, the layers declared 16x16, the offset table's declared axis and layers,
+the emitted fields, the registers the composition owns, and the contributing
+features — so a test can assert a ROM's mode, its size bits and its per-column
+words against the DECLARATION instead of re-typing any of them.
 
 ## 7. The tilemap's shape, which this sprint completed
 

@@ -781,3 +781,96 @@ def test_a_raw_cpu_writer_of_bg3vofs_beside_bands_still_refuses(tmp_path):
                  x='[[claims.reg]]\nregisters = ["BG3VOFS"]\n')
     msg = _refuse(tmp_path, f, "m", "t", "b", "x")
     assert "x_reg" in msg and "BG3VOFS" in msg
+
+
+# -- O11: 16x16 tiles meeting the offset table ------------------------------
+# The one interaction between the two halves of this vocabulary. It is not
+# symmetric between the axes, and the asymmetry was READ in SnesPpu.cpp and
+# then MEASURED on a 16x16 probe build of `mill`:
+#
+#   horizontal, 8 in the word:  30/31 screen columns rendered as the
+#       "entry moves, half-select does not" model predicts (even columns as
+#       though the word were 0, odd ones as though it were 16); 0 of the 14
+#       genuinely displaced columns matched a coherent model
+#   vertical, 8 in the word:    27/27 columns across six scanlines matched
+#       the per-column displaced vScroll, 0/27 the layer's own
+#
+# So a horizontal displacement of a 16x16 layer REFUSES where the composition
+# can prove the layer takes horizontal words, and WARNS where the axis is a
+# per-word bit in a blob it cannot read.
+
+def _t16(mode, axis, tiles16, layers='["bg1"]'):
+    return (f'[[claims.video]]\nmode = {mode}\ntiles16 = {tiles16}\n',
+            f'[[claims.offset]]\naxis = "{axis}"\nlayers = {layers}\n')
+
+
+@pytest.mark.parametrize("mode,axis", [(2, "h"), (2, "both"), (4, "h"),
+                                       (6, "h")])
+def test_o11_a_horizontally_driven_layer_may_not_be_16x16(tmp_path, mode, axis):
+    """`h` is every word and `both` is every column, so in both the
+    composition KNOWS the layer is displaced horizontally."""
+    m, t = _t16(mode, axis, '["bg1"]')
+    f = features(tmp_path, m=m + LAYERS, t=t)
+    msg = _refuse(tmp_path, f, "m", "t")
+    assert "VIDEO/OFFSET contention" in msg
+    assert "declares 16x16 tiles for bg1" in msg
+    assert "config.HScroll" in msg           # the mechanism, by name
+    assert "draws the wrong half" in msg
+
+
+def test_o11_names_the_layer_and_not_its_neighbour(tmp_path):
+    """The refusal is per LAYER: a table driving bg1 and bg2 beside a
+    `tiles16` that names only bg2 must name bg2 — a message that named the
+    claim and not the layer would send the author to the wrong end."""
+    m, t = _t16(2, "h", '["bg2"]', layers='["bg1", "bg2"]')
+    f = features(tmp_path, m=m + LAYERS, t=t)
+    msg = _refuse(tmp_path, f, "m", "t")
+    assert "16x16 tiles for bg2" in msg
+    assert "16x16 tiles for bg1" not in msg
+
+
+def test_o11_a_vertically_driven_16x16_layer_composes(tmp_path):
+    """THE ASYMMETRY, and it is the reason this is not a blanket refusal: the
+    vertical half-select comes from the DISPLACED tileData.VScroll, so a
+    vertically displaced 16x16 column is coherent. Measured 27/27."""
+    m, t = _t16(2, "v", '["bg1"]')
+    f = features(tmp_path, m=m + LAYERS, t=t)
+    a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m", "t"))
+    assert a.scenes["s"].video_offset["tiles16"] == ["bg1"]
+    assert a.scenes["s"].video_offset["bgmode"] == 2 | 0x10   # BGMODE bit 4
+
+
+def test_o11_a_vertically_driven_16x16_layer_still_warns_about_the_pair(tmp_path):
+    """...and warns about the OTHER constraint, which the composition also
+    cannot check: two adjacent columns share one tilemap entry but keep their
+    own rows, so a pair must carry the same displacement or tear."""
+    m, t = _t16(2, "v", '["bg1"]')
+    f = features(tmp_path, m=m + LAYERS, t=t)
+    a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m", "t"))
+    w = " ".join(a.scenes["s"].video_offset["warnings"])
+    assert "SHARE one tilemap entry" in w
+    assert "tears down the middle" in w
+    assert "incoherent" not in w             # no horizontal word is possible
+
+
+def test_o11_per_column_warns_rather_than_refusing(tmp_path):
+    """Mode 4's axis is bit 15 of each WORD — data in a blob, which the
+    composition cannot read. It cannot prove the 16x16 layer takes a
+    horizontal word, so it names both conditions and composes."""
+    m, t = _t16(4, "per_column", '["bg1"]', layers='["bg1", "bg2"]')
+    f = features(tmp_path, m=m + LAYERS, t=t)
+    a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m", "t"))
+    w = " ".join(a.scenes["s"].video_offset["warnings"])
+    assert "cannot read a word" in w
+    assert "renders as 0 on an even screen column and 16 on an odd one" in w
+    assert "tears down the middle" in w
+
+
+def test_o11_does_not_fire_on_a_layer_the_table_does_not_drive(tmp_path):
+    """16x16 on bg1 beside a table that drives bg2 only is two claims that do
+    not meet — no refusal and no warning, or the warning means nothing."""
+    m, t = _t16(2, "h", '["bg1"]', layers='["bg2"]')
+    f = features(tmp_path, m=m + LAYERS, t=t)
+    a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m", "t"))
+    w = " ".join(a.scenes["s"].video_offset["warnings"])
+    assert "16x16" not in w
