@@ -677,10 +677,10 @@ Generated from the tree by `tools/gen_register.py`; `make register` fails when t
 |---|---|---|---|---|
 | `audio` | **feature** | unused | `dp`, `wram`, `reg`, `spc` | `tad_rom` |
 | `aur_bg` | **feature** | unused | `vram`&times;4, `cgram`, `dma_init`, `reg`, `screen`&times;2 | `aur_rom` |
-| `aur_hue` | **feature** | unused | `dp`&times;7, `dma_init`, `dma` | `aur_rom`, `aur_bg` |
+| `aur_hue` | **feature** | unused | `dp`&times;8, `dma_init`, `dma` | `aur_rom`, `aur_bg` |
 | `aur_mode` | **feature** | unused | `video` | &mdash; |
 | `aur_obj` | **consumer** | unused | `vram`, `cgram`, `oam`, `dma_init`, `reg`, `screen` | `oam_sprites`, `aur_rom` |
-| `aur_rom` | **blob** | unused | `rom`&times;8 | &mdash; |
+| `aur_rom` | **blob** | unused | `rom`&times;9 | &mdash; |
 | `aur_write` | **feature** | unused | `dp`&times;3, `dma_init`, `dma` | `aur_rom`, `aur_bg` |
 | `backdrop` | **feature** | scene | `cgram`, `reg` | &mdash; |
 | `barrel_rom` | **blob** | unused | `rom`&times;2 | &mdash; |

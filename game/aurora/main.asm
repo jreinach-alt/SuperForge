@@ -116,6 +116,10 @@ aur_map1_bin:
     .incbin "aur_map1.bin"
 .assert ^aur_map1_bin = ES_R_AUR_MAP1_BANK, error, "aur_map1 bank drifted from allocator claim"
 .assert .loword(aur_map1_bin) = ES_R_AUR_MAP1_ADDR, error, "aur_map1 addr drifted from allocator claim"
+aur_rate_bin:
+    .incbin "aur_rate.bin"
+.assert ^aur_rate_bin = ES_R_AUR_RATE_BANK, error, "aur_rate bank drifted from allocator claim"
+.assert .loword(aur_rate_bin) = ES_R_AUR_RATE_ADDR, error, "aur_rate addr drifted from allocator claim"
 aur_pal_bin:
     .incbin "aur_pal.bin"
 .assert ^aur_pal_bin = ES_R_AUR_PAL_BANK, error, "aur_pal bank drifted from allocator claim"

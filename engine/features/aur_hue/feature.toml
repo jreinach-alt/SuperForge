@@ -28,10 +28,17 @@
 # the curtains top to bottom in five visible bands, which is the artefact this
 # feature exists to avoid.
 #
-# A phase is five VBlanks; then the picture HOLDS while the wait counts down,
-# scaled so a PAL console spends the same wall-clock time on it. Everything the
-# eye sees between two phases is a mixture of two hues one step apart, for five
-# frames — which is a crossfade, not a two-tone.
+# THE RATE IS A CURVE. A phase is 296 tile-updates however they are paced, so
+# a slow cycle means a low AVERAGE rate and the shape is only free to
+# redistribute it: a raised sine to the fourth, summing to exactly one phase,
+# so the aurora drifts at a tile or two a frame for most of a pass and moves
+# at six through the middle of it. Nothing ever holds still.
+#
+# That leaves the picture PERMANENTLY straddling two phases, which is the
+# thing to check rather than assume — and measured on the real quantised art,
+# a 50/50 scattered mix of two adjacent phases is indistinguishable from
+# either of them. At a coarser phase step it would not be, and the
+# burst-and-hold this replaces would still be the right shape.
 #
 # B freezes the whole thing, which is what makes a still of it worth taking.
 name = "aur_hue"
@@ -43,8 +50,19 @@ name = "aur_phase"
 bytes = 2                # which hue the cycle is on, 0..AUR_HUE_PHASES-1
 
 [[claims.dp]]
-name = "aur_slice"
-bytes = 2                # ...and how much of it has reached VRAM, 0..SLICES-1
+name = "aur_slot"
+bytes = 2                # ...and how much of it has reached VRAM, in tiles
+
+[[claims.dp]]
+name = "aur_ratei"
+bytes = 2                # where the rate curve has got to
+
+[[claims.dp]]
+name = "aur_pend"
+bytes = 2                # tiles the curve has asked for and VBlank has not
+                         # moved yet. The tick accumulates, the NMI drains —
+                         # so a PAL frame that scales to two ticks asks for
+                         # two entries' worth and the pace stays region-correct
 
 [[claims.dp]]
 name = "aur_src"
@@ -59,16 +77,15 @@ bytes = 2                # ...and the VMADD word address the next slice lands
                          # at, likewise carried
 
 [[claims.dp]]
-name = "aur_wait"
-bytes = 2                # TICK: ok -- the hold between phases, counted down
-                         # by the SCALED tick rather than by frames
-
-[[claims.dp]]
 name = "aur_tmp"
-bytes = 6                # NMI-local scratch: the tile offset inside a chunk,
-                         # the chunk index, and the tile count of the transfer
-                         # being armed. A word only ever live inside one
-                         # routine is still a claim
+bytes = 8                # NMI-local scratch: the tile offset inside a chunk,
+                         # the chunk index, the tile count of the transfer
+                         # being armed, and THE WHOLE RUN'S length. The last
+                         # of those has to be its own word — recomputing it
+                         # from the cursor is only correct on a frame the run
+                         # was clamped, and getting that wrong left tiles
+                         # behind at stale hues. A word only ever live inside
+                         # one routine is still a claim
 
 [[claims.dp]]
 name = "aur_hold"
@@ -81,12 +98,11 @@ registers = ["VMDATAL", "VMDATAH"]
 mode = 1
 
 [claims.dma]
-vblank_bytes_per_frame = 3840   # one slice, on the five frames of a phase;
-                                # nothing at all while it holds
-vblank_transfers_per_frame = 2  # ...in ONE transfer, or two when the slice
+vblank_bytes_per_frame = 768    # AUR_RATE_PEAK tiles, doubled: a PAL frame
+                                # scales to as many as two ticks and drains
+                                # both entries at once
+vblank_transfers_per_frame = 2  # ...in ONE transfer, or two when the run
                                 # straddles a chunk boundary. See aur_hue.asm:
-                                # a chunk holds 512 whole tiles and a slice is
-                                # 50, so 7 of the cycle's 72 slices cross one,
-                                # and A1B is constant — an uncut transfer
-                                # wraps inside the bank to $0000 and reads the
-                                # WRAM mirror
+                                # A1B is constant, so an uncut transfer that
+                                # crosses one wraps inside its own bank to
+                                # $0000 and reads the WRAM mirror

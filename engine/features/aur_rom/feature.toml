@@ -63,6 +63,12 @@ bytes = 327680           # SIXTEEN copies of every tile the aurora tints —
 bank_tiled = true
 
 [[claims.rom]]
+name = "aur_rate"
+bytes = 256              # the rate curve — whole tiles a frame, one entry per
+                         # frame of a phase, summing to EXACTLY one phase so
+                         # the cursor wraps where the colour does.
+
+[[claims.rom]]
 name = "aur_pal"
 bytes = 64               # BG2's sixteen, then the figures' sixteen. NOT BG1's
                          # — BG1 has none and that is the point of the rail.
