@@ -24,7 +24,7 @@ LD65    := ld65
 	m7dg-assets m7_dungeon m7dg-labels m7dg-measure m7dg-measure-logic \
 	sh2-assets split_h_2p_demo sh2-variants sh2-labels sh2-measure bare-check \
 	m7x-assets mode7_explore pfs-assets platformer_stream scroller \
-	lakeside heathaze smelter mill \
+	lakeside heathaze smelter mill mill-direct \
 	scroller-tb tb-measure tb-picture rate-oracle \
 	camera_follow maze jumper patrol sprite_game stomper scroll_run brawler \
 	split_h_matrix_demo split_h_persp3_demo \
@@ -1436,6 +1436,20 @@ $(BUILD)/mill.sfc: $(MIL_ASM) $(MIL)/mill.inc \
 	$(PY) tools/fix_checksum.py $@
 
 mill: $(BUILD)/mill.sfc
+
+# ---- mill-direct: the same rail with BG1 read as DIRECT COLOUR ------------
+# A VARIANT image, not a rail (no game/mill_direct/): same main.asm, same
+# scenes, same features, same geometry. What differs is ONE DECLARATION —
+# `direct_color = true` on the video claim, which composes CGWSEL bit 0 — and
+# the BG1 art that declaration changes the meaning of.
+#
+# It needs its OWN allocator run, which is the one thing no other variant in
+# this tree needs, so the script derives a manifest from game/mill/game.toml
+# by a guarded one-token substitution rather than carrying a second copy of it.
+# tools/build_mill_direct.sh is where all of that is written down.
+mill-direct: $(BUILD)/mill.sfc $(MIL_ASSETS) \
+		$(MIL_MAP)/engine_state_globals.inc
+	bash tools/build_mill_direct.sh
 # ---- maze: col_map against a hand-built map -------
 # A red player walks a grey walled room (border + two interior walls) with
 # the canonical per-axis move-check: tentative position, probe, keep the axis
@@ -3054,7 +3068,7 @@ gates: | $(BUILD)
 	run split_v_fight; run m7_dungeon; run split_h_2p_demo; \
 	run sh2-variants; \
 	run mode7_explore; run platformer_stream; run scroller; \
-	run lakeside; run heathaze; run smelter; run mill; \
+	run lakeside; run heathaze; run smelter; run mill; run mill-direct; \
 	run camera_follow; run maze; run jumper; run patrol; \
 	run sprite_game; \
 	run stomper; \
@@ -3252,7 +3266,7 @@ PYTEST_DIST := $(if $(strip $(XDIST)),-n $(strip $(XDIST)) --dist loadfile,)
 # tools/harness_faults.py then says which KIND of red it is (docs/44 section 8).
 test: toy microzero room probes breaker shmup platformer split_v_fight \
 	m7_dungeon split_h_2p_demo sh2-variants mode7_explore platformer_stream \
-	hud_game scroller lakeside heathaze smelter mill camera_follow maze jumper patrol sprite_game \
+	hud_game scroller lakeside heathaze smelter mill mill-direct camera_follow maze jumper patrol sprite_game \
 	stomper \
 	scroll_run brawler split_h_matrix_demo split_h_persp3_demo \
 	split_v_demo svd-nowin split_v_seamtrial split_h_demo shd-autodemo \
@@ -3447,7 +3461,7 @@ falsify:
 MODULE  ?= tests/test_split_h_2p_sprites.py
 FALSIFY ?=
 determinism: split_h_2p_demo sh2-variants microzero hud_game scroller \
-	lakeside heathaze smelter mill \
+	lakeside heathaze smelter mill mill-direct \
 	camera_follow maze jumper patrol sprite_game stomper scroll_run \
 	brawler split_v_fight split_h_matrix_demo split_h_persp3_demo \
 	split_v_demo svd-nowin split_v_seamtrial split_h_demo shd-autodemo \

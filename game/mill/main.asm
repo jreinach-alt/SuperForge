@@ -92,9 +92,32 @@ NMI:
 ; THE ORDER IS THE PACKER'S, not this file's: the allocator sorts rom claims by
 ; size and these `.assert`s are what turn a disagreement into a build failure
 ; instead of art read from the wrong address.
+; ---- the one art switch the DIRECT-COLOUR variant needs ------------------
+; `-D MIL_DIRECT=1` (tools/build_mill_direct.sh) swaps BG1's CHR page and BG1's
+; two tilemaps for the direct-colour cut of the SAME picture: same tile count,
+; same tile order, same map words but with the palette field filled in — dead
+; in this build ("Ignore palette bits for 256-color layers", SnesPpu.cpp:1077)
+; and the low bit of each colour channel in that one (:1071-1076). Every blob
+; is the same SIZE, so the rom claims, the packer's order and the asserts below
+; are identical in both builds. CGWSEL bit 0 is NOT switched here — it arrives
+; from the variant's own allocation, through the ES_SCR_* the scene already
+; writes.
+;
+; IT IS A FILENAME SUFFIX AND NOT AN `.ifdef` AROUND THE `.incbin`, and that is
+; the rom-backing gate's doing rather than a style choice: docs/37 §5 limit 4
+; refuses a claim site inside a conditional, because `.if 0` around an
+; `.incbin` with the drift asserts left outside is the exact shape that gate
+; exists to catch. Here every `.incbin` is unconditional and inside its own
+; claim block; only the file it names moves.
+.ifdef MIL_DIRECT
+.define MIL_ART "_dc"
+.else
+.define MIL_ART ""
+.endif
+
 .segment "BANK1"
 mil_chr1_bin:
-    .incbin "mil_chr1.bin"
+    .incbin .sprintf("mil_chr1%s.bin", MIL_ART)
 .assert ^mil_chr1_bin = ES_R_MIL_CHR1_BANK, error, "mil_chr1 bank drifted from allocator claim"
 .assert .loword(mil_chr1_bin) = ES_R_MIL_CHR1_ADDR, error, "mil_chr1 addr drifted from allocator claim"
 mil_obj_bin:
@@ -115,11 +138,11 @@ mil_row_bin:
 .assert ^mil_row_bin = ES_R_MIL_ROW_BANK, error, "mil_row bank drifted from allocator claim"
 .assert .loword(mil_row_bin) = ES_R_MIL_ROW_ADDR, error, "mil_row addr drifted from allocator claim"
 mil_lobby_bin:
-    .incbin "mil_lobby.bin"
+    .incbin .sprintf("mil_lobby%s.bin", MIL_ART)
 .assert ^mil_lobby_bin = ES_R_MIL_LOBBY_BANK, error, "mil_lobby bank drifted from allocator claim"
 .assert .loword(mil_lobby_bin) = ES_R_MIL_LOBBY_ADDR, error, "mil_lobby addr drifted from allocator claim"
 mil_map1_bin:
-    .incbin "mil_map1.bin"
+    .incbin .sprintf("mil_map1%s.bin", MIL_ART)
 .assert ^mil_map1_bin = ES_R_MIL_MAP1_BANK, error, "mil_map1 bank drifted from allocator claim"
 .assert .loword(mil_map1_bin) = ES_R_MIL_MAP1_ADDR, error, "mil_map1 addr drifted from allocator claim"
 mil_map2_bin:

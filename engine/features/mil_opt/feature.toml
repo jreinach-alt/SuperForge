@@ -24,12 +24,12 @@ name = "mil_table"
 axis = "both"
 layers = ["bg1", "bg2"]
 
-# Mode 4: bg1 8bpp + bg2 2bpp. The depths are the reason the art is split into
-# two CHR claims at 64 and 16 bytes a tile (mil_bg), and O9 checks each of them
-# against this number.
-[[claims.video]]
-name = "mil_mode"
-mode = 4
+# THE MODE IS `mil_mode`'S, NOT THIS FEATURE'S. It lived here once, because O3
+# demands a declared mode before an offset claim can be checked against one —
+# but the TABLE is a mechanism and the MODE is a property of the room, and the
+# mode is the one declaration the rail's direct-colour variant varies
+# (`mil_mode` vs `mil_mode_dc`). Both game.tomls compose one of them beside
+# this feature, so O3 is satisfied by the scene union exactly as before.
 
 # BG3's map IS the table. Mode 4 reads ONE row of it — the row BG3VOFS selects,
 # through GetHorizontalOffsetByte — so 31 of the 32 rows this 1K-word claim

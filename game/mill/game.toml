@@ -62,8 +62,11 @@
 # 8BPP BUYS DEPTH, NOT SIZE: 64 bytes a tile against 4bpp's 32, so the budget
 # that bought smelter fifteen tiles buys about sixty here. The hall is a bay
 # repeated four times with a 24-step steel ramp and a 24-step brass one in it.
+# `mil_mode` is the room's video mode, split out of `mil_opt` so the rail's
+# direct-colour variant (game/mill/direct/game.toml) can swap ONE declaration
+# — it composes `mil_mode_dc` here and shares every other claim on this list.
 globals = ["scene_mgr", "fade", "input", "region", "tick_scale", "mil_tint",
-           "mil_bg", "mil_opt", "mil_band", "mil_rom",
+           "mil_bg", "mil_mode", "mil_opt", "mil_band", "mil_rom",
            "oam_sprites", "mil_obj"]
 
 [[scene]]

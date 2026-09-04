@@ -720,3 +720,109 @@ def test_a_raw_cpu_writer_of_bg3vofs_beside_bands_still_refuses(tmp_path):
                  x='[[claims.reg]]\nregisters = ["BG3VOFS"]\n')
     msg = _refuse(tmp_path, f, "m", "t", "b", "x")
     assert "x_reg" in msg and "BG3VOFS" in msg
+
+
+# -- O11: DIRECT COLOUR, declared with the mode and composed into CGWSEL ----
+#
+# `direct_color` is the one field on a video claim that composes into a
+# register this vocabulary does not own. It is DECLARED here because it decides
+# how an 8bpp layer's pixel bytes are read — `GetRgbColor` acts on it under
+# `if constexpr(bpp == 8 && directColorMode)` and nothing else
+# (SnesPpu.cpp:1071) — and it is EMITTED by the screen/blend half, which is
+# CGWSEL's one owner (docs/99 §4). These cases hold both ends of that.
+
+DC4 = '[[claims.video]]\nmode = 4\ndirect_color = true\n' + LAYERS
+
+
+def test_direct_color_parses_and_defaults_off(tmp_path):
+    plain = feature(tmp_path, "plain", '[[claims.video]]\nmode = 4\n')
+    lit = feature(tmp_path, "lit",
+                  '[[claims.video]]\nmode = 4\ndirect_color = true\n')
+    assert plain.video[0].direct_color is False
+    assert lit.video[0].direct_color is True
+
+
+def test_direct_color_composes_cgwsel_bit_0_beside_a_blend(tmp_path):
+    """The blend path. Everything else about CGWSEL is the blend's; bit 0 is
+    the video claim's, and the composed byte carries both."""
+    f = features(tmp_path, m=DC4,
+                 b=('[[claims.blend]]\nop = "add"\nsource = "fixed"\n'
+                    'math = ["bg2"]\nhalf = true\nprevent = "outside"\n'
+                    '[[claims.reg]]\nname = "win"\n'
+                    'registers = ["WOBJSEL", "WH0", "WH1"]\n'))
+    a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m", "b"))
+    sb = a.scenes["s"].screen_blend
+    assert sb["cgwsel"] & 0x01
+    assert sb["cgwsel"] == 0x11                  # prevent=outside | direct
+    assert set(sb["registers"]) >= {"CGWSEL", "CGADSUB"}
+
+
+def test_direct_color_composes_the_bit_with_no_blend_at_all(tmp_path):
+    """The NO-BLEND path, and the one that used to be unreachable. Direct
+    colour is not a property of the blender — the PPU reads CGWSEL b0 whatever
+    CGADSUB holds — so a scene that declares it and blends nothing still gets
+    the bit, still OWNS CGWSEL, and gets a symbol to write it from. CGADSUB is
+    withheld, because nothing in the scene composed a bit of it."""
+    f = features(tmp_path, m=DC4)
+    a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m"))
+    sb = a.scenes["s"].screen_blend
+    assert sb["cgwsel"] == 0x31                  # the boot OFF state | direct
+    assert sb["cgadsub"] == 0x00
+    assert "CGWSEL" in sb["registers"] and "CGADSUB" not in sb["registers"]
+    inc, jm = _emit(tmp_path, f, "m")
+    assert "ES_SCR_S_CGWSEL = $31" in inc
+    assert "ES_SCR_S_CGADSUB absent" in inc
+    assert jm["scenes"]["s"]["screen_blend"]["direct_color"] is True
+    assert jm["scenes"]["s"]["video_offset"]["direct_color"] is True
+
+
+def test_a_scene_without_direct_color_composes_bit_0_clear(tmp_path):
+    """The other arm, so neither reading is a constant."""
+    f = features(tmp_path, m='[[claims.video]]\nmode = 4\n' + LAYERS)
+    a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m"))
+    sb = a.scenes["s"].screen_blend
+    assert sb["cgwsel"] == 0x30 and not sb["cgwsel"] & 0x01
+    assert "CGWSEL" not in sb["registers"]
+
+
+def test_o11_direct_color_under_a_mode_with_no_8bpp_layer_warns(tmp_path):
+    """A WARNING, not a refusal, and the decision is the tree's own rule taken
+    literally: refuse what the silicon cannot express, warn about what it can.
+    CGWSEL b0 under mode 1 is a legal, stable PPU state in which GetRgbColor's
+    `bpp == 8` guard is false for every layer the mode renders — the shape of
+    `bg3_priority` outside mode 1, not the shape of O4/O6/O8."""
+    f = features(tmp_path,
+                 m='[[claims.video]]\nmode = 1\ndirect_color = true\n')
+    a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m"))
+    w = " ".join(a.scenes["s"].video_offset["warnings"])
+    assert "declares direct_color under mode 1" in w
+    assert "bpp == 8 && directColorMode" in w
+    assert "[3, 4, 7]" in w                       # derived from MODE_BPP
+    # ...and it still COMPOSES the bit, because the PPU can hold it
+    assert a.scenes["s"].screen_blend["cgwsel"] & 0x01
+
+
+def test_o11_does_not_warn_in_the_modes_that_render_8bpp(tmp_path):
+    """Modes 3 and 4 reach it through RenderTilemap; mode 7 through
+    RenderTilemapMode7's own arm. So none of the three is a finding, and the
+    set is read off MODE_BPP rather than listed twice."""
+    for mode in (3, 4):
+        f = features(tmp_path,
+                     m=f'[[claims.video]]\nmode = {mode}\ndirect_color = true\n')
+        a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m"))
+        w = " ".join(a.scenes["s"].video_offset["warnings"])
+        assert "declares direct_color under mode" not in w, mode
+
+
+def test_o11_mode_7_warns_that_it_buys_only_the_3_3_2(tmp_path):
+    """The second arm. Mode 7's direct-colour path has NO tilemap palette
+    field — `((c & 0x07) << 2) | ((c & 0x38) << 4) | ((c & 0xC0) << 7)`,
+    SnesPpu.cpp:1243 — so the low bit of each channel, which modes 3 and 4 take
+    from `(tilemapData >> 10) & 0x07`, is simply not available there. The
+    declaration is right and the art budget is smaller."""
+    f = features(tmp_path,
+                 m='[[claims.video]]\nmode = 7\ndirect_color = true\n')
+    a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m"))
+    w = " ".join(a.scenes["s"].video_offset["warnings"])
+    assert "under mode 7" in w and "3-3-2 and NOTHING ELSE" in w
+    assert a.scenes["s"].screen_blend["cgwsel"] & 0x01

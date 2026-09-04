@@ -1,0 +1,42 @@
+# mil_mode_dc — the same room, with BG1's pixels read as DIRECT COLOUR.
+#
+# =============================================================================
+# THE ONE DECLARATION THAT SEPARATES THE TWO BUILDS
+# =============================================================================
+# This file is `mil_mode` with `direct_color = true` and nothing else changed.
+# `game/mill/game.toml` composes that one, `game/mill/direct/game.toml`
+# composes this one, and every other claim on the rail — the offset table, the
+# blend, the bands, the CHR pages, the rider — is shared. So the difference
+# between `build/mill.sfc` and `build/mill_direct.sfc` is one boolean in a
+# declaration and the BG1 art that boolean changes the meaning of.
+#
+# =============================================================================
+# WHAT THE BIT DOES
+# =============================================================================
+# CGWSEL bit 0. `GetRgbColor` acts on it under
+# `if constexpr(bpp == 8 && directColorMode)` and nothing else
+# (Mesen2 SnesPpu.cpp:1071), so it reaches BG1 here and no other layer: BG2 is
+# 2bpp, OBJ is 4bpp in every mode (:770), and the backdrop is CGRAM 0.
+#
+# With it set, BG1's 8-bit pixel IS the colour — 3-3-2, blue in the top two
+# bits — and the tilemap entry's 3-bit palette field
+# (`(tilemapData >> 10) & 0x07`, :1023) supplies the LOW bit of each channel:
+#
+#     R = ((pixel & 0x07) << 2) | ((pal & 1) << 1)
+#     G = (((pixel >> 3) & 0x07) << 2) | ((pal & 2) << 0)
+#     B = (((pixel >> 6) & 0x03) << 3) | ((pal & 4) >> 0)
+#
+# ...which is to say: in the indexed build those three tilemap bits are dead
+# (":1077 — Ignore palette bits for 256-color layers"), and this declaration is
+# what makes them load-bearing. `mil_bg`'s 96-word BG1 palette claim is still
+# made and still uploaded in this build, and BG1 no longer reads a word of it.
+# That is the cost, and it is not a vocabulary limit: there is ONE CGWSEL bit
+# and no per-region control without an HDMA channel on the port, so the choice
+# is per ROM (docs/100 §14).
+name = "mil_mode_dc"
+role = "feature"
+
+[[claims.video]]
+name = "mil_mode"
+mode = 4
+direct_color = true

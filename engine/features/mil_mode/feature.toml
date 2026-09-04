@@ -1,0 +1,32 @@
+# mil_mode — the room's VIDEO MODE, and nothing else.
+#
+# =============================================================================
+# WHY IT IS ITS OWN FEATURE
+# =============================================================================
+# The mode used to live on `mil_opt`, beside the offset table, because O3
+# demands a declared mode before an offset claim can be checked against one.
+# That put two different facts in one feature: the TABLE is a mechanism and the
+# MODE is a property of the room the mechanism runs in — and one of them is the
+# thing the rail's direct-colour variant varies.
+#
+# Splitting it is what makes the variant a ONE-DECLARATION difference instead
+# of a duplicated feature: `game/mill/game.toml` composes this one and
+# `game/mill/direct/game.toml` composes `mil_mode_dc`, which is this file with
+# `direct_color = true` and nothing else changed. Every other claim on the rail
+# — the table, the art, the blend, the bands, the rider — is shared by both
+# builds, which is what lets the two ROMs be compared pixel for pixel.
+#
+# The shipping ROM is byte-identical across the split: BGMODE composes from the
+# same claim in the same scene union, so the emitted value and every placement
+# are unchanged (proved by md5, not by reading this comment).
+name = "mil_mode"
+role = "feature"
+
+# Mode 4: bg1 8bpp + bg2 2bpp. The depths are the reason the art is split into
+# two CHR claims at 64 and 16 bytes a tile (mil_bg), and O9 checks each of them
+# against this number. It is also the reason the mode is a candidate for
+# direct colour at all — CGWSEL b0 is read by GetRgbColor under
+# `bpp == 8 && directColorMode` alone (SnesPpu.cpp:1071).
+[[claims.video]]
+name = "mil_mode"
+mode = 4
