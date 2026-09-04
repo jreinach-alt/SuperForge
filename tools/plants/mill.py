@@ -485,8 +485,15 @@ mode = 1""",
 
     Plant(id="table-declares-both-under-mode-4",
           file=OPT_TOML,
-          old='axis = "per_column"',
-          new='axis = "both"',
+          # ANCHORED ON THE CLAIM'S OWN `name` LINE, not on `axis` alone: the
+          # feature's header PROSE quotes `axis = "per_column"` inside
+          # backticks, six lines above the claim, so the bare anchor replaced
+          # the COMMENT and left the declaration untouched. The build then
+          # accepted the plant and the harness said so — TEST-BLIND, "the
+          # build ACCEPTED the plant" — which is the harness reporting a
+          # PLANT failure correctly and not a hole in any test.
+          old='name = "mil_table"\naxis = "per_column"',
+          new='name = "mil_table"\naxis = "both"',
           artifact=ROM,
           build=["mill"],
           expect="build-fails",
