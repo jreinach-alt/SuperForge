@@ -71,12 +71,14 @@ CAPTURES = 260                  # a CEILING over the lead-in trip and the take,
 # THE SEAM CANNOT BE ZERO HERE AND THE ARITHMETIC SAYS WHY. The picture is a
 # function of two things now, the phase and the camera, and their periods share
 # no factor: the camera's round trip is 2 * SMIL_CAM_MAX / SMIL_CAM_STEP frames
+# (THREE DEAD CONSTANTS lived here — CAR_TOP, TAIL and a CAM_MAX the comment
+# said was "asserted below rather than trusted", which nothing asserted and
+# which had gone stale at 224 against a generator that says 288. The drive
+# waits on the ROM's own state and never read any of them.)
 # and the phase's is SMIL_PHASES / 0.375. The take closes where the CAMERA
 # closes, at the bottom of the world, with the machines at a different point in
 # their stroke than they opened on. That is a loop of a MOVE, and the measured
 # seam is the honest number for one.
-CAR_TOP = 400                   # SMIL_CAR_TOP — where the ride ends
-TAIL = 10                       # ...and how long the empty shaft is held after
 
 W = MemoryType.SnesWorkRam
 _J = json.loads((ROOT / "build" / "mil" / "symbol_map.json").read_text())
@@ -96,9 +98,6 @@ SHOWN = _dp("ES_MIL_SHOWN")
 CAM = _dp("ES_MIL_CAM")
 CAR = _dp("ES_MIL_CAR")
 ACC = _dp("US_TSC_ACC", "hall")
-
-CAM_MAX = 224                   # SMIL_CAM_MAX, and it is asserted below rather
-                                #   than trusted: the generator owns it
 
 # THE BOOT SCENE IS THE LOBBY, AND `HALL = 0` USED TO SAY OTHERWISE. That
 # constant was written when the hall WAS the only scene, and it survived the
