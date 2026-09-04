@@ -1,0 +1,70 @@
+# aur_roll — the colour rolling through the tilemap's PALETTE FIELDS.
+#
+# =============================================================================
+# THIS IS THE WHOLE ANIMATION, AND IT IS WHY THE RAIL IS DIRECT-COLOUR
+# =============================================================================
+# In an indexed 8bpp layer the tilemap entry's three palette bits are ignored
+# outright ("Ignore palette bits for 256-color layers", SnesPpu.cpp:1077).
+# Under direct colour they carry the LOW BIT OF EACH CHANNEL. So on this layer
+# the map word is a per-tile colour control, and a wave of light can travel up
+# a curtain for one word write per tile — no CHR traffic, no CGRAM, and no
+# palette to fit.
+#
+# 143 tiles carry curtain, and they fall in map rows 2..14 — so a PHASE is
+# that thirteen-row slice of the tilemap, and playing the roll is DMA-ing the
+# slice VBlank wants. All 32 phases are precomputed, and 32 is the count that
+# fits ONE LoROM bank window — a DMA source cannot span a bank.
+#
+# THE TRADE IS STATED RATHER THAN ASSUMED. Walking the 143 records each frame
+# and OR-ing a phase mask into a WRAM shadow costs ~2,000 cycles and 832 B of
+# WRAM; precomputing all 32 costs 26,624 B of ROM and no cycles at all. On a
+# rail whose CPU has nothing else to do that is the wrong way round — but the
+# ROM is 512 KB, the scene is one picture, and what the technique demonstrates
+# is identical either way. What moves is only whether the words are computed
+# or fetched.
+#
+# =============================================================================
+# THE MASK IS OR-ED, NOT XOR-ED, AND THAT IS THE DIFFERENCE BETWEEN A WAVE
+# AND A RASH
+# =============================================================================
+# Each tile is fitted to whichever field suits its own pixels, so adjacent
+# tiles commonly sit on DIFFERENT fields. XOR the same bit into both and they
+# SWAP: one rises a lattice step while its neighbour falls, and the curtain
+# breaks into red and blue eight-pixel blocks. Measured on the first cut, and
+# visible immediately. An OR is monotone — a tile either holds still or
+# brightens by one step, never against its neighbour.
+#
+# =============================================================================
+# AND NOTHING SCROLLS. THAT IS ALSO A MEASUREMENT
+# =============================================================================
+# This started out swaying, on a per-scanline BG1HOFS offset. The sky's
+# gradient survives 8bpp only as an ORDERED DITHER, and sliding neighbouring
+# scanlines by different amounts destroys that dither's vertical coherence:
+# the gradient stops reading as texture and starts reading as static. The
+# hardware would do the same, because the dither lives in the CHR and HDMA
+# slides whole scanlines across it. Standing still is what keeps it clean.
+name = "aur_roll"
+role = "feature"
+depends = ["aur_rom", "aur_bg"]
+
+[[claims.dp]]
+name = "aur_phase"
+bytes = 2                # where the wave has got to, carried as the BYTE
+                         # OFFSET of its page rather than as a phase index —
+                         # so advancing it is an add and VBlank needs no
+                         # multiply at all
+
+
+[[claims.dp]]
+name = "aur_hold"
+bytes = 2                # nonzero while B holds the roll still
+
+[[claims.dma_init]]
+name = "aur_roll_up"
+channel = 2
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[claims.dma]
+vblank_bytes_per_frame = 832
+vblank_transfers_per_frame = 1

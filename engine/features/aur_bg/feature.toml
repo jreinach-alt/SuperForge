@@ -1,0 +1,73 @@
+# aur_bg — the two layers, uploaded once and then left alone.
+#
+# BG1 is the sky and the aurora at 8bpp, read as direct colour; BG2 is
+# everything that must hold absolutely still — two ridges, the cliff, the
+# stars and the writing — at 4bpp in ONE sixteen-entry palette, and those
+# sixteen are exactly used: transparent, far ridge, near ridge, cliff, rim,
+# two star levels, and a nine-step ink ramp.
+#
+# THE CHR CLAIMS DECLARE THEIR DEPTHS AND THEIR LAYERS, and under mode 3 the
+# allocator's O9 joins each to what the PPU will actually fetch: 64 bytes a
+# tile for bg1, 32 for bg2. Getting that pair wrong is not a tight fit, it is
+# every tile made of half of one tile and half of the next.
+name = "aur_bg"
+role = "feature"
+depends = ["aur_rom"]
+
+[[claims.vram]]
+name = "aur_chr1"
+kind = "chr"
+layers = ["bg1"]
+tiles = 320
+tile_bytes = 64
+
+[[claims.vram]]
+name = "aur_chr2"
+kind = "chr"
+layers = ["bg2"]
+tiles = 224
+tile_bytes = 32
+
+[[claims.vram]]
+name = "aur_map1"
+kind = "tilemap"
+words = 0x400
+shape = "32x32"
+
+[[claims.vram]]
+name = "aur_map2"
+kind = "tilemap"
+words = 0x400
+shape = "32x32"
+
+# BG2's ONE palette. BG1 claims none — a direct-colour layer consults no
+# CGRAM word, so the whole of CGRAM is left to this and to the figures.
+[[claims.cgram]]
+name = "aur_pal2"
+words = 16
+at = 0
+
+[[claims.screen]]
+layer = "bg1"
+on = "main"
+
+[[claims.screen]]
+layer = "bg2"
+on = "main"
+
+[[claims.reg]]
+name = "aur_layers"
+registers = ["BG1SC", "BG2SC", "BG12NBA",
+             # BOTH LAYERS ARE PINNED AT THE ORIGIN AND STAY THERE. The scroll
+             # ports are claimed not because this rail scrolls but because it
+             # deliberately does NOT: the ordered dither that makes an 8bpp
+             # gradient readable is destroyed by sliding scanlines across it,
+             # so the offsets are written once, to zero, and owned so that
+             # nothing else can move them.
+             "BG1HOFS", "BG1VOFS", "BG2HOFS", "BG2VOFS"]
+
+[[claims.dma_init]]
+name = "aur_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1

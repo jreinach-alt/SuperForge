@@ -1,0 +1,41 @@
+# aur_write — "The End", delivered as a CHR delta stream.
+#
+# The pen crosses tiles DIAGONALLY, so at any moment a tile is partly inked.
+# Revealing by tilemap swap would climb the word in eight-pixel stairs, and
+# generating CHR on the 65816 per frame is out of the question — so the tiles
+# that change in each frame are computed at build time and DMA'd here.
+# Measured on this word: 168 uploads over 70 frames, never more than five in
+# one of them, which is five 32-byte transfers in the worst VBlank.
+#
+# START REPLAYS IT. The pen's 77 tiles are the LAST 77 of the bg2 CHR page and
+# are emitted holding the ground under the word, so blanking it again is one
+# DMA of that contiguous slice straight out of the same blob — no second copy
+# in ROM.
+name = "aur_write"
+role = "feature"
+depends = ["aur_rom", "aur_bg"]
+
+[[claims.dp]]
+name = "aur_wptr"
+bytes = 2                # the read cursor into the stream
+
+[[claims.dp]]
+name = "aur_wframe"
+bytes = 2                # how many of its frames have been played
+
+[[claims.dp]]
+name = "aur_wreset"
+bytes = 2                # nonzero for one frame after Start: VBlank blanks
+                         # the pen's tiles before the stream restarts
+
+[[claims.dma_init]]
+name = "aur_write_up"
+channel = 3
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[claims.dma]
+vblank_bytes_per_frame = 2464   # the REPLAY frame is the worst one, not a
+                                # writing frame: five tiles is 160 B, but
+                                # blanking the word again is all 77 at once
+vblank_transfers_per_frame = 5

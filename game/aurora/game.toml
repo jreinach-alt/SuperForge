@@ -1,0 +1,58 @@
+# aurora — an end-credits sky, drawn WITHOUT A PALETTE.
+#
+# =============================================================================
+# WHAT YOU SEE
+# =============================================================================
+# Three figures stand on a cliff edge with their backs to you, looking north
+# over dim hills into a night sky. Three curtains of aurora hang above them,
+# rayed and separated, and colour rolls up through them. Stars twinkle. In the
+# black band below, "The End" writes itself out in one continuous monoline
+# cursive hand, and then holds.
+#
+# Start writes it again. B holds the roll still.
+#
+# =============================================================================
+# WHAT IT DEMONSTRATES
+# =============================================================================
+# DIRECT COLOUR: CGWSEL b0, declared on `[[claims.video]]` beside the mode it
+# is a property of. BG1's 8-bit pixel IS its colour — r3 g3 b2, with the
+# tilemap entry's 3-bit palette field supplying the low bit of each channel
+# (Mesen2 SnesPpu.cpp:1071-1076) — so BG1 CONSULTS NO CGRAM WORD AT ALL. The
+# sky and the aurora are drawn from 2048 reachable colours on a palette budget
+# of zero, and all 256 CGRAM words are left to BG2 and the sprites.
+#
+# `mill_direct` already showed the bit set. What that variant could not show
+# is a picture BUILT for it, and there are two halves of that here:
+#
+#   1. THE FIELD AS A LIVE CONTROL. In an indexed 8bpp layer those three
+#      tilemap bits are ignored outright (SnesPpu.cpp:1077). Here they are the
+#      whole animation: `aur_roll` walks 143 curtain tiles a frame and ORs a
+#      phase mask into their fields, so a wave of light travels up the
+#      curtains for one map word per tile — no CHR traffic, no CGRAM, no
+#      palette to fit.
+#
+#   2. THE COST, PAID IN THE OPEN. The field is per TILE, so inside one 8x8
+#      block the reachable set is 8 x 8 x 4 with steps of 4/31, 4/31 and 8/31.
+#      A long shallow night gradient bands against steps that coarse, so the
+#      art is ORDERED-DITHERED — and that dither is why nothing on this layer
+#      moves. Sliding neighbouring scanlines by different amounts destroys the
+#      dither's vertical coherence and the gradient stops reading as texture
+#      and starts reading as static. The rail swayed once; standing still is
+#      what keeps it clean.
+#
+# THE FIRST MODE-3 RAIL IN THIS TREE, and that too is forced rather than
+# chosen: direct colour acts on an 8bpp layer alone, mode 7 has no second
+# layer, and mode 4's 2bpp bg2 cannot hold two ridges, a cliff, two star
+# levels and a nine-step anti-aliased ink ramp. Mode 3 is bg1 8bpp + bg2 4bpp.
+#
+# =============================================================================
+# ONE SCENE
+# =============================================================================
+# A credits card is one picture. There is no edge because there is nowhere to
+# go: the two verbs (replay the writing, hold the roll) act inside it.
+globals = ["scene_mgr", "input", "fade", "region", "tick_scale",
+           "oam_sprites", "aur_rom"]
+
+[[scene]]
+id = "credits"
+features = ["aur_mode", "aur_bg", "aur_roll", "aur_write", "aur_obj"]

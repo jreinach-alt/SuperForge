@@ -1,0 +1,59 @@
+# aur_rom — the credits scene's blobs.
+#
+# Every one is padded by the generator to the size claimed here, so the claim,
+# the packer's order and main.asm's `.assert`s are all ONE number. How much of
+# a page the art actually occupies is a different number and the generator
+# prints it; a claim that shrinks to fit the art is a claim that has to move
+# every time the art is retouched.
+name = "aur_rom"
+role = "blob"
+
+[[claims.rom]]
+name = "aur_chr1"
+bytes = 20480            # 320 tiles x 64 B. EIGHT bpp — a tile is 64 bytes,
+                         # not 32, which is what the allocator's O9 joins to
+                         # the declared mode. The art uses 306 of the 320.
+
+[[claims.rom]]
+name = "aur_chr2"
+bytes = 7168             # 224 tiles x 32 B, of which the LAST 77 are the
+                         # pen's: emitted holding the ground under the word
+                         # and overwritten tile by tile as it is written.
+
+[[claims.rom]]
+name = "aur_write"
+bytes = 6144             # the pen, as a CHR DELTA STREAM: per frame a count
+                         # byte then that many (tile u16, 32 B). 168 uploads
+                         # over 70 frames, never more than 5 in one of them.
+                         #
+                         # A stream and not a second copy of the finished
+                         # word, because the pen crosses tiles DIAGONALLY: at
+                         # any moment a tile is partly inked, so revealing by
+                         # tilemap swap would climb the word in eight-pixel
+                         # stairs — and generating CHR on the 65816 per frame
+                         # is out of the question.
+
+[[claims.rom]]
+name = "aur_map1"
+bytes = 2048             # 32x32 words. The palette FIELD is in these words
+                         # and is load-bearing here; in an indexed 8bpp layer
+                         # it is ignored outright (SnesPpu.cpp:1077).
+
+[[claims.rom]]
+name = "aur_map2"
+bytes = 2048
+
+[[claims.rom]]
+name = "aur_obj"
+bytes = 2048             # 64 tiles: four rows of the PPU's 16-wide OBJ grid,
+                         # which is the layout a 16x32 sprite is read in.
+
+[[claims.rom]]
+name = "aur_roll"
+bytes = 26624            # 32 PHASES x the 13 map rows the curtains reach.
+                         # The whole animation, precomputed: see aur_roll.
+
+[[claims.rom]]
+name = "aur_pal"
+bytes = 64               # BG2's sixteen, then the figures' sixteen. NOT BG1's
+                         # — BG1 has none and that is the point of the rail.

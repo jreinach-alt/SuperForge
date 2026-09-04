@@ -1262,6 +1262,56 @@ $(BUILD)/lakeside.sfc: $(LKS_ASM) $(LKS)/lakeside.inc \
 	$(PY) tools/fix_checksum.py $@
 
 lakeside: $(BUILD)/lakeside.sfc
+# ---- aurora: an end-credits sky, drawn WITHOUT A PALETTE ----------------
+# BG1 is 8bpp read as DIRECT COLOUR, so its pixel IS its colour and it
+# consults no CGRAM word at all; the tilemap entry's palette field supplies
+# the low bit of each channel, which makes that field a live PER-TILE COLOUR
+# CONTROL and is the whole animation. The FIRST mode-3 rail here — direct
+# colour needs an 8bpp layer, mode 7 has no second one, and mode 4's 2bpp bg2
+# cannot hold the hills, the cliff, the stars and a nine-step ink ramp.
+AUR      := game/aurora
+AUR_MAP  := $(BUILD)/aur
+AUR_ASM  := $(AUR)/main.asm $(wildcard $(AUR)/scenes/*.asm) \
+            $(wildcard engine/features/*/*.asm)
+
+# EVERY blob the generator emits, because a blob the recipe .incbin's and this
+# list omits is a stale artifact waiting to happen.
+AUR_ASSETS := $(BUILD)/assets/aur_chr1.bin $(BUILD)/assets/aur_chr2.bin \
+              $(BUILD)/assets/aur_map1.bin $(BUILD)/assets/aur_map2.bin \
+              $(BUILD)/assets/aur_pal.bin $(BUILD)/assets/aur_obj.bin \
+              $(BUILD)/assets/aur_roll.bin $(BUILD)/assets/aur_write.bin \
+              $(BUILD)/assets/aur_art.inc
+
+$(AUR_ASSETS): tools/gen_aurora_assets.py tools/write_on.py \
+		vendor/art/the_end/the_end_traced_strokes.svg | $(BUILD)
+	$(PY) tools/gen_aurora_assets.py $(BUILD)/assets
+
+$(AUR_MAP)/engine_state_globals.inc $(AUR_MAP)/symbol_map.json: \
+		allocator/substrate.toml allocator/allocate.py allocator/schemas.py \
+		$(wildcard engine/features/*/feature.toml) $(AUR)/game.toml \
+		$(AUR)/state.toml | $(BUILD)
+	$(PY) allocator/allocate.py --game $(AUR) --features-dir engine/features \
+		--out $(AUR_MAP)
+
+AUR_INC := -I $(AUR_MAP) -I $(VROM) -I $(AUR) -I $(BUILD)/assets \
+           -I engine/features/scene_mgr -I engine/features/input \
+           -I engine/features/fade -I engine/features/region \
+           -I engine/features/tick_scale -I engine/features/oam_sprites \
+           -I engine/features/aur_bg -I engine/features/aur_obj \
+           -I engine/features/aur_roll -I engine/features/aur_write
+
+$(BUILD)/aurora.sfc: $(AUR_ASM) $(AUR)/aurora.inc \
+		$(AUR_MAP)/engine_state_globals.inc $(AUR_ASSETS) \
+		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
+		$(VROM)/lorom_512k.cfg | $(BUILD)
+	$(PY) allocator/no_literals.py --map $(AUR_MAP)/symbol_map.json $(AUR_ASM)
+	$(CA65) $(AUR_INC) --bin-include-dir $(BUILD)/assets \
+		-o $(BUILD)/aurora.o $(AUR)/main.asm
+	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/aurora.o
+	$(PY) tools/fix_checksum.py $@
+
+aurora: $(BUILD)/aurora.sfc
+
 # ---- heathaze: heat shimmer as a per-scanline displacement ----
 # BG1 carries a desert road under a mesa ridge; below the horizon an HDMA
 # channel writes a different BG1HOFS on EVERY SCANLINE, so the lower layer
