@@ -1450,6 +1450,7 @@ mill: $(BUILD)/mill.sfc
 mill-direct: $(BUILD)/mill.sfc $(MIL_ASSETS) \
 		$(MIL_MAP)/engine_state_globals.inc
 	bash tools/build_mill_direct.sh
+
 # ---- maze: col_map against a hand-built map -------
 # A red player walks a grey walled room (border + two interior walls) with
 # the canonical per-axis move-check: tentative position, probe, keep the axis
