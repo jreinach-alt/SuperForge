@@ -12,11 +12,13 @@
 ; green, 4 in blue — will not carry a teal curtain to violet, and being per
 ; TILE anything driven by it moves in 8x8 blocks.
 ;
-; A PHASE IS FIVE VBLANKS. The tinted tiles hold a CONTIGUOUS run of BG1 tile
-; indices, so a fifth of them is one VMADD and one 3,840 B transfer; the run
-; is assigned in a SCATTERED order, so that fifth is spread over the screen
-; rather than sweeping down it. Then the picture holds, and the hold is
-; counted down by the SCALED tick so a PAL console spends the same wall-clock
+; A PHASE IS SIX TRANSFERS, SPACED. The tinted tiles hold a CONTIGUOUS run of
+; BG1 tile indices, so a sixth of them is one VMADD and one 3,200 B transfer;
+; the run is assigned in a SCATTERED order, so that sixth is spread over the
+; screen rather than sweeping down it. The six are separated by AUR_HUE_STEP
+; ticks so they land as a DAPPLE over about a second — a real curtain shifts,
+; it does not get repainted — and then the picture holds for AUR_HUE_HOLD.
+; Both counts are scaled ticks, so a PAL console spends the same wall-clock
 ; time on the cycle.
 
 AUR_HUE_REGS = $4300 + ES_D_AUR_HUE_UP_CH * 16
@@ -258,6 +260,9 @@ aur_hue_nmi:
     .a16
     .i16
     sta z:ES_AUR_SLICE
+    lda #AUR_HUE_STEP               ; ...and WAIT between slices, so the six
+    sta z:ES_AUR_WAIT               ;   land as a dapple over about a second
+                                    ;   rather than as a step over six frames
 @out:
     .a16
     .i16

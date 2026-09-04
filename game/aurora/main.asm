@@ -103,7 +103,7 @@ NMI:
 .assert .loword(.ident(.sprintf("aur_hue_t%d", CI))) = .ident(.sprintf("ES_R_AUR_HUE_T%d_ADDR", CI)), error, "aur_hue chunk addr drifted from allocator claim"
 .endrepeat
 
-.segment "BANK9"
+.segment "BANK11"
 aur_chr1_bin:
     .incbin "aur_chr1.bin"
 .assert ^aur_chr1_bin = ES_R_AUR_CHR1_BANK, error, "aur_chr1 bank drifted from allocator claim"
@@ -121,7 +121,7 @@ aur_pal_bin:
 .assert ^aur_pal_bin = ES_R_AUR_PAL_BANK, error, "aur_pal bank drifted from allocator claim"
 .assert .loword(aur_pal_bin) = ES_R_AUR_PAL_ADDR, error, "aur_pal addr drifted from allocator claim"
 
-.segment "BANK10"
+.segment "BANK12"
 aur_write_bin:
     .incbin "aur_write.bin"
 .assert ^aur_write_bin = ES_R_AUR_WRITE_BANK, error, "aur_write bank drifted from allocator claim"

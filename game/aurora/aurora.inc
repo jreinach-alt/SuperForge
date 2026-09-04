@@ -4,15 +4,24 @@
 ; what the art IS. A constant the tools compute and a constant somebody tuned
 ; go stale for different reasons and should not sit in one file.
 
-; THE HOLD BETWEEN HUE PHASES, in ticks. A phase costs five VBlanks to upload
-; and then the picture stands still for this long, so the cycle closes in
-; AUR_HUE_PHASES * (AUR_HUE_SLICES + AUR_HUE_HOLD) ticks -- 12 * 45 = 540, or
-; about nine seconds.
+;; THE CYCLE'S PACE. A TIME LAPSE, not an animation.
 ;
-; It is counted down by TS_STEP's output rather than by frames, so a PAL
+; A phase is AUR_HUE_SLICES transfers with AUR_HUE_STEP ticks BETWEEN them,
+; then AUR_HUE_HOLD ticks of stillness. So a phase costs
+; SLICES*STEP + HOLD = 6*10 + 150 = 210 ticks, and the cycle closes in
+; PHASES * that = 16 * 210 = 3,360 -- about fifty-six seconds.
+;
+; THE GAP BETWEEN SLICES IS THE POINT, not an economy. Uploaded back to back
+; the six slices land in six frames and the picture STEPS from one colour to
+; the next; spread over a second they land as a dapple, because the slices are
+; spatially scattered, and the curtain shifts the way a real one does rather
+; than being repainted. It is the same six transfers either way.
+;
+; Both are counted down by TS_STEP's output rather than by frames, so a PAL
 ; console spends the same wall-clock time on the cycle with the fraction
 ; carried between frames.
-AUR_HUE_HOLD = 39
+AUR_HUE_HOLD = 150
+AUR_HUE_STEP = 10
 
 ; ...and the rate that counts it down: one tick an NTSC frame.
 AUR_TICK_BASE = $0100

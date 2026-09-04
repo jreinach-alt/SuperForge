@@ -93,9 +93,15 @@ CURTAINS = ((74,  13, 0.021, 1.00,  22, 128, 1.00, 19.0),
 EDGE = 34.0
 
 
-def aurora(x, y):
-    out = 0.0
-    for cx, amp, freq, wob, top, bot, gain, sig in CURTAINS:
+def aurora_at(x, y):
+    """-> (intensity, depth down the curtain 0..1, which curtain).
+
+    The depth and the index are what the hue needs: the fringe colour is a
+    function of HEIGHT within a curtain, and each curtain lags the cycle by
+    its own amount. The brightest curtain at this pixel wins all three.
+    """
+    best = (0.0, 0.0, 0)
+    for ci, (cx, amp, freq, wob, top, bot, gain, sig) in enumerate(CURTAINS):
         drift = amp * math.sin(freq * x) + 0.5 * amp * math.sin(2.3 * freq * x)
         body = math.exp(-(abs(x - (cx + drift)) / sig) ** 2)
         v = (y - top) / float(bot - top)
@@ -103,8 +109,15 @@ def aurora(x, y):
             continue
         env = smooth(clamp01((v + 0.10) / 0.34)) * smooth(clamp01((1.10 - v) / 0.46))
         ray = 0.70 + 0.30 * math.sin(0.9 * x + 2.4 * v)
-        out = max(out, gain * body * env * (1.0 - 0.55 * v) * ray)
-    return out * smooth(clamp01(x / EDGE)) * smooth(clamp01((W - 1 - x) / EDGE))
+        val = gain * body * env * (1.0 - 0.55 * v) * ray
+        if val > best[0]:
+            best = (val, clamp01(v), ci)
+    edge = smooth(clamp01(x / EDGE)) * smooth(clamp01((W - 1 - x) / EDGE))
+    return best[0] * edge, best[1], best[2]
+
+
+def aurora(x, y):
+    return aurora_at(x, y)[0]
 
 
 # =============================================================================
@@ -122,30 +135,56 @@ def aurora(x, y):
 # and green, 4 in blue — which cannot take a green curtain to violet; and being
 # per TILE, anything driven by it is an 8x8 block, which is what the first cut
 # of this rail looked like.
-HUE_PHASES = 12
+HUE_PHASES = 16
 HUE_LO, HUE_HI = 168.0, 252.0     # cyan-teal .. violet: no green, no magenta
-HUE_THR = 0.02                    # every tile the aurora tints, not just cores
-HUE_SLICES = 6                    # ...so a phase is six VBlank transfers
+HUE_THR = 0.02                    # below this the aurora is not drawn AT ALL
+                                  # (see bg1_px) — a pixel too faint to be in
+                                  # the cycling set must not be tinted either,
+                                  # or it keeps phase 0's hue for the whole
+                                  # cycle and leaves a teal fringe standing
+                                  # around a violet curtain
+HUE_SLICES = 6                    # ...a phase is six VBlank transfers
+
+# TWO THINGS A REAL AURORA DOES THAT A UNIFORM HUE ROTATION DOES NOT.
+#
+# It is not one colour at a time. The N2+ emission at the LOWER border runs
+# violet and pink where the body of the curtain is green — that magenta fringe
+# under a green sheet is the single most recognisable thing in an aurora
+# photograph, and it is a function of HEIGHT, not of time.
+HUE_FRINGE = 38.0                 # degrees, added over the bottom of a curtain
+HUE_FRINGE_FROM = 0.55            # ...starting this far down it
+
+# And the curtains do not change together. Each one lags the cycle by its own
+# amount, so at any moment the three are wearing three different colours —
+# which is what stops the picture reading as one object being recoloured.
+HUE_LAG = (0, 5, 11)
 
 
-def hue_weights(ph):
-    """The cycle's colour at phase `ph`, as unit-ish RGB weights.
+def hue_deg(ph):
+    """The cycle's base hue at phase `ph`, in degrees.
 
     A there-and-back sweep rather than a full hue loop: a full loop passes
     through yellow and red, which an aurora does not do and the picture does
-    not want. Eased with a cosine so it DWELLS at the cold ends instead of
-    sliding through them.
+    not want. LINEAR rather than eased, so every step is the same size — the
+    dwell belongs in how long a phase is HELD, which is a tuning constant the
+    rail owns, not in the size of the colour steps. An eased path puts 22
+    degrees between two phases in the middle of its sweep and 2 at the ends,
+    and the big ones read as jumps however long the hold is.
     """
-    t = ph / float(HUE_PHASES)
-    s = 0.5 - 0.5 * math.cos(2 * math.pi * t)
-    h = ((HUE_LO + (HUE_HI - HUE_LO) * s) % 360) / 60.0
+    t = (ph % HUE_PHASES) / float(HUE_PHASES)
+    tri = 2 * t if t < 0.5 else 2 - 2 * t
+    return HUE_LO + (HUE_HI - HUE_LO) * tri
+
+
+def hue_weights(deg):
+    h = (deg % 360) / 60.0
     c, x = 1.0, 1 - abs(h % 2 - 1)
     return [(c, x, 0), (x, c, 0), (0, c, x),
             (0, x, c), (x, 0, c), (c, 0, x)][int(h) % 6]
 
 
-def tint(a, ph=0):
-    wr, wg, wb = hue_weights(ph)
+def tint(a, deg):
+    wr, wg, wb = hue_weights(deg)
     return (wr * 0.95 * a + 0.26 * a ** 3,
             wg * 0.95 * a + 0.10 * a ** 3,
             wb * 0.95 * a + 0.30 * a ** 4)
@@ -153,9 +192,16 @@ def tint(a, ph=0):
 
 def bg1_px(x, y, ph=0):
     r, g, b = sky(y)
-    a = aurora(x, y)
-    if a > 0:
-        ar, ag, ab = tint(a, ph)
+    a, v, ci = aurora_at(x, y)
+    # NOT `a > 0`. A pixel the cycling set does not cover must not be tinted at
+    # all, or it wears phase 0's colour for the whole cycle — which is a teal
+    # fringe standing still around a violet curtain. At this threshold the
+    # cut-off is under one lattice step, so it costs nothing visible.
+    if a > HUE_THR:
+        deg = (hue_deg(ph + HUE_LAG[ci])
+               + HUE_FRINGE * smooth(clamp01((v - HUE_FRINGE_FROM)
+                                             / (1.0 - HUE_FRINGE_FROM))))
+        ar, ag, ab = tint(a, deg)
         r += ar
         g += ag
         b += ab

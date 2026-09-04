@@ -52,8 +52,8 @@ bytes = 2048             # 64 tiles: four rows of the PPU's 16-wide OBJ grid,
 
 [[claims.rom]]
 name = "aur_hue"
-bytes = 262144           # TWELVE copies of every tile the aurora tints —
-                         # 230,400 B of art padded to eight LoROM windows.
+bytes = 327680           # SIXTEEN copies of every tile the aurora tints —
+                         # 307,200 B of art padded to ten LoROM windows.
                          # This is the price of a colour cycle on a layer with
                          # no palette, and it is the rail's headline number:
                          # an indexed layer buys the same effect for two bytes
