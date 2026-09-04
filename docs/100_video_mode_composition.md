@@ -125,6 +125,7 @@ per scene like every other claim.
 mode = 2                   # 0..7                      (BGMODE b2-0)
 bg3_priority = false       # optional, default false    (b3, mode 1 only)
 tiles16 = []               # optional: bg1|bg2|bg3|bg4  (b4-7)
+direct_color = false       # optional: 8bpp pixels ARE the colour (CGWSEL b0)
 
 [[claims.offset]]          # OFFSET-PER-TILE: BG3's tilemap IS the table
 axis   = "v"               # h | v | both
@@ -143,6 +144,18 @@ An offset claim declares that **in this scene BG3 is not a layer**. The table
 it points at is an ordinary `[[claims.vram]] kind = "tilemap"` region and
 always was; what the claim classes could not say is the consequence, which is
 that every other feature's belief that it can draw on BG3 is now false.
+
+`direct_color` declares that this scene's **8bpp layer indexes no palette**:
+its pixel byte is the colour, 3-3-2, with the tilemap entry's 3-bit palette
+field supplying the low bit of each channel. It is on the **video** claim and
+not on a colour-math one because that is what it is a property of —
+`GetRgbColor` acts on the flag under
+`if constexpr(bpp == 8 && directColorMode)` and nothing else
+(`SnesPpu.cpp:1071`) — but it *composes* into `CGWSEL` bit 0, which the
+screen/blend vocabulary owns, so **the declaration is here and the emission
+is in docs/99 §4**. One register, one composition writing it. Which modes it
+means anything in is `MODE_BPP`'s answer and not a second list: 3, 4 and 7
+(O11 below).
 
 ## 4. Composition
 
@@ -177,6 +190,10 @@ bands (§13.7).
 A scene that declares neither claim has **no composition at all**, not an
 empty one, which is what keeps every rail predating the vocabulary
 byte-identical.
+
+`direct_color` composes no bit of `BGMODE`. It composes `CGWSEL` bit 0 in the
+screen/blend half (docs/99 §4), and declaring it makes that composition own
+`CGWSEL` — with a blend claim as before, and without one, `CGWSEL` alone.
 
 Worked example — the `smelter` rail's two scenes, one set of art:
 
@@ -313,6 +330,22 @@ about what it can*.
   visible. A warning and not a refusal for the WOBJSEL reason (docs/99 §8) —
   the layer may be designated by a raw TM claim the vocabulary cannot
   attribute.
+- **O11 — `direct_color` under a mode with no 8bpp layer**, and under mode 7.
+  Two arms, both warnings, and the first is the decision worth stating: the
+  bit HOLDS. CGWSEL b0 set under mode 1 is a legal, stable, expressible PPU
+  state in which `GetRgbColor`'s `bpp == 8` guard is false for every layer the
+  mode renders and no pass consults the flag — the same shape as
+  `bg3_priority` outside mode 1 and a `tiles16` bit for a layer nothing draws,
+  and NOT the shape of O4/O6/O8, each of which refuses a declaration whose own
+  subject the mode deletes. The set of modes it is live in is derived from
+  `MODE_BPP` rather than listed: 3 and 4 reach it through `RenderTilemap`
+  (`:2414`), 7 through `RenderTilemapMode7`'s own arm for layer 0 (`:2466`).
+  The second arm fires under **mode 7**, where the declaration is right and
+  buys less: that path has no tilemap palette field, so the colour is
+  `((c & 0x07) << 2) | ((c & 0x38) << 4) | ((c & 0xC0) << 7)` (`:1243`) — 3-3-2
+  with every channel's low bit clear — where modes 3 and 4 take the low bit of
+  each channel from the tilemap entry's 3-bit palette field
+  (`(tilemapData >> 10) & 0x07`, `:1023`, folded in at `:1071-1076`).
 
 Each warning is counted in the allocator's summary line beside the refusal
 checks, so a run that examined nothing reads as having examined nothing.
@@ -350,6 +383,13 @@ ES_OPT_<SCENEID>_BANDS             with a bands claim: the rows selected between
 ES_OPT_<SCENEID>_ROW_VOFS          ...and BG3VOFS = row * this selects a row
 ES_H_<CLAIM>_ROWSEL_CH/_BBAD/_DMAP ...and the synthesized channel, as any channel
 ```
+
+`direct_color` emits nothing **here**. It is a `CGWSEL` bit and it is
+published as part of `ES_SCR_<SCENEID>_CGWSEL` by the screen/blend half
+(docs/99 §6), so the scene's one write of that port carries it — the port's
+one owner still supplies its whole byte. The scene's `symbol_map.json` entry
+carries `direct_color` on **both** the `screen_blend` and the `video_offset`
+object, so a reader who has the mode has the pixel rule that goes with it.
 
 **The field set is derived from the declaration, not fixed.** `layers` decides
 which enable bits exist, `axis` decides which value mask, and `VSEL` appears
@@ -1133,6 +1173,24 @@ the constant is.
 - **`tiles16` is composed and not checked further.** 16x16 tiles change the
   tilemap's addressing, and nothing here verifies that a claim's tilemap is
   sized for them.
+- **Direct color is ALL-OR-NOTHING PER LAYER, and the vocabulary cannot make
+  it otherwise.** `direct_color` is one CGWSEL bit for the whole frame, so a
+  scene that declares it declares it for every pixel of its 8bpp layer: the
+  layer's CGRAM entries stop being read at all, and its fitted palette is
+  retired. Per-region control would be an HDMA channel on `CGWSEL`, which is
+  a raw `[[claims.reg]]` + `[[claims.hdma]]` shape this vocabulary composes
+  nothing for — the same line `split_band` sits on for BGMODE. `mill`'s two
+  builds are the honest statement of the cost: `build/mill.sfc` is the
+  96-entry fitted palette and `build/mill_direct.sfc` is the same geometry
+  with the palette gone, and they are two ROMs rather than two regions of one
+  because there is no third option in the silicon.
+- **Nothing checks that an 8bpp layer's ART is direct-colour art.** The
+  composition proves the scene declared the rule its pixels are read by; that
+  the pixels MEAN anything under it is the rail's business, proved on the
+  emulator by a test that reads the rendered pixel (`tests/test_mill_direct.py`
+  computes the expected BGR555 from the CHR byte and the tilemap word the PPU
+  actually read, and asserts the screenshot). A declaration is not a
+  quantiser.
 - **The composition proves declarations, not writes.** The emitted symbols and
   the write consent exist so scene code CAN establish the composed state
   through the gate; whether a scene actually writes them is proven on the

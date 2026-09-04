@@ -475,7 +475,8 @@ def _is_vocab_who(who: str) -> bool:
 
 
 def compose_screen_blend(screen: list[tuple], blend: list[tuple],
-                         reg: list[tuple], scope: str) -> dict | None:
+                         reg: list[tuple], scope: str,
+                         direct: list[tuple] = ()) -> dict | None:
     """Compose a scene's screen/blend claims, or REFUSE (R1-R5).
 
     `screen`/`blend`/`reg` are [(claim, who)] over the globals+scene UNION —
@@ -486,8 +487,21 @@ def compose_screen_blend(screen: list[tuple], blend: list[tuple],
     ownership claim holds, warnings for the allocation report, and the
     refusal-check census. Refusal messages name the claiming features and
     the hardware mechanism — the messages are the deliverable.
+
+    `direct` is the scene's DIRECT COLOR declarers — the [(video claim, who)]
+    pairs whose `direct_color` is true, empty for every scene that declares
+    none. It is the one input here
+    that is not a claim of this vocabulary: it is DECLARED on
+    `[[claims.video]]` (`direct_color`), because what it decides is how an
+    8bpp layer's pixel bytes are read — a property of the mode, gated by the
+    mode, and meaningless in a mode with no 8bpp layer. It is EMITTED here
+    because CGWSEL is composed here and nowhere else: splitting one register
+    between two compositions would give it two owners, which is the exact
+    shape every refusal in this file exists to prevent. So the declaration
+    lives where the fact does and the write stays with the port's one owner
+    — and DECLARING IT IS CLAIMING CGWSEL, blend claim or no blend claim.
     """
-    if not screen and not blend:
+    if not screen and not blend and not direct:
         return None
     checks = 0
 
@@ -721,20 +735,26 @@ def compose_screen_blend(screen: list[tuple], blend: list[tuple],
             cgadsub |= 1 << MATH_LAYERS[m]
         cgwsel = ((WINDOW_MODES[g.clip] << 6)
                   | (WINDOW_MODES[g.prevent] << 4)
-                  | (0x02 if g.source == "sub" else 0))
-        # CGWSEL bit 0 (direct color) composes 0 — a stated limit: direct
-        # color stays out of the vocabulary, expressible as a raw CGWSEL
-        # claim in a scene with no blend claims.
+                  | (0x02 if g.source == "sub" else 0)
+                  | (0x01 if direct else 0))
     else:
         # Screen claims with no blend: the explicit OFF state
         # vendor/rom/ppu_reset.inc establishes at boot — prevent = always
         # ($30) structurally disables the math, CGADSUB gates nothing.
-        cgwsel, cgadsub = 0x30, 0x00
+        # BIT 0 IS COMPOSED ON BOTH PATHS. Direct color is not a property of
+        # the blender and does not need one: it is read by GetRgbColor
+        # (SnesPpu.cpp:1071) whatever CGADSUB holds, so a scene that declares
+        # it with no blend at all still gets the bit — and, since it is the
+        # only thing in that scene with an opinion about CGWSEL, still owns
+        # the port to write it from.
+        cgwsel, cgadsub = 0x30 | (0x01 if direct else 0), 0x00
 
     regs = ((SCREEN_REGS if screen else ())
-            + (BLEND_REGS if blend else ()))
-    feats = sorted({who for _, who in [*screen, *blend]})
+            + (BLEND_REGS if blend else
+               (("CGWSEL",) if direct else ())))
+    feats = sorted({who for _, who in [*screen, *blend, *direct]})
     return {"tm": tm, "ts": ts, "cgwsel": cgwsel, "cgadsub": cgadsub,
+            "direct": [(c, who) for c, who in direct],
             "registers": regs, "features": feats,
             "screen": [(c, who) for c, who in screen],
             "blend": [(c, who) for c, who in blend],
@@ -757,6 +777,18 @@ _VOCABS = (VOCAB_WHO, MODE_WHO)
 
 # BGMODE bits 4-7: one 16x16-tile select per BG layer, in layer order.
 _TILES16_BIT = {"bg1": 0x10, "bg2": 0x20, "bg3": 0x40, "bg4": 0x80}
+
+# The modes in which CGWSEL bit 0 means anything: the ones that render a layer
+# at 8bpp. DERIVED from MODE_BPP rather than written out, so this set cannot
+# drift from the table every other mode check in this file decides on.
+# GetRgbColor's direct-colour arm is guarded by
+# `if constexpr(bpp == 8 && directColorMode)` and nothing else
+# (SnesPpu.cpp:1071), and mode 7 is in the set by its OWN path: RenderTilemap
+# hands the flag down for modes 3 and 4 (:2414), while RenderTilemapMode7
+# selects its direct-colour arm for layerIndex 0 (:2466) and computes the
+# colour at :1243.
+DIRECT_COLOR_MODES = tuple(sorted(m for m, depths in MODE_BPP.items()
+                                  if 8 in depths.values()))
 
 
 def _mode_shape(mode: int) -> str:
@@ -1088,7 +1120,7 @@ def compose_video_offset(video: list[tuple], offset: list[tuple],
                 f"claim the vocabulary cannot attribute")
 
     if video:
-        checks += 1                      # O8 live
+        checks += 2                      # O8 + O11 live
         vc, vwho = video[0]
         # O8 — a designation the mode does not render. R5's rule on the mode
         # axis: the enable bit is set and no pass ever produces a pixel for
@@ -1119,6 +1151,46 @@ def compose_video_offset(video: list[tuple], offset: list[tuple],
                 f"renders, or declare a mode that renders {c.layer} "
                 f"(docs/100)")
 
+        # O11 — direct color under a mode with no 8bpp layer. A WARNING, and
+        # the decision is the tree's own rule applied literally: refuse what
+        # the silicon cannot express, warn about what it can. CGWSEL b0 set
+        # under mode 1 is a legal, expressible, perfectly stable PPU state —
+        # the bit holds, GetRgbColor's `bpp == 8` guard is false for every
+        # layer the mode renders, and nothing consults it. That is exactly
+        # the shape of the two notes beside this one (bg3_priority outside
+        # mode 1, a tiles16 bit for a layer the mode does not draw), and it is
+        # NOT the shape of O4/O6/O8, each of which refuses a declaration whose
+        # own subject the mode deletes.
+        if vc.direct_color and vc.mode not in DIRECT_COLOR_MODES:
+            warnings.append(
+                f"{vc.name} ({vwho}) declares direct_color under mode "
+                f"{vc.mode} ({_mode_shape(vc.mode)}): CGWSEL bit 0 is read "
+                f"by GetRgbColor under `bpp == 8 && directColorMode` alone "
+                f"(Mesen2 SnesPpu.cpp:1071) and mode {vc.mode} renders no "
+                f"8bpp layer, so the bit holds and no pass consults it. "
+                f"Direct color reaches a layer in modes "
+                f"{list(DIRECT_COLOR_MODES)} only — 3 and 4 through "
+                f"RenderTilemap (:2414), 7 through RenderTilemapMode7's own "
+                f"arm for layer 0 (:2466). That is a legal, expressible PPU "
+                f"state — it composes, and this says why it does nothing")
+        # ...and mode 7 reaches it, but reaches only HALF of it. There is no
+        # tilemap palette field on the Mode 7 path, so the three low channel
+        # bits the tilemap supplies in modes 3 and 4 are unavailable and the
+        # colour is 3-3-2 with the LSBs clear.
+        if vc.direct_color and vc.mode == 7:
+            warnings.append(
+                f"{vc.name} ({vwho}) declares direct_color under mode 7, "
+                f"where the colour is 3-3-2 and NOTHING ELSE. Modes 3 and 4 "
+                f"build it from the pixel AND the tilemap entry's 3-bit "
+                f"palette field, which supplies the low bit of each channel "
+                f"(Mesen2 SnesPpu.cpp:1071-1076, paletteIndex from "
+                f"`(tilemapData >> 10) & 0x07` at :1023); the Mode 7 path "
+                f"has no tilemap palette field and computes "
+                f"`((c & 0x07) << 2) | ((c & 0x38) << 4) | ((c & 0xC0) << 7)` "
+                f"(:1243), so those three bits are zero and each channel's "
+                f"darkest step is the only one below its 3-bit quantum. The "
+                f"declaration is right and the art budget is smaller than it "
+                f"is in mode 3 or 4")
         if vc.bg3_priority and vc.mode != 1:
             warnings.append(
                 f"{vc.name} ({vwho}) declares bg3_priority under mode "
@@ -2031,9 +2103,16 @@ def allocate(sub: Substrate, features: dict[str, FeatureDecl],
         # emitted values passes the reg-ownership gate. R6 (vocabulary
         # mixing) then arises from the ordinary reg-x-reg intersection in
         # check_reg_ownership below, not from a special-cased lint.
+        # DIRECT COLOR arrives from the VIDEO half and is composed in this
+        # one — the declaration is a property of the mode and the emission
+        # belongs to CGWSEL's one owner (compose_screen_blend's docstring
+        # says why). Reading the video claims here, ahead of C6, cannot
+        # reorder a refusal: O1 (two video claims in one scene) still fires
+        # below, and nothing in this function refuses on `direct`.
         sm.screen_blend = compose_screen_blend(
             [*gscreen, *s_screen], [*gblend, *s_blend],
-            [*greg, *sm.regs], sc.id)
+            [*greg, *sm.regs], sc.id,
+            [(c, who) for c, who in [*gvideo, *s_video] if c.direct_color])
         if sm.screen_blend is not None:
             sm.screen_blend["checks"] += 1          # R6 live via the union
             sm.regs.append((
@@ -2316,7 +2395,7 @@ def verify(alloc: Allocation):
             try:
                 again = compose_screen_blend(
                     sb["screen"], sb["blend"],
-                    [*alloc.global_regs, *sm.regs], sid)
+                    [*alloc.global_regs, *sm.regs], sid, sb["direct"])
             except AllocationError as e:
                 raise AssertionError(f"VERIFY: {e}") from e
             for k in ("tm", "ts", "cgwsel", "cgadsub", "registers",
@@ -2530,7 +2609,9 @@ def _screen_blend_lines(sid: str, sb: dict | None) -> list[str]:
     A SYMBOL IS PUBLISHED ONLY FOR A PORT THE COMPOSITION OWNS, which is
     per-half (compose_screen_blend's `registers`): screen claims own TM/TS,
     blend claims own CGWSEL/CGADSUB, and a scene can carry one half without
-    the other. Emitting all four regardless would state a value for a port
+    the other. A `direct_color` video claim owns CGWSEL on its own — the bit
+    it composes is in that port — so a scene with direct color and no blend
+    publishes CGWSEL and withholds CGADSUB. Emitting all four regardless would state a value for a port
     the scene's composition does not own — a screen-only scene publishing
     `ES_SCR_<ID>_CGWSEL = $30` beside a feature that owns and programs
     CGWSEL — and the writer-side gate would ACCEPT a scene write of it
@@ -2551,7 +2632,10 @@ def _screen_blend_lines(sid: str, sb: dict | None) -> list[str]:
 
     lines = ["; ---- screen/blend: the composed color-math state ----",
              ";   TM/TS from [[claims.screen]]; CGWSEL/CGADSUB from",
-             ";   [[claims.blend]]. Scene-enter code writes these ports from",
+             ";   [[claims.blend]]; CGWSEL b0 from [[claims.video]]'s",
+             ";   direct_color, which is declared with the mode and written",
+             ";   here because this is CGWSEL's one owner. Scene-enter code",
+             ";   writes these ports from",
              ";   these symbols — never a narrated value. A half this scene",
              ";   composes no claim for owns no port here and emits no",
              ";   symbol: writing it is another claimant's business."]
@@ -2564,6 +2648,8 @@ def _screen_blend_lines(sid: str, sb: dict | None) -> list[str]:
     else:
         lines.append(f"; ES_SCR_{up}_TM / _TS absent — no [[claims.screen]] in "
                      f"this scene: TM/TS are not this composition's to write")
+    dc = (" direct-color<-" + ", ".join(who for _, who in sb["direct"])
+          if sb["direct"] else " direct color 0")
     if sb["blend"]:
         g, _ = sb["blend"][0]
         math = ", ".join(f"{m}<-{who}" for c, who in sb["blend"]
@@ -2571,9 +2657,20 @@ def _screen_blend_lines(sid: str, sb: dict | None) -> list[str]:
         lines += [
             f"ES_SCR_{up}_CGWSEL = ${sb['cgwsel']:02X}"
             f"    ; source={g.source} clip={g.clip} prevent={g.prevent}"
-            f" (direct color composed 0)",
+            f"{dc}",
             f"ES_SCR_{up}_CGADSUB = ${sb['cgadsub']:02X}"
             f"    ; op={g.op}{' half' if g.half else ''} math: {math}"]
+    elif sb["direct"]:
+        # DIRECT COLOR WITH NO BLEND — CGWSEL alone. The port is owned
+        # because b0 is composed for it, and CGADSUB is not, because nothing
+        # in this scene composed a bit of it. Half of a half, and it is the
+        # per-half ownership rule taken at its word rather than rounded up.
+        lines += [
+            f"ES_SCR_{up}_CGWSEL = ${sb['cgwsel']:02X}"
+            f"    ; math off (prevent=always){dc}",
+            f"; ES_SCR_{up}_CGADSUB absent — no [[claims.blend]] in this "
+            f"scene: the composed OFF state is ${sb['cgadsub']:02X}, but "
+            f"establishing it belongs to whoever owns that port (docs/99 §4)"]
     else:
         lines.append(f"; ES_SCR_{up}_CGWSEL / _CGADSUB absent — no "
                      f"[[claims.blend]] in this scene: the composed OFF state "
@@ -2869,6 +2966,9 @@ def emit(alloc: Allocation, out_dir: str | Path) -> list[Path]:
                 rep.append(f"    blend {c.op}{' half' if c.half else ''} "
                            f"source={c.source} math={','.join(c.math)} "
                            f"clip={c.clip} prevent={c.prevent}  {who}")
+            for c, who in sb["direct"]:
+                rep.append(f"    direct color (CGWSEL b0) from {c.name} "
+                           f"mode {c.mode}  {who}")
             for w in sb["warnings"]:
                 rep.append(f"    WARNING: {w}")
         # C6: the composed video mode and offset table, on the same terms.
@@ -3009,6 +3109,11 @@ def emit(alloc: Allocation, out_dir: str | Path) -> list[Path]:
                                  "ts": sm.screen_blend["ts"],
                                  "cgwsel": sm.screen_blend["cgwsel"],
                                  "cgadsub": sm.screen_blend["cgadsub"],
+                                 # CGWSEL b0, declared on [[claims.video]]
+                                 # and composed here. A test asserts the
+                                 # rendered pixel against the DECLARATION.
+                                 "direct_color": bool(
+                                     sm.screen_blend["direct"]),
                                  # WHICH of the four the composition OWNS —
                                  # per-half, so a reader can tell a composed
                                  # value from an off value the scene does not
@@ -3029,6 +3134,13 @@ def emit(alloc: Allocation, out_dir: str | Path) -> list[Path]:
                                  "offset_axis": sm.video_offset["axis"],
                                  "offset_layers":
                                      sm.video_offset["layers"],
+                                 # Declared here, composed into CGWSEL b0 by
+                                 # the screen/blend half. Carried on BOTH
+                                 # objects so a reader who has the mode has
+                                 # the pixel rule that goes with it.
+                                 "direct_color": any(
+                                     c.direct_color
+                                     for c, _ in sm.video_offset["video"]),
                                  "fields": sm.video_offset["fields"],
                                  "registers": list(
                                      sm.video_offset["registers"]),
@@ -3112,8 +3224,11 @@ def main(argv=None) -> int:
     # ...and the video/offset half, reported on the same terms and for the
     # same reason: a run that examined nothing must read as having examined
     # nothing. Live checks per scene: O1 needs two mode claims, O2 two offset
-    # claims, O3/O4/O6/O7 an offset claim, O8 a mode claim, and O5's register
-    # arm the synthesized ownership claim in the scene's union.
+    # claims, O3/O4/O6/O7 an offset claim, O8 and O11 a mode claim, O10 a
+    # bands claim, and O5's register arm the synthesized ownership claim in
+    # the scene's union. O7 and O11 warn rather than refusing and are counted
+    # anyway: what the census reports is checks EVALUATED, and a check whose
+    # verdict is a warning was still evaluated.
     vos = [sm.video_offset for sm in alloc.scenes.values()
            if sm.video_offset is not None]
     if vos:

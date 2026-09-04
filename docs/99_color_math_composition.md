@@ -99,10 +99,26 @@ union every ownership check runs over):
 TM      = OR of layer bits where on ∈ {main, both}
 TS      = OR of layer bits where on ∈ {sub, both}
 CGADSUB = (op == "sub") << 7  |  half << 6  |  OR of math-layer bits
-CGWSEL  = clip << 6  |  prevent << 4  |  (source == "sub") << 1
+CGWSEL  = clip << 6  |  prevent << 4  |  (source == "sub") << 1  |  direct
 ```
 
-`CGWSEL` bit 0 (direct color) always composes 0 — a stated limit (§8).
+**`CGWSEL` bit 0 — direct color — is composed here and DECLARED SOMEWHERE
+ELSE.** It is `direct_color` on the scene's `[[claims.video]]` claim
+(docs/100 §3), because what it decides is how an **8bpp layer's pixel bytes
+are read**: `GetRgbColor` acts on it under
+`if constexpr(bpp == 8 && directColorMode)` and nothing else
+(`SnesPpu.cpp:1071`), so it is a property of the mode, gated by the mode, and
+inert in a mode with no 8bpp layer (docs/100 §5, O11). The *emission* stays
+here because CGWSEL is composed here and nowhere else — splitting one
+register between two compositions would give it two owners, which is the
+shape every refusal in this vocabulary exists to prevent.
+
+**Declaring it is claiming CGWSEL.** A scene with a blend claim owns
+`CGWSEL`+`CGADSUB` as before. A scene with `direct_color` and **no** blend
+claim owns `CGWSEL` alone and composes `$31` — the boot off state with bit 0
+set — and still leaves `CGADSUB` to whoever else wants it. Bit 0 is composed
+on both paths, because direct color is not a property of the blender and does
+not need one: the PPU reads it whatever `CGADSUB` holds.
 
 A scene with screen claims and **no** blend claims composes
 `CGWSEL = $30` / `CGADSUB = $00`: prevent-mode "always", the state
@@ -137,6 +153,9 @@ TS      = $02    ; bg2 (bit 1)
 CGADSUB = $61    ; half (bit 6) | backdrop (bit 5) | bg1 (bit 0), add -> b7 = 0
 CGWSEL  = $02    ; source = sub (bit 1), clip/prevent never, direct color 0
 ```
+
+...and with `direct_color = true` on the same scene's video claim, `CGWSEL`
+is `$03` instead. Nothing else moves.
 
 ## 5. The refusal set
 
@@ -232,6 +251,8 @@ generated include gains a symbol **per port the composition owns**:
 ```
 ES_SCR_<SCENEID>_TM / _TS          where the scene carries screen claims
 ES_SCR_<SCENEID>_CGWSEL / _CGADSUB where it carries blend claims
+ES_SCR_<SCENEID>_CGWSEL            ...or where it declares direct_color and
+                                   no blend: CGWSEL alone, CGADSUB withheld
 ```
 
 each with a comment naming the contributing features and fields. A half the
@@ -271,9 +292,13 @@ two vocabularies is refereed by R6, and it is deliberately asymmetric:
 
 - the synthesized claim owns **TM/TS** only where the scene carries screen
   claims, and **CGWSEL/CGADSUB** only where it carries blend claims;
-- so a raw `CGWSEL` claim composes beside a designation-only scene (the
-  direct-color escape, §8), and a raw `TM` claim composes beside a
-  backdrop-only blend (a fixed-color wash over raw-designated layers).
+- so a raw `CGWSEL` claim composes beside a designation-only scene, and a
+  raw `TM` claim composes beside a backdrop-only blend (a fixed-color wash
+  over raw-designated layers);
+- ...and `direct_color` is a **third** way into `CGWSEL`: a scene that
+  declares it owns that port through the vocabulary whether or not it blends,
+  so the raw claim is refused beside it exactly as it is beside a blend
+  claim.
 
 The migration rule, when a scene wants both vocabularies on one port: move
 the raw claim into the new vocabulary. A feature's `TM`/`TS` intent becomes
@@ -283,9 +308,19 @@ message carries this rule, so the build teaches it at the moment it matters.
 
 ## 8. Stated limits
 
-- **Direct color composes 0.** CGWSEL b0 is out of the vocabulary — no live
-  demand. A direct-color scene keeps a raw `CGWSEL` claim and declares no
-  blend claims (the asymmetry in §7 is what keeps that expressible).
+- **~~Direct color composes 0.~~ CLOSED (2026-09-04).** CGWSEL b0 is
+  `direct_color` on `[[claims.video]]`, composed into CGWSEL on both the
+  blend and the no-blend path (§4), mode-gated by O11 (docs/100 §5) and
+  exercised by `build/mill_direct.sfc`. The limit was stated as "no live
+  demand"; the demand arrived, and the escape hatch it named — a raw `CGWSEL`
+  claim in a scene with no blend claims — turned out to be shut for exactly
+  the rail that wanted it: `mill` composes `mil_tint` in **both** scenes, and
+  a blend claim owns CGWSEL whole, so a raw CGWSEL claim beside it refuses by
+  name. What remains is not a vocabulary limit but a hardware one, and it is
+  stated in docs/100 §14: direct color is **all-or-nothing per 8bpp layer**.
+  There is one CGWSEL bit and no per-region control without an HDMA channel
+  on CGWSEL, so a scene that turns it on turns it on for every pixel of that
+  layer, and the layer's fitted palette stops being read at all.
 - **TMW/TSW are out of the vocabulary.** Window masking of the designations
   ($212E/$212F) stays raw.
 - **The COLOR WINDOW is out of the vocabulary, and `clip`/`prevent` depend

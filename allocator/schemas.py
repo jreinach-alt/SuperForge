@@ -818,10 +818,20 @@ WINDOW_MODES = {"never": 0, "outside": 1, "inside": 2, "always": 3}
 # per-scene ownership claim holds (allocate.compose_screen_blend). Screen
 # claims own the designation ports; blend claims own the math ports. The
 # split is deliberate: a raw CGWSEL claim stays expressible in a scene that
-# designates layers but declares no blend (e.g. a direct-color scene), and a
-# raw TM claim stays expressible in a scene that blends over raw-designated
-# layers — the mixing refusal fires exactly where the vocabularies meet on
-# one port.
+# designates layers but declares no blend, and a raw TM claim stays
+# expressible in a scene that blends over raw-designated layers — the mixing
+# refusal fires exactly where the vocabularies meet on one port.
+#
+# CGWSEL HAS A THIRD WAY IN, and it is why this comment no longer names the
+# direct-color scene as the raw claim's example. `direct_color` on a
+# [[claims.video]] claim composes CGWSEL b0, so a scene that declares it owns
+# CGWSEL — the whole port, b0 included — whether or not it also carries a
+# blend claim. With a blend it is BLEND_REGS as before; without one the
+# composition owns CGWSEL alone and leaves CGADSUB to whoever else wants it
+# (compose_screen_blend's `registers`). The escape hatch the old comment
+# pointed at was shut for exactly the rail that needed it: `mill` blends in
+# every scene, and a blend claim owns CGWSEL whole, so a raw CGWSEL claim
+# beside it refuses by name.
 SCREEN_REGS = ("TM", "TS")
 BLEND_REGS = ("CGWSEL", "CGADSUB")
 
@@ -1018,6 +1028,16 @@ class VideoClaim:
     mode: int                     # BGMODE b2-0
     bg3_priority: bool = False    # b3 — read only by RenderMode1
     tiles16: tuple[str, ...] = ()  # b4-7, one per BG layer
+    # DIRECT COLOR — CGWSEL b0, and the one field here that composes into a
+    # register this class does not own. It is declared HERE because it is not
+    # a property of the blender at all: it decides how an 8BPP LAYER'S PIXEL
+    # BYTES ARE READ, which is a property of the mode. `GetRgbColor` acts on
+    # it under `if constexpr(bpp == 8 && directColorMode)` alone
+    # (SnesPpu.cpp:1071) and mode 7 reaches it by its own path for layer 0
+    # (:2466), so which modes it means anything in is exactly what MODE_BPP
+    # already says. The emission stays in the screen/blend composition, which
+    # is the one owner of CGWSEL — see allocate.compose_screen_blend.
+    direct_color: bool = False
 
 
 @dataclass(frozen=True)
@@ -1630,7 +1650,8 @@ def load_feature(path: str | Path, substrate: Substrate) -> FeatureDecl:
     for i, t in enumerate(_as_list_of_tables(claims.get("video", []), where)):
         w = f"{where} [[claims.video]] #{i}"
         _table(t, w, {"mode": int},
-               {"name": str, "bg3_priority": bool, "tiles16": list})
+               {"name": str, "bg3_priority": bool, "tiles16": list,
+                "direct_color": bool})
         if t["mode"] not in MODE_LAYERS:
             raise SchemaError(
                 f"{w}: mode = {t['mode']!r} is not one of "
@@ -1655,7 +1676,8 @@ def load_feature(path: str | Path, substrate: Substrate) -> FeatureDecl:
         video.append(VideoClaim(
             name=t.get("name", f"{name}_video{i if i else ''}"),
             mode=t["mode"], bg3_priority=bool(t.get("bg3_priority", False)),
-            tiles16=t16))
+            tiles16=t16,
+            direct_color=bool(t.get("direct_color", False))))
     if len(video) > 1:
         # A feature declaring two modes is refused HERE rather than in the
         # composition, because it is a property of the declaration alone: no
