@@ -238,41 +238,92 @@ def test_o6_a_driven_layer_the_mode_does_not_render(tmp_path):
     assert "displaces a layer no pass draws" in msg
 
 
-def test_o7_mode_4_mixes_axes_per_column_and_says_so(tmp_path):
-    """`both` UNDER MODE 4 IS LEGAL, and this case is the one that changed.
+def test_o7_per_column_under_mode_4_is_the_declaration_and_emits_all_three(tmp_path):
+    """`per_column` IS mode 4's two-axis state, and it emits what it needs.
 
-    It used to assert a refusal. The refusal reasoned about a COLUMN — "a
-    column carries one axis and never both", which is true — and then rejected
-    a claim about the TABLE. Bit 15 is per WORD, so a mode-4 table can drive
-    one column vertically and its neighbour horizontally, and that mixing is
-    the only thing mode 4 does which mode 2 cannot.
+    Mode 4 fetches ONE word per column and bit 15 picks that word's axis, so a
+    table can drive one column vertically and its neighbour horizontally —
+    the one thing mode 4 does which mode 2 cannot. The emission is the whole
+    reason the state needs a name of its own: `axis` picks which value mask is
+    published and the two axes mask differently ($3FF against $3F8), so a
+    mixed table has to publish BOTH masks and the bit that selects between
+    them.
 
-    It also made the truth undeclarable rather than merely unusual: `axis`
-    picks which value mask is published, and the two axes mask differently
-    ($3FF against $3F8), so a mixed table declaring "v" got MASK and no HMASK
-    and had no symbol to build half its words from.
-
-    So: accepted, all three constants emitted, and warned — because the same
-    declaration means "both axes per column" one mode over.
+    NO WARNING. The composition used to read this declaration's own definition
+    aloud on every build, which is a report of nothing.
     """
     f = features(tmp_path,
                  m='[[claims.video]]\nmode = 4\n' + LAYERS,
-                 t='[[claims.offset]]\naxis = "both"\nlayers = ["bg1"]\n')
+                 t='[[claims.offset]]\naxis = "per_column"\nlayers = ["bg1"]\n')
     a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m", "t"))
-    assert a.scenes["s"].video_offset["axis"] == "both"
+    assert a.scenes["s"].video_offset["axis"] == "per_column"
     inc, _ = _emit(tmp_path, f, "m", "t")
     assert "ES_OPT_S_MASK = $03FF" in inc      # the V value field
     assert "ES_OPT_S_HMASK = $03F8" in inc     # ...and the H one
     assert "ES_OPT_S_VSEL = $8000" in inc      # ...and the bit that picks
     w = " ".join(a.scenes["s"].video_offset["warnings"])
-    assert "means something different from modes 2" in w
-    assert "the TABLE carries both axes and each COLUMN carries one" in w
+    assert "means something different from modes 2" not in w
+
+
+def test_o7_per_column_emits_exactly_what_both_did_under_mode_4(tmp_path):
+    """THE MIGRATION IS A RENAME, not a change of meaning: `per_column` under
+    mode 4 must publish the same field set `both` published there, or every
+    rail that moves to it builds a different ROM.
+
+    Asserted as an equality against the composition's own field dict rather
+    than by re-typing three constants, so a field added to either arm later
+    cannot pass this by being typed twice.
+    """
+    f = features(tmp_path,
+                 m='[[claims.video]]\nmode = 4\n' + LAYERS,
+                 t='[[claims.offset]]\naxis = "per_column"\nlayers = ["bg1", "bg2"]\n')
+    a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m", "t"))
+    got = a.scenes["s"].video_offset["fields"]
+    # ...and the reference: the same claim in the mode where `both` is legal
+    # carries MASK + HMASK, and mode 4 adds VSEL.
+    f2 = features(tmp_path / "ref",
+                  m='[[claims.video]]\nmode = 2\n' + LAYERS,
+                  t='[[claims.offset]]\naxis = "both"\nlayers = ["bg1", "bg2"]\n')
+    b = allocate(SUB, f2, NO_STATE, one_scene(tmp_path / "ref", "m", "t"))
+    ref = dict(b.scenes["s"].video_offset["fields"])
+    ref["VSEL"] = 0x8000
+    assert got == ref
+
+
+def test_o7_both_under_mode_4_refuses(tmp_path):
+    """The migration hazard, as a refusal. `both` is a column displaced on
+    BOTH axes at once and mode 4 has no such state — one word is fetched and
+    bit 15 picks. This used to be a WARNING, which could not stop a table
+    moved from mode 2 to mode 4 keeping its declaration and changing its
+    meaning."""
+    f = features(tmp_path,
+                 m='[[claims.video]]\nmode = 4\n' + LAYERS,
+                 t='[[claims.offset]]\naxis = "both"\nlayers = ["bg1"]\n')
+    msg = _refuse(tmp_path, f, "m", "t")
+    assert "OFFSET-PER-TILE contention" in msg
+    assert 'declares axis = "both"' in msg
+    assert "bit 15 selects that word's axis" in msg
+    assert 'declare axis = "per_column"' in msg
+
+
+@pytest.mark.parametrize("mode", [2, 6])
+def test_o7_per_column_outside_mode_4_refuses(tmp_path, mode):
+    """The other arm. Modes 2 and 6 fetch a word for EACH axis, so every
+    column gets both and bit 15 selects nothing — the choice `per_column`
+    names does not exist there."""
+    f = features(tmp_path,
+                 m=f'[[claims.video]]\nmode = {mode}\n' + LAYERS,
+                 t='[[claims.offset]]\naxis = "per_column"\nlayers = ["bg1"]\n')
+    msg = _refuse(tmp_path, f, "m", "t")
+    assert "OFFSET-PER-TILE contention" in msg
+    assert 'declares axis = "per_column"' in msg
+    assert "bit 15 is read in mode 4 alone" in msg
 
 
 def test_o7_both_under_mode_2_is_the_other_meaning(tmp_path):
-    """The neighbouring arm, and the reason the warning exists: modes 2 and 6
+    """The neighbouring arm, and the reason there are two names: modes 2 and 6
     fetch a word for EACH axis, so `both` there is a column displaced on both
-    at once. Same declaration, different hardware, no warning."""
+    at once. Legal, and no warning."""
     f = features(tmp_path,
                  m='[[claims.video]]\nmode = 2\n' + LAYERS,
                  t='[[claims.offset]]\naxis = "both"\nlayers = ["bg1"]\n')
@@ -280,6 +331,16 @@ def test_o7_both_under_mode_2_is_the_other_meaning(tmp_path):
     assert a.scenes["s"].video_offset["axis"] == "both"
     w = " ".join(a.scenes["s"].video_offset["warnings"])
     assert "means something different" not in w
+
+
+def test_a_fifth_axis_value_is_refused_at_parse(tmp_path):
+    """Four states, named, and the parse error says what each means — so an
+    author who reaches for a fifth reads the pair that already exists."""
+    with pytest.raises(SchemaError) as e:
+        feature(tmp_path, "z",
+                '[[claims.offset]]\naxis = "either"\nlayers = ["bg1"]\n')
+    assert "per_column" in str(e.value)
+    assert "picked by bit 15" in str(e.value)
 
 
 @pytest.mark.parametrize("mode,layer", [(2, "bg3"), (2, "bg4"), (3, "bg3"),
@@ -646,7 +707,7 @@ def test_a_32x32_claim_is_unchanged_by_the_shape_field(tmp_path):
 # its BG3VOFS ownership `seed`, and emits the band count and the row stride.
 
 M4 = '[[claims.video]]\nmode = 4\n' + LAYERS
-TAB = '[[claims.offset]]\naxis = "both"\nlayers = ["bg1", "bg2"]\n'
+TAB = '[[claims.offset]]\naxis = "per_column"\nlayers = ["bg1", "bg2"]\n'
 BANDS = '[[claims.offset_bands]]\nrows = 3\n'
 
 
@@ -721,6 +782,98 @@ def test_a_raw_cpu_writer_of_bg3vofs_beside_bands_still_refuses(tmp_path):
     msg = _refuse(tmp_path, f, "m", "t", "b", "x")
     assert "x_reg" in msg and "BG3VOFS" in msg
 
+
+# -- O11: 16x16 tiles meeting the offset table ------------------------------
+# The one interaction between the two halves of this vocabulary. It is not
+# symmetric between the axes, and the asymmetry was READ in SnesPpu.cpp and
+# then MEASURED on a 16x16 probe build of `mill`:
+#
+#   horizontal, 8 in the word:  30/31 screen columns rendered as the
+#       "entry moves, half-select does not" model predicts (even columns as
+#       though the word were 0, odd ones as though it were 16); 0 of the 14
+#       genuinely displaced columns matched a coherent model
+#   vertical, 8 in the word:    27/27 columns across six scanlines matched
+#       the per-column displaced vScroll, 0/27 the layer's own
+#
+# So a horizontal displacement of a 16x16 layer REFUSES where the composition
+# can prove the layer takes horizontal words, and WARNS where the axis is a
+# per-word bit in a blob it cannot read.
+
+def _t16(mode, axis, tiles16, layers='["bg1"]'):
+    return (f'[[claims.video]]\nmode = {mode}\ntiles16 = {tiles16}\n',
+            f'[[claims.offset]]\naxis = "{axis}"\nlayers = {layers}\n')
+
+
+@pytest.mark.parametrize("mode,axis", [(2, "h"), (2, "both"), (4, "h"),
+                                       (6, "h")])
+def test_o11_a_horizontally_driven_layer_may_not_be_16x16(tmp_path, mode, axis):
+    """`h` is every word and `both` is every column, so in both the
+    composition KNOWS the layer is displaced horizontally."""
+    m, t = _t16(mode, axis, '["bg1"]')
+    f = features(tmp_path, m=m + LAYERS, t=t)
+    msg = _refuse(tmp_path, f, "m", "t")
+    assert "VIDEO/OFFSET contention" in msg
+    assert "declares 16x16 tiles for bg1" in msg
+    assert "config.HScroll" in msg           # the mechanism, by name
+    assert "draws the wrong half" in msg
+
+
+def test_o11_names_the_layer_and_not_its_neighbour(tmp_path):
+    """The refusal is per LAYER: a table driving bg1 and bg2 beside a
+    `tiles16` that names only bg2 must name bg2 — a message that named the
+    claim and not the layer would send the author to the wrong end."""
+    m, t = _t16(2, "h", '["bg2"]', layers='["bg1", "bg2"]')
+    f = features(tmp_path, m=m + LAYERS, t=t)
+    msg = _refuse(tmp_path, f, "m", "t")
+    assert "16x16 tiles for bg2" in msg
+    assert "16x16 tiles for bg1" not in msg
+
+
+def test_o11_a_vertically_driven_16x16_layer_composes(tmp_path):
+    """THE ASYMMETRY, and it is the reason this is not a blanket refusal: the
+    vertical half-select comes from the DISPLACED tileData.VScroll, so a
+    vertically displaced 16x16 column is coherent. Measured 27/27."""
+    m, t = _t16(2, "v", '["bg1"]')
+    f = features(tmp_path, m=m + LAYERS, t=t)
+    a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m", "t"))
+    assert a.scenes["s"].video_offset["tiles16"] == ["bg1"]
+    assert a.scenes["s"].video_offset["bgmode"] == 2 | 0x10   # BGMODE bit 4
+
+
+def test_o11_a_vertically_driven_16x16_layer_still_warns_about_the_pair(tmp_path):
+    """...and warns about the OTHER constraint, which the composition also
+    cannot check: two adjacent columns share one tilemap entry but keep their
+    own rows, so a pair must carry the same displacement or tear."""
+    m, t = _t16(2, "v", '["bg1"]')
+    f = features(tmp_path, m=m + LAYERS, t=t)
+    a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m", "t"))
+    w = " ".join(a.scenes["s"].video_offset["warnings"])
+    assert "SHARE one tilemap entry" in w
+    assert "tears down the middle" in w
+    assert "incoherent" not in w             # no horizontal word is possible
+
+
+def test_o11_per_column_warns_rather_than_refusing(tmp_path):
+    """Mode 4's axis is bit 15 of each WORD — data in a blob, which the
+    composition cannot read. It cannot prove the 16x16 layer takes a
+    horizontal word, so it names both conditions and composes."""
+    m, t = _t16(4, "per_column", '["bg1"]', layers='["bg1", "bg2"]')
+    f = features(tmp_path, m=m + LAYERS, t=t)
+    a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m", "t"))
+    w = " ".join(a.scenes["s"].video_offset["warnings"])
+    assert "cannot read a word" in w
+    assert "renders as 0 on an even screen column and 16 on an odd one" in w
+    assert "tears down the middle" in w
+
+
+def test_o11_does_not_fire_on_a_layer_the_table_does_not_drive(tmp_path):
+    """16x16 on bg1 beside a table that drives bg2 only is two claims that do
+    not meet — no refusal and no warning, or the warning means nothing."""
+    m, t = _t16(2, "h", '["bg1"]', layers='["bg2"]')
+    f = features(tmp_path, m=m + LAYERS, t=t)
+    a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m", "t"))
+    w = " ".join(a.scenes["s"].video_offset["warnings"])
+    assert "16x16" not in w
 
 # -- O12: DIRECT COLOUR, declared with the mode and composed into CGWSEL ----
 #

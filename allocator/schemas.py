@@ -971,11 +971,20 @@ OFFSET_MODES = (2, 4, 6)
 
 # Modes 2 and 6 fetch an H word and a V word per column, so a column can carry
 # both axes; mode 4 fetches one word and bit 15 picks the axis, so a column
-# carries one and the TABLE can still carry both. `axis` says which the table
-# declares, and "both" therefore means "two axes per column" in modes 2 and 6
-# and "two axes across the table, one per column" in mode 4 — the composition
-# warns at that boundary rather than refusing it (O7).
-OFFSET_AXES = ("h", "v", "both")
+# carries one and the TABLE can still carry both. Those are two DIFFERENT
+# states of the hardware and each has its own name here, because a declaration
+# whose meaning depends on a number declared somewhere else is a declaration
+# that cannot be checked:
+#
+#   "both"        a column is displaced on BOTH axes at once. Modes 2 and 6.
+#   "per_column"  the TABLE carries both axes and each COLUMN carries ONE,
+#                 chosen by bit 15 of its word. Mode 4, and only mode 4.
+#
+# Each is REFUSED in the other's modes (O7) — there is no mode-4 state in
+# which a column moves on both, and no mode-2/6 word that selects an axis. The
+# pair is what makes a table moved between modes stop the build instead of
+# silently changing meaning.
+OFFSET_AXES = ("h", "v", "both", "per_column")
 
 # The enable bits an offset word can set: bit 13 -> BG1, bit 14 -> BG2. No
 # other layer is reachable — SnesPpu.cpp:154 computes the bit from the layer
@@ -1058,7 +1067,7 @@ class OffsetClaim:
     same scene refuses in the composition.
     """
     name: str
-    axis: str                     # h | v | both  (OFFSET_AXES)
+    axis: str                     # h | v | both | per_column  (OFFSET_AXES)
     layers: tuple[str, ...]       # bg1 | bg2 — the enable bits it may set
 
 
@@ -1697,9 +1706,12 @@ def load_feature(path: str | Path, substrate: Substrate) -> FeatureDecl:
             raise SchemaError(
                 f"{w}: axis = '{t['axis']}' is not one of "
                 f"{list(OFFSET_AXES)}. An offset word displaces a column "
-                f"horizontally, vertically, or (in modes 2 and 6, which "
-                f"fetch a word for each) both — there is no third axis on a "
-                f"tilemap.")
+                f"horizontally or vertically; 'both' is a column displaced on "
+                f"BOTH at once (modes 2 and 6, which fetch a word for each) "
+                f"and 'per_column' is a table carrying both axes with each "
+                f"column on ONE of them, picked by bit 15 (mode 4, which "
+                f"fetches one word). There is no third axis on a tilemap and "
+                f"no fifth state.")
         layers = tuple(t["layers"])
         if not all(isinstance(x, str) for x in layers):
             raise SchemaError(f"{w}: layers must be a list of layer names")

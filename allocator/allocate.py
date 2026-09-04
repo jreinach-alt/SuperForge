@@ -984,7 +984,8 @@ def compose_video_offset(video: list[tuple], offset: list[tuple],
 
     if offset:
         oc, owho = offset[0]
-        checks += 4                      # O3 + O4 + O6 + O7 live
+        checks += 5                      # O3 + O4 + O6 + O7's TWO arms
+                                         # (both-under-4, per_column-under-2/6)
 
         # O3 — offset-per-tile needs a DECLARED mode. Without one the mode
         # restriction cannot be proven at all, which is the hole this
@@ -1022,36 +1023,59 @@ def compose_video_offset(video: list[tuple], offset: list[tuple],
                 f"whose bit 15 picks the axis) or 6 (bg1 4bpp, hi-res), or "
                 f"drop the offset claim")
 
-        # O7 — `both` means a different thing under mode 4, and it used to be
-        # REFUSED there. That was wrong, and wrong in a way worth keeping the
-        # shape of: the refusal reasoned about a COLUMN ("a column carries one
-        # axis or the other and never both" — true) and then rejected a claim
-        # about the TABLE. Bit 15 is per WORD, so a mode-4 table genuinely can
-        # drive column 3 vertically and column 4 horizontally, and that mixing
-        # is the one thing mode 4 does which mode 2 cannot. The refusal's own
-        # remedy text said so — "choose per column at run time through bit 15"
-        # — while the emission it forced could not deliver it: `axis` selects
-        # WHICH VALUE MASK is published, so a table declaring "v" gets MASK and
-        # no HMASK, and the two axes mask differently ($3FF against $3F8).
-        # Declaring the truth was the one thing an author could not do.
+        # O7 — the two-axis states are TWO STATES, and each mode has exactly
+        # one of them. This was a WARNING on the mode-4 arm and no check at
+        # all on the other, which is the shape a declaration takes when it
+        # cannot say what its author means: `both` had to cover a column
+        # displaced on both axes (modes 2 and 6, a word fetched for each) AND
+        # a table whose columns each carry one axis picked by bit 15 (mode 4,
+        # one word fetched). Two different hardware states under one name, so
+        # the composition could only read the second meaning aloud on every
+        # build of a CORRECT declaration — a warning that was the definition
+        # of the value rather than a report of a defect.
         #
-        # So `both` is legal in all three offset modes and means "this table
-        # uses both axes". What DIFFERS by mode is where the choice lives, and
-        # that is worth saying out loud, because the same word changes meaning
-        # under a rail that migrates between them.
+        # `per_column` is the second state's own name, and with it each value
+        # refuses in the other's modes. What that buys is the case the warning
+        # was guarding and could not stop: a table MOVED BETWEEN MODES keeps
+        # its declaration and changes its meaning, and now stops the build
+        # instead.
         if mode == 4 and oc.axis == "both":
-            warnings.append(
-                f"offset {oc.name} ({owho}) declares axis = \"both\" under "
-                f"mode 4, where that means something different from modes 2 "
-                f"and 6. Mode 4 fetches ONE word per column and bit 15 picks "
-                f"its axis (Mesen2 SnesPpu.cpp FetchTileData case 2 under "
-                f"BgMode 4, and the bit-15 test at :156-161), so the TABLE "
-                f"carries both axes and each COLUMN carries one — set "
-                f"ES_OPT_<ID>_VSEL on a word to make it vertical. Modes 2 and "
-                f"6 fetch a word for EACH axis, so there \"both\" means a "
-                f"column can be displaced on both at once. A table moved "
-                f"between those modes keeps its declaration and changes its "
-                f"meaning")
+            vc, vwho = video[0]
+            raise AllocationError(
+                f"OFFSET-PER-TILE contention in scene '{scope}': {oc.name} "
+                f"({owho}) declares axis = \"both\", but {vc.name} ({vwho}) "
+                f"declares mode 4. \"both\" is a column displaced on BOTH "
+                f"axes at once, and mode 4 has no such state: it fetches ONE "
+                f"word per column and bit 15 selects that word's axis (Mesen2 "
+                f"SnesPpu.cpp FetchTileData case 2 under BgMode 4, and the "
+                f"bit-15 test at :156-161), so a column is displaced "
+                f"vertically or horizontally and never both. What mode 4 CAN "
+                f"do — and modes 2 and 6 cannot — is carry both axes ACROSS "
+                f"THE TABLE, one per column: declare axis = \"per_column\", "
+                f"which emits MASK, HMASK and VSEL and says which bit picks. "
+                f"This is a refusal rather than a warning because the two "
+                f"declarations mean different things: a table moved between "
+                f"mode 2 and mode 4 keeps its `axis` and changes its meaning, "
+                f"and that is the migration this stops (docs/100)")
+
+        if mode in (2, 6) and oc.axis == "per_column":
+            vc, vwho = video[0]
+            raise AllocationError(
+                f"OFFSET-PER-TILE contention in scene '{scope}': {oc.name} "
+                f"({owho}) declares axis = \"per_column\", but {vc.name} "
+                f"({vwho}) declares mode {mode}. \"per_column\" is a table "
+                f"whose columns each carry ONE axis, chosen by bit 15 of the "
+                f"word — and bit 15 is read in mode 4 alone (Mesen2 "
+                f"SnesPpu.cpp:156-161). Mode {mode} fetches an H word AND a V "
+                f"word for every column (FetchTileData cases 2 and 3, "
+                f":277-390), so the axis is not a per-column choice there: "
+                f"every column gets both, and the word's bit 15 selects "
+                f"nothing. Declare axis = \"both\" for a column displaced on "
+                f"both axes, or \"h\"/\"v\" for a table that uses one — or "
+                f"declare mode 4, where the choice exists. This is a refusal "
+                f"rather than a warning because the two declarations mean "
+                f"different things and a table moved between the modes keeps "
+                f"its `axis` (docs/100)")
 
         # O6 — the driven layer must exist in the mode. An enable bit for a
         # layer the mode never renders is the R5 shape: the bit sits set, the
@@ -1068,6 +1092,93 @@ def compose_video_offset(video: list[tuple], offset: list[tuple],
                     f"RenderMode{mode}), so displacing it displaces a layer "
                     f"no pass draws. Drop {lyr} from `layers`, or declare a "
                     f"mode that renders it")
+
+        # O11 — 16x16 TILES AND A HORIZONTALLY DISPLACED LAYER. The one
+        # interaction between the two halves of this vocabulary, and it is
+        # not symmetric between the axes:
+        #
+        #   the TILEMAP ENTRY a column reads is picked from the DISPLACED
+        #        scroll — `column = columnIndex + (hScroll >> 3)`, then
+        #        `column >>= 1` for LargeTiles (SnesPpu.cpp:195, :199), and
+        #        `row = (realY + vScroll) >> 4` (:186) — so both axes reach it
+        #   WHICH HALF of a 16-wide tile is drawn is picked from the LAYER's
+        #        OWN register: `useSecondTile = (((column << 3) +
+        #        config.HScroll) & 0x08) == 0x08` (:235) — `config.HScroll`,
+        #        not the displaced `hScroll`
+        #   the VERTICAL half IS displaced: it is taken from
+        #        `tileData.VScroll` (:243, :250), which GetTilemapData wrote
+        #        from the displaced value (:206)
+        #
+        # So 16x16 is COHERENT with a vertical offset and INCOHERENT with a
+        # horizontal one: a horizontally displaced column fetches the right
+        # tile and draws the wrong half of it. MEASURED on this emulator, not
+        # only read: a 16x16 BG1 driven by a horizontal word of 8 rendered
+        # every EVEN screen column as though the word were 0 and every ODD one
+        # as though it were 16 — 30 of 31 screen columns fit that model against
+        # 16 of 31 for a coherent one, and of the 15 columns actually carrying
+        # a displacement, 14 fit it and ZERO fit the coherent model (the odd
+        # one out is a rail override that zeroes its word). The same probe
+        # measured a VERTICAL word coherent at 27 of 27 over six scanlines.
+        #
+        # A REFUSAL where the composition can PROVE the layer takes horizontal
+        # words — `h` (every word) and `both` (every column, both axes). Under
+        # `per_column` the axis is bit 15 of each WORD, which is DATA in a
+        # blob the composition cannot read, so it warns and names the two
+        # conditions the table has to satisfy instead. That is the docs/99
+        # rule (refuse what the silicon cannot express, warn about what it
+        # can) resolved the way the bg2-under-mode-7 arm resolves it: where
+        # the thing that would make the composition correct is outside what
+        # this vocabulary models, over-refusal is its own defect.
+        if video:
+            vc, vwho = video[0]
+            checks += 1                      # O11 live
+            for lyr in [x for x in oc.layers if x in vc.tiles16]:
+                if oc.axis in ("h", "both"):
+                    raise AllocationError(
+                        f"VIDEO/OFFSET contention in scene '{scope}': "
+                        f"{vc.name} ({vwho}) declares 16x16 tiles for {lyr}, "
+                        f"and {oc.name} ({owho}) drives {lyr} from the offset "
+                        f"table on a HORIZONTAL axis (axis = "
+                        f"\"{oc.axis}\"). A 16x16 layer picks its TILEMAP "
+                        f"ENTRY from the displaced scroll (column = "
+                        f"columnIndex + (hScroll >> 3), then column >>= 1 — "
+                        f"Mesen2 SnesPpu.cpp:195, :199) but picks WHICH HALF "
+                        f"of that 16-wide tile to draw from the LAYER's own "
+                        f"register (useSecondTile = (((column << 3) + "
+                        f"config.HScroll) & 8) == 8, :235), so a displaced "
+                        f"column fetches the right tile and draws the wrong "
+                        f"half of it: measured here, a word of 8 moves an "
+                        f"EVEN column by 0 and an ODD column by 16, which "
+                        f"pulls the two halves of every large tile apart "
+                        f"rather than shearing the picture. The VERTICAL axis "
+                        f"has no such split — the vertical half comes from "
+                        f"the displaced tileData.VScroll (:243, :206) — so "
+                        f"drive {lyr} vertically, drive the horizontal axis "
+                        f"on a layer this scene does not declare 16x16, or "
+                        f"drop {lyr} from `tiles16` (docs/100)")
+                notes = []
+                if oc.axis == "per_column":
+                    notes.append(
+                        "any HORIZONTAL word it carries for that layer is "
+                        "incoherent — the tilemap entry moves with the "
+                        "displaced scroll and the half-select does not "
+                        "(SnesPpu.cpp:195/:199 against :235), so a value of 8 "
+                        "renders as 0 on an even screen column and 16 on an "
+                        "odd one; only values whose bit 3 equals the layer's "
+                        "own BGnHOFS bit 3 survive, i.e. whole 16-pixel steps")
+                notes.append(
+                    "two adjacent screen columns SHARE one tilemap entry "
+                    "(column >>= 1, :199) but each keeps its own row from its "
+                    "OWN displaced vScroll (row = (realY + vScroll) >> 4, "
+                    ":186), so the two halves of a large tile must carry the "
+                    "SAME vertical displacement or the tile reads two "
+                    "different map rows and tears down the middle")
+                warnings.append(
+                    f"{vc.name} ({vwho}) declares 16x16 tiles for {lyr} and "
+                    f"{oc.name} ({owho}) drives {lyr} from the offset table "
+                    f"(axis = \"{oc.axis}\"). Two conditions on the TABLE'S "
+                    f"WORDS follow, and the composition cannot read a word: "
+                    + "; and ".join(notes))
 
         # O5, the designation arm — BG3 IS the table. The register arm of the
         # same rule fires in check_reg_ownership against the synthesized
@@ -1092,7 +1203,7 @@ def compose_video_offset(video: list[tuple], offset: list[tuple],
         # Hardware behaviour an author of this table has to design around —
         # real, not refusable, and the reason it is a warning is that both
         # facts are properties of a CORRECT declaration.
-        if oc.axis in ("h", "both"):
+        if oc.axis in ("h", "both", "per_column"):
             warnings.append(
                 f"offset {oc.name} ({owho}) declares a HORIZONTAL axis: a "
                 f"horizontal offset is 8-PIXEL granular. The hardware "
@@ -1219,9 +1330,12 @@ def compose_video_offset(video: list[tuple], offset: list[tuple],
         oc, _ = offset[0]
         for lyr in oc.layers:
             fields[lyr.upper()] = OFFSET_LAYER_BITS[lyr]
-        if oc.axis in ("v", "both"):
+        # `per_column` publishes exactly what `both` publishes: mode 4's one
+        # word carries either axis, so a table that uses both needs both value
+        # masks and the bit that picks between them.
+        if oc.axis in ("v", "both", "per_column"):
             fields["MASK"] = OFFSET_VALUE_MASK
-        if oc.axis in ("h", "both"):
+        if oc.axis in ("h", "both", "per_column"):
             fields["HMASK"] = OFFSET_H_VALUE_MASK
         if mode == 4:
             fields["VSEL"] = OFFSET_VSEL_BIT
@@ -1239,6 +1353,9 @@ def compose_video_offset(video: list[tuple], offset: list[tuple],
     return {"bgmode": bgmode, "fields": fields, "registers": regs,
             "features": feats,
             "mode": mode,
+            # ...and the size bits, so a test can join a ROM's $2105 on the
+            # DECLARATION rather than on a literal.
+            "tiles16": list(video[0][0].tiles16) if video else [],
             "axis": offset[0][0].axis if offset else None,
             "layers": list(offset[0][0].layers) if offset else [],
             "bands": bands[0][0].rows if bands else 1,
@@ -2214,6 +2331,7 @@ def allocate(sub: Substrate, features: dict[str, FeatureDecl],
             if sm.video_offset is None:
                 sm.video_offset = {"bgmode": None, "fields": {}, "registers": (),
                                    "features": [], "mode": None, "axis": None,
+                                   "tiles16": [],
                                    "layers": [], "video": [], "offset": [],
                                    "bands": 1, "bands_claims": [],
                                    "warnings": [], "modes": 0, "offsets": 0,
@@ -3131,6 +3249,7 @@ def emit(alloc: Allocation, out_dir: str | Path) -> list[Path]:
                          **({"video_offset": {
                                  "bgmode": sm.video_offset["bgmode"],
                                  "mode": sm.video_offset["mode"],
+                                 "tiles16": sm.video_offset["tiles16"],
                                  "offset_axis": sm.video_offset["axis"],
                                  "offset_layers":
                                      sm.video_offset["layers"],

@@ -84,18 +84,31 @@ checked against (§5, O9): a 4bpp tile is 32 bytes and an 8bpp tile is 64, the
 PPU fetches at the MODE's depth whatever the claim reserved, and until mode 4
 every composed mode rendered its layers at the depth the art happened to be.
 
-**`axis = "both"` under mode 4 was refused, and that was wrong.** The refusal
-reasoned about a COLUMN — a mode-4 column carries one axis, which is true —
-and then rejected a claim about the TABLE. Bit 15 is per WORD, so a mode-4
-table can drive one column vertically and its neighbour horizontally, and that
-mixing is the only thing mode 4 does which mode 2 cannot. It also made the
-truth undeclarable rather than merely unusual: `axis` selects which value mask
-is published and the two mask differently (`$3FF` against `$3F8`), so a mixed
-table declaring `"v"` got `MASK` and no `HMASK` and had no symbol to build half
-its words from. `both` is legal in all three offset modes now and means "this
-table uses both axes"; what differs by mode is where the choice lives, and the
-composition warns at that boundary because the same declaration means "both
-axes per column" one mode over.
+**The two-axis states are TWO STATES, and each has its own name.** Modes 2 and
+6 fetch a word for each axis, so a column can be displaced on both at once;
+mode 4 fetches one word and bit 15 picks that word's axis, so the TABLE carries
+both axes and each COLUMN carries one. `axis = "both"` is the first and
+`axis = "per_column"` is the second, and **each is refused in the other's
+modes** (§5, O7).
+
+That pair replaced a single `"both"` that had to mean whichever state its
+scene's mode implied. Two things were wrong with it. The first: it made the
+composition print the value's own DEFINITION on every build of a correct
+mode-4 declaration — a warning that reports nothing, which `mill` ate on every
+build for a sprint. The second is the one that mattered: **a table moved
+between the modes kept its declaration and changed its meaning**, and a warning
+cannot stop that. Two names can, and the refusal is where the migration now
+lands.
+
+(The refusal `"both"`-under-mode-4 replaces is not the one that used to be
+there. That one reasoned about a COLUMN — a mode-4 column carries one axis,
+which is true — and then rejected a claim about the TABLE, leaving the mixed
+table undeclarable: `axis` selects which value mask is published and the two
+mask differently (`$3FF` against `$3F8`), so a mixed table declaring `"v"` got
+`MASK` and no `HMASK` and had no symbol to build half its words from.
+`per_column` is that missing declaration, and it publishes `MASK`, `HMASK` and
+`VSEL` — exactly the set `"both"` published under mode 4, so the rail that
+migrated to it builds a byte-identical ROM.)
 
 **Two things about offset-per-tile were measured on a shipped binary rather
 than read**, because reading a fetch order is not the same as watching it:
@@ -128,7 +141,12 @@ tiles16 = []               # optional: bg1|bg2|bg3|bg4  (b4-7)
 direct_color = false       # optional: 8bpp pixels ARE the colour (CGWSEL b0)
 
 [[claims.offset]]          # OFFSET-PER-TILE: BG3's tilemap IS the table
-axis   = "v"               # h | v | both
+axis   = "v"               # h | v | both | per_column
+                           #   both       a column displaced on BOTH axes at
+                           #              once — modes 2 and 6 only
+                           #   per_column the TABLE carries both axes, each
+                           #              COLUMN one, picked by bit 15 —
+                           #              mode 4 only
 layers = ["bg1", "bg2"]    # the enable bits it may set: 13 -> BG1, 14 -> BG2
 
 [[claims.offset_bands]]    # BANDS: this SCENE reads the table in `rows` bands
@@ -240,10 +258,25 @@ names the claiming features and the hardware mechanism it protects.
   declared mode never draws refuses (bg2 under mode 6). R5's shape on the mode
   axis: the enable bit is set and the offset displaces a layer no pass
   produces.
-- **O7 — mode 4 carries one axis per column.** `axis = "both"` under mode 4
-  refuses. One word is fetched and bit 15 selects the axis, so a column carries
-  one or the other and never both. Modes 2 and 6 fetch a word for each and are
-  where `"both"` is expressible.
+- **O7 — the two-axis states are two states, and each mode has one of them.**
+  Two arms, and each is the other's mirror:
+  - `axis = "both"` under **mode 4** refuses. `"both"` is a column displaced on
+    both axes at once; mode 4 fetches ONE word and bit 15 selects that word's
+    axis (`SnesPpu.cpp:156-161`), so no column is ever on both. The message
+    names `per_column` as the declaration that says what mode 4 CAN do.
+  - `axis = "per_column"` under **modes 2 and 6** refuses. `per_column` is a
+    table whose columns each carry one axis, chosen by bit 15 — and bit 15 is
+    read in mode 4 alone. Modes 2 and 6 fetch a word for EACH axis, so every
+    column gets both and the word's bit 15 selects nothing.
+
+  **This arrived as a warning and became a pair of refusals**, and the reason
+  is worth keeping: with one name for both states the composition could only
+  read the value's definition aloud on a CORRECT declaration, and the hazard it
+  was pointing at — a table MOVED BETWEEN MODES, keeping its `axis` and
+  changing its meaning — is exactly what a warning cannot stop. Two names make
+  that migration stop the build. The emission is unaffected: `per_column`
+  publishes `MASK`, `HMASK` and `VSEL`, the set `"both"` published under mode 4,
+  so `mill`'s ROM is byte-identical across the rename.
 - **O8 — a designation the mode does not render.** A `[[claims.screen]]` claim
   for a BG layer the declared mode never draws refuses, **with or without an
   offset claim**. R5's rule on the mode axis, and the same sentence: the TM/TS
@@ -325,6 +358,12 @@ about what it can*.
 - every offset claim: the word REPLACES the layer's scroll rather than adding
   to it, and a column with its enable bit clear falls back to the layer's own
   register — so the table holds absolute positions, not deltas.
+- a `tiles16` layer an offset table drives: the two 8-pixel halves of a large
+  tile share one tilemap entry and keep their own rows, so they must carry the
+  same vertical displacement or the tile tears down the middle — and under
+  `axis = "per_column"`, any horizontal word for that layer renders as 0 on an
+  even screen column and 16 on an odd one. Both are conditions on the table's
+  WORDS, which the composition cannot read (O11).
 - an offset claim driving a layer no `[[claims.screen]]` claim in the scene
   designates: displacing a layer that is on neither screen displaces nothing
   visible. A warning and not a refusal for the WOBJSEL reason (docs/99 §8) —
@@ -369,6 +408,66 @@ checks, so a run that examined nothing reads as having examined nothing.
   page `BG3SC` addresses — and whether the rows a band names EXIST in the
   table's VRAM claim is not reachable (§14, the placement limit).
 
+- **O11 — 16x16 tiles and a HORIZONTALLY displaced layer.** The one
+  interaction between this vocabulary's two halves, and it is **not symmetric
+  between the axes**. A `tiles16` layer that an offset claim drives on an axis
+  the composition can prove horizontal — `axis = "h"` (every word) or
+  `axis = "both"` (every column, both axes) — refuses. Under
+  `axis = "per_column"` it **warns**, because there the axis is bit 15 of each
+  WORD: data in a blob, which the composition cannot read.
+
+  **The mechanism.** With `LargeTiles` a layer picks its tilemap ENTRY from the
+  DISPLACED scroll — `column = columnIndex + (hScroll >> 3)` then
+  `column >>= 1` (`SnesPpu.cpp:195`, `:199`), and
+  `row = (realY + vScroll) >> 4` (`:186`) — but it picks **which half of the
+  16-wide tile to draw** from the LAYER's own register:
+
+  ```cpp
+  useSecondTile = (((column << 3) + config.HScroll) & 0x08) == 0x08;   // :235
+  ```
+
+  `config.HScroll`, not the displaced `hScroll`. The vertical half has no such
+  split: it is taken from `tileData.VScroll` (`:243`, `:250`), which
+  `GetTilemapData` wrote from the *displaced* value (`:206`). So **16x16 is
+  coherent with a vertical offset and incoherent with a horizontal one**: a
+  horizontally displaced column fetches the right tile and draws the wrong half
+  of it.
+
+  **Measured, not only read** (a throwaway 16x16 build of `mill`, one probe
+  colour per tile, decoded off the rendered frame):
+
+  | probe | result |
+  |---|---|
+  | horizontal word = 8 on a 16x16 BG1 | **30/31** screen columns rendered as *"the entry moves, the half-select does not"* predicts — an EVEN column as though the word were 0, an ODD one as though it were 16 — against **16/31** for a coherent model. Restricted to the columns actually carrying a displacement: **14/15** fit the first and **0/15** the second. (The odd one out is the rail's own car override, which zeroes those four words; the 16 control columns fit both models, which is what says the decode is right.) |
+  | vertical word = 8 on the same layer | **27/27** columns, over six scanlines, matched the per-column *displaced* vScroll; **0/27** matched the layer's own |
+
+  So an 8-pixel horizontal word does not shear the picture coarsely — it pulls
+  the two halves of every large tile 16 pixels apart.
+
+  **Why the `per_column` arm warns rather than refusing.** The docs/99 rule is
+  *refuse what the silicon cannot express, warn about what it can*, and the
+  bg2-under-mode-7 arm is the precedent for what to do when the thing that
+  would make a composition correct is outside what this vocabulary models.
+  Here that thing exists twice over: a mode-4 table may carry only VERTICAL
+  words for its 16x16 layer and horizontal ones for the other (which is
+  exactly `mill`'s shape — BG1 vertical, BG2 horizontal), and a horizontal
+  word whose bit 3 matches the layer's own `BGnHOFS` bit 3 — a whole 16-pixel
+  step — is coherent even on a 16x16 layer. Neither is visible to the
+  composition, because `axis` is a property of the TABLE and the axis bit is a
+  property of each WORD. Refusing would make both undeclarable, which is the
+  mistake O7's first refusal made (§2). **What would turn the warning into a
+  refusal is a declaration that can say it: a per-LAYER axis on
+  `[[claims.offset]]`.** That is not built, because no rail needs it — said
+  here so it is a known limit rather than a hole.
+
+  **The second condition, on both axes, and also unreadable from here.** Two
+  adjacent screen columns SHARE one tilemap entry (`column >>= 1`) but each
+  keeps its own row from its OWN displaced vScroll (`row = (realY + vScroll)
+  >> 4`). So **the two 8-pixel halves of a large tile must carry the same
+  vertical displacement**, or they read different map rows and the tile tears
+  down its middle. Every `tiles16` layer an offset table drives gets that
+  warning, whatever its axis.
+
 ## 6. Emission
 
 For every scene carrying at least one vocabulary claim, the scene's generated
@@ -404,10 +503,10 @@ instead of a symbol, saying so.
 
 The composition also lands machine-readably: the scene's entry in
 `symbol_map.json` gains a `video_offset` object — the composed BGMODE, the
-mode, the offset table's declared axis and layers, the emitted fields, the
-registers the composition owns, and the contributing features — so a test can
-assert a ROM's mode and its per-column words against the DECLARATION instead of
-re-typing either.
+mode, the layers declared 16x16, the offset table's declared axis and layers,
+the emitted fields, the registers the composition owns, and the contributing
+features — so a test can assert a ROM's mode, its size bits and its per-column
+words against the DECLARATION instead of re-typing any of them.
 
 ## 7. The tilemap's shape, which this sprint completed
 
@@ -1233,9 +1332,38 @@ cases go red. A mechanism that is *present* and a mechanism that is merely
   scanline seam and is mode-agnostic by construction; the vocabulary has no
   per-scanline story, and composing a video claim against an active-phase
   BGMODE transfer refuses with a message that says exactly this.
-- **`tiles16` is composed and not checked further.** 16x16 tiles change the
-  tilemap's addressing, and nothing here verifies that a claim's tilemap is
-  sized for them.
+- **`tiles16` is composed, joined against the offset table (O11), and not
+  checked further.** 16x16 tiles change the tilemap's addressing, and nothing
+  here verifies that a claim's tilemap is sized for them or that its CHR page
+  is laid out for the PPU's `N / N+1 / N+16 / N+17` quad.
+- **NO RAIL DECLARES `tiles16` TODAY, and the reason is the ART BUDGET rather
+  than the vocabulary.** `mill` is the rail it belongs on — its BG1 is the
+  layer its table drives VERTICALLY, which is the coherent axis (O11) — and it
+  cannot afford it. Measured on the rail's own painted picture: the hall and
+  the lobby cut at 8x8 dedupe to **336 distinct tiles** (21,504 B, against a
+  384-tile / 24,576 B page). Cut at 16x16 the same two pictures are **236
+  distinct blocks**, and a block is four tiles at fixed offsets, so the page
+  would have to hold **944 tiles = 60,416 B** — against 8,704 free VRAM words
+  (BG1's CHR claim is 12,288) and 8,816 free ROM bytes. The hall alone is 143
+  blocks / 572 tiles / 36,608 B and still does not fit. Sub-tile sharing
+  between overlapping blocks is possible in principle (the 944 slots draw on
+  only 336 distinct tiles) but is a packing search, not a cut. **So the size
+  bits reaching `$2105` and the PPU drawing large tiles are proven only by a
+  throwaway probe build**, described under O11 — not by a shipping rail, which
+  is the weaker footing of everything in this section and is why it is here.
+  What a rail that wanted it would need is art authored on a 16-pixel grid,
+  which is a design decision about the picture and not a change to this
+  vocabulary.
+- **The COLUMN-PAIR condition O11 warns about is real on `mill`'s own table,
+  and it is the ripple that breaks it.** Checked over every emitted row: the
+  machine table's 129 rows all satisfy it — BG1's driven columns come in
+  4-column shaft blocks carrying one value each, so both halves of every
+  16-pixel pair agree — but **all 33 rows of the molten channel's ripple table
+  fail it, at 357 of 528 pairs**, because the surface's rise is a sine sampled
+  PER COLUMN and neighbours differ by a pixel or two. Under `tiles16` that is
+  a channel tearing down the middle of every large tile. It is recorded here
+  rather than fixed, because fixing it means sampling the ripple per PAIR —
+  halving the mechanism's own resolution — and no rail is asking for it yet.
 - **Direct color is ALL-OR-NOTHING PER LAYER, and the vocabulary cannot make
   it otherwise.** `direct_color` is one CGWSEL bit for the whole frame, so a
   scene that declares it declares it for every pixel of its 8bpp layer: the
