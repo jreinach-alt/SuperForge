@@ -485,8 +485,14 @@ mode = 1""",
 
     Plant(id="table-declares-both-under-mode-4",
           file=OPT_TOML,
-          old='axis = "per_column"',
-          new='axis = "both"',
+          # ANCHORED ON THE CLAIM'S NAME, because the bare `axis =
+          # "per_column"` also appears in this file's own header comment and
+          # `replace(old, new, 1)` would rewrite the PROSE and leave the
+          # declaration standing — which is exactly what it did on the first
+          # run of this plant, reported as TEST-BLIND / "the build ACCEPTED
+          # the plant". The harness caught it; the anchor is the fix.
+          old='name = "mil_table"\naxis = "per_column"',
+          new='name = "mil_table"\naxis = "both"',
           artifact=ROM,
           build=["mill"],
           expect="build-fails",
