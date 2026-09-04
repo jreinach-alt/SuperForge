@@ -65,6 +65,11 @@ runs one. See `tools/plants/col_map_binding.py` for a worked example.
           artifact=BUILD/"microzero.sfc", build=["microzero"],
           tests=["tests/test_x.py::test_y"], why="...")
 
+`also=((path, old, new), ...)` adds files to the SAME plant, patched and
+restored with it — for a defect whose declaration lives in more than one file.
+Every anchor is resolved before anything is written, so a stale one aborts the
+plant with the tree untouched.
+
 `expect` picks what "fired" means:
     "test-red"    (default) the named tests must FAIL after the rebuild.
     "build-fails" the REBUILD must fail, and its output must contain
@@ -150,6 +155,16 @@ class Plant:
     # a ROM another worker is loading gives that worker a truncated file and a
     # machine frozen at frame 0, attributed to the victim.
     root: Optional[Path] = None
+    # EXTRA FILES the same defect has to touch, as (file, old, new) triples,
+    # patched and restored with the main one. A plant is ONE defect; `also`
+    # exists for a defect whose one declaration got SPLIT ACROSS FILES, which
+    # is what a refactor does to a JOIN — `mill`'s O11 plant needs the offset
+    # table's axis and the video claim's `tiles16`, and those stopped being
+    # the same feature.toml the day the mode moved to `mil_mode`. Restoring
+    # every file in one `finally` keeps the tree-restore property the harness
+    # is built on: the anchors are checked BEFORE anything is written, so a
+    # stale anchor in an `also` entry aborts with nothing patched.
+    also: tuple = ()
     expect: str = "test-red"            # "test-red" | "build-fails"
     build_names: Optional[str] = None   # required substring of a failing build
 
@@ -242,9 +257,26 @@ def run_plant(p: Plant, verbose: bool = True) -> Result:
         if planted == original:
             return Result(p, PLANT_NOT_APPLIED, "old == new: the patch is a no-op")
 
+    # ...and the same for every `also` file. RESOLVED BEFORE ANYTHING IS
+    # WRITTEN, so a stale anchor in the second file cannot leave the first one
+    # patched — the restore property does not depend on the finally clause
+    # having been reached.
+    edits = [(p.file, original, planted)]
+    for path, aold, anew in p.also:
+        atext = path.read_text()
+        if aold not in atext:
+            return Result(p, PLANT_NOT_APPLIED,
+                          f"anchor not found in {path.name}: {aold[:60]!r}")
+        aplanted = atext.replace(aold, anew, 1)
+        if aplanted == atext:
+            return Result(p, PLANT_NOT_APPLIED,
+                          f"old == new in {path.name}: the patch is a no-op")
+        edits.append((path, atext, aplanted))
+
     verdict, detail = FIRED, ""
     try:
-        write_now(p.file, planted)
+        for path, _was, now in edits:
+            write_now(path, now)
 
         # 3. REBUILD, and require the artifact to have MOVED.
         built, bout = make(p.build, p.root)
@@ -290,7 +322,8 @@ def run_plant(p: Plant, verbose: bool = True) -> Result:
                     verdict, detail = FIRED, _tail(tout)
     finally:
         # 5. restore by copy, then prove the artifact came back.
-        write_now(p.file, original)
+        for path, was, _now in edits:
+            write_now(path, was)
         rok, rout = make(p.build, p.root)
         restored = md5(p.artifact)
         if not rok or restored != before:

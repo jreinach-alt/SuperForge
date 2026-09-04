@@ -77,6 +77,10 @@ GEN = SUPERFORGE / "tools" / "gen_mill_assets.py"
 OPT_ASM = SUPERFORGE / "engine" / "features" / "mil_opt" / "mil_opt.asm"
 OBJ_ASM = SUPERFORGE / "engine" / "features" / "mil_obj" / "mil_obj.asm"
 OPT_TOML = SUPERFORGE / "engine" / "features" / "mil_opt" / "feature.toml"
+# THE MODE MOVED OUT OF `mil_opt` on 2026-09-04 (`mil_mode`, so the rail's
+# direct-colour variant can swap one declaration), which is why the two
+# allocator plants below no longer live in one file.
+MODE_TOML = SUPERFORGE / "engine" / "features" / "mil_mode" / "feature.toml"
 HALL_ASM = SUPERFORGE / "game" / "mill" / "scenes" / "hall.asm"
 BAND_ASM = SUPERFORGE / "engine" / "features" / "mil_band" / "mil_band.asm"
 ROM = SUPERFORGE / "build" / "mill.sfc"
@@ -465,7 +469,7 @@ PLANTS = [
               "rest of the climb.",),
 
     Plant(id="hall-declares-mode-1",
-          file=OPT_TOML,
+          file=MODE_TOML,
           old="""name = "mil_mode"
 mode = 4""",
           new="""name = "mil_mode"
@@ -512,26 +516,22 @@ mode = 1""",
               "changing its meaning (refusal O7 of docs/100)."),
 
     Plant(id="tiles16-on-the-layer-the-belts-drive",
+          # TWO FILES, because the JOIN this plant carries is now declared in
+          # two: the table's axis is `mil_opt`'s and `tiles16` is the video
+          # claim's, and the video claim moved to `mil_mode` when the rail's
+          # direct-colour variant needed one declaration to vary. `also` is
+          # what keeps it ONE plant — see tools/falsify.py.
           file=OPT_TOML,
-          old='''axis = "per_column"
-layers = ["bg1", "bg2"]
-
-# Mode 4: bg1 8bpp + bg2 2bpp. The depths are the reason the art is split into
-# two CHR claims at 64 and 16 bytes a tile (mil_bg), and O9 checks each of them
-# against this number.
-[[claims.video]]
-name = "mil_mode"
+          old='''name = "mil_table"
+axis = "per_column"''',
+          new='''name = "mil_table"
+axis = "h"                       # PLANT: the whole table horizontal...''',
+          also=((MODE_TOML,
+                 '''name = "mil_mode"
 mode = 4''',
-          new='''axis = "h"                       # PLANT: the whole table horizontal...
-layers = ["bg1", "bg2"]
-
-# Mode 4: bg1 8bpp + bg2 2bpp. The depths are the reason the art is split into
-# two CHR claims at 64 and 16 bytes a tile (mil_bg), and O9 checks each of them
-# against this number.
-[[claims.video]]
-name = "mil_mode"
+                 '''name = "mil_mode"
 mode = 4
-tiles16 = ["bg2"]                # PLANT: ...and the belts' layer 16x16''',
+tiles16 = ["bg2"]                # PLANT: ...and the belts' layer 16x16'''),),
           artifact=ROM,
           build=["mill"],
           expect="build-fails",
