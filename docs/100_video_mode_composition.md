@@ -976,67 +976,125 @@ Once the lift could leave on its own, the camera panned away from the man
 standing on the deck every time it was called elsewhere. It follows the RIDE
 now, not the car.
 
-### 13.7 The melt — the table read in bands, and the room built to show it
+### 13.7 The floor both rooms share — the table read in bands
 
-The hall reads one row of the table for the whole frame. The lift's other
-stop reads THREE. `DOWN` on the parked car takes him through the deck to the
-melt: the same map seen from its last screen, camera at `SMIL_MELT_CAM`, and
-an HDMA channel rewriting `BG3VOFS` at each band's first line:
+The hall used to read one row of the table for a whole frame, and a third
+scene, the melt, was built under the deck to read three. That room is gone.
+It was a scene the lift dropped into and climbed back out of, which broke the
+rail's continuity for the sake of a demonstration, and the thing being
+demonstrated — a molten channel every column of which carries a vertical word
+— was on screen for a few seconds of a trip nobody had a reason to take.
 
-| band | screen lines | table row | what it shows |
+The channel is the FLOOR OF BOTH ROOMS now. The lobby is the ground floor at
+the bottom of the shaft and the hall is what the lift opens onto, so a
+channel that jumped between them would be two channels; `SMIL_FLOOR_Y` (152)
+and `SMIL_CHANNEL_Y` (168) are one statement of that, asserted in the
+generator rather than commented, and `paint_floor` is the one function both
+rooms call. The hall therefore reads three rows of the table in every frame
+and the lobby two, through the same synthesized channel:
+
+| room | band | table row | what it shows |
 |---|---|---|---|
-| A | 0..119 | 0, the hall's running row, restaged every VBlank | the pistons' feet pumping, the belts running, the car with him in it |
-| B | 120..135 | 2, a row of zeros written once at enter | the deck — no enable bit, both layers at their fallback scroll |
-| C | 136..223 | 1, a ripple row, restaged every VBlank | the whole molten channel, every column a VERTICAL word |
+| hall | A, lines 0..`FLOOR_Y`−1 | 0, the room's running row, restaged every VBlank | the hammer's stroke, the belts running, the car with him in it |
+| hall | B, `FLOOR_Y`..`CHANNEL_Y`−1 | 2, a row of zeros written once at enter | the deck plate — no enable bit, both layers at their fallback scroll |
+| hall | C, `CHANNEL_Y`..223 | 1, a ripple row, restaged every VBlank | the channel, every column a VERTICAL word |
+| lobby | A, lines 0..`CHANNEL_Y`−1 | 2, the zero row | the wall, the two bays and the floor plate — a room that does not move |
+| lobby | C, `CHANNEL_Y`..223 | 1, the same ripple row | the same channel, at the same screen line |
 
-Band C is what the room exists for. Its columns are the same screen columns
+`[[claims.offset_bands]] rows = 3` is the feature's, so both rooms declare
+three and the lobby spends two of them — the declaration is what the table's
+VRAM has to hold and what the channel is synthesized for, not a count of the
+bands a given scene happens to draw.
+
+Band C is what the split exists for. Its columns are the same screen columns
 that carry a HORIZONTAL word in band A — a belt column's tread slides
 sideways above the deck while its channel art slides up or down below it, by
 exactly the difference of its two ripple words, and one pair of frames shows
-both. Mode 4 made the axis a per-column choice; bands make it per-column
-PER BAND. Band B is the control the picture carries itself: a still band
-between two moving ones, from the same table, in the same frame. `Y` holds
-both moving bands flat (the hall's control row and the ripple's) and the
-whole picture stops, pixel for pixel.
+both. Mode 4 made the axis a per-column choice; bands make it per-column PER
+BAND. Band B is the control the picture carries itself: a still band between
+two moving ones, from the same table, in the same frame. `Y` holds both
+moving bands flat (the room's control row and the ripple's) and the whole
+picture stops, pixel for pixel.
+
+**THE HALL'S EDGES ARE THE CAMERA'S, and that is the half a fixed split
+cannot show.** The deck and the channel are at fixed WORLD rows and the
+camera climbs, so their screen rows are `DECK_ROW*8 − cam` and
+`MELT_ROW*8 − cam`, rebuilt every VBlank from `ES_MIL_CAM` and clamped to the
+picture's depth. By the time the car is a third of the way up, both have
+closed and the hall reads one row again — the clamp is what makes a closing
+band write no entry rather than a zero-count one, and a zero count byte is
+the table's TERMINATOR.
 
 **The ripple displaces DOWNWARD only.** A vertical word replaces the layer's
 scroll, so a column pushed up by k samples k rows past the map's bottom
-edge, which wrap to its top — the hall's roof at the foot of the melt.
-Pushed down by k it samples k rows of the deck's lip instead, which reads as
-the surface lifting under the floor. Thirty-two ripple rows and a flat one
-at the hall row's stride (`mil_ripple.bin`, 2,112 B), one ripple row per
-four phases, and the same walker stages both rows into one 128 B transfer
-to two consecutive table rows — the walker took a destination offset and
-lost its car override on any row but the first, because below the deck the
-lift's columns are channel and the channel ripples.
+edge, which wrap to its top. Pushed down by k it samples k rows of the deck's
+lip instead, which reads as the surface lifting under the floor — so the lip
+is drawn `SMIL_RIPPLE_AMP` rows deep, and the band's top few lines can
+legitimately hold still while the rest of it moves. Thirty-two ripple rows
+and a flat one at the room row's stride (`mil_ripple.bin`), one ripple row
+per phase, and in the hall the same walker stages both rows into one 128 B
+transfer to two consecutive table rows. The walker takes a DESTINATION offset
+and derives its source from it, because the lobby stages only the surface:
+while that went into slot 0 the car override fired on it and the lift's four
+columns held still in a rippling channel.
 
-**What was measured.** The band edges land on the declared lines: the first
-screen row that moves below the deck is 136, the row the table names, with
-no lead. And the room's first frame read 382 bytes of RAM nobody had written
-(`$7E:0003` up to `$7E:01B9`). The NMI copies a channel's shadow slot to
-`$43x0-$43xA` and sets `HDMAEN` in the same VBlank, and a channel enabled
-mid-frame runs on that VBlank's remaining lines from whatever `$43xA` (the
-line counter) and `$43x8/9` (the current table address) hold — the init that
-reloads them comes at the NEXT frame's line 0. Each line decrements the
-counter first; from zero that wraps to `$FF`, "repeat, 127 lines", a transfer
-every line from an address stepping by the transfer's width
-(`SnesDmaController.cpp ProcessHdmaChannels`: decrement, DoTransfer = bit 7,
-a new entry only when the low seven bits reach 0). Seeding the address alone
-moved the walk to the table's end (291 bytes, from `$052C`); seeding the
-counter to `$7F`, the longest plain hold, ended it: zero reads. Harmless to
-the picture — `BG3VOFS` means nothing in VBlank and line 0 re-inits — and a
-rule-5 finding all the same, and one every rail that arms a channel through
-the scene_mgr shadow shares: theirs walk from `$7E:0000` through DP that
-happens to be written. §14 records it as a limit of the shadow.
+**What was measured, and the defect it names.** The band edges land where the
+camera says: the first screen row that moves below the deck is the derived
+edge, within the lip's depth and never above it. And the SPLIT CAP is 96, not
+the hardware's 127. A non-repeat HDMA count byte is seven bits, so 127 is what
+one entry can hold; 96 is what this rail allows, because the picture is 224
+lines and 224 > 2 × 96, so every table it builds has AT LEAST THREE ENTRIES.
+At 127 the hall's table collapses to two — 127 + 97 — at exactly the camera
+where both lower bands have closed — `cam <= 216`, about eighty pixels
+into the climb — and
+measured there the channel drove `BG3VOFS` **not once in the whole picture**:
+every row read whichever row the port last held, which is the channel's, so
+the machines stood still and the lift car with its rider in it left the
+screen. Three entries or more drove every band from the top of the picture at
+every camera, at each of 96+96+32, 75+75+74, 127+83+14 and 127+63+16+18.
 
-**What the harness said.** Four plants on the melt — the deck band reading
+WHY the third entry matters is **not established**. The channel is armed
+through the scene_mgr shadow and can take its first transfer of a frame from
+the seeded `$43x8/9` and `$43xA` before the frame-start init reloads them
+(below), and a two-entry table is the case where that transfer's own reload
+lands on the table's terminator — but why a third entry survives the same
+seed is not something reading `SnesDmaController.cpp` settled, and two other
+seeds were measured and each broke a different part of the picture. The rule
+followed here is the measurement, and `tools/gen_mill_assets.py`'s `BAND_MAX`
+and `mil_band.asm` both say so in those words rather than inventing a
+mechanism. `tools/plants/mill.py` plants the 127 back, so the cap cannot
+quietly return.
+
+**The seed the shadow needs.** The room's first frame read 382 bytes of RAM
+nobody had written (`$7E:0003` up to `$7E:01B9`). The NMI copies a channel's
+shadow slot to `$43x0-$43xA` and sets `HDMAEN` in the same VBlank, and a
+channel enabled mid-frame runs on that VBlank's remaining lines from whatever
+`$43xA` (the line counter) and `$43x8/9` (the current table address) hold —
+the init that reloads them comes at the NEXT frame's line 0. Each line
+decrements the counter first; from zero that wraps to `$FF`, "repeat, 127
+lines", a transfer every line from an address stepping by the transfer's
+width (`SnesDmaController.cpp ProcessHdmaChannels`: decrement, DoTransfer =
+bit 7, a new entry only when the low seven bits reach 0). Three seeds, three
+pictures: `$43xA = 0` walks memory as above; `$7F`, the longest plain hold,
+ends the walk but the hold lands on EVERY frame, so the first band's write
+reaches `BG3VOFS` at line 128 and the top 128 lines read whichever row the
+port already held — the hall's machines standing still under a table that was
+advancing; `1` gives no walk, no hold, and every band from the top of the
+picture. **It is NOT harmless to the picture**, which an earlier draft of this
+section said it was: removing the seed on a tree that had it put the hall's
+machine band back to reading the room's row for about 27 lines and the walk's
+leavings under that. §14 records it as a limit of the shadow, and the fix
+belongs there — seed every armed slot's counter, or defer the `HDMAEN` write
+to the frame's own init — rather than in each rail that arms one.
+
+**What the harness said.** Five plants on the bands — the deck band reading
 the ripple row, the channel band reading the machine row, the ripple staged
-from the hall's row, and the band channel never armed — all FIRED, each on
-the case written for it, alongside the hall's sixteen (`tools/plants/mill.py`,
-20/20). Three of the hall's older plants stopped applying when the walker
-was refactored for a second row and were re-anchored; a plant whose anchor
-drifts is reported as PLANT-NOT-APPLIED rather than counted, which is the
-harness refusing to pass on nothing.
+from the room's row, the band channel never armed, and the split cap put back
+to 127 — each FIRED on the case written for it, alongside the hall's
+(`tools/plants/mill.py`). Three of the hall's older plants stopped applying
+when the walker was refactored for a second row and were re-anchored; a plant
+whose anchor drifts is reported as PLANT-NOT-APPLIED rather than counted,
+which is the harness refusing to pass on nothing.
 
 **A defect the zero row found.** `mil_zero_row` and the lobby's `lobby_flat`
 wrote their 32 zero words with 16-bit `stz` to `$2118` and `$2119`: the
@@ -1044,8 +1102,19 @@ first store writes both port bytes and steps the address, the second writes
 the NEXT word's high byte and `$211A` (M7SEL), so every odd word kept a
 stale low byte and the loop's 32 turns reached 64 words. Harmless by luck —
 the enable bits are in the high byte, which was zeroed, and mode 4 never
-reads M7SEL — and visible the moment the melt read its zero row back:
+reads M7SEL — and visible the moment a room read its zero row back:
 `0000 0075 0000 007f`. Both loops store 8-bit now.
+
+**And a defect the camera found.** Two rows chosen against the old camera did
+not survive the move that put the channel on screen. The camera now rests at
+the map's bottom, and there a ram at `FLOOR+13` spent half its stroke ABOVE
+the picture — measured, the whole of v=0..72 changed nine screen rows,
+because the only part of the hammer ever in frame was the bottom of it — and
+a conveyor at `FLOOR+20` sat in the middle of the run the head needed. The
+ram is at `FLOOR+18` and the belt at `FLOOR+24`: the head hangs at screen
+80..128, lifts to 8..56, and comes down onto the conveyor. A row is the
+SUBJECT'S VISIBILITY here, not decoration, and the generator says so where
+the constant is.
 
 ## 14. Stated limits
 
@@ -1090,15 +1159,23 @@ reads M7SEL — and visible the moment the melt read its zero row back:
   the art in them can be is the rail's to know. §13.5 is the case for why that
   line is in the right place — a vocabulary that tried to model it would be
   modelling the picture.
-- **A channel armed through the scene_mgr shadow runs on the arming VBlank's
-  remaining lines from a stale counter.** §13.7 measured it: the NMI copies
-  the slot and sets HDMAEN in one VBlank, and until the next frame's line 0
-  the channel decrements whatever `$43xA` holds — zero wraps to a 127-line
-  repeat that walks memory two bytes a line. The shadow's contract does not
-  say so, and no other rail's slot seeds `$43xA`; `mil_melt` seeds it to
-  `$7F` and reads nothing. A fix in the shadow itself (seed every armed
-  slot's counter, or defer the HDMAEN write to the frame's own init) is the
-  right shape and is not in this sprint.
+- **A channel armed through the scene_mgr shadow runs from its seeded slot,
+  and NOT only on the arming frame.** §13.7 measured it: the NMI copies the
+  slot and sets HDMAEN in one VBlank, and the channel's first transfer of a
+  picture can come off `$43x8/9` and `$43xA` rather than off what the
+  frame-start init derives from A1T. Zero wraps to a 127-line repeat that
+  walks memory two bytes a line (a rule-5 finding); `$7F` holds the first
+  band's write off until line 128 on every frame; `1` is what `mil_band`
+  seeds and what leaves the picture right. An earlier draft of §13.7 called
+  this harmless to the picture because line 0 re-inits — it is not, and
+  removing the seed put the hall's machine band back to reading its row for
+  about 27 lines. It is also the suspect in the two-entry table §13.7
+  records, which is a defect this vocabulary cannot see: the composition
+  proves the CHANNEL is the scene's, not that the table the rail builds for
+  it has a shape the hardware runs. A fix in the shadow itself (seed every
+  armed slot's counter, or defer the HDMAEN write to the frame's own init)
+  is the right shape and is not in this sprint. No other rail's slot seeds
+  `$43xA`.
 - **The rows a band names are not checked to exist.** `rows = 3` promises
   three rows of the table; the composition cannot see the table's VRAM claim
   (below), so it holds the hardware ceiling of 32 and stops. A band naming a

@@ -875,8 +875,10 @@ _MELT = []
 def melt_art():
     """The molten channel, 256 x (PXH - MELT_ROW*8), tiling on 64 px. It was a
     hash-noise formula over the molten ramp -- the brightest thing on screen
-    and the least authored. The hall shows only its top rows (its camera
-    bottoms out at SMIL_CAM_MAX); the melt, from MELT_CAM, shows all of it."""
+    and the least authored. BOTH ROOMS show the same rows of it, at the same
+    screen lines: the hall's camera bottoms out at SMIL_CAM_MAX and the lobby
+    does not scroll at all, and paint_floor samples this from the same
+    offset in each."""
     if not _MELT:
         art = art_to_indices(MELT_ART, shown=PXH - MELT_ROW * 8)
         if len(art) < PXH - MELT_ROW * 8 or len(art[0]) != PX:
@@ -1933,7 +1935,8 @@ assert PHASES % RIPPLE_PHASES == 0
 #
 # At 127 the hall's table collapses to two -- 127 + 97 -- at exactly the
 # camera where the deck's band and the channel's have both closed off the
-# bottom (car 80, cam 216 on the climb). Measured there, the band channel then
+# bottom (cam <= 216, about eighty pixels into the climb). Measured there,
+# the band channel then
 # drove BG3VOFS not once in the whole picture: every row read whichever row
 # the port last held, which is the channel's, so the machines stood still and
 # the lift car with its rider in it left the screen. Three entries or more

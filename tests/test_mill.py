@@ -161,6 +161,10 @@ DECK_ROW = _art("SMIL_DECK_ROW")
 SCREEN_H = _art("SMIL_SCREEN_H")
 LOBBY_FLOOR = _art("SMIL_LOBBY_FLOOR")
 BAYS = _rail("SMIL_DOOR_BAYS")
+MELT_ROW = _art("SMIL_MELT_ROW")
+CHANNEL_Y = _art("SMIL_CHANNEL_Y")
+RIPPLE_AMP = _art("SMIL_RIPPLE_AMP")
+BAND_MAX = _art("SMIL_BAND_MAX")
 
 # The composed video/offset vocabulary, out of the scene's GENERATED map —
 # these are the allocator's, not the rail's, and reading them here is what
@@ -1815,3 +1819,252 @@ def test_standing_on_the_car_is_the_same_picture_as_riding_it(tmp_path):
     assert len(after) == 1, (
         "he changed between boarding facing left and riding:\n  "
         + "\n  ".join(f"{k:12s} {v}" for k, v in seen.items() if k != "at rest"))
+
+
+# --------------------------------------------------------------------------
+# THE BANDS: three rows of the table in one frame, and the edges are the
+# camera's
+# --------------------------------------------------------------------------
+# Every case above reads ONE row of the table for a whole frame. These read
+# three. The composition's own HDMA channel rewrites BG3VOFS at each band's
+# first line (`[[claims.offset_bands]] rows = 3`, docs/100 §13.7) and the PPU
+# fetches whatever row that port names, so the hall's machines read the room's
+# row, the deck between them reads a row with no enable bit, and the channel
+# under the deck reads the ripple's. The edges are not constants: the deck and
+# the channel are at fixed WORLD rows and the camera climbs, so both close as
+# the lift rises — which is the half a fixed split cannot show and is why
+# every case here takes the camera and derives.
+ROW_VOFS = _hall("ES_OPT_HALL_ROW_VOFS")
+ROW_ROOM, ROW_RIPPLE, ROW_ZERO = 0, 1 * ROW_VOFS, 2 * ROW_VOFS
+
+
+def _wram(name):
+    for pool in (MAP["globals"], *(sc["placements"] for sc in MAP["scenes"].values())):
+        for pl in pool:
+            if pl["sym"] == name and pl["class"] == "wram":
+                return pl["start"]
+    raise KeyError(name)
+
+
+def hall_bands(cam):
+    """What the hall's three bands MUST be at camera `cam`: (lines, row) each,
+    empty ones dropped.
+
+    DERIVED FROM THE CAMERA THE SAME WAY `mil_band_hall` derives them, and
+    that is deliberate rather than lazy: the arithmetic is four lines long and
+    the thing under test is whether the PICTURE obeys it. Every case below
+    joins this to pixels or to the bytes the ROM built, never to itself.
+    """
+    deck = min(SCREEN_H, DECK_ROW * 8 - cam)
+    melt = min(SCREEN_H, MELT_ROW * 8 - cam)
+    return [(n, r) for n, r in ((deck, ROW_ROOM),
+                                (melt - deck, ROW_ZERO),
+                                (SCREEN_H - melt, ROW_RIPPLE)) if n]
+
+
+def band_entries(bands):
+    """Those bands as the HDMA ENTRIES they have to become: a band deeper than
+    SMIL_BAND_MAX is more than one entry, and a zero-deep one is none."""
+    out = []
+    for n, row in bands:
+        while n > BAND_MAX:
+            out.append((BAND_MAX, row))
+            n -= BAND_MAX
+        out.append((n, row))
+    return out
+
+
+def table_row(m, r):
+    """Table row `r` as the PPU holds it, re-indexed by SCREEN column."""
+    raw = m.read_bytes(MemoryType.SnesVideoRam, (_vsym("ES_V_MIL_TAB") + r * COLS) * 2,
+                       COLS * 2)
+    words = [raw[i] | (raw[i + 1] << 8) for i in range(0, COLS * 2, 2)]
+    return [None if sc < LEAD else words[sc - LEAD] for sc in range(COLS)]
+
+
+def until_both_rows_move(m, cap=240):
+    """Advance until row 0 AND row 1 both hold different words from now."""
+    r0, r1 = table_row(m, 0), table_row(m, 1)
+    for _ in range(cap):
+        m.advance(1)
+        if table_row(m, 0) != r0 and table_row(m, 1) != r1:
+            return
+    pytest.fail("the room's row and the ripple row did not both advance")
+
+
+def changed_rows(a, b):
+    return [y for y in range(224)
+            if any(a.getpixel((x, y)) != b.getpixel((x, y)) for x in range(256))]
+
+
+def test_the_hall_reads_three_rows_and_the_deck_band_stands_still(tmp_path):
+    """Two frames with both restaged rows changed between them: the machine
+    band and the channel band have moved, and NOT ONE ROW of the deck band
+    between them has — the same 32 columns, three rows of the table, and which
+    row a line reads is decided by the band it is in. The channel's first
+    moving line is the band's derived first line, so the BG3VOFS write lands
+    where the camera says it does."""
+    with Machine(str(ROM)) as m:
+        to_hall(m)
+        a = shot(m, tmp_path / "a.png")
+        cam = m.read_u16(W, DP_CAM)
+        until_both_rows_move(m)
+        b = shot(m, tmp_path / "b.png")
+        assert m.read_u16(W, DP_CAM) == cam, "the camera moved under the case"
+    bands = hall_bands(cam)
+    assert [r for _, r in bands] == [ROW_ROOM, ROW_ZERO, ROW_RIPPLE], (
+        f"the hall is not showing all three bands at cam {cam}: {bands}")
+    a_lines, b_lines, _ = (n for n, _ in bands)
+    moved = changed_rows(a, b)
+    deck = [y for y in moved if a_lines <= y < a_lines + b_lines]
+    assert not deck, f"the deck band moved on rows {deck}"
+    assert [y for y in moved if y < a_lines], "the machine band did not move"
+    edge = a_lines + b_lines
+    below = [y for y in moved if y >= edge]
+    assert below, "the channel band did not move"
+    # THE EDGE, TO WITHIN THE ART'S OWN AMPLITUDE. The ripple displaces
+    # DOWNWARD only, so a column pushed down by k samples k rows of the deck's
+    # LIP instead of the surface — and the lip is drawn RIPPLE_AMP rows deep
+    # for exactly that. So the band's first few lines can legitimately hold
+    # still while the rest of it moves, and what is asserted is that the first
+    # moving line is inside the band and within the lip: an edge one line
+    # early would be a line of the DECK moving, which the check above already
+    # refuses.
+    assert edge <= below[0] <= edge + RIPPLE_AMP, (
+        f"the channel's first moving line is {below[0]}, the band starts at "
+        f"{edge} and its lip is {RIPPLE_AMP} deep")
+
+
+def test_a_column_carries_an_h_word_in_one_band_and_a_v_word_in_another(tmp_path):
+    """A belt column: its row-0 word drives BG2 horizontally and its row-1 word
+    drives BG1 vertically. In the belt band the tread slides SIDEWAYS between
+    two frames; in the channel band the SAME screen column's art slides up or
+    down by exactly the difference of its two ripple words. Mode 4 makes the
+    axis a per-column choice; bands make it per-column, per-band, in one
+    frame."""
+    with Machine(str(ROM)) as m:
+        to_hall(m)
+        cam = m.read_u16(W, DP_CAM)
+        r0, r1 = table_row(m, 0), table_row(m, 1)
+        cols = [sc for sc in range(COLS)
+                if r0[sc] is not None and enabled(r0[sc]) and not is_v(r0[sc])
+                and r1[sc] is not None and enabled(r1[sc]) and is_v(r1[sc])]
+        assert len(cols) >= 8, f"expected belt columns under ripple, got {cols}"
+        a = shot(m, tmp_path / "a.png")
+        ka = {sc: (cam - (r1[sc] & V_MASK)) & V_MASK for sc in cols}
+        ha = {sc: r0[sc] & H_MASK for sc in cols}
+        for _ in range(240):
+            m.advance(1)
+            r1b, r0b = table_row(m, 1), table_row(m, 0)
+            if any(((cam - (r1b[sc] & V_MASK)) & V_MASK) != ka[sc] for sc in cols) \
+                    and any((r0b[sc] & H_MASK) != ha[sc] for sc in cols):
+                break
+        else:
+            pytest.fail("neither the belt phase nor the ripple changed")
+        b = shot(m, tmp_path / "b.png")
+        kb = {sc: (cam - (r1b[sc] & V_MASK)) & V_MASK for sc in cols}
+        assert m.read_u16(W, DP_CAM) == cam, "the camera moved under the case"
+    bands = hall_bands(cam)
+    a_lines = bands[0][0]
+    y0, y1 = BELT_ROW * 8 - cam, BELT_ROW * 8 - cam + 16
+    assert 0 <= y0 and y1 <= a_lines, "the belt band must lie inside band A"
+    # PAST THE LIP. The ripple only pushes down, so the band's top RIPPLE_AMP
+    # lines are the deck's lip in one frame and the surface in the other and
+    # no single translation covers them; below that the column is surface in
+    # both and a shift is an equality.
+    c0, c1 = a_lines + bands[1][0] + RIPPLE_AMP, SCREEN_H
+    # THE HORIZONTAL HALF, THE AXIS CASE'S WAY: a belt column's tread has
+    # changed between the frames and has NOT slid vertically. Whether it
+    # visibly moved sideways as one 8-px strip cannot be asked of every column
+    # — the housing over the belt is BG1 and the tread is locally one colour
+    # under it — so the claim is the axis, asserted on every column, and
+    # liveness in aggregate.
+    ran = 0
+    for sc in cols:
+        sa, sb = strip(a, sc, (y0, y1)), strip(b, sc, (y0, y1))
+        assert vshift(sa, sb, span=8) in (0, None), (
+            f"screen column {sc} carries an H word in band A but its belt "
+            f"strip slid vertically")
+        ran += sa != sb
+    assert ran >= 2, f"only {ran} belt columns changed in band A"
+    for sc in cols:
+        assert 0 <= ka[sc] <= RIPPLE_AMP and 0 <= kb[sc] <= RIPPLE_AMP, \
+            f"column {sc}: ripple words {ka[sc]}, {kb[sc]} outside 0..{RIPPLE_AMP}"
+        got = vshift(strip(a, sc, (c0, c1)), strip(b, sc, (c0, c1)), span=RIPPLE_AMP)
+        assert got == kb[sc] - ka[sc], (
+            f"column {sc}: the channel band slid {got} but its ripple words "
+            f"say {ka[sc]} -> {kb[sc]}")
+
+
+def test_y_holds_both_moving_bands_still(tmp_path):
+    """The flat control, over two rows at once: with Y held the machine band
+    reads the room's control row and the channel band the ripple's, and the
+    whole picture holds — eight frames apart, pixel for pixel."""
+    with Machine(str(ROM)) as m:
+        to_hall(m)
+        cam = m.read_u16(W, DP_CAM)
+        m.advance(8, pad1=JOY_Y)
+        a = shot(m, tmp_path / "a.png")
+        m.advance(8, pad1=JOY_Y)
+        b = shot(m, tmp_path / "b.png")
+        r0, r1 = table_row(m, 0), table_row(m, 1)
+    assert not changed_rows(a, b)
+    assert all(w is None or (w & V_MASK) in (0, cam) for w in r0 + r1), \
+        "a flat row carries a value that is not at rest"
+    assert all(w is None or enabled(w) or w == 0 for w in r0 + r1), \
+        "the flat rows dropped an enable bit — a control that disarms is not a control"
+
+
+def test_the_band_channel_is_the_composition_s_own_and_its_table_is_the_camera_s():
+    """The declaration and the machine agree: the scene's map names the
+    synthesized channel, the HDMAEN shadow the NMI commits carries its bit in
+    BOTH rooms, and the HDMA table the ROM rebuilt this VBlank is byte for
+    byte what the camera says it must be — at the bottom of the shaft, where
+    all three bands are open, and again a third of the way up, where the deck's
+    band and the channel's have CLOSED and the entries for them are gone.
+
+    That second camera is the one this case exists for. The band split is
+    capped at SMIL_BAND_MAX rather than the hardware's 127 so that the picture
+    is always at least three entries; at 127 the table collapsed to two there
+    and the channel drove BG3VOFS not once in the whole picture (docs/100
+    §14). The entries are derived here, so a cap that stopped guaranteeing it
+    fails as a table mismatch rather than as a rail nobody looked at.
+    """
+    ch = _hall("ES_H_MIL_BANDS_ROWSEL_CH")
+    for scene_name in ("hall", "lobby"):
+        vo = MAP["scenes"][scene_name]["video_offset"]
+        assert vo["bands"] == 3 and vo["rowsel"] == "mil_bands_rowsel"
+        chans = [c for c in MAP["scenes"][scene_name]["channels"]
+                 if c["name"] == "mil_bands_rowsel"]
+        assert chans and chans[0]["registers"] == ["BG3VOFS"] and chans[0]["ch"] == ch
+    nmi = _dp("ES_SM_NMI")
+    at = _wram("ES_MIL_BANDTAB")
+    with Machine(str(ROM)) as m:
+        to_hall(m)
+        assert m.read_bytes(W, nmi + 2, 1)[0] & (1 << ch), "not armed in the hall"
+        def check():
+            cam = m.read_u16(W, DP_CAM)
+            want = band_entries(hall_bands(cam))
+            got = m.read_bytes(W, at, 3 * len(want) + 1)
+            assert list(got) == [b for n, r in want for b in (n, r & 0xFF, r >> 8)] + [0], (
+                f"at cam {cam} the table is {list(got)} and the camera says "
+                f"{want}")
+            assert sum(n for n, _ in want) == SCREEN_H
+            assert len(want) >= 3, (
+                f"at cam {cam} the split gave {len(want)} entries; two was "
+                f"measured to leave BG3VOFS undriven for the whole picture")
+            return cam, [(n, r) for n, r in hall_bands(cam)]
+
+        at_rest = check()
+        board_and_ride(m)
+        for _ in range(400):                    # ...until BOTH lower bands have
+            if DECK_ROW * 8 - m.read_u16(W, DP_CAM) >= SCREEN_H:   # closed: the
+                break                           # DECK's edge is the later one
+            m.advance(1)
+        else:
+            pytest.fail("the climb never closed the deck's band")
+        m.advance(2)                            # the NMI's rebuild lands
+        climbing = check()
+    assert climbing[0] < at_rest[0], f"the camera did not climb: {at_rest} {climbing}"
+    assert len(at_rest[1]) == 3 and len(climbing[1]) == 1, (
+        f"the bands did not close: at rest {at_rest[1]}, climbing {climbing[1]}")

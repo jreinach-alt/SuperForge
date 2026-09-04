@@ -65,7 +65,7 @@ OPT_ASM = SUPERFORGE / "engine" / "features" / "mil_opt" / "mil_opt.asm"
 OBJ_ASM = SUPERFORGE / "engine" / "features" / "mil_obj" / "mil_obj.asm"
 OPT_TOML = SUPERFORGE / "engine" / "features" / "mil_opt" / "feature.toml"
 HALL_ASM = SUPERFORGE / "game" / "mill" / "scenes" / "hall.asm"
-MELT_ASM = SUPERFORGE / "engine" / "features" / "mil_melt" / "mil_melt.asm"
+BAND_ASM = SUPERFORGE / "engine" / "features" / "mil_band" / "mil_band.asm"
 ROM = SUPERFORGE / "build" / "mill.sfc"
 T = "tests/test_mill.py::"
 
@@ -214,7 +214,7 @@ PLANTS = [
           tests=[T + "test_he_cannot_walk_into_the_hammer_s_shaft"],
           why="one edge instead of the box. He still stops at a hole and the "
               "picture still looks like collision — he simply stops THIRTY-TWO "
-              "PIXELS LATE walking left, standing over the melt with all but "
+              "PIXELS LATE walking left, standing over the CHANNEL with all but "
               "his right edge past the floor. This is the defect a case that "
               "asserted 'he stops somewhere' would ship; the case asserts the "
               "stop to the pixel against the floor map, which is the only "
@@ -360,17 +360,17 @@ PLANTS = [
               "The case counts his ink outside the glass on each sample and "
               "holds his whole OAM entry to one value from rest to riding.",),
 
-    # ---- THE MELT: the table in bands -------------------------------------
+    # ---- THE BANDS: the table read three rows at once ----------------------
     Plant(id="the-deck-band-reads-the-ripple-row",
-          file=MELT_ASM,
-          old="""    lda #<(2 * ES_OPT_MELT_ROW_VOFS)
-    sta f:ES_MIL_BANDTAB_LONG + 4   ;   ...read row 2, the zero row""",
-          new="""    lda #<(1 * ES_OPT_MELT_ROW_VOFS)
-    sta f:ES_MIL_BANDTAB_LONG + 4   ; PLANT: the deck reads the ripple""",
+          file=BAND_ASM,
+          old="""    ldy #MIL_BAND_ROW_ZERO
+    lda z:ES_MIL_NMI_SCRATCH + 14   ; ...the deck: the channel's top less the""",
+          new="""    ldy #MIL_BAND_ROW_RIPPLE        ; PLANT: the deck reads the ripple
+    lda z:ES_MIL_NMI_SCRATCH + 14   ; ...the deck: the channel's top less the""",
           artifact=ROM,
           build=["mill"],
           tests=[
-              T + "test_the_melt_reads_three_rows_and_the_deck_band_stands_still",
+              T + "test_the_hall_reads_three_rows_and_the_deck_band_stands_still",
           ],
           why="band B's entry names the wrong row: the deck ripples with the "
               "channel. The picture still has three bands and a moving "
@@ -379,11 +379,11 @@ PLANTS = [
               "can tell it from the intended picture.",),
 
     Plant(id="the-channel-band-reads-the-machine-row",
-          file=MELT_ASM,
-          old="""    lda #<(1 * ES_OPT_MELT_ROW_VOFS)
-    sta f:ES_MIL_BANDTAB_LONG + 7   ;   ...read row 1, the ripple""",
-          new="""    lda #0
-    sta f:ES_MIL_BANDTAB_LONG + 7   ; PLANT: the channel reads the hall's row""",
+          file=BAND_ASM,
+          old="""    ldy #MIL_BAND_ROW_RIPPLE
+    lda #SMIL_SCREEN_H              ; ...and the channel: what is left""",
+          new="""    ldy #MIL_BAND_ROW_ROOM          ; PLANT: the channel reads the room
+    lda #SMIL_SCREEN_H              ; ...and the channel: what is left""",
           artifact=ROM,
           build=["mill"],
           tests=[
@@ -395,10 +395,10 @@ PLANTS = [
               "it should slide. The case joins the picture to the words of "
               "the row the band DECLARES, and only that join fails here.",),
 
-    Plant(id="the-ripple-is-staged-from-the-hall-s-row",
-          file=MELT_ASM,
-          old="""    jsr mil_ripple_source           ; the ripple row for this phase...""",
-          new="""    jsr mil_row_source              ; PLANT: the hall's row, twice""",
+    Plant(id="the-ripple-is-staged-from-the-room-s-row",
+          file=OPT_ASM,
+          old="""    jsr mil_ripple_source           ; ...and the surface's row for it""",
+          new="""    jsr mil_row_source              ; PLANT: the room's row, twice""",
           artifact=ROM,
           build=["mill"],
           tests=[
@@ -411,21 +411,45 @@ PLANTS = [
               "refuses to run without them, which is the honest failure.",),
 
     Plant(id="the-band-channel-is-never-armed",
-          file=MELT_ASM,
+          file=BAND_ASM,
           old="""    ora #(1 << ES_H_MIL_BANDS_ROWSEL_CH)""",
           new="""    ora #0                          ; PLANT: the bit never reaches HDMAEN""",
           artifact=ROM,
           build=["mill"],
           tests=[
-              T + "test_the_band_channel_is_the_composition_s_own_and_is_armed",
+              T + "test_the_band_channel_is_the_composition_s_own_and_its_table_is_the_camera_s",
               T + "test_a_column_carries_an_h_word_in_one_band_and_a_v_word_in_another",
           ],
           why="the slot is filled and the table built but the enable bit "
               "never reaches the shadow scene_mgr commits, so the whole frame "
               "reads the seed row — no bands at all. Two cases see it from "
-              "two sides: the shadow byte in the melt lacks the declared "
-              "channel's bit, and the channel band does not follow the "
-              "ripple words the ROM restages every frame.",),
+              "two sides: the shadow byte lacks the declared channel's bit, "
+              "and the channel band does not follow the ripple words the ROM "
+              "restages every frame.",),
+
+    # THE DEFECT THIS RAIL ACTUALLY SHIPPED, planted so it cannot ship twice.
+    # The split cap is 96 rather than the hardware's 127 so that every table
+    # is at least three entries; at 127 the hall's collapses to two the moment
+    # the deck's band and the channel's close, and there the channel drove
+    # BG3VOFS not once in the whole picture (docs/100 §14).
+    Plant(id="the-split-cap-goes-back-to-the-hardware-s-127",
+          file=GEN,
+          old="""BAND_MAX = 96
+""",
+          new="""BAND_MAX = 127                # PLANT: two entries once the lower bands close
+""",
+          artifact=ROM,
+          build=["mill"],
+          tests=[
+              T + "test_the_band_channel_is_the_composition_s_own_and_its_table_is_the_camera_s",
+              T + "test_he_holds_one_pose_for_the_whole_ride",
+          ],
+          why="the table the ROM builds a third of the way up the shaft is "
+              "127 + 97 and no longer at least three entries. The declaration "
+              "case derives the entries from the camera and refuses the "
+              "two-entry split by name; the ride case sees what it costs, "
+              "which is the car and its rider gone off the screen for the "
+              "rest of the climb.",),
 
     Plant(id="hall-declares-mode-1",
           file=OPT_TOML,
