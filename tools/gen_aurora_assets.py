@@ -46,7 +46,18 @@ from pathlib import Path
 
 W, H = 256, 224
 TW, TH = W // 8, H // 8
-HORIZON, CLIFF = 152, 188
+HORIZON = 152
+
+# THE CLIFF LINE IS WHERE IT IS BECAUSE OF THE WRITING, not the landscape.
+# The figures are 16x32 sprites standing with their feet on this line, so they
+# reach up from it; the word's tall loops reach DOWN to about ten pixels above
+# its baseline's ascender. At 188 those two overlapped by three pixels and OBJ
+# priority 3 won, which sliced the tops off the T's oval and both loops — with
+# the CHR, the tilemap and the stream all provably correct. Measured at
+# (107,189): the pen has full coverage and the screen shows the figures' body
+# colour. Ten pixels of daylight is the fix, and it is a layout number rather
+# than a drawing one.
+CLIFF = 178
 
 
 # --------------------------------------------------------------- the lattice
@@ -93,22 +104,29 @@ CURTAINS = ((74,  13, 0.021, 1.00,  22, 128, 1.00, 19.0),
 EDGE = 34.0
 
 
-def aurora_at(x, y):
+def aurora_at(x, y, ph=0):
     """-> (intensity, depth down the curtain 0..1, which curtain).
 
     The depth and the index are what the hue needs: the fringe colour is a
     function of HEIGHT within a curtain, and each curtain lags the cycle by
     its own amount. The brightest curtain at this pixel wins all three.
+
+    The PHASE reaches the shape as well as the colour — each curtain breathes
+    a little wider and narrower and its rays drift sideways — so the outer
+    columns go black and come back as the cycle turns.
     """
+    t = 2 * math.pi * ph / HUE_PHASES
     best = (0.0, 0.0, 0)
     for ci, (cx, amp, freq, wob, top, bot, gain, sig) in enumerate(CURTAINS):
+        sig = sig * (1.0 + HUE_WIDTH * math.sin(t + ci * 2.1))
         drift = amp * math.sin(freq * x) + 0.5 * amp * math.sin(2.3 * freq * x)
         body = math.exp(-(abs(x - (cx + drift)) / sig) ** 2)
         v = (y - top) / float(bot - top)
         if v < -0.25 or v > 1.25:
             continue
         env = smooth(clamp01((v + 0.10) / 0.34)) * smooth(clamp01((1.10 - v) / 0.46))
-        ray = 0.70 + 0.30 * math.sin(0.9 * x + 2.4 * v)
+        ray = 0.70 + 0.30 * math.sin(0.9 * x + 2.4 * v
+                                     + HUE_RAY * t + ci * 1.7)
         val = gain * body * env * (1.0 - 0.55 * v) * ray
         if val > best[0]:
             best = (val, clamp01(v), ci)
@@ -117,7 +135,15 @@ def aurora_at(x, y):
 
 
 def aurora(x, y):
-    return aurora_at(x, y)[0]
+    """The cycle's WIDEST reach at this pixel.
+
+    The tinted set has to be the UNION over phases, not one phase's: a tile
+    the curtain only covers when it is wide still has to be in the set, or it
+    would hold whatever it was painted with at phase 0 and never go black
+    again — which is the same fringe bug as the threshold one, arriving
+    through the shape instead of through the colour.
+    """
+    return max(aurora_at(x, y, ph)[0] for ph in range(HUE_PHASES))
 
 
 # =============================================================================
@@ -181,6 +207,19 @@ HUE_FRINGE_FROM = 0.55            # ...starting this far down it
 # which is what stops the picture reading as one object being recoloured.
 HUE_LAG = (0, 5, 11)
 
+# THE SHAPE MOVES TOO, and it costs nothing: the sixteen phases already exist,
+# so painting each one with the curtains slightly narrower or wider — and with
+# the ray striations drifting sideways — makes the outer columns go BLACK and
+# come back as the cycle turns. That reads as the curtain breathing, which is
+# a stronger cue for motion than the colour is, and the layer still never
+# scrolls.
+#
+# Both are kept SMALL because the picture permanently straddles two adjacent
+# phases: a tenth of the width and a sixteenth of a ray period per step are
+# under what the mix can show.
+HUE_WIDTH = 0.10                  # of sigma, peak to peak
+HUE_RAY = 1.0                     # ray periods drifted over a whole cycle
+
 
 def hue_deg(ph):
     """The cycle's base hue at phase `ph`, in degrees.
@@ -214,7 +253,7 @@ def tint(a, deg):
 
 def bg1_px(x, y, ph=0):
     r, g, b = sky(y)
-    a, v, ci = aurora_at(x, y)
+    a, v, ci = aurora_at(x, y, ph)
     # NOT `a > 0`. A pixel the cycling set does not cover must not be tinted at
     # all, or it wears phase 0's colour for the whole cycle — which is a teal
     # fringe standing still around a violet curtain. At this threshold the

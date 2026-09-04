@@ -43,12 +43,17 @@ XH = 8.2                 # x-height on screen, in pixels
 PENW = 1.45              # MONOLINE: round, ONE weight throughout. The
                          #   reference runs 9 px of stroke against a 52 px
                          #   x-height and this is that same 0.17 ratio.
-BASE = (93.0, 216.5)     # where the baseline sits on the 256x224 screen
+BASE = (93.0, 214.0)     # where the baseline sits on the 256x224 screen —
+                         # centred in the band between the figures' feet and
+                         # the bottom of the screen, which is what CLIFF being
+                         # at 178 rather than 188 bought
 FRAMES = 70              # how long the pen takes
 
 # The word is 25 x-heights wide and 3.8 tall — the reference's proportions,
-# not a choice — which at this size lands it inside the black band under the
-# cliff with a couple of pixels to spare on every side.
+# not a choice. The baseline is placed so the whole of it clears BOTH edges of
+# the band it sits in: the figures' feet above (they are 16x32 sprites at OBJ
+# priority 3, so where they overlap they WIN — that cost the tops of the T's
+# oval and both loops once) and the bottom of the screen below.
 
 
 def _load():
