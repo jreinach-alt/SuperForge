@@ -405,7 +405,7 @@ checks, so a run that examined nothing reads as having examined nothing.
 
   | probe | result |
   |---|---|
-  | horizontal word = 8 on a 16x16 BG1 | **30/31** screen columns rendered as *"the entry moves, the half-select does not"* predicts — an EVEN column as though the word were 0, an ODD one as though it were 16. **0 of the 14** genuinely displaced columns matched a coherent model. (The odd column out is the rail's own car override, which zeroes those four words.) |
+  | horizontal word = 8 on a 16x16 BG1 | **30/31** screen columns rendered as *"the entry moves, the half-select does not"* predicts — an EVEN column as though the word were 0, an ODD one as though it were 16 — against **16/31** for a coherent model. Restricted to the columns actually carrying a displacement: **14/15** fit the first and **0/15** the second. (The odd one out is the rail's own car override, which zeroes those four words; the 16 control columns fit both models, which is what says the decode is right.) |
   | vertical word = 8 on the same layer | **27/27** columns, over six scanlines, matched the per-column *displaced* vScroll; **0/27** matched the layer's own |
 
   So an 8-pixel horizontal word does not shear the picture coarsely — it pulls

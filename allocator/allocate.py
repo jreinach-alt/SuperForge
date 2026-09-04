@@ -1082,9 +1082,11 @@ def compose_video_offset(video: list[tuple], offset: list[tuple],
         # tile and draws the wrong half of it. MEASURED on this emulator, not
         # only read: a 16x16 BG1 driven by a horizontal word of 8 rendered
         # every EVEN screen column as though the word were 0 and every ODD one
-        # as though it were 16 — 30 of 31 columns matched that model and none
-        # matched a coherent one (the odd column out is a rail override, and
-        # the same probe measured a VERTICAL word coherent at 27 of 27).
+        # as though it were 16 — 30 of 31 screen columns fit that model against
+        # 16 of 31 for a coherent one, and of the 15 columns actually carrying
+        # a displacement, 14 fit it and ZERO fit the coherent model (the odd
+        # one out is a rail override that zeroes its word). The same probe
+        # measured a VERTICAL word coherent at 27 of 27 over six scanlines.
         #
         # A REFUSAL where the composition can PROVE the layer takes horizontal
         # words — `h` (every word) and `both` (every column, both axes). Under
@@ -2250,6 +2252,7 @@ def allocate(sub: Substrate, features: dict[str, FeatureDecl],
             if sm.video_offset is None:
                 sm.video_offset = {"bgmode": None, "fields": {}, "registers": (),
                                    "features": [], "mode": None, "axis": None,
+                                   "tiles16": [],
                                    "layers": [], "video": [], "offset": [],
                                    "bands": 1, "bands_claims": [],
                                    "warnings": [], "modes": 0, "offsets": 0,
