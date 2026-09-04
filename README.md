@@ -260,6 +260,52 @@ are on the metal by construction and not by tuning. D-pad walks him, A jumps —
 the apex is fifty pixels and the plates span eighty, so the top one is reached
 by waiting for it to come down.
 
+
+### `mill`
+
+![mill — a machine hall where each column moves on the axis its own word names](docs/img/gif_mill.gif)
+
+The same third layer read as data, one mode over, and mode 4 changes what a
+column can be told. Mode 2 fetches a word for each axis, so a column is
+displaced on both or neither; **mode 4 fetches ONE word per column and bit 15
+of it picks that column's axis**. So a single 32-word row — 64 bytes, uploaded
+once a frame, no HDMA channel — has a drop hammer pumping vertically in its
+frame while the conveyor eight pixels to its right runs sideways, out of two
+adjacent numbers in the same transfer.
+
+The lift is the same word doing a third job. Its car is a BG1 column like any
+other, and the man riding it is an OBJ drawn at priority 0 — so BG1's own
+pixels beat him wherever the car is opaque and lose to him through the hole cut
+for the door, and he is *inside* the car for no mask register and no
+per-scanline work. He rides it from the lobby up the shaft and the camera goes
+with him, which is why every vertical word carries the camera: an offset word
+REPLACES a layer's scroll rather than adding to it.
+
+The floor is where the mechanism charges rent. A vertically displaced column
+cannot carry a horizontal course, so **a shaft cannot have a floor** — the
+holes in the deck are not level design, they are what the effect costs, and
+whether the lift's own columns are floor is read from the car's live
+displacement rather than from a tile flag. Under the deck the molten channel is
+the same 32-word row read again through a *different* row of the table, one
+HDMA write of `BG3VOFS` per band, so one frame carries the machines, a still
+deck and a rippling surface from three rows at once.
+
+### `mill_direct`
+
+![mill_direct — the same hall with no palette at all](docs/img/gif_mill_direct.gif)
+
+The same ROM with one declaration different: `direct_color` on
+`[[claims.video]]`, which is CGWSEL bit 0. The shipped rail draws BG1 out of 96
+CGRAM entries fitted to this exact picture; this one draws it with **no palette
+at all** — the 8bpp pixel IS the colour, three bits of red, three of green, two
+of blue, each extended one bit by the tilemap entry's palette field. Nothing is
+uploaded to CGRAM for BG1 and nothing is fitted.
+
+Measured between the two clips: 64–80% of the picture differs, by a median of
+9–16 units of 255 on its worst channel. The fit wins nearly everywhere, which
+is the honest result — what direct colour buys is not fidelity, it is that a
+picture can be built with no palette to run out of.
+
 ---
 
 The other 28 games are in `game/` — among them `microzero`, the smallest
