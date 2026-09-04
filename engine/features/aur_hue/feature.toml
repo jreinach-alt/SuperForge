@@ -1,0 +1,92 @@
+# aur_hue — the aurora's colour cycling through blues and violets.
+#
+# =============================================================================
+# ON A DIRECT-COLOUR LAYER, COLOUR ANIMATION IS CHR TRAFFIC
+# =============================================================================
+# A colour cycle is the classic INDEXED trick: rewrite one CGRAM word and
+# every pixel using it changes at once, for two bytes. Direct colour is
+# exactly the mode that gives that up — the pixel IS the colour, so there is
+# no palette to cycle and the colour lives in the tiles. The cost is therefore
+# the demonstration, and it is not small: TWELVE copies of every tile the
+# aurora tints, 230,400 B of art for an effect an indexed layer gets for two
+# bytes a frame.
+#
+# THE PALETTE FIELD CANNOT DO THIS, which is why the rail's first cut was
+# wrong rather than merely cheaper. The field supplies one LOW BIT per channel
+# — 2 of 31 in red and green, 4 in blue — which cannot carry a teal curtain to
+# violet; and being per TILE, anything driven by it moves in 8x8 blocks. A
+# wave of those blocks sweeping diagonally is what the first cut looked like,
+# and it read as pixelation rather than as light.
+#
+# =============================================================================
+# ONE DMA A FRAME, AND SCATTERED
+# =============================================================================
+# The tinted tiles are given a CONTIGUOUS run of BG1 tile indices, so a fifth
+# of them is one VMADD and one 3,840 B transfer. They are given that run in a
+# SCATTERED order, so the fifth is spread across the screen instead of
+# sweeping down it — a run that was contiguous on screen as well would repaint
+# the curtains top to bottom in five visible bands, which is the artefact this
+# feature exists to avoid.
+#
+# A phase is five VBlanks; then the picture HOLDS while the wait counts down,
+# scaled so a PAL console spends the same wall-clock time on it. Everything the
+# eye sees between two phases is a mixture of two hues one step apart, for five
+# frames — which is a crossfade, not a two-tone.
+#
+# B freezes the whole thing, which is what makes a still of it worth taking.
+name = "aur_hue"
+role = "feature"
+depends = ["aur_rom", "aur_bg"]
+
+[[claims.dp]]
+name = "aur_phase"
+bytes = 2                # which hue the cycle is on, 0..AUR_HUE_PHASES-1
+
+[[claims.dp]]
+name = "aur_slice"
+bytes = 2                # ...and how much of it has reached VRAM, 0..SLICES-1
+
+[[claims.dp]]
+name = "aur_src"
+bytes = 2                # the source TILE index into the hue blob, carried
+                         # rather than multiplied: phase x 300 does not fit a
+                         # shift, and the byte offset does not fit 16 bits at
+                         # all (230,400), but the tile index does
+
+[[claims.dp]]
+name = "aur_dst"
+bytes = 2                # ...and the VMADD word address the next slice lands
+                         # at, likewise carried
+
+[[claims.dp]]
+name = "aur_wait"
+bytes = 2                # TICK: ok -- the hold between phases, counted down
+                         # by the SCALED tick rather than by frames
+
+[[claims.dp]]
+name = "aur_tmp"
+bytes = 6                # NMI-local scratch: the tile offset inside a chunk,
+                         # the chunk index, and the tile count of the transfer
+                         # being armed. A word only ever live inside one
+                         # routine is still a claim
+
+[[claims.dp]]
+name = "aur_hold"
+bytes = 2                # nonzero while B holds the cycle still
+
+[[claims.dma_init]]
+name = "aur_hue_up"
+channel = 2
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[claims.dma]
+vblank_bytes_per_frame = 3840   # one slice, on the five frames of a phase;
+                                # nothing at all while it holds
+vblank_transfers_per_frame = 2  # ...in ONE transfer, or two when the slice
+                                # straddles a chunk boundary. See aur_hue.asm:
+                                # a chunk holds 512 whole tiles and a slice is
+                                # 50, so 7 of the cycle's 72 slices cross one,
+                                # and A1B is constant — an uncut transfer
+                                # wraps inside the bank to $0000 and reads the
+                                # WRAM mirror

@@ -36,7 +36,8 @@ aur_write_init:
 ;   entry:    A16 I16
 ;   exit:     A16 I16
 ;   in:       nothing
-;   out:      ES_AUR_WRESET set; the NEXT VBlank does the work
+;   out:      ES_AUR_WRESET set to the whole tile run; the next VBlanks erase
+;             it a slice at a time and then rewind the stream
 ;   clobbers: A, N, Z
 ;   assumes:  main-loop. The blanking is 2,464 B and belongs in VBlank, so
 ;             this only raises the flag
@@ -45,7 +46,7 @@ aur_write_restart:
     .a16
     .i16
     SF_ASSERT_WIDTH 16, 16, "aur_write_restart"
-    lda #1
+    lda #AUR_INK_TILES
     sta z:ES_AUR_WRESET
     rts
 
@@ -99,20 +100,57 @@ aur_write_nmi:
     .a16
     lda z:ES_AUR_WRESET
     beq @play
-    ; ---- the replay. THE PEN'S TILES ARE THE LAST RUN OF THE CHR PAGE and
-    ; they are emitted holding the GROUND under the word, so blanking it again
-    ; is one DMA of that contiguous slice out of the same blob. No second copy
-    ; of the picture in ROM.
-    stz z:ES_AUR_WRESET
-    stz z:ES_AUR_WPTR
-    stz z:ES_AUR_WFRAME
-    lda #(ES_V_AUR_CHR2 + AUR_INK_BASE * 16)
-    sta a:$2116
-    ldx #(.loword(aur_chr2_bin) + AUR_INK_OFF)
-    ldy #AUR_INK_BYTES
-    lda #^aur_chr2_bin
+    ; ---- the replay, A SLICE AT A TIME. The pen's tiles are the LAST run of
+    ; the CHR page and they are emitted holding the GROUND under the word, so
+    ; erasing is a DMA out of that same blob — no second copy of the picture
+    ; in ROM. It is sliced because all 77 at once is 2,464 B in a VBlank that
+    ; already carries a hue slice, and because a word that un-writes over five
+    ; frames reads better than one that blinks out.
+    ;
+    ; ES_AUR_WRESET counts tiles REMAINING, so the run starts at
+    ; AUR_INK_TILES - WRESET and the arithmetic needs no second cursor.
+    sec
+    lda #AUR_INK_TILES
+    sbc z:ES_AUR_WRESET              ; the first tile of this slice
+    pha
+    asl a
+    asl a
+    asl a
+    asl a                            ; x16 WORDS: a 4bpp tile is 32 B
+    clc
+    adc #(ES_V_AUR_CHR2 + AUR_INK_BASE * 16)
+    sta a:$2116                      ; VMADD
+    pla
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a                            ; x32 BYTES, into the blob
+    clc
+    adc #(.loword(aur_chr2_bin) + AUR_INK_OFF)
+    tax
+    ldy #(AUR_INK_SLICE * 32)
+    lda z:ES_AUR_WRESET
+    cmp #AUR_INK_SLICE
+    bcs :+
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a                            ; ...the last slice is the remainder
+    tay
+:   lda #^aur_chr2_bin
     jsr aur_w_dma
-    sep #$20
+    lda z:ES_AUR_WRESET
+    sec
+    sbc #AUR_INK_SLICE
+    bcs :+
+    lda #0
+:   sta z:ES_AUR_WRESET
+    bne :+
+    stz z:ES_AUR_WPTR                ; erased: the pen starts again
+    stz z:ES_AUR_WFRAME
+:   sep #$20
     .a8
     rts
 @play:

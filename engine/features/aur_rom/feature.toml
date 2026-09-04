@@ -10,9 +10,11 @@ role = "blob"
 
 [[claims.rom]]
 name = "aur_chr1"
-bytes = 20480            # 320 tiles x 64 B. EIGHT bpp — a tile is 64 bytes,
+bytes = 22528            # 352 tiles x 64 B. EIGHT bpp — a tile is 64 bytes,
                          # not 32, which is what the allocator's O9 joins to
-                         # the declared mode. The art uses 306 of the 320.
+                         # the declared mode. The art uses 338: 38 of sky,
+                         # which dedupe, and 300 the aurora tints, which
+                         # deliberately do not.
 
 [[claims.rom]]
 name = "aur_chr2"
@@ -49,9 +51,16 @@ bytes = 2048             # 64 tiles: four rows of the PPU's 16-wide OBJ grid,
                          # which is the layout a 16x32 sprite is read in.
 
 [[claims.rom]]
-name = "aur_roll"
-bytes = 26624            # 32 PHASES x the 13 map rows the curtains reach.
-                         # The whole animation, precomputed: see aur_roll.
+name = "aur_hue"
+bytes = 262144           # TWELVE copies of every tile the aurora tints —
+                         # 230,400 B of art padded to eight LoROM windows.
+                         # This is the price of a colour cycle on a layer with
+                         # no palette, and it is the rail's headline number:
+                         # an indexed layer buys the same effect for two bytes
+                         # a frame. bank_tiled is clean here because a window
+                         # is 512 whole 8bpp tiles, so a chunk boundary never
+                         # splits one.
+bank_tiled = true
 
 [[claims.rom]]
 name = "aur_pal"

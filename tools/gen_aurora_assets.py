@@ -73,9 +73,14 @@ def clamp01(v):
 def sky(y):
     t = smooth(clamp01(y / HORIZON))
     glow = math.exp(-((y - HORIZON) / 26.0) ** 2)
-    return (0.004 + 0.115 * t ** 2.4 + 0.045 * glow,
-            0.008 + 0.140 * t ** 2.4 + 0.040 * glow,
-            0.050 + 0.155 * t ** 1.5 + 0.022 * glow)
+    # THE HORIZON GLOW IS COOL, AND HAS TO BE. It is part of the SKY, so it
+    # is phase-independent — it does not cycle with the aurora — and a warm
+    # glow (which is what this was) reads as a green band left behind above
+    # the hills once the curtains have gone blue. Weighted blue-over-green it
+    # sits under every hue the cycle visits.
+    return (0.004 + 0.115 * t ** 2.4 + 0.020 * glow,
+            0.008 + 0.140 * t ** 2.4 + 0.030 * glow,
+            0.050 + 0.155 * t ** 1.5 + 0.048 * glow)
 
 
 # Three curtains, SEPARATED and NARROW. Merged at a wider sigma they read as
@@ -102,16 +107,55 @@ def aurora(x, y):
     return out * smooth(clamp01(x / EDGE)) * smooth(clamp01((W - 1 - x) / EDGE))
 
 
-def tint(a):
-    return (0.26 * a + 0.62 * a ** 3, 0.92 * a - 0.12 * a ** 3,
-            0.34 * a + 0.52 * a ** 4)
+# =============================================================================
+# THE HUE CYCLE — and why it is CHR and not a palette
+# =============================================================================
+# A colour cycle is the classic INDEXED trick: rewrite one CGRAM word and every
+# pixel using it changes at once, for two bytes. Direct colour is precisely the
+# mode that gives that up — the pixel IS the colour, so there is no palette to
+# cycle and the colour lives in the CHR. Animating it is therefore CHR traffic,
+# and the cost is the demonstration: HUE_PHASES copies of every tile the aurora
+# tints, a quarter of a megabyte of ROM, against two bytes for the same effect
+# on an indexed layer.
+#
+# The field cannot do it. It supplies one LOW BIT per channel — 2 of 31 in red
+# and green, 4 in blue — which cannot take a green curtain to violet; and being
+# per TILE, anything driven by it is an 8x8 block, which is what the first cut
+# of this rail looked like.
+HUE_PHASES = 12
+HUE_LO, HUE_HI = 168.0, 252.0     # cyan-teal .. violet: no green, no magenta
+HUE_THR = 0.02                    # every tile the aurora tints, not just cores
+HUE_SLICES = 6                    # ...so a phase is six VBlank transfers
 
 
-def bg1_px(x, y):
+def hue_weights(ph):
+    """The cycle's colour at phase `ph`, as unit-ish RGB weights.
+
+    A there-and-back sweep rather than a full hue loop: a full loop passes
+    through yellow and red, which an aurora does not do and the picture does
+    not want. Eased with a cosine so it DWELLS at the cold ends instead of
+    sliding through them.
+    """
+    t = ph / float(HUE_PHASES)
+    s = 0.5 - 0.5 * math.cos(2 * math.pi * t)
+    h = ((HUE_LO + (HUE_HI - HUE_LO) * s) % 360) / 60.0
+    c, x = 1.0, 1 - abs(h % 2 - 1)
+    return [(c, x, 0), (x, c, 0), (0, c, x),
+            (0, x, c), (x, 0, c), (c, 0, x)][int(h) % 6]
+
+
+def tint(a, ph=0):
+    wr, wg, wb = hue_weights(ph)
+    return (wr * 0.95 * a + 0.26 * a ** 3,
+            wg * 0.95 * a + 0.10 * a ** 3,
+            wb * 0.95 * a + 0.30 * a ** 4)
+
+
+def bg1_px(x, y, ph=0):
     r, g, b = sky(y)
     a = aurora(x, y)
     if a > 0:
-        ar, ag, ab = tint(a)
+        ar, ag, ab = tint(a, ph)
         r += ar
         g += ag
         b += ab
@@ -141,18 +185,18 @@ BAYER8 = [[(lambda a, b: ((a & 4) >> 2) | ((b & 4) >> 1) | ((a & 2) << 1)
 DPHASE = ((0, 0), (3, 5), (6, 2))          # (row, col) offset per channel
 
 
-def fit_tile(px):
+def fit_tile(px, force=None):
     """Choose the palette FIELD that fits this 8x8 block, then dither into it.
 
     The field is per tile, so it is chosen per tile: for each of the eight
     fields the block is dithered onto that field's lattice and the squared
-    error is summed. Cheap (eight passes over 64 pixels) and it is the only
-    place the field can be decided, because the field is what the tile's
-    reachable colours ARE.
+    error is summed. `force` pins the field instead — which every TINTED tile
+    needs, because its bytes are replaced twelve times over the hue cycle
+    while its map word (and so its field) is uploaded once and never touched.
     """
     best = None
-    for f in range(8):
-        base = [(((f & 1) << 1), (f & 2), ((f & 4))) for _ in (0,)][0]
+    for f in (range(8) if force is None else (force,)):
+        base = ((f & 1) << 1, f & 2, f & 4)
         err, out = 0.0, []
         for j in range(8):
             for i in range(8):
@@ -172,23 +216,102 @@ def fit_tile(px):
                 err += e
         if best is None or err < best[0]:
             best = (err, f, out)
-    return best[1], best[2]
+    return best[1], best[2], best[0]
+
+
+def _block(ph, tx, ty):
+    return [tuple(to5(v) for v in bg1_px(tx * 8 + i, ty * 8 + j, ph))
+            for j in range(8) for i in range(8)]
+
+
+def _tinted():
+    """The cells the aurora reaches, padded to a whole number of slices.
+
+    EVERY tile it tints, not just the bright cores: a cell left out keeps its
+    phase-0 colour for the whole cycle, so a faint teal fringe would sit
+    around a violet curtain and never move.
+    """
+    lit = {}
+    for ty in range(TH):
+        for tx in range(TW):
+            v = max(aurora(tx * 8 + i, ty * 8 + j)
+                    for j in range(8) for i in range(8))
+            if v > 0:
+                lit[(tx, ty)] = v
+    keep = sorted((c for c, v in lit.items() if v > HUE_THR))
+    rest = sorted((c for c in lit if c not in set(keep)),
+                  key=lambda c: -lit[c])
+    while len(keep) % HUE_SLICES:
+        keep.append(rest.pop(0))
+    return sorted(keep)
 
 
 def cut_bg1():
-    src = [[tuple(to5(v) for v in bg1_px(x, y)) for x in range(W)]
-           for y in range(H)]
-    tiles, ix, words = [], {}, []
+    """-> (tiles, words, hue_base, hue_cells, hue_fields).
+
+    Two populations, and they are laid out differently on purpose.
+
+    The SKY tiles dedupe, as any tilemap art does. The TINTED tiles do not:
+    each is rewritten twelve times over the cycle, so two cells that happen to
+    match at phase 0 must still own separate VRAM slots or updating one would
+    update the other. They are also given a CONTIGUOUS run of tile indices in
+    a SCATTERED order — contiguous so a slice of the cycle is ONE DMA with one
+    VMADD, scattered so that slice is spread across the screen rather than
+    sweeping down it. A contiguous VRAM run that was also contiguous on screen
+    would repaint the curtains top to bottom in five visible bands, which is
+    the artefact this rewrite exists to remove.
+    """
+    tint_cells = _tinted()
+    slot_of = {}
+    for k, c in enumerate(tint_cells):
+        slot_of[c] = (k * 97) % len(tint_cells)     # 97 is coprime with 300
+
+    tiles, ix, words = [], {}, [0] * (TW * TH)
     for ty in range(TH):
         for tx in range(TW):
-            block = [src[ty * 8 + j][tx * 8 + i] for j in range(8) for i in range(8)]
-            f, by = fit_tile(block)
+            if (tx, ty) in slot_of:
+                continue
+            f, by, _ = fit_tile(_block(0, tx, ty))
             key = (f, tuple(by))
             if key not in ix:
                 ix[key] = len(tiles)
                 tiles.append(by)
-            words.append(ix[key] | (f << 10))
-    return tiles, words
+            words[ty * TW + tx] = ix[key] | (f << 10)
+
+    hue_base = len(tiles)
+    tiles.extend([0] * 64 for _ in tint_cells)
+    fields = [0] * len(tint_cells)
+    # The field is chosen ACROSS the cycle, not for phase 0: the map word is
+    # uploaded once, so one field has to serve every hue the tile will wear.
+    probe = range(0, HUE_PHASES, max(1, HUE_PHASES // 4))
+    for c in tint_cells:
+        blocks = [_block(ph, c[0], c[1]) for ph in probe]
+        best = min(range(8),
+                   key=lambda f: sum(fit_tile(b, force=f)[2] for b in blocks))
+        slot = slot_of[c]
+        fields[slot] = best
+        _, by, _ = fit_tile(_block(0, c[0], c[1]), force=best)
+        tiles[hue_base + slot] = by
+        words[c[1] * TW + c[0]] = (hue_base + slot) | (best << 10)
+    return tiles, words, hue_base, tint_cells, slot_of, fields
+
+
+def hue_blob(tint_cells, slot_of, fields):
+    """HUE_PHASES copies of every tinted tile, in VRAM slot order.
+
+    Slot order is what makes a slice one transfer: phase p's slice j is the
+    bytes for slots [j*SLICE, (j+1)*SLICE), which land at a contiguous VRAM
+    run — one VMADD, one DMA.
+    """
+    n = len(tint_cells)
+    cell_of = {slot_of[c]: c for c in tint_cells}
+    out = bytearray()
+    for ph in range(HUE_PHASES):
+        for slot in range(n):
+            tx, ty = cell_of[slot]
+            _, by, _ = fit_tile(_block(ph, tx, ty), force=fields[slot])
+            out += chr8([by])
+    return bytes(out)
 
 
 def chr8(tiles):
@@ -373,87 +496,6 @@ def write_stream(cov, tim, ink_base, ink_cells, frames):
 
 
 # ----------------------------------------------------------------- the roll
-ROLL_PHASES = 32                  # 32 pages x 832 B = 26,624 B, which is ONE
-                                  # LoROM bank window. 64 phases would be
-                                  # 53,248 and a DMA source cannot span a bank
-                                  # (A1B is constant) — the allocator refuses
-                                  # it by name, and bank_tiled is not the way
-                                  # out here because it chunks at the WINDOW
-                                  # size and 32,768 is not a multiple of the
-                                  # 832-byte page, so a transfer would
-                                  # straddle the split.
-
-
-def roll_mask(k, core):
-    """The palette-field mask for phase step k. THIS IS THE WHOLE ANIMATION.
-
-    The mask is OR-ed onto the tile's fitted field, and that it is an OR and
-    not an XOR is the difference between a wave and a rash. Each tile is
-    fitted to the field that suits its own pixels, so adjacent tiles commonly
-    sit on DIFFERENT fields; XOR the same bit into both and they SWAP — one
-    goes up a lattice step while its neighbour goes down — and the curtain
-    breaks into red and blue eight-pixel blocks. That is what the first cut of
-    this did. An OR is monotone: a tile either holds still or brightens by one
-    step, never against its neighbour.
-
-    The steps are 2 of 31 in red and green. THE BLUE BIT IS NOT LIKE THE
-    OTHER TWO: a direct-colour pixel gives blue only two bits, so the field
-    bit is worth 4 of 31 there — twice as loud — which is why it is gated to
-    the curtain CORES, where the step lands on light already bright enough to
-    carry it.
-    """
-    w = math.sin(2 * math.pi * k / ROLL_PHASES)
-    m = 0
-    if w > 0.10:
-        m |= 2                            # green: the body of the fold
-    if w > 0.62:
-        m |= 1                            # red too: the crest goes pale
-    if w < -0.50 and core:
-        m |= 4                            # blue: the trough runs cold
-    return m
-
-
-def roll_pages(words):
-    """-> (blob, row0, rows). ALL 64 PHASES of the curtain rows, precomputed.
-
-    The rolling colour is a per-tile field change, and there are two ways to
-    put one on the hardware: walk the 143 curtain records each frame and OR a
-    phase mask into a WRAM shadow, or precompute every phase and let VBlank
-    DMA the one it wants. This is the second, and the trade is stated rather
-    than assumed: 64 pages of the thirteen map rows the curtains reach is
-    53,248 B of ROM against ~2,000 cycles a frame and 832 B of WRAM. On a
-    rail whose CPU has nothing else to do that is the wrong way round — but
-    the ROM is 512 KB, the scene is one picture, and what the technique
-    demonstrates is unchanged either way: the field IS the colour control.
-    What moves is only whether the words are computed or fetched.
-
-    The mask is OR-ed onto each tile's fitted field. See `roll_mask`.
-    """
-    curtain = {}
-    rows = []
-    for ty in range(TH):
-        for tx in range(TW):
-            lit = max(aurora(tx * 8 + i, ty * 8 + j)
-                      for j in (0, 4, 7) for i in (0, 4, 7))
-            if lit <= 0.22:
-                continue
-            key = int(round((0.62 * ty - 0.34 * tx) / (2 * math.pi) * ROLL_PHASES)) & 63
-            curtain[(tx, ty)] = (key, lit > 0.52)
-            rows.append(ty)
-    row0, row1 = min(rows), max(rows)
-    blob = bytearray()
-    for ph in range(ROLL_PHASES):
-        for ty in range(row0, row1 + 1):
-            for tx in range(32):
-                w = words[ty * TW + tx] if tx < TW else 0
-                if (tx, ty) in curtain:
-                    key, core = curtain[(tx, ty)]
-                    m = roll_mask((key + ph) & (ROLL_PHASES - 1), core)
-                    w = (w & 0x3FF) | ((((w >> 10) & 7) | m) << 10)
-                blob += bytes((w & 0xFF, w >> 8))
-    return bytes(blob), row0, row1 - row0 + 1, len(curtain)
-
-
 # ------------------------------------------------------------- OBJ: the three
 # 16x32 sprites (OBSEL size pair 6), so each is 2x4 tiles read as
 # N, N+1, N+16, N+17, N+32, N+33, N+48, N+49 — the PPU's 16-wide OBJ grid.
@@ -519,15 +561,17 @@ def pal_bytes(pal):
 # THE PAGES ARE THE RESOURCE; HOW MUCH OF ONE THE ART USES IS A NUMBER
 # =============================================================================
 # Every blob is padded to its claimed size so the rom claim, the packer's
-# order and the `.assert`s in main.asm are all one number. The generator
+# order and the `.assert`s in main.asm are all ONE number. The generator
 # prints what the art actually occupies — that is the figure to watch, and it
 # is not the same figure as the claim.
-CHR1_TILES = 320                  # x 64 B, EIGHT bpp
+CHR1_TILES = 352                  # x 64 B, EIGHT bpp
 CHR2_TILES = 224                  # x 32 B
 OBJ_TILES = 64                    # four rows of the PPU's 16-wide OBJ grid
 WRITE_BYTES = 6144
-ROLL_PAGE = 13 * 32 * 2           # the curtain rows, as one VRAM transfer
-ROLL_BYTES = ROLL_PHASES * ROLL_PAGE
+HUE_CHUNK = 32768                 # ...and the hue blob is bank_tiled at the
+                                  # LoROM window, which is clean here because
+                                  # 32768 / 64 is 512 whole 8bpp tiles, so a
+                                  # chunk boundary never splits one
 
 
 def pad(blob, n, what):
@@ -541,12 +585,13 @@ if __name__ == "__main__":
     out = Path(sys.argv[1] if len(sys.argv) > 1 else "build/assets")
     out.mkdir(parents=True, exist_ok=True)
 
-    tiles1, words1 = cut_bg1()
+    tiles1, words1, hue_base, tint_cells, slot_of, fields = cut_bg1()
     cov, tim = write_on.ink(W, H)
     tiles2, words2, ink_base, ink_cells = cut_bg2(cov)
     stream, peak, total = write_stream(cov, tim, ink_base, ink_cells,
                                        write_on.FRAMES)
-    recs, row0, rrows, nrec = roll_pages(words1)
+    hue = hue_blob(tint_cells, slot_of, fields)
+    hue_chunks = -(-len(hue) // HUE_CHUNK)
 
     (out / "aur_chr1.bin").write_bytes(pad(chr8(tiles1), CHR1_TILES * 64, "chr1"))
     (out / "aur_map1.bin").write_bytes(map_bytes(words1))
@@ -555,8 +600,9 @@ if __name__ == "__main__":
     (out / "aur_pal.bin").write_bytes(pal_bytes(PAL_BG2) + pal_bytes(PAL_OBJ))
     (out / "aur_obj.bin").write_bytes(pad(obj_sheet(), OBJ_TILES * 32, "obj"))
     (out / "aur_write.bin").write_bytes(pad(stream, WRITE_BYTES, "write"))
-    (out / "aur_roll.bin").write_bytes(pad(recs, ROLL_BYTES, "roll"))
+    (out / "aur_hue.bin").write_bytes(pad(hue, hue_chunks * HUE_CHUNK, "hue"))
 
+    slice_n = len(tint_cells) // HUE_SLICES
     inc = """; aur_art.inc — GENERATED by tools/gen_aurora_assets.py. Do not edit.
 ; The credits scene's geometry, so the ASM and the tests read ONE copy of it.
 AUR_SCREEN_W    = %d
@@ -579,13 +625,23 @@ AUR_INK_BYTES   = %d      ; AUR_INK_TILES x 32 — the slice of chr2 a REPLAY
                           ;   re-uploads to blank the word again
 AUR_INK_OFF     = %d      ; ...at this offset into the chr2 blob
 
-; --- the roll -----------------------------------------------------------
-AUR_ROLL_TILES  = %d       ; curtain tiles, which is what the roll moves
-AUR_ROLL_ROW0   = %d        ; the first map row a curtain reaches...
-AUR_ROLL_ROWS   = %d       ; ...and how many. The page is that row range, so
-                          ;   a phase is ONE VBlank transfer and no CPU work
-AUR_ROLL_PAGE   = %d      ; AUR_ROLL_ROWS x 32 words x 2
-AUR_ROLL_PHASES = %d      ; ...and there are this many pages, one per phase
+; --- the hue cycle ------------------------------------------------------
+AUR_HUE_BASE    = %d        ; the first BG1 tile the aurora owns. The sky's %d
+                          ;   tiles dedupe and come first; these do NOT dedupe
+                          ;   — each is rewritten every phase, so two cells
+                          ;   that match at phase 0 still need separate slots
+AUR_HUE_TILES   = %d      ; ...and they are CONTIGUOUS, so a slice is one DMA
+AUR_HUE_PHASES  = %d
+AUR_HUE_SLICES  = %d        ; ...uploaded in this many VBlanks
+AUR_HUE_SLICE   = %d       ; AUR_HUE_TILES / AUR_HUE_SLICES, in tiles
+AUR_HUE_SLICE_B = %d     ; ...and in bytes, which is the transfer size
+AUR_HUE_PHASE_B = %d    ; one whole phase, for stepping the source
+AUR_HUE_CHUNKS  = %d        ; ...bank_tiled at the 32 KB window
+AUR_HUE_PER_CHUNK = %d    ; and a window holds this many WHOLE 8bpp tiles,
+AUR_HUE_CHUNK_SH = %d      ;   which is why bank_tiled is clean here: a chunk
+                          ;   boundary never splits a tile. The shift beside
+                          ;   it is log2 of the same number, so the NMI hook
+                          ;   reaches a chunk without a divide
 
 ; --- the figures --------------------------------------------------------
 AUR_FIGS        = %d
@@ -594,17 +650,20 @@ AUR_FIG_TOP     = %d      ; every figure's OAM Y — a 16x32 sprite whose bottom
 """ % (W, H, TW, TH, CLIFF,
        ink_base, len(ink_cells), write_on.FRAMES, peak,
        len(ink_cells) * 32, ink_base * 32,
-       nrec, row0, rrows, ROLL_PAGE, ROLL_PHASES,
+       hue_base, hue_base, len(tint_cells), HUE_PHASES, HUE_SLICES,
+       slice_n, slice_n * 64, len(tint_cells) * 64, hue_chunks,
+       HUE_CHUNK // 64, (HUE_CHUNK // 64).bit_length() - 1,
        len(FIGURES), CLIFF + 2 - OBJ_H)
     for n, (fx, h, w) in enumerate(FIGURES):
         inc += "AUR_FIG%d_X       = %d\n" % (n, fx - OBJ_W // 2)
     (out / "aur_art.inc").write_text(inc)
 
-    print("BG1 %d/%d 8bpp tiles (%d B page)   BG2 %d/%d 4bpp tiles, %d of them ink"
-          % (len(tiles1), CHR1_TILES, CHR1_TILES * 64, len(tiles2), CHR2_TILES,
-             len(ink_cells)))
-    print("write %d/%d B, %d uploads over %d frames, peak %d a frame"
-          % (len(stream), WRITE_BYTES, total, write_on.FRAMES, peak))
-    print("roll %d curtain tiles, map rows %d..%d, %d phases x %d B = %d/%d B"
-          % (nrec, row0, row0 + rrows - 1, ROLL_PHASES, ROLL_PAGE,
-             len(recs), ROLL_BYTES))
+    print("BG1 %d/%d 8bpp tiles (%d sky + %d the aurora's own)"
+          % (len(tiles1), CHR1_TILES, hue_base, len(tint_cells)))
+    print("BG2 %d/%d 4bpp tiles, %d of them ink; write %d/%d B, %d uploads, peak %d"
+          % (len(tiles2), CHR2_TILES, len(ink_cells), len(stream), WRITE_BYTES,
+             total, peak))
+    print("HUE %d phases x %d tiles = %d B -> %d chunks (%d B claimed); "
+          "a phase is %d VBlanks of %d B"
+          % (HUE_PHASES, len(tint_cells), len(hue), hue_chunks,
+             hue_chunks * HUE_CHUNK, HUE_SLICES, slice_n * 64))

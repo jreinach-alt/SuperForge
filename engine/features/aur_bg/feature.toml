@@ -18,7 +18,7 @@ depends = ["aur_rom"]
 name = "aur_chr1"
 kind = "chr"
 layers = ["bg1"]
-tiles = 320
+tiles = 352
 tile_bytes = 64
 
 [[claims.vram]]

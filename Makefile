@@ -1279,7 +1279,7 @@ AUR_ASM  := $(AUR)/main.asm $(wildcard $(AUR)/scenes/*.asm) \
 AUR_ASSETS := $(BUILD)/assets/aur_chr1.bin $(BUILD)/assets/aur_chr2.bin \
               $(BUILD)/assets/aur_map1.bin $(BUILD)/assets/aur_map2.bin \
               $(BUILD)/assets/aur_pal.bin $(BUILD)/assets/aur_obj.bin \
-              $(BUILD)/assets/aur_roll.bin $(BUILD)/assets/aur_write.bin \
+              $(BUILD)/assets/aur_hue.bin $(BUILD)/assets/aur_write.bin \
               $(BUILD)/assets/aur_art.inc
 
 $(AUR_ASSETS): tools/gen_aurora_assets.py tools/write_on.py \
@@ -1298,7 +1298,7 @@ AUR_INC := -I $(AUR_MAP) -I $(VROM) -I $(AUR) -I $(BUILD)/assets \
            -I engine/features/fade -I engine/features/region \
            -I engine/features/tick_scale -I engine/features/oam_sprites \
            -I engine/features/aur_bg -I engine/features/aur_obj \
-           -I engine/features/aur_roll -I engine/features/aur_write
+           -I engine/features/aur_hue -I engine/features/aur_write
 
 $(BUILD)/aurora.sfc: $(AUR_ASM) $(AUR)/aurora.inc \
 		$(AUR_MAP)/engine_state_globals.inc $(AUR_ASSETS) \

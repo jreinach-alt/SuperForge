@@ -25,8 +25,14 @@ bytes = 2                # how many of its frames have been played
 
 [[claims.dp]]
 name = "aur_wreset"
-bytes = 2                # nonzero for one frame after Start: VBlank blanks
-                         # the pen's tiles before the stream restarts
+bytes = 2                # after Start: how many of the pen's tiles are still
+                         # to be blanked. Counted down a SLICE at a time
+                         # rather than cleared in one VBlank — 77 tiles is
+                         # 2,464 B and the allocator refused that beside the
+                         # hue cycle's own transfer, correctly: it is a spike
+                         # in a frame that already has one. Erasing in slices
+                         # also reads better than a blink, because the word
+                         # un-writes
 
 [[claims.dma_init]]
 name = "aur_write_up"
@@ -35,7 +41,9 @@ registers = ["VMDATAL", "VMDATAH"]
 mode = 1
 
 [claims.dma]
-vblank_bytes_per_frame = 2464   # the REPLAY frame is the worst one, not a
-                                # writing frame: five tiles is 160 B, but
-                                # blanking the word again is all 77 at once
-vblank_transfers_per_frame = 5
+vblank_bytes_per_frame = 512    # AUR_INK_SLICE tiles, which is the erase
+                                # frame; a writing frame is at most five tiles
+                                # of 32 B and so is smaller
+vblank_transfers_per_frame = 5  # ...but a writing frame is five TRANSFERS,
+                                # one per dirtied tile, and the arm overhead
+                                # is charged per transfer

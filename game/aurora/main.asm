@@ -79,23 +79,31 @@ NMI:
 ; `.assert`s are what turn a repack into a build failure instead of art read
 ; from the wrong bank — they have already caught one here.
 ;
-; THE ROLL IS 26 KB AND IT IS A DMA SOURCE. A transfer cannot span a bank —
-; A1B is constant — and the allocator refuses a DMA-source claim larger than
-; the 32 KB LoROM window by name. That refusal is why the phase count is 32
-; and not 64: 64 pages would be 53,248 B, and `bank_tiled` is not the way out,
-; because it chunks at the WINDOW size and 32,768 is not a multiple of the
-; 832-byte page — a transfer would straddle the split.
-.segment "BANK1"
-aur_roll_bin:
-    .incbin "aur_roll.bin"
-.assert ^aur_roll_bin = ES_R_AUR_ROLL_BANK, error, "aur_roll bank drifted from allocator claim"
-.assert .loword(aur_roll_bin) = ES_R_AUR_ROLL_ADDR, error, "aur_roll addr drifted from allocator claim"
-aur_write_bin:
-    .incbin "aur_write.bin"
-.assert ^aur_write_bin = ES_R_AUR_WRITE_BANK, error, "aur_write bank drifted from allocator claim"
-.assert .loword(aur_write_bin) = ES_R_AUR_WRITE_ADDR, error, "aur_write addr drifted from allocator claim"
+; THE ORDER AND THE SEGMENTS ARE THE PACKER'S, not this file's. The allocator
+; sorts rom claims by SIZE and fills windows in that order, so the hue cycle
+; takes the first eight windows on its own and everything else follows it.
+; The `.assert`s are what turn a repack into a build failure instead of art
+; read from the wrong bank — they have caught it twice on this rail already.
+;
+; THE HUE CYCLE IS A QUARTER OF A MEGABYTE and it is a DMA source, so it is
+; bank_tiled: a transfer cannot span a bank because A1B is constant. That is
+; clean here in a way it is not for every blob — a window is 32,768 B and an
+; 8bpp tile is 64, so a chunk holds 512 WHOLE tiles and a boundary never
+; splits one.
+;
+; The `.repeat` count is DERIVED (ES_R_AUR_HUE_CHUNKS, emitted beside the
+; per-chunk symbols) because a hand-written count one too small leaves the
+; backing gate, ca65 and ld65 all green and the tail of the blob unread
+; (docs/37 §5 limit 1).
+.repeat ES_R_AUR_HUE_CHUNKS, CI
+.segment .sprintf("BANK%d", CI + 1)
+.ident(.sprintf("aur_hue_t%d", CI)):
+    .incbin "aur_hue.bin", CI * 32768, 32768
+.assert ^.ident(.sprintf("aur_hue_t%d", CI)) = .ident(.sprintf("ES_R_AUR_HUE_T%d_BANK", CI)), error, "aur_hue chunk bank drifted from allocator claim"
+.assert .loword(.ident(.sprintf("aur_hue_t%d", CI))) = .ident(.sprintf("ES_R_AUR_HUE_T%d_ADDR", CI)), error, "aur_hue chunk addr drifted from allocator claim"
+.endrepeat
 
-.segment "BANK2"
+.segment "BANK9"
 aur_chr1_bin:
     .incbin "aur_chr1.bin"
 .assert ^aur_chr1_bin = ES_R_AUR_CHR1_BANK, error, "aur_chr1 bank drifted from allocator claim"
@@ -108,16 +116,20 @@ aur_map1_bin:
     .incbin "aur_map1.bin"
 .assert ^aur_map1_bin = ES_R_AUR_MAP1_BANK, error, "aur_map1 bank drifted from allocator claim"
 .assert .loword(aur_map1_bin) = ES_R_AUR_MAP1_ADDR, error, "aur_map1 addr drifted from allocator claim"
-aur_map2_bin:
-    .incbin "aur_map2.bin"
-.assert ^aur_map2_bin = ES_R_AUR_MAP2_BANK, error, "aur_map2 bank drifted from allocator claim"
-.assert .loword(aur_map2_bin) = ES_R_AUR_MAP2_ADDR, error, "aur_map2 addr drifted from allocator claim"
 aur_pal_bin:
     .incbin "aur_pal.bin"
 .assert ^aur_pal_bin = ES_R_AUR_PAL_BANK, error, "aur_pal bank drifted from allocator claim"
 .assert .loword(aur_pal_bin) = ES_R_AUR_PAL_ADDR, error, "aur_pal addr drifted from allocator claim"
 
-.segment "BANK3"
+.segment "BANK10"
+aur_write_bin:
+    .incbin "aur_write.bin"
+.assert ^aur_write_bin = ES_R_AUR_WRITE_BANK, error, "aur_write bank drifted from allocator claim"
+.assert .loword(aur_write_bin) = ES_R_AUR_WRITE_ADDR, error, "aur_write addr drifted from allocator claim"
+aur_map2_bin:
+    .incbin "aur_map2.bin"
+.assert ^aur_map2_bin = ES_R_AUR_MAP2_BANK, error, "aur_map2 bank drifted from allocator claim"
+.assert .loword(aur_map2_bin) = ES_R_AUR_MAP2_ADDR, error, "aur_map2 addr drifted from allocator claim"
 aur_obj_bin:
     .incbin "aur_obj.bin"
 .assert ^aur_obj_bin = ES_R_AUR_OBJ_BANK, error, "aur_obj bank drifted from allocator claim"
@@ -134,14 +146,15 @@ aur_obj_bin:
 ; --- sm_nmi_hook: per-frame VBlank work ------------------------------------
 ; In: A8/I16, DB=0 (from sm_nmi_core). May clobber A/X/Y.
 ;
-; THREE TRANSFERS AND THAT IS THE WHOLE FRAME. The OAM shadow, the roll's
-; thirteen map rows, and whichever tiles the pen dirtied — at most
-; AUR_WRITE_PEAK of them, and none at all once the word stands.
+; THREE TRANSFERS AT MOST, AND USUALLY ONE. The OAM shadow every frame; one
+; slice of the hue cycle on the five frames of a phase and nothing while it
+; holds; and whichever tiles the pen dirtied, which is nothing once the word
+; stands.
 sm_nmi_hook:
     .a8
     .i16
     jsr oam_nmi_dma                 ; the OAM shadow, every armed VBlank
-    jsr credits::aur_roll_nmi       ; the curtains' map rows: ONE page
+    jsr credits::aur_hue_nmi        ; one fifth of the aurora's CHR, or
     jsr credits::aur_write_nmi      ; ...and the pen's tiles, if it moved
     rts
 

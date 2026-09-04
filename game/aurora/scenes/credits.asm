@@ -8,7 +8,7 @@
 ; and ca65 resolves outward, which is what makes the split work.
 .include "aur_bg.asm"
 .include "aur_obj.asm"
-.include "aur_roll.asm"
+.include "aur_hue.asm"
 .include "aur_write.asm"
 
 ; --- enter: the whole picture, under forced blank --------------------------
@@ -19,7 +19,7 @@ enter:
     .i16
     jsr aur_arm_bg                  ; BG1 + BG2 CHR, both maps, both palettes
     jsr aur_obj_arm                 ; OBSEL, the OBJ page, the three figures
-    jsr aur_roll_init
+    jsr aur_hue_init
     jsr aur_write_init
     stz z:US_TSC_ACC                ; TICK: ok -- the scaler's carried
     stz z:US_TSC                    ; TICK: ok -- ...and its output. Power-on
@@ -54,8 +54,8 @@ tick:
     jsr aur_write_restart
 :   .a16
     .i16
-    TS_STEP z:US_TSC_ACC, AUR_PHASE_BASE   ; -> A = whole phases this frame,
-    jsr aur_roll_tick                      ;   the fraction carried by the
+    TS_STEP z:US_TSC_ACC, AUR_TICK_BASE    ; -> A = whole ticks this frame,
+    jsr aur_hue_tick                       ;   the fraction carried by the
                                            ;   scaler and not by the feature
     rts
 
