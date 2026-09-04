@@ -1229,9 +1229,38 @@ the constant is.
   scanline seam and is mode-agnostic by construction; the vocabulary has no
   per-scanline story, and composing a video claim against an active-phase
   BGMODE transfer refuses with a message that says exactly this.
-- **`tiles16` is composed and not checked further.** 16x16 tiles change the
-  tilemap's addressing, and nothing here verifies that a claim's tilemap is
-  sized for them.
+- **`tiles16` is composed, joined against the offset table (O11), and not
+  checked further.** 16x16 tiles change the tilemap's addressing, and nothing
+  here verifies that a claim's tilemap is sized for them or that its CHR page
+  is laid out for the PPU's `N / N+1 / N+16 / N+17` quad.
+- **NO RAIL DECLARES `tiles16` TODAY, and the reason is the ART BUDGET rather
+  than the vocabulary.** `mill` is the rail it belongs on — its BG1 is the
+  layer its table drives VERTICALLY, which is the coherent axis (O11) — and it
+  cannot afford it. Measured on the rail's own painted picture: the hall and
+  the lobby cut at 8x8 dedupe to **336 distinct tiles** (21,504 B, against a
+  384-tile / 24,576 B page). Cut at 16x16 the same two pictures are **236
+  distinct blocks**, and a block is four tiles at fixed offsets, so the page
+  would have to hold **944 tiles = 60,416 B** — against 8,704 free VRAM words
+  (BG1's CHR claim is 12,288) and 8,816 free ROM bytes. The hall alone is 143
+  blocks / 572 tiles / 36,608 B and still does not fit. Sub-tile sharing
+  between overlapping blocks is possible in principle (the 944 slots draw on
+  only 336 distinct tiles) but is a packing search, not a cut. **So the size
+  bits reaching `$2105` and the PPU drawing large tiles are proven only by a
+  throwaway probe build**, described under O11 — not by a shipping rail, which
+  is the weaker footing of everything in this section and is why it is here.
+  What a rail that wanted it would need is art authored on a 16-pixel grid,
+  which is a design decision about the picture and not a change to this
+  vocabulary.
+- **The COLUMN-PAIR condition O11 warns about is real on `mill`'s own table,
+  and it is the ripple that breaks it.** Checked over every emitted row: the
+  machine table's 129 rows all satisfy it — BG1's driven columns come in
+  4-column shaft blocks carrying one value each, so both halves of every
+  16-pixel pair agree — but **all 33 rows of the molten channel's ripple table
+  fail it, at 357 of 528 pairs**, because the surface's rise is a sine sampled
+  PER COLUMN and neighbours differ by a pixel or two. Under `tiles16` that is
+  a channel tearing down the middle of every large tile. It is recorded here
+  rather than fixed, because fixing it means sampling the ripple per PAIR —
+  halving the mechanism's own resolution — and no rail is asking for it yet.
 - **The composition proves declarations, not writes.** The emitted symbols and
   the write consent exist so scene code CAN establish the composed state
   through the gate; whether a scene actually writes them is proven on the
