@@ -1156,6 +1156,69 @@ ram is at `FLOOR+18` and the belt at `FLOOR+24`: the head hangs at screen
 SUBJECT'S VISIBILITY here, not decoration, and the generator says so where
 the constant is.
 
+### 13.8 `mill_direct` — the same rail with BG1's pixels read as colour
+
+The rail ships **two ROMs**, and the difference between them is one boolean in
+one declaration.
+
+```
+build/mill.sfc          mil_mode      mode = 4
+build/mill_direct.sfc   mil_mode_dc   mode = 4, direct_color = true
+```
+
+Everything else is shared: `game/mill/main.asm`, both scenes, every feature,
+the offset table, BG2, the rider, the bands. The variant is built by
+`tools/build_mill_direct.sh` (`make mill-direct`) — the `build_rs_probe.sh`
+shape, with the one thing no other variant in this tree needs: **its own
+allocator run**, because a `-D` cannot change a declaration. The manifest it
+allocates from is DERIVED from `game/mill/game.toml` by a guarded one-token
+substitution, so "one declaration different" is mechanically true rather than
+asserted, and `game/` still holds one mill.
+
+**The two allocations are identical, placement for placement** — asserted, not
+claimed (`tests/test_mill_direct.py::test_the_two_builds_allocate_one_map`).
+The maps differ in `screen_blend.cgwsel` (`$10` -> `$11`), in `direct_color`,
+and in the feature names inside three `consumer` strings. Nothing moved. That
+is what makes the rendered comparison an argument about the declaration and not
+about the allocation.
+
+**What changed in the art.** BG1's CHR page and BG1's two tilemaps, and only
+those. `tools/gen_mill_direct.py` cuts the SAME painted buffers with the SAME
+`cut()` the shipping generator uses — so the tile count, the tile order and
+every map word's tile index are unchanged — and then re-colours the tiles it
+got. Each pixel becomes its own 3-3-2 colour and **each tile's map word gains
+the palette field that fits it best**, which is the fit that has to be per tile
+because the field is per map entry. The BG1 palette claim is still made, still
+uploaded, and never read: direct colour is all-or-nothing for the layer.
+
+**What it cost, measured on the boot lobby** (29,792 opaque BG1 pixels, sprite
+boxes excluded):
+
+| | |
+|---|---|
+| pixels rendering the direct-colour expression exactly | **29,792 of 29,792** |
+| ...in the INDEXED build, under the identical predicate | **0** |
+| pixels whose map-word palette field CHANGES their colour | 27,744 |
+| ...of those, matching a 3-3-2-ONLY prediction | **0** |
+| distance from the indexed build's own picture, eye-weighted | mean **7.6**, p95 15, worst 34 |
+
+The last row is the only oracle the quantiser has, and the reason it exists is
+worth stating: every other case computes its expected colour from the CHR byte
+and the map word **the PPU read**, which is what makes them tests of the
+mechanism — and is exactly why a quantiser defect is invisible to them. The
+PPU renders whatever the quantiser wrote, faithfully. So the converter is
+bounded against the other ROM's picture instead, and the plant set
+(`tools/plants/mill_direct.py`) carries two different shapes of quantiser
+defect to hold that bound honest.
+
+**The palette bits are the half a 3-3-2-only test cannot see**, and the plant
+that proves it is the one worth reading: with `PALETTE_BITS = False` every tile
+takes field 0, the hall still reads as the hall, and
+`test_bg1_renders_the_direct_colour_expression` **stays green** — correctly,
+because VRAM now says field 0 and field 0 is what the picture shows. Four other
+cases go red. A mechanism that is *present* and a mechanism that is merely
+*self-consistent* look the same from one direction only.
+
 ## 14. Stated limits
 
 - **The offset TABLE'S CONTENT is not modelled.** The claim says BG3's tilemap

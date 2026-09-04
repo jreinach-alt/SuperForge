@@ -202,8 +202,10 @@ writing your first test.
   length)
 - **Video-mode composition** — the video/offset vocabulary (`claims.video` /
   `claims.offset`), what MODE 2/4/6 make BG3 mean, the mode-dependent refusal
-  set O1–O8 (including the two the capability map named as unclosable: BG3 as
-  data, and offset-per-tile outside its three modes), the `ES_VID_*` /
+  set O1–O11 (including the two the capability map named as unclosable: BG3 as
+  data, and offset-per-tile outside its three modes), **`direct_color`, which
+  retired docs/99's stated limit: CGWSEL b0 is declared with the mode and
+  composed by CGWSEL's one owner**, the `ES_VID_*` /
   `ES_OPT_*` emission whose field set is derived from the declaration, the
   tilemap `shape` that completed the `BGnSC` encoding, and the stated limits →
   [`docs/100`](docs/100_video_mode_composition.md).

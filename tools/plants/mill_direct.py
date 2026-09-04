@@ -17,10 +17,11 @@ attack from two directions, and it does:
   * `the-palette-field-is-never-fitted` is the half a 3-3-2-only test cannot
     see, and the reason two of the cases exist. Every tile takes field 0, so
     the low bit of each channel is lost and the map words carry nothing. THE
-    HEADLINE CASE STAYS GREEN under this plant, by construction — its oracle is
-    VRAM, and VRAM now says field 0 everywhere, which is exactly what the
-    picture shows. Only the two cases that ask whether the field is DOING
-    anything can fail, which is the whole argument for their existence.
+    HEADLINE CASE STAYS GREEN under this plant, by construction and measured
+    (4 failed, 3 passed) — its oracle is VRAM, and VRAM now says field 0
+    everywhere, which is exactly what the picture shows. Only the cases that
+    ask whether the field is DOING anything can fail, which is the whole
+    argument for their existence.
   * `the-quantiser-truncates` and `the-fit-takes-the-worst-field` are the
     converter's own failure modes, and the only thing that can see them is the
     other ROM's picture. They are two DIFFERENT shapes of the same class: one
@@ -81,6 +82,8 @@ PLANTS = [
           tests=[
               T + "test_the_tilemap_palette_field_is_load_bearing",
               T + "test_the_two_builds_draw_the_same_tiles",
+              T + "test_two_tiles_one_chr_two_fields_render_differently",
+              T + "test_the_direct_build_is_the_same_picture",
           ],
           why="THE HALF A 3-3-2-ONLY TEST CANNOT SEE, and the reason two "
               "cases exist for it. Every tile is fitted under field 0 and "
@@ -89,10 +92,13 @@ PLANTS = [
               "channel loses its low bit. The hall still reads as the hall. "
               "`test_bg1_renders_the_direct_colour_expression` STAYS GREEN "
               "under this plant and must: its oracle is VRAM, VRAM says field "
-              "0, and field 0 is what the picture shows. What goes red is the "
-              "pair of cases that ask whether the field is doing any work — "
-              "which is what tells a mechanism that is present from one that "
-              "is merely consistent."),
+              "0, and field 0 is what the picture shows. FOUR of the seven go "
+              "red — every case that asks whether the field is doing any "
+              "work, plus the picture-distance bound, which the lost low bit "
+              "of each channel walks past on its own — and the headline case "
+              "does not, which is what tells a mechanism that is present "
+              "from one that is merely consistent. Measured: 4 failed, 3 "
+              "passed."),
 
     Plant(id="the-quantiser-truncates",
           file=GEN,
