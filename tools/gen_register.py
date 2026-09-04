@@ -107,6 +107,15 @@ CLAIM_CLASSES = [
     ("hdma", "hdma"), ("dma_init", "dma_init"),
     ("reg", "reg"), ("spc", "spc"),
     ("screen", "screen"), ("blend", "blend"),
+    # The video/offset vocabulary (docs/100). These three were MISSING until
+    # 2026-09-04, so every feature whose only claims are a mode or an offset
+    # table read as declaring nothing at all — `mil_opt`'s row showed its
+    # VRAM, DP and HDMA and not the offset-per-tile claim the feature exists
+    # for, and a feature that declares ONLY a mode showed an em-dash. The
+    # census's contract is "every column here is a fact a feature.toml
+    # states", and a claim class it does not know about breaks it silently.
+    ("video", "video"), ("offset", "offset"),
+    ("offset_bands", "offset_bands"),
 ]
 
 BEGIN = "<!-- BEGIN GENERATED: %s -->"
