@@ -108,7 +108,7 @@ ELSE.** It is `direct_color` on the scene's `[[claims.video]]` claim
 are read**: `GetRgbColor` acts on it under
 `if constexpr(bpp == 8 && directColorMode)` and nothing else
 (`SnesPpu.cpp:1071`), so it is a property of the mode, gated by the mode, and
-inert in a mode with no 8bpp layer (docs/100 §5, O11). The *emission* stays
+inert in a mode with no 8bpp layer (docs/100 §5, O12). The *emission* stays
 here because CGWSEL is composed here and nowhere else — splitting one
 register between two compositions would give it two owners, which is the
 shape every refusal in this vocabulary exists to prevent.
@@ -313,7 +313,7 @@ message carries this rule, so the build teaches it at the moment it matters.
 
 - **~~Direct color composes 0.~~ CLOSED (2026-09-04).** CGWSEL b0 is
   `direct_color` on `[[claims.video]]`, composed into CGWSEL on both the
-  blend and the no-blend path (§4), mode-gated by O11 (docs/100 §5) and
+  blend and the no-blend path (§4), mode-gated by O12 (docs/100 §5) and
   exercised by `build/mill_direct.sfc`. The limit was stated as "no live
   demand"; the demand arrived, and the escape hatch it named — a raw `CGWSEL`
   claim in a scene with no blend claims — turned out to be shut for exactly

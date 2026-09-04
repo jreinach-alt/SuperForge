@@ -722,7 +722,7 @@ def test_a_raw_cpu_writer_of_bg3vofs_beside_bands_still_refuses(tmp_path):
     assert "x_reg" in msg and "BG3VOFS" in msg
 
 
-# -- O11: DIRECT COLOUR, declared with the mode and composed into CGWSEL ----
+# -- O12: DIRECT COLOUR, declared with the mode and composed into CGWSEL ----
 #
 # `direct_color` is the one field on a video claim that composes into a
 # register this vocabulary does not own. It is DECLARED here because it decides
@@ -785,7 +785,7 @@ def test_a_scene_without_direct_color_composes_bit_0_clear(tmp_path):
     assert "CGWSEL" not in sb["registers"]
 
 
-def test_o11_direct_color_under_a_mode_with_no_8bpp_layer_warns(tmp_path):
+def test_o12_direct_color_under_a_mode_with_no_8bpp_layer_warns(tmp_path):
     """A WARNING, not a refusal, and the decision is the tree's own rule taken
     literally: refuse what the silicon cannot express, warn about what it can.
     CGWSEL b0 under mode 1 is a legal, stable PPU state in which GetRgbColor's
@@ -802,7 +802,7 @@ def test_o11_direct_color_under_a_mode_with_no_8bpp_layer_warns(tmp_path):
     assert a.scenes["s"].screen_blend["cgwsel"] & 0x01
 
 
-def test_o11_does_not_warn_in_the_modes_that_render_8bpp(tmp_path):
+def test_o12_does_not_warn_in_the_modes_that_render_8bpp(tmp_path):
     """Modes 3 and 4 reach it through RenderTilemap; mode 7 through
     RenderTilemapMode7's own arm. So none of the three is a finding, and the
     set is read off MODE_BPP rather than listed twice."""
@@ -814,7 +814,7 @@ def test_o11_does_not_warn_in_the_modes_that_render_8bpp(tmp_path):
         assert "declares direct_color under mode" not in w, mode
 
 
-def test_o11_mode_7_warns_that_it_buys_only_the_3_3_2(tmp_path):
+def test_o12_mode_7_warns_that_it_buys_only_the_3_3_2(tmp_path):
     """The second arm. Mode 7's direct-colour path has NO tilemap palette
     field — `((c & 0x07) << 2) | ((c & 0x38) << 4) | ((c & 0xC0) << 7)`,
     SnesPpu.cpp:1243 — so the low bit of each channel, which modes 3 and 4 take

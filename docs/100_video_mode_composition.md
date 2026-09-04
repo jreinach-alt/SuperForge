@@ -155,7 +155,7 @@ not on a colour-math one because that is what it is a property of —
 screen/blend vocabulary owns, so **the declaration is here and the emission
 is in docs/99 §4**. One register, one composition writing it. Which modes it
 means anything in is `MODE_BPP`'s answer and not a second list: 3, 4 and 7
-(O11 below).
+(O12 below).
 
 ## 4. Composition
 
@@ -330,7 +330,7 @@ about what it can*.
   visible. A warning and not a refusal for the WOBJSEL reason (docs/99 §8) —
   the layer may be designated by a raw TM claim the vocabulary cannot
   attribute.
-- **O11 — `direct_color` under a mode with no 8bpp layer**, and under mode 7.
+- **O12 — `direct_color` under a mode with no 8bpp layer**, and under mode 7.
   Two arms, both warnings, and the first is the decision worth stating: the
   bit HOLDS. CGWSEL b0 set under mode 1 is a legal, stable, expressible PPU
   state in which `GetRgbColor`'s `bpp == 8` guard is false for every layer the

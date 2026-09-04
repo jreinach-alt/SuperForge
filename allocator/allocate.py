@@ -493,7 +493,7 @@ def compose_screen_blend(screen: list[tuple], blend: list[tuple],
     declares none. It is the one input here that is not a claim of THIS
     vocabulary: it is declared on `[[claims.video]]`, because what it decides
     is how an 8bpp layer's pixel bytes are read — a property of the mode,
-    gated by the mode, and meaningless in a mode with no 8bpp layer (O11). It
+    gated by the mode, and meaningless in a mode with no 8bpp layer (O12). It
     is COMPOSED here because CGWSEL is composed here and nowhere else:
     splitting one register between two compositions would give it two owners,
     which is the shape every refusal in this file exists to prevent. So the
@@ -1120,7 +1120,7 @@ def compose_video_offset(video: list[tuple], offset: list[tuple],
                 f"claim the vocabulary cannot attribute")
 
     if video:
-        checks += 2                      # O8 + O11 live
+        checks += 2                      # O8 + O12 live
         vc, vwho = video[0]
         # O8 — a designation the mode does not render. R5's rule on the mode
         # axis: the enable bit is set and no pass ever produces a pixel for
@@ -1151,7 +1151,7 @@ def compose_video_offset(video: list[tuple], offset: list[tuple],
                 f"renders, or declare a mode that renders {c.layer} "
                 f"(docs/100)")
 
-        # O11 — direct color under a mode with no 8bpp layer. A WARNING, and
+        # O12 — direct color under a mode with no 8bpp layer. A WARNING, and
         # the decision is the tree's own rule applied literally: refuse what
         # the silicon cannot express, warn about what it can. CGWSEL b0 set
         # under mode 1 is a legal, expressible, perfectly stable PPU state —
@@ -3224,9 +3224,9 @@ def main(argv=None) -> int:
     # ...and the video/offset half, reported on the same terms and for the
     # same reason: a run that examined nothing must read as having examined
     # nothing. Live checks per scene: O1 needs two mode claims, O2 two offset
-    # claims, O3/O4/O6/O7 an offset claim, O8 and O11 a mode claim, O10 a
+    # claims, O3/O4/O6/O7 an offset claim, O8 and O12 a mode claim, O10 a
     # bands claim, and O5's register arm the synthesized ownership claim in
-    # the scene's union. O7 and O11 warn rather than refusing and are counted
+    # the scene's union. O7 and O12 warn rather than refusing and are counted
     # anyway: what the census reports is checks EVALUATED, and a check whose
     # verdict is a warning was still evaluated.
     vos = [sm.video_offset for sm in alloc.scenes.values()

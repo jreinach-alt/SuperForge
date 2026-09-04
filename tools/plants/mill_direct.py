@@ -30,11 +30,11 @@ attack from two directions, and it does:
     a set where both killed the same single case would prove less than it
     looks.
 
-WHAT IS DELIBERATELY NOT HERE: a plant that removes O11's warning. O11 warns
+WHAT IS DELIBERATELY NOT HERE: a plant that removes O12's warning. O12 warns
 rather than refusing (docs/100 §5), so removing it moves no artifact md5 and
 the harness would report a plant that never reached the binary — correctly.
 That check is a pure-Python case in `tests/test_video_offset.py`
-(`test_o11_direct_color_under_a_mode_with_no_8bpp_layer_warns`), where the rest
+(`test_o12_direct_color_under_a_mode_with_no_8bpp_layer_warns`), where the rest
 of the refusal set is tested and where a warning IS the observable.
 """
 import sys
