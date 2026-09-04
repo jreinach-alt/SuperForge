@@ -3,8 +3,10 @@
 # =============================================================================
 # THE ONE DECLARATION THAT SEPARATES THE TWO BUILDS
 # =============================================================================
-# This file is `mil_mode` with `direct_color = true` and nothing else changed.
-# `game/mill/game.toml` composes that one, `game/mill/direct/game.toml`
+# This file is `mil_mode` with `direct_color = true` — plus the claim named for
+# itself, so the allocation report's "direct color (CGWSEL b0) from ..." line
+# names the feature that declared it rather than repeating its sibling's claim
+# name. `game/mill/game.toml` composes that one, `game/mill/direct/game.toml`
 # composes this one, and every other claim on the rail — the offset table, the
 # blend, the bands, the CHR pages, the rider — is shared. So the difference
 # between `build/mill.sfc` and `build/mill_direct.sfc` is one boolean in a
@@ -37,6 +39,6 @@ name = "mil_mode_dc"
 role = "feature"
 
 [[claims.video]]
-name = "mil_mode"
+name = "mil_mode_dc"
 mode = 4
 direct_color = true
