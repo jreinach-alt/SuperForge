@@ -489,17 +489,17 @@ def compose_screen_blend(screen: list[tuple], blend: list[tuple],
     the hardware mechanism — the messages are the deliverable.
 
     `direct` is the scene's DIRECT COLOR declarers — the [(video claim, who)]
-    pairs whose `direct_color` is true, empty for every scene that declares
-    none. It is the one input here
-    that is not a claim of this vocabulary: it is DECLARED on
-    `[[claims.video]]` (`direct_color`), because what it decides is how an
-    8bpp layer's pixel bytes are read — a property of the mode, gated by the
-    mode, and meaningless in a mode with no 8bpp layer. It is EMITTED here
-    because CGWSEL is composed here and nowhere else: splitting one register
-    between two compositions would give it two owners, which is the exact
-    shape every refusal in this file exists to prevent. So the declaration
-    lives where the fact does and the write stays with the port's one owner
-    — and DECLARING IT IS CLAIMING CGWSEL, blend claim or no blend claim.
+    pairs whose `direct_color` is true, and empty for every scene that
+    declares none. It is the one input here that is not a claim of THIS
+    vocabulary: it is declared on `[[claims.video]]`, because what it decides
+    is how an 8bpp layer's pixel bytes are read — a property of the mode,
+    gated by the mode, and meaningless in a mode with no 8bpp layer (O11). It
+    is COMPOSED here because CGWSEL is composed here and nowhere else:
+    splitting one register between two compositions would give it two owners,
+    which is the shape every refusal in this file exists to prevent. So the
+    declaration lives where the fact does and the write stays with the port's
+    one owner — and DECLARING IT IS CLAIMING CGWSEL, blend claim or no blend
+    claim.
     """
     if not screen and not blend and not direct:
         return None
