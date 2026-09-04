@@ -36,13 +36,17 @@ forever that reads as a BREAK rather than as a control
 `tools/shot_mill.py` renders the running and flat frames side by side and
 `tests/test_mill.py::test_the_flat_control_stills_every_column` asserts it.
 
-THE TAKE DOES NOT LOOP, AND THE SEAM IS REPORTED HONESTLY. The picture was once
-a pure function of `ES_MIL_PHASE` and closed on the phase coming back round
-(`reports/mill_loop.md`). It is a function of the phase AND the camera now, and
-the take is a journey: it opens at the bottom of the shaft and ends with the
-car gone through the top. reports/gallery_loop_seams.md draws that line — a
-sequence that goes somewhere reports a large seam rather than faking a small
-one.
+THE TAKE CLOSES, AND WHAT CLOSES IT IS THE RAIL'S OWN CYCLE. The picture was
+once a pure function of `ES_MIL_PHASE` and closed on the phase coming back
+round (`reports/mill_loop.md`); it is a function of the phase AND the camera
+now, and for two commits this paragraph said the take was therefore a journey
+that ended with the car gone through the top and reported a large seam. That
+stopped being true when the climb started handing back to the lobby: the
+recorded take is lobby -> doors -> hall -> climb -> lobby, and the measured
+seam is 0.00/255 with the first and last frames byte-identical. Which is the
+honest outcome either way — reports/gallery_loop_seams.md draws the line that a
+sequence going somewhere reports its seam rather than faking a small one, and
+this one has no seam to fake.
 """
 import json
 import re
