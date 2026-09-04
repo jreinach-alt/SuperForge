@@ -10,18 +10,21 @@
 # at :156-161), so a single 32-word row pumps one bay vertically and runs the
 # next sideways.
 #
-# `axis = "both"` UNDER MODE 4 MEANS THAT, and it is a declaration this
-# vocabulary refused until this rail asked for it. The refusal reasoned about a
-# COLUMN — a mode-4 column carries one axis, which is true — and rejected a
-# claim about the TABLE. It is a warning now, because the same word means
-# "both axes per column" one mode over (docs/100 §5, O7).
+# `axis = "per_column"` IS THE NAME OF THAT STATE, and it is the declaration
+# this rail asked the vocabulary for. It was `both` for one sprint, over a
+# warning the composition printed on every build — because `both` had to mean
+# two different hardware states at once: a column displaced on BOTH axes
+# (modes 2 and 6, a word fetched for each) and a table carrying both axes with
+# each column on ONE (mode 4, one word and bit 15). Naming the second state
+# makes each refuse in the other's modes, so a table moved between the modes
+# stops the build instead of silently changing meaning (docs/100 §5, O7).
 name = "mil_opt"
 role = "feature"
 depends = ["mil_rom"]
 
 [[claims.offset]]
 name = "mil_table"
-axis = "both"
+axis = "per_column"
 layers = ["bg1", "bg2"]
 
 # Mode 4: bg1 8bpp + bg2 2bpp. The depths are the reason the art is split into

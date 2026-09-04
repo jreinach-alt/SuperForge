@@ -84,18 +84,31 @@ checked against (§5, O9): a 4bpp tile is 32 bytes and an 8bpp tile is 64, the
 PPU fetches at the MODE's depth whatever the claim reserved, and until mode 4
 every composed mode rendered its layers at the depth the art happened to be.
 
-**`axis = "both"` under mode 4 was refused, and that was wrong.** The refusal
-reasoned about a COLUMN — a mode-4 column carries one axis, which is true —
-and then rejected a claim about the TABLE. Bit 15 is per WORD, so a mode-4
-table can drive one column vertically and its neighbour horizontally, and that
-mixing is the only thing mode 4 does which mode 2 cannot. It also made the
-truth undeclarable rather than merely unusual: `axis` selects which value mask
-is published and the two mask differently (`$3FF` against `$3F8`), so a mixed
-table declaring `"v"` got `MASK` and no `HMASK` and had no symbol to build half
-its words from. `both` is legal in all three offset modes now and means "this
-table uses both axes"; what differs by mode is where the choice lives, and the
-composition warns at that boundary because the same declaration means "both
-axes per column" one mode over.
+**The two-axis states are TWO STATES, and each has its own name.** Modes 2 and
+6 fetch a word for each axis, so a column can be displaced on both at once;
+mode 4 fetches one word and bit 15 picks that word's axis, so the TABLE carries
+both axes and each COLUMN carries one. `axis = "both"` is the first and
+`axis = "per_column"` is the second, and **each is refused in the other's
+modes** (§5, O7).
+
+That pair replaced a single `"both"` that had to mean whichever state its
+scene's mode implied. Two things were wrong with it. The first: it made the
+composition print the value's own DEFINITION on every build of a correct
+mode-4 declaration — a warning that reports nothing, which `mill` ate on every
+build for a sprint. The second is the one that mattered: **a table moved
+between the modes kept its declaration and changed its meaning**, and a warning
+cannot stop that. Two names can, and the refusal is where the migration now
+lands.
+
+(The refusal `"both"`-under-mode-4 replaces is not the one that used to be
+there. That one reasoned about a COLUMN — a mode-4 column carries one axis,
+which is true — and then rejected a claim about the TABLE, leaving the mixed
+table undeclarable: `axis` selects which value mask is published and the two
+mask differently (`$3FF` against `$3F8`), so a mixed table declaring `"v"` got
+`MASK` and no `HMASK` and had no symbol to build half its words from.
+`per_column` is that missing declaration, and it publishes `MASK`, `HMASK` and
+`VSEL` — exactly the set `"both"` published under mode 4, so the rail that
+migrated to it builds a byte-identical ROM.)
 
 **Two things about offset-per-tile were measured on a shipped binary rather
 than read**, because reading a fetch order is not the same as watching it:
@@ -127,7 +140,12 @@ bg3_priority = false       # optional, default false    (b3, mode 1 only)
 tiles16 = []               # optional: bg1|bg2|bg3|bg4  (b4-7)
 
 [[claims.offset]]          # OFFSET-PER-TILE: BG3's tilemap IS the table
-axis   = "v"               # h | v | both
+axis   = "v"               # h | v | both | per_column
+                           #   both       a column displaced on BOTH axes at
+                           #              once — modes 2 and 6 only
+                           #   per_column the TABLE carries both axes, each
+                           #              COLUMN one, picked by bit 15 —
+                           #              mode 4 only
 layers = ["bg1", "bg2"]    # the enable bits it may set: 13 -> BG1, 14 -> BG2
 
 [[claims.offset_bands]]    # BANDS: this SCENE reads the table in `rows` bands
@@ -223,10 +241,25 @@ names the claiming features and the hardware mechanism it protects.
   declared mode never draws refuses (bg2 under mode 6). R5's shape on the mode
   axis: the enable bit is set and the offset displaces a layer no pass
   produces.
-- **O7 — mode 4 carries one axis per column.** `axis = "both"` under mode 4
-  refuses. One word is fetched and bit 15 selects the axis, so a column carries
-  one or the other and never both. Modes 2 and 6 fetch a word for each and are
-  where `"both"` is expressible.
+- **O7 — the two-axis states are two states, and each mode has one of them.**
+  Two arms, and each is the other's mirror:
+  - `axis = "both"` under **mode 4** refuses. `"both"` is a column displaced on
+    both axes at once; mode 4 fetches ONE word and bit 15 selects that word's
+    axis (`SnesPpu.cpp:156-161`), so no column is ever on both. The message
+    names `per_column` as the declaration that says what mode 4 CAN do.
+  - `axis = "per_column"` under **modes 2 and 6** refuses. `per_column` is a
+    table whose columns each carry one axis, chosen by bit 15 — and bit 15 is
+    read in mode 4 alone. Modes 2 and 6 fetch a word for EACH axis, so every
+    column gets both and the word's bit 15 selects nothing.
+
+  **This arrived as a warning and became a pair of refusals**, and the reason
+  is worth keeping: with one name for both states the composition could only
+  read the value's definition aloud on a CORRECT declaration, and the hazard it
+  was pointing at — a table MOVED BETWEEN MODES, keeping its `axis` and
+  changing its meaning — is exactly what a warning cannot stop. Two names make
+  that migration stop the build. The emission is unaffected: `per_column`
+  publishes `MASK`, `HMASK` and `VSEL`, the set `"both"` published under mode 4,
+  so `mill`'s ROM is byte-identical across the rename.
 - **O8 — a designation the mode does not render.** A `[[claims.screen]]` claim
   for a BG layer the declared mode never draws refuses, **with or without an
   offset claim**. R5's rule on the mode axis, and the same sentence: the TM/TS

@@ -238,41 +238,92 @@ def test_o6_a_driven_layer_the_mode_does_not_render(tmp_path):
     assert "displaces a layer no pass draws" in msg
 
 
-def test_o7_mode_4_mixes_axes_per_column_and_says_so(tmp_path):
-    """`both` UNDER MODE 4 IS LEGAL, and this case is the one that changed.
+def test_o7_per_column_under_mode_4_is_the_declaration_and_emits_all_three(tmp_path):
+    """`per_column` IS mode 4's two-axis state, and it emits what it needs.
 
-    It used to assert a refusal. The refusal reasoned about a COLUMN — "a
-    column carries one axis and never both", which is true — and then rejected
-    a claim about the TABLE. Bit 15 is per WORD, so a mode-4 table can drive
-    one column vertically and its neighbour horizontally, and that mixing is
-    the only thing mode 4 does which mode 2 cannot.
+    Mode 4 fetches ONE word per column and bit 15 picks that word's axis, so a
+    table can drive one column vertically and its neighbour horizontally —
+    the one thing mode 4 does which mode 2 cannot. The emission is the whole
+    reason the state needs a name of its own: `axis` picks which value mask is
+    published and the two axes mask differently ($3FF against $3F8), so a
+    mixed table has to publish BOTH masks and the bit that selects between
+    them.
 
-    It also made the truth undeclarable rather than merely unusual: `axis`
-    picks which value mask is published, and the two axes mask differently
-    ($3FF against $3F8), so a mixed table declaring "v" got MASK and no HMASK
-    and had no symbol to build half its words from.
-
-    So: accepted, all three constants emitted, and warned — because the same
-    declaration means "both axes per column" one mode over.
+    NO WARNING. The composition used to read this declaration's own definition
+    aloud on every build, which is a report of nothing.
     """
     f = features(tmp_path,
                  m='[[claims.video]]\nmode = 4\n' + LAYERS,
-                 t='[[claims.offset]]\naxis = "both"\nlayers = ["bg1"]\n')
+                 t='[[claims.offset]]\naxis = "per_column"\nlayers = ["bg1"]\n')
     a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m", "t"))
-    assert a.scenes["s"].video_offset["axis"] == "both"
+    assert a.scenes["s"].video_offset["axis"] == "per_column"
     inc, _ = _emit(tmp_path, f, "m", "t")
     assert "ES_OPT_S_MASK = $03FF" in inc      # the V value field
     assert "ES_OPT_S_HMASK = $03F8" in inc     # ...and the H one
     assert "ES_OPT_S_VSEL = $8000" in inc      # ...and the bit that picks
     w = " ".join(a.scenes["s"].video_offset["warnings"])
-    assert "means something different from modes 2" in w
-    assert "the TABLE carries both axes and each COLUMN carries one" in w
+    assert "means something different from modes 2" not in w
+
+
+def test_o7_per_column_emits_exactly_what_both_did_under_mode_4(tmp_path):
+    """THE MIGRATION IS A RENAME, not a change of meaning: `per_column` under
+    mode 4 must publish the same field set `both` published there, or every
+    rail that moves to it builds a different ROM.
+
+    Asserted as an equality against the composition's own field dict rather
+    than by re-typing three constants, so a field added to either arm later
+    cannot pass this by being typed twice.
+    """
+    f = features(tmp_path,
+                 m='[[claims.video]]\nmode = 4\n' + LAYERS,
+                 t='[[claims.offset]]\naxis = "per_column"\nlayers = ["bg1", "bg2"]\n')
+    a = allocate(SUB, f, NO_STATE, one_scene(tmp_path, "m", "t"))
+    got = a.scenes["s"].video_offset["fields"]
+    # ...and the reference: the same claim in the mode where `both` is legal
+    # carries MASK + HMASK, and mode 4 adds VSEL.
+    f2 = features(tmp_path / "ref",
+                  m='[[claims.video]]\nmode = 2\n' + LAYERS,
+                  t='[[claims.offset]]\naxis = "both"\nlayers = ["bg1", "bg2"]\n')
+    b = allocate(SUB, f2, NO_STATE, one_scene(tmp_path / "ref", "m", "t"))
+    ref = dict(b.scenes["s"].video_offset["fields"])
+    ref["VSEL"] = 0x8000
+    assert got == ref
+
+
+def test_o7_both_under_mode_4_refuses(tmp_path):
+    """The migration hazard, as a refusal. `both` is a column displaced on
+    BOTH axes at once and mode 4 has no such state — one word is fetched and
+    bit 15 picks. This used to be a WARNING, which could not stop a table
+    moved from mode 2 to mode 4 keeping its declaration and changing its
+    meaning."""
+    f = features(tmp_path,
+                 m='[[claims.video]]\nmode = 4\n' + LAYERS,
+                 t='[[claims.offset]]\naxis = "both"\nlayers = ["bg1"]\n')
+    msg = _refuse(tmp_path, f, "m", "t")
+    assert "OFFSET-PER-TILE contention" in msg
+    assert 'declares axis = "both"' in msg
+    assert "bit 15 selects that word's axis" in msg
+    assert 'declare axis = "per_column"' in msg
+
+
+@pytest.mark.parametrize("mode", [2, 6])
+def test_o7_per_column_outside_mode_4_refuses(tmp_path, mode):
+    """The other arm. Modes 2 and 6 fetch a word for EACH axis, so every
+    column gets both and bit 15 selects nothing — the choice `per_column`
+    names does not exist there."""
+    f = features(tmp_path,
+                 m=f'[[claims.video]]\nmode = {mode}\n' + LAYERS,
+                 t='[[claims.offset]]\naxis = "per_column"\nlayers = ["bg1"]\n')
+    msg = _refuse(tmp_path, f, "m", "t")
+    assert "OFFSET-PER-TILE contention" in msg
+    assert 'declares axis = "per_column"' in msg
+    assert "bit 15 is read in mode 4 alone" in msg
 
 
 def test_o7_both_under_mode_2_is_the_other_meaning(tmp_path):
-    """The neighbouring arm, and the reason the warning exists: modes 2 and 6
+    """The neighbouring arm, and the reason there are two names: modes 2 and 6
     fetch a word for EACH axis, so `both` there is a column displaced on both
-    at once. Same declaration, different hardware, no warning."""
+    at once. Legal, and no warning."""
     f = features(tmp_path,
                  m='[[claims.video]]\nmode = 2\n' + LAYERS,
                  t='[[claims.offset]]\naxis = "both"\nlayers = ["bg1"]\n')
@@ -280,6 +331,16 @@ def test_o7_both_under_mode_2_is_the_other_meaning(tmp_path):
     assert a.scenes["s"].video_offset["axis"] == "both"
     w = " ".join(a.scenes["s"].video_offset["warnings"])
     assert "means something different" not in w
+
+
+def test_a_fifth_axis_value_is_refused_at_parse(tmp_path):
+    """Four states, named, and the parse error says what each means — so an
+    author who reaches for a fifth reads the pair that already exists."""
+    with pytest.raises(SchemaError) as e:
+        feature(tmp_path, "z",
+                '[[claims.offset]]\naxis = "either"\nlayers = ["bg1"]\n')
+    assert "per_column" in str(e.value)
+    assert "picked by bit 15" in str(e.value)
 
 
 @pytest.mark.parametrize("mode,layer", [(2, "bg3"), (2, "bg4"), (3, "bg3"),
@@ -646,7 +707,7 @@ def test_a_32x32_claim_is_unchanged_by_the_shape_field(tmp_path):
 # its BG3VOFS ownership `seed`, and emits the band count and the row stride.
 
 M4 = '[[claims.video]]\nmode = 4\n' + LAYERS
-TAB = '[[claims.offset]]\naxis = "both"\nlayers = ["bg1", "bg2"]\n'
+TAB = '[[claims.offset]]\naxis = "per_column"\nlayers = ["bg1", "bg2"]\n'
 BANDS = '[[claims.offset_bands]]\nrows = 3\n'
 
 

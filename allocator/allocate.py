@@ -952,7 +952,8 @@ def compose_video_offset(video: list[tuple], offset: list[tuple],
 
     if offset:
         oc, owho = offset[0]
-        checks += 4                      # O3 + O4 + O6 + O7 live
+        checks += 5                      # O3 + O4 + O6 + O7's TWO arms
+                                         # (both-under-4, per_column-under-2/6)
 
         # O3 — offset-per-tile needs a DECLARED mode. Without one the mode
         # restriction cannot be proven at all, which is the hole this
@@ -990,36 +991,59 @@ def compose_video_offset(video: list[tuple], offset: list[tuple],
                 f"whose bit 15 picks the axis) or 6 (bg1 4bpp, hi-res), or "
                 f"drop the offset claim")
 
-        # O7 — `both` means a different thing under mode 4, and it used to be
-        # REFUSED there. That was wrong, and wrong in a way worth keeping the
-        # shape of: the refusal reasoned about a COLUMN ("a column carries one
-        # axis or the other and never both" — true) and then rejected a claim
-        # about the TABLE. Bit 15 is per WORD, so a mode-4 table genuinely can
-        # drive column 3 vertically and column 4 horizontally, and that mixing
-        # is the one thing mode 4 does which mode 2 cannot. The refusal's own
-        # remedy text said so — "choose per column at run time through bit 15"
-        # — while the emission it forced could not deliver it: `axis` selects
-        # WHICH VALUE MASK is published, so a table declaring "v" gets MASK and
-        # no HMASK, and the two axes mask differently ($3FF against $3F8).
-        # Declaring the truth was the one thing an author could not do.
+        # O7 — the two-axis states are TWO STATES, and each mode has exactly
+        # one of them. This was a WARNING on the mode-4 arm and no check at
+        # all on the other, which is the shape a declaration takes when it
+        # cannot say what its author means: `both` had to cover a column
+        # displaced on both axes (modes 2 and 6, a word fetched for each) AND
+        # a table whose columns each carry one axis picked by bit 15 (mode 4,
+        # one word fetched). Two different hardware states under one name, so
+        # the composition could only read the second meaning aloud on every
+        # build of a CORRECT declaration — a warning that was the definition
+        # of the value rather than a report of a defect.
         #
-        # So `both` is legal in all three offset modes and means "this table
-        # uses both axes". What DIFFERS by mode is where the choice lives, and
-        # that is worth saying out loud, because the same word changes meaning
-        # under a rail that migrates between them.
+        # `per_column` is the second state's own name, and with it each value
+        # refuses in the other's modes. What that buys is the case the warning
+        # was guarding and could not stop: a table MOVED BETWEEN MODES keeps
+        # its declaration and changes its meaning, and now stops the build
+        # instead.
         if mode == 4 and oc.axis == "both":
-            warnings.append(
-                f"offset {oc.name} ({owho}) declares axis = \"both\" under "
-                f"mode 4, where that means something different from modes 2 "
-                f"and 6. Mode 4 fetches ONE word per column and bit 15 picks "
-                f"its axis (Mesen2 SnesPpu.cpp FetchTileData case 2 under "
-                f"BgMode 4, and the bit-15 test at :156-161), so the TABLE "
-                f"carries both axes and each COLUMN carries one — set "
-                f"ES_OPT_<ID>_VSEL on a word to make it vertical. Modes 2 and "
-                f"6 fetch a word for EACH axis, so there \"both\" means a "
-                f"column can be displaced on both at once. A table moved "
-                f"between those modes keeps its declaration and changes its "
-                f"meaning")
+            vc, vwho = video[0]
+            raise AllocationError(
+                f"OFFSET-PER-TILE contention in scene '{scope}': {oc.name} "
+                f"({owho}) declares axis = \"both\", but {vc.name} ({vwho}) "
+                f"declares mode 4. \"both\" is a column displaced on BOTH "
+                f"axes at once, and mode 4 has no such state: it fetches ONE "
+                f"word per column and bit 15 selects that word's axis (Mesen2 "
+                f"SnesPpu.cpp FetchTileData case 2 under BgMode 4, and the "
+                f"bit-15 test at :156-161), so a column is displaced "
+                f"vertically or horizontally and never both. What mode 4 CAN "
+                f"do — and modes 2 and 6 cannot — is carry both axes ACROSS "
+                f"THE TABLE, one per column: declare axis = \"per_column\", "
+                f"which emits MASK, HMASK and VSEL and says which bit picks. "
+                f"This is a refusal rather than a warning because the two "
+                f"declarations mean different things: a table moved between "
+                f"mode 2 and mode 4 keeps its `axis` and changes its meaning, "
+                f"and that is the migration this stops (docs/100)")
+
+        if mode in (2, 6) and oc.axis == "per_column":
+            vc, vwho = video[0]
+            raise AllocationError(
+                f"OFFSET-PER-TILE contention in scene '{scope}': {oc.name} "
+                f"({owho}) declares axis = \"per_column\", but {vc.name} "
+                f"({vwho}) declares mode {mode}. \"per_column\" is a table "
+                f"whose columns each carry ONE axis, chosen by bit 15 of the "
+                f"word — and bit 15 is read in mode 4 alone (Mesen2 "
+                f"SnesPpu.cpp:156-161). Mode {mode} fetches an H word AND a V "
+                f"word for every column (FetchTileData cases 2 and 3, "
+                f":277-390), so the axis is not a per-column choice there: "
+                f"every column gets both, and the word's bit 15 selects "
+                f"nothing. Declare axis = \"both\" for a column displaced on "
+                f"both axes, or \"h\"/\"v\" for a table that uses one — or "
+                f"declare mode 4, where the choice exists. This is a refusal "
+                f"rather than a warning because the two declarations mean "
+                f"different things and a table moved between the modes keeps "
+                f"its `axis` (docs/100)")
 
         # O6 — the driven layer must exist in the mode. An enable bit for a
         # layer the mode never renders is the R5 shape: the bit sits set, the
@@ -1060,7 +1084,7 @@ def compose_video_offset(video: list[tuple], offset: list[tuple],
         # Hardware behaviour an author of this table has to design around —
         # real, not refusable, and the reason it is a warning is that both
         # facts are properties of a CORRECT declaration.
-        if oc.axis in ("h", "both"):
+        if oc.axis in ("h", "both", "per_column"):
             warnings.append(
                 f"offset {oc.name} ({owho}) declares a HORIZONTAL axis: a "
                 f"horizontal offset is 8-PIXEL granular. The hardware "
@@ -1147,9 +1171,12 @@ def compose_video_offset(video: list[tuple], offset: list[tuple],
         oc, _ = offset[0]
         for lyr in oc.layers:
             fields[lyr.upper()] = OFFSET_LAYER_BITS[lyr]
-        if oc.axis in ("v", "both"):
+        # `per_column` publishes exactly what `both` publishes: mode 4's one
+        # word carries either axis, so a table that uses both needs both value
+        # masks and the bit that picks between them.
+        if oc.axis in ("v", "both", "per_column"):
             fields["MASK"] = OFFSET_VALUE_MASK
-        if oc.axis in ("h", "both"):
+        if oc.axis in ("h", "both", "per_column"):
             fields["HMASK"] = OFFSET_H_VALUE_MASK
         if mode == 4:
             fields["VSEL"] = OFFSET_VSEL_BIT
