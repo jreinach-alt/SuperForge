@@ -2632,13 +2632,13 @@ def _screen_blend_lines(sid: str, sb: dict | None) -> list[str]:
 
     lines = ["; ---- screen/blend: the composed color-math state ----",
              ";   TM/TS from [[claims.screen]]; CGWSEL/CGADSUB from",
-             ";   [[claims.blend]]; CGWSEL b0 from [[claims.video]]'s",
-             ";   direct_color, which is declared with the mode and written",
-             ";   here because this is CGWSEL's one owner. Scene-enter code",
-             ";   writes these ports from",
-             ";   these symbols — never a narrated value. A half this scene",
-             ";   composes no claim for owns no port here and emits no",
-             ";   symbol: writing it is another claimant's business."]
+             ";   [[claims.blend]]; CGWSEL bit 0 from [[claims.video]]'s",
+             ";   direct_color, declared with the mode and written here",
+             ";   because this composition is CGWSEL's one owner.",
+             ";   Scene-enter code writes these ports from these symbols —",
+             ";   never a narrated value. A half this scene composes no claim",
+             ";   for owns no port here and emits no symbol: writing it is",
+             ";   another claimant's business."]
     if sb["screen"]:
         lines += [
             f"ES_SCR_{up}_TM = ${sb['tm']:02X}"
