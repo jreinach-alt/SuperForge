@@ -141,10 +141,14 @@ aur_hue_init:
 ;   out:      ES_AUR_RST set to the whole tinted run; the next VBlanks restore
 ;             it a slice at a time
 ;   clobbers: A, N, Z
-;   assumes:  main-loop, and that the CYCLE IS HELD for the duration. The two
-;             share a channel and a destination run, so a cycle slice landing
-;             in the middle of a restore would paint hue over sky the restore
-;             has already swept past
+;   assumes:  main-loop, and that the CYCLE IS HELD for the duration — but NOT
+;             for channel safety, which `aur_hue_nmi` already provides by
+;             testing ES_AUR_RST first and returning: no hue slice can reach
+;             the channel while a drain runs. What the hold buys is that
+;             ES_AUR_PEND stops ACCUMULATING, so the next pass opens at the
+;             foot of the rise instead of bursting about thirteen tiles into
+;             it. Measured, and smaller than the first version of this
+;             contract claimed
 ;   tail:     rts
 aur_hue_unrise:
     .a16
@@ -174,6 +178,16 @@ aur_hue_unrise:
 :   sta z:ES_AUR_SRC
     stz z:ES_AUR_SLOT
     stz z:ES_AUR_PEND               ; whatever the curve had asked for is void
+    stz z:ES_AUR_RATEI              ; ...AND THE CURVE GOES BACK TO ITS START.
+    ; The curve IS the shape of a pass — a slow beginning, a rush through the
+    ; middle, a slow end — so a pass that resumed it wherever the last one
+    ; stopped would ease backwards. Measured at the PLAY edge before this line
+    ; existed: pass 0 opened at curve entry 0, and passes 1 and 2 opened at
+    ; 165 and 138 OF 192 — on the curve's falling tail, so each rise ran the
+    ; end of the shape first and wrapped into its slow start partway up.
+    ; The first frame of a pass looks the same either way, which is why this
+    ; was not visible in the opening picture and had to be read off the
+    ; cursor at the beat edges.
     lda #(ES_V_AUR_CHR1 + AUR_HUE_BASE * 32)
     sta z:ES_AUR_DST
     lda z:ES_AUR_PHASE

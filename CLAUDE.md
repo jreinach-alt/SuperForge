@@ -233,8 +233,20 @@ writing your first test.
   `ES_OPT_*` emission whose field set is derived from the declaration, the
   tilemap `shape` that completed the `BGnSC` encoding, and the stated limits →
   [`docs/100`](docs/100_video_mode_composition.md).
-  Exercised by two rails: `smelter` (mode 2 — four plates and a melt, every
-  8-pixel column on its own scroll, for zero HDMA channels) and `mill`
+  Exercised by three rails: `smelter` (mode 2 — four plates and a melt, every
+  8-pixel column on its own scroll, for zero HDMA channels), `aurora`
+  (**MODE 3, and the first picture in the tree BUILT for direct colour** —
+  an end-credits sky drawn from 2048 colours on a palette budget of zero,
+  leaving all 256 CGRAM words to BG2 and the sprites. §14 states the trade's
+  other half rather than hiding it: there is no palette to CYCLE, so colour
+  animation is CHR traffic — 311,296 B of it — and the per-tile palette field
+  cannot stand in, being one low bit a channel and moving in 8x8 blocks. It
+  also records what `bank_tiled` does NOT protect: a chunk boundary never
+  splits a tile, but A1B is constant so it splits TRANSFERS, and the
+  uninitialised-read detector found that where a screenshot could not. The
+  aurora RISES for no ROM at all — the base page ships the tinted run unlit,
+  so the cycle's first pass IS the arrival — and the slot order that makes it
+  climb overturned a comment arguing the opposite, measured) and `mill`
   (**mode 4, where BIT 15 OF EACH WORD PICKS THE AXIS** — pistons pumping
   vertically on BG1 beside conveyors running horizontally on BG2, in the same
   32-word row; plus a lift whose car is a BG1 column, whose rider is occluded

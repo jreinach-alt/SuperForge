@@ -123,7 +123,10 @@ vblank_transfers_per_frame = 2  # ...in ONE transfer, or two when the run
                                 #
                                 # THE UN-RISE FITS INSIDE THIS and does not
                                 # widen it: AUR_RST_SLICE is sized to the 768 B
-                                # above, it is always one transfer (the base
-                                # page is a single blob, not bank_tiled), and
-                                # the presentation holds the cycle while it
-                                # runs, so the two never transfer in one frame
+                                # above, and it is always one transfer (the
+                                # base page is a single blob, not bank_tiled).
+                                # The two can never transfer in one frame
+                                # because aur_hue_nmi tests ES_AUR_RST first
+                                # and returns — the presentation's hold during
+                                # the drain is about the rate curve, not about
+                                # this channel

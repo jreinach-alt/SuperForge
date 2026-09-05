@@ -286,6 +286,73 @@ def test_each_pass_rises_in_a_colour_the_last_one_did_not(tmp_path):
             f"cycle is not travelling between them")
 
 
+def _row_profile(im):
+    """Aurora-coloured pixels per 8px tile row of the sky band.
+
+    The predicate has a BASELINE — stars and the sky's own top gradient answer
+    to it — so every use below is a DELTA against the unlit page rather than
+    an absolute count.
+    """
+    px = im.load()
+    return [sum(1 for y in range(ty * 8, ty * 8 + 8) for x in range(im.size[0])
+                if (lambda c: max(c[1], c[2]) > 60 and c[2] > c[0] + 16)(
+                    px[x, PICTURE_TOP + y]))
+            for ty in range(SKY_TOP // 8, SKY_BOT // 8)]
+
+
+def test_the_rise_climbs_from_the_horizon_rather_than_appearing_all_over(
+        tmp_path):
+    """The slot order is BOTTOM-UP ON SCREEN, and this is what that buys.
+
+    It is invisible in a finished frame — the risen card is identical either
+    way — so without this case the order is unasserted and the next person to
+    touch `cut_bg1` has nothing to tell them it was a decision. It was: the
+    run used to be scattered, which is right for a cycle whose adjacent phases
+    are five degrees apart and wrong for a first pass whose two states are
+    "nothing" and "a curtain". Scattered, the half-risen sky read as a
+    corrupted tile upload.
+
+    MEASURED at slot 55 of 304 — 18% risen: the delta against the unlit page
+    is EXACTLY ZERO for every tile row above the front, and all of it sits in
+    the bottom four rows. A scattered order spreads the same delta over all
+    thirteen. The assertion is that shape, not a threshold: the lit rows must
+    be a run reaching the bottom of the band, with nothing lit above it.
+    """
+    with Machine(str(ROM)) as m:
+        # THE THIRD PASS, NOT THE BOOT ONE. The boot pass rises from a cursor
+        # that has never moved, so it climbs correctly even on a rail whose
+        # LOOP does not put the cursor back — and that is a real defect
+        # (`aur_hue_unrise`'s snap), planted as
+        # `unrise-does-not-snap-the-cursor`. Measured against that plant: a
+        # pass resuming mid-phase lights the tiles between the cursor and the
+        # end of the run FIRST, which is the top of the screen, so the lit
+        # rows are two runs with a gap instead of one reaching the bottom.
+        # A first-pass test cannot see any of it.
+        for k in range(3):
+            _run_to_beat(m, P_PLAY)
+            if k < 2:
+                _run_to_beat(m, P_RESET)
+        base = _row_profile(_pixels(m, tmp_path / "r0.png"))
+        assert m.read_u16(W, SLOT) == 0, "the rise had already started"
+        m.advance(70)
+        risen = m.read_u16(W, SLOT)
+        mid = _row_profile(_pixels(m, tmp_path / "r1.png"))
+    assert 0 < risen < HUE_TILES // 3, (
+        f"the front is at {risen}/{HUE_TILES}: too far along to tell a "
+        f"climbing rise from a scattered one")
+    delta = [b - a for a, b in zip(base, mid)]
+    lit = [i for i, d in enumerate(delta) if d > 0]
+    assert lit, f"nothing lit up in 70 frames of PLAY: {delta}"
+    assert lit == list(range(lit[0], len(delta))), (
+        f"the lit rows are {lit} of {len(delta)} — not a run reaching the "
+        f"bottom of the band. The aurora is arriving in scattered places "
+        f"instead of climbing. Per-row delta: {delta}")
+    assert lit[0] >= len(delta) // 2, (
+        f"the front reached row {lit[0]} of {len(delta)} while only "
+        f"{risen}/{HUE_TILES} tiles had been uploaded — it is not climbing "
+        f"in step with the cursor")
+
+
 def _diff(a, b):
     pa, pb = a.load(), b.load()
     return sum(1 for y in range(a.size[1]) for x in range(a.size[0])
