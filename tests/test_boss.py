@@ -76,7 +76,11 @@ ATTACKS, ATTACKS_N = _oam("ES_O_ATTACKS")
 HUD, HUD_N = _oam("ES_O_HUD")
 SHOTS, SHOTS_N = _oam("ES_O_SHOTS")
 HI_PAD, HI_PAD_N = _oam("ES_O_HI_PAD")
-SLOTS = HI_PAD + HI_PAD_N         # every slot bs_obj claims, 0..SLOTS-1
+# Every slot bs_obj claims, 0..SLOTS-1 — taken as the maximum end over the
+# claims rather than off the last one, so it survives a reorder.
+SLOTS = max(b + n for b, n in ((PLAYER, PLAYER_N), (ATTACKS, ATTACKS_N),
+                               (HUD, HUD_N), (SHOTS, SHOTS_N),
+                               (HI_PAD, HI_PAD_N)))
 
 # the boss.inc state indices (constants, mirrored — a drift breaks sequencing,
 # not an assertion, and the state reads themselves are sequencing only)
@@ -534,7 +538,8 @@ def test_oam_slot_identities_hold_mid_fight():
     def y(s):
         return oam[s * OAM_ENTRY + OAM_Y]
 
-    assert tile(PLAYER) in (0, 2), f"slot {PLAYER} tile {tile(PLAYER)} is not a ship frame"
+    assert tile(PLAYER) in (0, 2), \
+        f"player slot {PLAYER} tile {tile(PLAYER)} is not a ship frame"
     assert y(PLAYER) != PARK_Y, "the ship is parked mid-fight"
     for s in range(ATTACKS, ATTACKS + ATTACKS_N):
         assert tile(s) == T_ORB or y(s) == PARK_Y, (s, tile(s), y(s))
@@ -544,7 +549,7 @@ def test_oam_slot_identities_hold_mid_fight():
         assert tile(s) == T_SHOT or y(s) == PARK_Y, (s, tile(s), y(s))
     for s in range(HI_PAD, HI_PAD + HI_PAD_N):
         assert y(s) == PARK_Y, f"pad slot {s} not parked"
-    hi = oam[OAM_HI:OAM_HI + SLOTS // 4]      # a hi byte covers four sprites
+    hi = oam[OAM_HI:OAM_HI + -(-SLOTS // 4)]  # a hi byte covers four sprites
     for s in range(SLOTS):
         field = (hi[s // 4] >> ((s % 4) * 2)) & 3
         if s == PLAYER:
@@ -614,7 +619,7 @@ def test_shot_slots_recycle_between_flights():
                 y = oam[s * OAM_ENTRY + OAM_Y]
                 live = y != PARK_Y
                 assert (not live) or (10 <= y <= 176), \
-                    f"shot slot {17 + s} at y={y}: outside the flight " \
+                    f"shot slot {SHOTS + s} at y={y}: outside the flight " \
                     f"corridor and not parked — a leaked or wrapped slot"
                 if was_live[s] and not live:
                     recycled = True

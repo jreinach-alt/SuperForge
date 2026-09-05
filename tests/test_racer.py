@@ -132,7 +132,6 @@ KART, KART_N = _oam("ES_O_KART")
 BAR, BAR_TICKS = _oam("ES_O_BAR")
 HI_PAD, HI_PAD_N = _oam("ES_O_HI_PAD")
 
-
 M7ORG, HEADING = _sym("ES_M7ORG"), _sym("US_HEADING")
 
 
