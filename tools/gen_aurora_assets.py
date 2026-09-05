@@ -652,42 +652,182 @@ def write_stream(cov, tim, ink_base, ink_cells, frames):
 # ------------------------------------------------------------- OBJ: the three
 # 16x32 sprites (OBSEL size pair 6), so each is 2x4 tiles read as
 # N, N+1, N+16, N+17, N+32, N+33, N+48, N+49 — the PPU's 16-wide OBJ grid.
-FIGURES = ((106, 28, 5), (126, 31, 6), (148, 26, 5))
+# =============================================================================
+# THE THREE FIGURES ARE TRACED OFF THE CONCEPT RENDER, NOT INVENTED
+# =============================================================================
+# They were a formula first — a cone whose half-width tapered from the feet
+# up, with a CIRCLE ON TOP for a head, joined by a one-pixel neck — and at this
+# size that shape has a name: a MEEPLE. The ball, the neck and the flare to the
+# widest point at the FEET are the three things that say "game token", and all
+# three were in the formula.
+#
+# THE SILHOUETTES BELOW ARE THE ONES FROM THE SCENE'S OWN CONCEPT RENDER,
+# lifted pixel for pixel rather than redrawn. That render was made before any
+# of this rail existed, at 256x224 — the same resolution the hardware draws —
+# so there is no higher-fidelity original to downsample and nothing was lost
+# in bringing them over. What they are is ROBED FIGURES: a narrow top that
+# continues straight into the body with no neck and no separate head, widening
+# in steps to the ground. That is the whole difference, and it is why these
+# read as three people on a cliff and the formula did not.
+#
+# HOW THEY WERE LIFTED, since the concept render is not in this repo. The three
+# were located by their centres (x 105, 124, 146), read out row by row as runs
+# of four or more pixels below a luminance of 22, and de-dithered with a
+# five-row median on each edge — the render is ordered-dithered, so alternate
+# rows are eroded a pixel each side and a single-row read gives a comb. The
+# widths that survived are stepped, and the steps are kept: 9-11-13 for the
+# left figure, 5-9-11-13-15 for the tall one, 7-9-11 for the right. The tall
+# one came out 33 rows against a 32-row sprite and lost its topmost row.
+#
+# WHAT THE THREE ARE, since a map is easier to change than to read:
+#   left   a straight robe, barely tapered, the shortest of the three
+#   tall   a narrow hood that continues into the body, widening the whole way
+#          — the one the eye lands on, and the only one whose top is 5 wide
+#   right  a narrower top than the left, and a wider flare at the hem
+FIG_LEFT = """
+...#########....
+...#########....
+...#########....
+...#########....
+..###########...
+..###########...
+..###########...
+..###########...
+..###########...
+..###########...
+..###########...
+..###########...
+..###########...
+..###########...
+..###########...
+..###########...
+.#############..
+.#############..
+.#############..
+.#############..
+.#############..
+.#############..
+.#############..
+"""
+
+FIG_TALL = """
+.....#####......
+.....#####......
+.....#####......
+.....#####......
+...#########....
+...#########....
+...#########....
+...#########....
+...#########....
+...#########....
+...#########....
+...#########....
+...#########....
+..###########...
+..###########...
+..###########...
+..###########...
+..###########...
+..###########...
+..###########...
+.#############..
+.#############..
+.#############..
+.#############..
+.#############..
+.#############..
+###############.
+###############.
+###############.
+###############.
+###############.
+###############.
+"""
+
+FIG_RIGHT = """
+.....#######....
+.....#######....
+.....#######....
+.....#######....
+.....#######....
+....#########...
+....#########...
+....#########...
+....#########...
+....#########...
+....#########...
+....#########...
+....#########...
+....#########...
+....#########...
+..###########...
+..###########...
+..###########...
+..###########...
+..###########...
+..###########...
+..###########...
+..###########...
+"""
+
+# (centre x on screen, the map). The heights fall out of the maps — 23, 32, 23
+# — so a redraw cannot disagree with a constant, and the tall one being half
+# again the height of its neighbours is the concept's own proportion.
+FIGURES = ((106, FIG_LEFT), (126, FIG_TALL), (148, FIG_RIGHT))
 OBJ_H, OBJ_W = 32, 16
-# The figures are darker than the cliff they stand on, with a cold rim down
-# the edge the curtains light. They get their OWN sixteen at CGRAM 128+ —
-# sprites read `128 + (palette << 4) + colour` (SnesPpu.cpp:960) — so nothing
-# here is taken from BG2's, which is exactly full.
+# The figures are darker than the cliff they stand on, with a cold rim on the
+# edges the curtains reach. They get their OWN sixteen at CGRAM 128+ — sprites
+# read `128 + (palette << 4) + colour` (SnesPpu.cpp:960) — so nothing here is
+# taken from BG2's, which is exactly full.
 PAL_OBJ = [bgr555(0, 0, 0), bgr555(0, 0, 1), bgr555(3, 5, 6),
            bgr555(7, 10, 11), bgr555(11, 14, 15)] + [0] * 11
 
 
+def fig_rows(n):
+    return FIGURES[n][1].strip("\n").split("\n")
+
+
 def figure_px(n):
-    """One figure, feet on the cliff, lit down its left edge by the curtains."""
-    fx, h, w = FIGURES[n]
+    """One figure, feet on the cliff, rimmed on the edges the curtains reach.
+
+    THE CONCEPT RENDER DRAWS THEM AS FLAT BLACK and gets its contrast from
+    the BACKGROUND: measured on it, the hill behind them runs 18-40 in
+    luminance against a figure interior of 17, so they read strongly against
+    the upper hill and melt into the ground at the hem. That relationship is
+    not available here — the cliff behind them is 8 and the figures are 0 —
+    so a rim stands in for it.
+
+    IT IS DELIBERATELY FAINT, and finding the right weight took two wrong
+    ones. Lighting the whole outline at the palette's bright entries turned
+    them into hollow OUTLINES, which is a worse failure than the meeple: a
+    chess piece rather than a person. Lighting only each row's left edge, the
+    first cut, made the left contour the entire figure and hid every shape
+    decision on the other three sides. What is here is one step at the edges
+    the curtains actually reach — left and top — on the palette's DIM entry,
+    and nothing anywhere else, so the figures stay dark shapes with a cold
+    edge and the hem melts into the cliff the way the concept's does.
+    """
+    rows = fig_rows(n)
+    h = len(rows)
+
+    def solid(r, c):
+        return (0 <= r < h and 0 <= c < OBJ_W
+                and c < len(rows[r]) and rows[r][c] == "#")
+
     out = [[0] * OBJ_W for _ in range(OBJ_H)]
-    for row in range(OBJ_H):
-        y = CLIFF + 1 - (OBJ_H - 1 - row)          # bottom row sits on the edge
-        t = (CLIFF + 1 - y) / float(h)
-        if not (0.0 <= t <= 1.0):
-            continue
-        head = 0.17
-        if t > 1 - head:
-            hy = (t - (1 - head)) / head
-            half = w * 0.46 * math.sqrt(max(0.0, 1 - (2 * hy - 1) ** 2))
-        else:
-            half = w * (0.74 + 0.46 * (1 - t) ** 1.6)
-        for col in range(OBJ_W):
-            dx = (col - OBJ_W // 2) + 0.5
-            if abs(dx) > half:
+    for r in range(h):
+        t = 1.0 - r / float(h - 1)             # 1 at the crown, 0 at the feet
+        for c in range(OBJ_W):
+            if not solid(r, c):
                 continue
-            edge = (half - abs(dx))
-            if dx < 0 and edge < 1.15:
-                out[row][col] = 3 if t > 0.55 else 2
-            elif dx < 0 and edge < 2.1 and t > 0.72:
-                out[row][col] = 2
-            else:
-                out[row][col] = 1
+            lit = (not solid(r, c - 1)) or (not solid(r - 1, c))
+            # A VERTICAL FALLOFF, because the curtains are above them: the
+            # crown catches the most, the hem none at all. Flat, the rim read
+            # as an outline drawn round a shape; graded, it reads as light
+            # landing on one.
+            out[OBJ_H - h + r][c] = (3 if t > 0.62 else
+                                     2 if t > 0.22 else 1) if lit else 1
     return out
 
 
@@ -817,7 +957,7 @@ AUR_FIG_TOP     = %d      ; every figure's OAM Y — a 16x32 sprite whose bottom
        RATE_LEN, max(rate), len(tint_cells) * 64, hue_chunks,
        HUE_CHUNK // 64, (HUE_CHUNK // 64).bit_length() - 1,
        len(FIGURES), CLIFF + 2 - OBJ_H)
-    for n, (fx, h, w) in enumerate(FIGURES):
+    for n, (fx, _art) in enumerate(FIGURES):
         inc += "AUR_FIG%d_X       = %d\n" % (n, fx - OBJ_W // 2)
     (out / "aur_art.inc").write_text(inc)
 

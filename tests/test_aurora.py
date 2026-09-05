@@ -439,3 +439,79 @@ def test_nothing_reads_a_byte_the_rom_never_wrote(tmp_path):
         "reads of bytes never written since power-on: "
         + "; ".join(f"{mt}: " + " ".join(f"${a:04X}" for a in v[:16])
                     for mt, v in named.items()))
+
+
+def test_the_three_figures_are_three_different_people(tmp_path):
+    """THE SILHOUETTES ARE THE ONLY THING A VIEWER CAN READ AT THIS SIZE, and
+    for a while they read as three board-game meeples. Nothing in this module
+    saw it — the owner did, twice, from a published render.
+
+    Two properties are asserted, and between them they are what "a person and
+    not a token" comes to in a sixteen-pixel-wide sprite.
+
+    NO WAIST. The meeple shape is a ball head joined to a body by a narrow
+    NECK, so its width profile from crown to hem goes wide, then NARROW, then
+    wide again. The figures traced off the concept render are robed: the top
+    continues straight into the body and the profile only ever widens. A local
+    minimum anywhere in that profile is the neck coming back.
+
+    THREE DIFFERENT CROWNS. The formula that drew the meeples was one shape at
+    three sizes, which is not differentiation at all. What the concept render
+    differentiates on is the TOP: 9 pixels wide on the left figure, 7 on the
+    right, 5 on the tall one, which at this size is the difference between a
+    bare head, a covered one and a hood. The left and right figures are the
+    same HEIGHT in the concept — 23 rows each — so height is not asserted
+    three ways; the tall one being half again their height is.
+
+    Read out of the OBJ CHR the PPU actually fetches, decoded from VRAM as
+    4bpp — not from the generator, which would agree with itself.
+    """
+    base = _sym("ES_V_AUR_OBJ_CHR")
+    assert base["class"] == "vram", base
+    with Machine(str(ROM)) as m:
+        _run_to_beat(m, P_PLAY)
+        m.advance(20)
+        chr_bytes = m.read_bytes(V, base["start"] * 2, 64 * 32)
+
+    def tile(t):
+        """One 4bpp tile as 8 rows of 8 palette indices."""
+        b = chr_bytes[t * 32:(t + 1) * 32]
+        out = []
+        for y in range(8):
+            lo, hi = b[y * 2], b[y * 2 + 1]
+            lo2, hi2 = b[16 + y * 2], b[16 + y * 2 + 1]
+            out.append([((lo >> (7 - x)) & 1) | (((hi >> (7 - x)) & 1) << 1)
+                        | (((lo2 >> (7 - x)) & 1) << 2)
+                        | (((hi2 >> (7 - x)) & 1) << 3) for x in range(8)])
+        return out
+
+    profiles = []
+    for n in range(3):
+        # obj_sheet lays each figure as 2 columns x 4 rows on the PPU's
+        # 16-tile-wide OBJ grid, at tile n*2.
+        rows = []
+        for j in range(4):
+            left, right = tile(j * 16 + n * 2), tile(j * 16 + n * 2 + 1)
+            for y in range(8):
+                rows.append(left[y] + right[y])
+        widths = [sum(1 for v in r if v) for r in rows]
+        profiles.append([w for w in widths if w])          # drop empty rows
+    assert all(profiles), "a figure has no pixels at all"
+
+    for n, w in enumerate(profiles):
+        dips = [i for i in range(1, len(w) - 1) if w[i] < w[i - 1] and w[i] < w[i + 1]]
+        assert not dips, (
+            f"figure {n} narrows and widens again at row(s) {dips} of its "
+            f"width profile {w} — that pinch is a NECK, and a ball head on a "
+            f"neck is what made these read as meeples")
+
+    heights = [len(w) for w in profiles]
+    assert heights[1] == max(heights) and heights[1] >= 1.3 * min(heights), (
+        f"the middle figure should be the tall one by half again: {heights}")
+    crowns = [w[0] for w in profiles]
+    assert len(set(crowns)) == 3, (
+        f"the three crowns are {crowns} — two figures start the same width, "
+        f"so at this size two of them are the same person")
+    assert crowns[1] == min(crowns), (
+        f"the tall figure's crown should be the narrowest — it is the hood "
+        f"that tells it apart at this size: crowns {crowns}")
