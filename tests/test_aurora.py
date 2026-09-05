@@ -216,11 +216,19 @@ def test_the_scene_fades_up_on_the_whole_picture(tmp_path):
         m.advance(30)
         card = _pixels(m, tmp_path / "card.png")
 
+    # THE PREDICATE HAD TO BE MEASURED AGAINST ITS OWN COUNTER-CASE, and the
+    # first cut of it was not. `max(g, b) > 40 and b > r + 12` sounds like "an
+    # aurora colour" and is really "a blue-ish pixel" — the night sky gradient
+    # is blue, so a sky with NO aurora in it scored 661 against a threshold of
+    # 500 and the case passed on the defect it exists to catch
+    # (`base-page-ships-the-run-unlit`, TEST-BLIND). Measured on both ROMs at
+    # this tighter predicate: 3,091 shipped against 39 with the run unlit.
     def _lit(im):
-        return sum(1 for r, g, b in _sky(im) if max(g, b) > 40 and b > r + 12)
-    assert _lit(up) > 500, (
+        return sum(1 for r, g, b in _sky(im) if max(g, b) > 60 and b > r + 16)
+    assert _lit(up) > 1500, (
         f"only {_lit(up)} aurora-coloured pixels while the scene fades up — "
-        f"the base CHR page is supposed to ship the tinted run LIT")
+        f"the base CHR page is supposed to ship the tinted run LIT. Measured: "
+        f"3,091 when it does, 39 when it does not")
     # ...and the WORD is the thing that is missing, which is what the pen beat
     # is for. Read in the black band, not the sky.
     def _ink(im):

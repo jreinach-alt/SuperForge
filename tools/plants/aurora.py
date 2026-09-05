@@ -105,9 +105,13 @@ PLANTS = [
           new="    cmp #(AUR_WRITE_FRAMES - 12)    ; PLANT\n    bcs :+",
           artifact=ROM,
           build=["aurora"],
+          # NOT the pen case, which stays green here and SHOULD: `aur_write_nmi`
+          # plays its stream to AUR_WRITE_FRAMES whatever beat is running, and
+          # HOLD does not freeze it, so the word still finishes — just after
+          # the beat that was supposed to be waiting for it moved on. Only the
+          # PERIOD carries the defect.
           tests=[T + "test_the_loop_closes_on_the_frame_it_should_and_keeps_"
-                     "closing",
-                 T + "test_the_pen_writes_the_word_and_then_holds_it"],
+                     "closing"],
           why="the beat stops watching the pen twelve frames early, so the "
               "card begins standing while the exit swash is still being "
               "drawn. Nothing about a still announces it — the word finishes "
