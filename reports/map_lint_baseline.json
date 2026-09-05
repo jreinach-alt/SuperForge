@@ -1,0 +1,51 @@
+[
+  {
+    "file": "tests/test_boss.py",
+    "line": 370,
+    "rule": "map-literal-address",
+    "message": "`read_bytes` is addressed with the literal $0024. Every address in this tree is EMITTED \u2014 read it out of the rail's `symbol_map.json` (tests/test_mill.py's `MAP` is the shape), so a repack moves the test with the ROM instead of against it. If it genuinely cannot be derived, say why in a `# MAP: ok \u2014 <reason>`.",
+    "severity": "error"
+  },
+  {
+    "file": "tests/test_boss.py",
+    "line": 345,
+    "rule": "map-literal-address",
+    "message": "`read_bytes` is addressed with the literal $0024. Every address in this tree is EMITTED \u2014 read it out of the rail's `symbol_map.json` (tests/test_mill.py's `MAP` is the shape), so a repack moves the test with the ROM instead of against it. If it genuinely cannot be derived, say why in a `# MAP: ok \u2014 <reason>`.",
+    "severity": "error"
+  },
+  {
+    "file": "tests/test_boss.py",
+    "line": 567,
+    "rule": "map-literal-address",
+    "message": "`read_bytes` is addressed with the literal $0044. Every address in this tree is EMITTED \u2014 read it out of the rail's `symbol_map.json` (tests/test_mill.py's `MAP` is the shape), so a repack moves the test with the ROM instead of against it. If it genuinely cannot be derived, say why in a `# MAP: ok \u2014 <reason>`.",
+    "severity": "error"
+  },
+  {
+    "file": "tests/test_measure_cpu.py",
+    "line": 132,
+    "rule": "map-literal-address",
+    "message": "`read_bytes` is addressed with the literal $E000. Every address in this tree is EMITTED \u2014 read it out of the rail's `symbol_map.json` (tests/test_mill.py's `MAP` is the shape), so a repack moves the test with the ROM instead of against it. If it genuinely cannot be derived, say why in a `# MAP: ok \u2014 <reason>`.",
+    "severity": "error"
+  },
+  {
+    "file": "tests/test_measure_cpu.py",
+    "line": 317,
+    "rule": "map-literal-address",
+    "message": "`read_bytes` is addressed with the literal $E7F4. Every address in this tree is EMITTED \u2014 read it out of the rail's `symbol_map.json` (tests/test_mill.py's `MAP` is the shape), so a repack moves the test with the ROM instead of against it. If it genuinely cannot be derived, say why in a `# MAP: ok \u2014 <reason>`.",
+    "severity": "error"
+  },
+  {
+    "file": "tests/test_measure_cpu.py",
+    "line": 320,
+    "rule": "map-literal-address",
+    "message": "`read_bytes` is addressed with the literal $E7F4. Every address in this tree is EMITTED \u2014 read it out of the rail's `symbol_map.json` (tests/test_mill.py's `MAP` is the shape), so a repack moves the test with the ROM instead of against it. If it genuinely cannot be derived, say why in a `# MAP: ok \u2014 <reason>`.",
+    "severity": "error"
+  },
+  {
+    "file": "tests/test_racer.py",
+    "line": 307,
+    "rule": "map-literal-address",
+    "message": "`read_bytes` is addressed with the literal $001D. Every address in this tree is EMITTED \u2014 read it out of the rail's `symbol_map.json` (tests/test_mill.py's `MAP` is the shape), so a repack moves the test with the ROM instead of against it. If it genuinely cannot be derived, say why in a `# MAP: ok \u2014 <reason>`.",
+    "severity": "error"
+  }
+]

@@ -293,6 +293,8 @@ def test_a_hit_flashes_the_ship_and_costs_a_heart(tmp_path):
             m.advance(1)
             if _rd16(m, PIF) == 0:
                 break
+            # MAP: ok — byte 2 of an OAM entry is the TILE field, from the PPU's
+            #   four-byte entry format (X, Y, tile, attr). A format offset, not a base.
             tiles.add(m.read_bytes(MemoryType.SnesSpriteRam, 2, 1)[0])
             img = _pixels(m, tmp_path / f"flash{i}.png")
             if _count(img, {_rt(GA.SPRITE_COLOURS[12])}) > 20:

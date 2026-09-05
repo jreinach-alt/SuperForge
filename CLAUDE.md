@@ -47,6 +47,24 @@ Gates — keep clean: `make width-check` · `make time-check` (the
 TIME-COUPLING lint: no wall-clock waits in `tests/`/`tools/`, override
 `# WALL-CLOCK: ok — <reason>`, baseline empty — docs/45; it does NOT know
 whether a capture lands on an absolute frame, so read its §4) ·
+`make map-check` (the MAP-DERIVATION lint, the fourth sibling — the class
+`no_literals` cannot see because it is not in the ROM's source: a `tests/` or
+`tools/` Python file that addresses emulator memory with a LITERAL instead of a
+value read out of the rail's `symbol_map.json`. It does not corrupt the
+console, it corrupts the MEASUREMENT — when the allocator repacks, the literal
+keeps pointing where the thing used to be and the module goes RED on a correct
+ROM. Measured 2026-09-04: BG2's tilemap moved $3C00 -> $5000 when a tile count
+grew and a script holding the old base reported 1,230 wrong pixels in a ROM
+whose CHR was byte-identical to the blob that built it. Override
+`# MAP: ok — <reason>`, reason REQUIRED; baseline holds 7, small enough to sit
+IN `gates` rather than wait to be driven down. Rule is deliberately narrow —
+only the ADDRESS argument of a `Machine` accessor, and never zero, because a
+zero is a hardware region ORIGIN and cannot move; widening it to any four-hex
+literal finds 251 lines and teaches people to ignore the gate. Stated limits:
+single-expression not dataflow, so an address carried in through a module
+constant is invisible; it cannot tell whether a literal is CORRECT; and it
+reaches only committed files, so a scratch script — which is what produced the
+measured instance — is outside every gate there is) ·
 `make tick-check` (the FRAME-ASSUMPTION lint, the third sibling — the class
 the allocator cannot see: no NEW site that assumes ONE TICK IS ONE FRAME,
 override `TICK: ok — <reason>`, baseline holds 350 — docs/96. A finding is

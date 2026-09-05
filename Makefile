@@ -15,6 +15,7 @@ LD65    := ld65
 # `microzero` in the repo root would have made `make microzero` a silent
 # no-op. The other three are the same shape and are fixed alongside it.
 .PHONY: all toy alloc no-literals toy-bad rom-unbacked clean test width-check \
+	map-check \
 	cleanroom print-width-targets \
 	time-check tick-check tick-census falsify determinism \
 	probe-colmap probe-pfs probe-objview microzero room probes measure \
@@ -3112,6 +3113,7 @@ gates: | $(BUILD)
 	    blocking="$$1"; fi; \
 	}; \
 	run cleanroom; \
+	run map-check; \
 	run toy; run toy-bad; run rom-unbacked; run width-check; run time-check; \
 	run register; \
 	run rail-registered; run measure; \
@@ -3438,6 +3440,30 @@ TIME_LINT_TARGETS  = tests tools
 
 time-check:
 	@$(TIME_LINT) $(TIME_LINT_TARGETS) --baseline $(TIME_LINT_BASELINE) --summary
+
+# ---- map-check: the MAP-DERIVATION gate ----------------------------------
+# The fourth sibling. `no_literals` refuses a raw address in the ROM's own
+# source; nothing said the same thing about the PYTHON that reads the machine
+# back, and that is the same problem pointed the other way. A test addressed
+# with a literal does not corrupt the console, it corrupts the MEASUREMENT:
+# when the allocator repacks, the literal keeps pointing where the thing used
+# to be and the module goes RED on a correct ROM.
+#
+# Measured instance (2026-09-04): BG2's tilemap moved $3C00 -> $5000 when a
+# tile count grew, and a script holding the old base reported 1,230 wrong
+# pixels in a ROM whose CHR was byte-identical to the blob that built it.
+#
+# Baseline holds 7 — small enough that this goes straight into `gates` rather
+# than waiting to be driven down like tick-check. Five sites were triaged out
+# with reasoned overrides (the OAM low/high boundary at 512 and the 4-byte
+# entry format are PPU facts, not allocated bases); the 7 that remain are real
+# exposure in rails that do not declare their OAM slots at all.
+MAP_LINT          := $(PY) tools/map_lint.py
+MAP_LINT_TARGETS  := tests tools
+MAP_LINT_BASELINE := reports/map_lint_baseline.json
+
+map-check:
+	@$(MAP_LINT) $(MAP_LINT_TARGETS) --baseline $(MAP_LINT_BASELINE) --summary
 
 # ---- tick-check: the FRAME-ASSUMPTION gate (docs/96) ----------------------
 # The third sibling of width-check and time-check, for the class the

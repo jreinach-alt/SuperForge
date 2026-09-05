@@ -264,6 +264,9 @@ def test_the_kart_is_one_large_obj_at_the_declared_screen_position():
         x, y, tile, attr = m.read_bytes(O, 0, 4)
         assert (x, y, tile, attr) == (KART_X, KART_Y, KART_T_STR, ATTR_NOFLIP)
         # size bit set in the hi table = large (16x16 in OBSEL mode 0), X9 clear
+        # MAP: ok — 512 is the OAM low/high table boundary, a PPU fact
+        #   (544 B = 128 x 4 B entries, then 32 B of X9/size bits). It is
+        #   not an allocated base and cannot move.
         assert m.read_bytes(O, 512, 1)[0] == 0x02
     finally:
         m.close()

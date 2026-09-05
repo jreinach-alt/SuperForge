@@ -1427,6 +1427,9 @@ def test_the_knight_is_the_sprite_the_oam_entry_describes(frame):
         m.advance(1, pad1=JOY_START)
         m.advance(SETTLE)
         entry = m.read_bytes(OAM, 0, 4)
+        # MAP: ok — 512 is the OAM low/high table boundary, a PPU fact
+        #   (544 B = 128 x 4 B entries, then 32 B of X9/size bits). It is
+        #   not an allocated base and cannot move.
         hi = m.read_bytes(OAM, 512, 1)[0]
     assert hi & 0b10 == 0b10, f"OAM hi byte ${hi:02X}: the 32x32 size bit is clear"
     assert hi & 0b01 == 0, "X9 is set with the knight on the left of the screen"
@@ -1917,6 +1920,9 @@ def test_the_splash_on_screen_is_the_frame_the_rom_holds(tmp_path):
         pal = _obj_pal(m)
         cgpal = _palette(m)
         oam = m.read_bytes(OAM, 0, 4)
+        # MAP: ok — 512 is the OAM low/high table boundary, a PPU fact
+        #   (544 B = 128 x 4 B entries, then 32 B of X9/size bits). It is
+        #   not an allocated base and cannot move.
         hi = m.read_bytes(OAM, 512, 1)[0]
         cell = _obj_cell(m, oam[2])
         kn_x = m.read_u16(W, DP_KN_X)

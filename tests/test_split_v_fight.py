@@ -321,6 +321,9 @@ def test_both_fighters_are_on_screen_at_full_split(runner):
     """
     runner.boot_rom(str(BUILD / "sv_hold_split.sfc"), frames=SHOT_FRAME)
     oam = runner.read_bytes(O, 0, 8)
+    # MAP: ok — 512 is the OAM low/high table boundary, a PPU fact
+    #   (544 B = 128 x 4 B entries, then 32 B of X9/size bits). It is
+    #   not an allocated base and cannot move.
     hi = runner.read_bytes(O, 512, 1)[0]
     for slot, base in ((O_F1, 0), (O_F2, 4)):
         x, y = oam[base], oam[base + 1]
