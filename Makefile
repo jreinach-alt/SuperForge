@@ -3567,7 +3567,7 @@ falsify:
 MODULE  ?= tests/test_split_h_2p_sprites.py
 FALSIFY ?=
 determinism: split_h_2p_demo sh2-variants microzero hud_game scroller \
-	lakeside heathaze smelter mill mill-direct \
+	lakeside heathaze smelter mill mill-direct aurora \
 	camera_follow maze jumper patrol sprite_game stomper scroll_run \
 	brawler split_v_fight split_h_matrix_demo split_h_persp3_demo \
 	split_v_demo svd-nowin split_v_seamtrial split_h_demo shd-autodemo \
