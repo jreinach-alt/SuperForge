@@ -3453,11 +3453,37 @@ time-check:
 # tile count grew, and a script holding the old base reported 1,230 wrong
 # pixels in a ROM whose CHR was byte-identical to the blob that built it.
 #
-# Baseline holds 7 — small enough that this goes straight into `gates` rather
-# than waiting to be driven down like tick-check. Five sites were triaged out
-# with reasoned overrides (the OAM low/high boundary at 512 and the 4-byte
-# entry format are PPU facts, not allocated bases); the 7 that remain are real
-# exposure in rails that do not declare their OAM slots at all.
+# THE BASELINE IS EMPTY, and `tests/test_map_lint.py::test_the_baseline_is_empty`
+# is the ratchet that keeps it so. A baselined finding is neither derived nor
+# approved — it is a third thing, passing only because it was already there
+# when the gate landed. The seven this shipped with were closed rather than
+# carried:
+#
+#   * FOUR in tests/test_boss.py and tests/test_racer.py were OAM slot bases
+#     retyped as `9 * 4` / `17 * 4` / `7 * 4 + 1`. The Makefile comment here
+#     used to say they were "real exposure in rails that do not declare their
+#     OAM slots at all"; that was WRONG, and reading the two feature.toml
+#     files is what showed it. bs_obj and rc_kart both declare `[[claims.oam]]`
+#     properly and the allocator emits ES_O_HUD / ES_O_SHOTS / ES_O_HI_PAD
+#     with an _SPRITES companion for each. The declarations were fine; only
+#     the tests were hand-written against them. They now read the placement's
+#     `start` (the SPRITE SLOT) and `size` out of symbol_map.json — both
+#     halves, because a test that derives its base and retypes its length
+#     still goes red when a repack RESIZES the claim.
+#
+#   * THREE in tests/test_measure_cpu.py address build/probe_cpu_step.sfc,
+#     which ca65 assembles straight from vendor/probes/probe_cpu_ref.asm with
+#     no allocator in the path — so there is no symbol_map.json for it. That
+#     is a reason to reach for a different oracle, NOT a reason for an
+#     override: the probe's own equates (`DEBUG_BASE = $E000`,
+#     `CY_STEP_ITERS = DEBUG_BASE + $7F4`) are the primary source, and the
+#     module now resolves them the way test_mill.py's `_rail` resolves a
+#     hand-written .inc. An override saying "cannot be derived" would have
+#     been a false reason, which is the rubber-stamping this gate names as
+#     its own regression.
+#
+# Five sites remain triaged out with reasoned overrides elsewhere in the tree
+# (the OAM low/high boundary at 512 is a PPU fact, not an allocated base).
 MAP_LINT          := $(PY) tools/map_lint.py
 MAP_LINT_TARGETS  := tests tools
 MAP_LINT_BASELINE := reports/map_lint_baseline.json
