@@ -321,17 +321,18 @@ palette is the only place a colour could have come from.
 The other half of the trade is paid in the open: there is no palette to
 *cycle*, so colour animation is CHR traffic — sixteen copies of every tile the
 aurora tints, 311,296 B, for what an indexed layer buys with two bytes a frame.
-That is also what makes the aurora **rise for free**. The base CHR page ships
-those tiles unlit, so the cycle's first pass over them *is* the aurora
-arriving, climbing out of the horizon because the run is ordered bottom-up on
-screen.
+What that buys is a drift slow enough to be weather rather than animation: four
+8×8 cells of the sky change in a hundred and twenty frames, and the curtains
+travel from cyan-teal to violet over 51 seconds without anything ever appearing
+to move.
 
-The card plays itself and plays again — black, a bare sky, the pen and the
-rise together, the held card, black — and the loop is deliberately not a
-restart: the hue cursor keeps running across it, so each pass rises in the
-colour the cycle has reached. Eight passes cover the whole 51-second journey
-from cyan-teal to violet, which is why this clip is one colour band and not
-the tour.
+The card plays itself and plays again — black, the scene, the pen writing the
+word, the card held, black — and **the loop puts back the ink and nothing
+else**. The hue cursor runs underneath every beat and no beat touches it, so
+each pass opens on whatever colour the drift has reached. A loop that also
+restored the colour would open every pass on the same teal and make fifteen of
+the sixteen phases unreachable; that version was built and thrown away. This
+clip is one pass, so it is one colour band and not the tour.
 
 ---
 

@@ -1387,68 +1387,86 @@ detector named it in one run, at `$05:09F3`. A crossing slice is armed as **two
 transfers**, and the destination needs no second VMADD because the port
 auto-increments.
 
-### 14.5 The rise costs nothing, and the slot order is what buys it
+### 14.5 The slot order, and a beat that was built, measured and rejected
 
-The base CHR page holds every tinted tile **unlit** — bare sky at the same
-dither, on the same field the tile wears for the rest of the cycle. So the hue
-cycle's first pass over the tinted run **is** the aurora arriving. There is no
-rise animation to pay for; there is a page that starts empty.
+The tinted tiles hold a contiguous run of BG1 indices — one VMADD and one
+transfer a frame — assigned in a **scattered** order, so a frame's share is
+spread over the whole sky rather than sweeping down it. A frame's picture is
+therefore always a mix of two adjacent phases, and the effect rests on that mix
+being invisible: five degrees of hue apart is under the dither's own noise, so
+the curtains drift in colour with nothing to see moving. **Measured on the
+shipped ROM: four 8x8 cells of the sky change in a hundred and twenty frames.**
 
-The run is ordered **bottom-up on screen**, and that had to be measured rather
-than argued, because an earlier version of the generator argued the opposite
-and was wrong in both directions.
+**A rise was built on top of this and then removed, and the episode is worth
+recording because the measurement was right and the conclusion was not.**
+Shipping the tinted run UNLIT in the base CHR page makes the cycle's first pass
+over it the aurora *arriving* — for no extra ROM and no second mechanism, since
+the rise is just the ordinary cycle reaching somewhere it has not been. It is
+almost free and it looks good in stills.
 
-- **What scattering cost was visible.** With the run scattered, the half-risen
-  sky read as a corrupted tile upload — 8x8 blocks all over it. Ordered
-  bottom-up the curtains climb out of the horizon.
-- **What scattering was supposed to buy does not exist.** The argument was that
-  a screen-coherent run would repaint the curtains in visible bands, since a
-  frame's picture is always a mix of two adjacent phases split at a horizontal
-  line. Measured on six frames spread across a phase (cursor at slots 3, 21,
-  90, 244, 289 and 290 of 304): the largest mean-colour step between adjacent
-  tile rows is 33-35 units and sits at **tile row 14 in every one of them** —
-  the hills' edge, a fixed feature of the art. A visible seam would move with
-  the cursor. It does not move at all, because adjacent phases are about five
-  degrees of hue apart and that is under the dither's own noise. **At a coarser
-  phase step none of this holds.**
+It forces the slot order, though. The two states of a rising tile are "nothing"
+and "a curtain", so a scattered first pass materialises in 8x8 blocks all over
+the sky; ordered bottom-up the curtains climb out of the horizon instead. That
+order was then measured for the cost it was assumed to carry — a visible
+banding as the phase boundary sweeps — and it does **not** have it: across six
+cursor positions the largest mean-colour step between adjacent tile rows sits
+at the hills' edge and does not move with the cursor. No seam.
 
-### 14.6 The card plays itself, and the loop is not a restart
+The owner watched both and kept the scattered one. **A coherent front is
+legible as MOTION even where it is not legible as a seam** — the eye follows an
+edge sweeping up the screen where it cannot see a boundary standing still — so
+the drift read as a wipe. What the measurement established was that there is no
+colour *step*, which was never the thing that made it worse.
 
-`aur_pres` is five beats — black, a bare sky brightening, the pen and the rise
-together, the held card, black — and they wait on different things by design.
-The two ramps wait on `fade` going idle rather than on a frame count. The rise
-waits `AUR_RATE_LEN` **ticks**, which is exactly one pass, because the
-generated rate curve sums to one phase over that many entries and the cycle
-reads one entry a tick — so the beat ends when the aurora has finished rising
-without watching a cursor for a wrap. Only the held card is a tuned number.
+Both halves are held by the harness, in the only place they are observable: the
+first two seconds. `base-page-ships-the-run-unlit` is the plant, and the
+finished card is byte-identical either way.
 
-**Only the ink and the aurora's CHR page are put back.** The hue cursor is left
-running, so each pass rises in the colour the cycle has reached. Measured on
-the ROM: the loop closes at **398 frames** and successive passes open at phases
-0, 2, 4, 6 — eight loops to travel the whole 51-second journey from cyan-teal
-to violet. A loop that reset the phase would show the first two seconds of it
-forever. The cost is that passes are not pixel-identical: **the rail loops in
-shape, not in pixels**, which is the honest trade and the right way round.
+### 14.6 The card plays itself, and the loop leaves the colour alone
 
-The un-rise costs no ROM and no VBlank budget of its own. The base page already
-holds the run unlit, so restoring is a DMA out of the picture the ROM ships —
-the same no-second-copy trick `aur_write`'s erase uses — and it fits inside the
-hue claim's declared 768 B because the cycle is held while it runs, so the two
-never transfer in the same frame.
+`aur_pres` is five beats — black, the scene brightening, the pen writing, the
+card held, black — and they wait on different things by design. The two ramps
+wait on `fade` going idle rather than on a frame count. PLAY watches the pen's
+own frame counter, so it ends when the word is written rather than on a count
+that would have to be retuned beside it. Only the held card is a tuned number,
+and it is the beat where the colour is the only thing happening.
+
+**The loop puts back the ink and NOTHING ELSE.** The hue cursor runs underneath
+every beat and no beat touches it, so each pass opens on whatever hue the drift
+has reached — which is the rail's whole claim, a fifty-one-second journey from
+cyan-teal to violet, and exactly what a tidy loop destroys. An earlier cut
+restored the CHR page at each lap: every pass then opened on the same teal and
+fifteen of the sixteen phases were unreachable. It is `the-loop-puts-the-colour
+-back`, and it is the plant every other case in the module passes against.
+
+The cost is that passes are not pixel-identical, so the rail **loops in shape,
+not in pixels**. The clip still cuts cleanly, because the loop point is black
+and one black frame is the same as another whatever colour preceded it.
 
 ### 14.7 What the falsification harness is holding
 
-Nine plants, and the set is built around **what is unobservable in a finished
+Seven plants, and the set is built around **what is unobservable in a finished
 frame**. The card at the end of a pass is the same picture whether the aurora
-rose or was simply there, whether it climbed or appeared in blocks, whether the
-loop resets the colour or carries it. Two of the nine are defects the rail
-shipped and a person caught by looking — the cursor that did not snap to a
-fresh phase on reset (thirteen tiles lighting at the TOP, once a loop), and the
-hold that reached the colour cycle but not the pen.
+was there from the first frame or arrived, whether the loop carries the colour
+forward or puts it back, whether the pen finished before the beat ended. The
+sharpest of them is `the-loop-puts-the-colour-back`, a defect this rail
+shipped: it is the TIDY-looking change, since every pass then opens on exactly
+the same picture, and it silently throws the headline away.
+
+Two plants were written and **withdrawn after measurement**, which the module's
+own docstring records rather than leaving absent. One rested on a channel
+contention that does not exist. The other is the slot order itself: with the
+rise removed it has almost no observable consequence — four 8x8 cells in a
+hundred and twenty frames — so a plant for it would be asserting something the
+picture cannot show, which is the indirect-evidence trap in a different
+costume.
 
 The one that says most about the vocabulary is `direct-colour-cleared`: because
-CGWSEL bit 0 is **declared with the mode** rather than written by hand, turning
-the rail's headline off is a one-boolean edit to `aur_mode`'s video claim — and
+CGWSEL bit 0 is **declared with the mode** rather than written by hand, clearing
+it means the composition no longer OWNS the port, `ES_SCR_CREDITS_CGWSEL` stops
+being emitted, and the scene's write to `$2130` becomes an undeclared one — so
+the plant is expected to REFUSE the build rather than to change a picture. A
+second plant carries the defect through into a ROM that assembles, and there
 the picture is still a picture. The case that catches it counts the sky's
 colours against CGRAM rather than looking at the screen, which is the only
 observation that separates the two: **161 of the sky band's 166 distinct

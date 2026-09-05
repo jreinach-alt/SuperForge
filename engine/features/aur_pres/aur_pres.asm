@@ -1,23 +1,30 @@
 ; =============================================================================
-; aur_pres — the beats: black, sky, the pen and the rise, the card, black
+; aur_pres — the beats: black, the scene, the pen, the card, black
 ; =============================================================================
 ; A ONE-SCENE RAIL WITH NOTHING TO DO IN IT still has to be watchable, and the
 ; scene on its own is not: the pen spends itself in seventy frames and the
-; aurora finishes rising in one pass of the cycle, after which nothing marks
-; time and the picture is a slow shimmer with no beginning. This gives it one.
+; colour cycle is a fifty-one-second drift with no beginning and no end, so
+; after those seventy frames nothing marks time at all. This gives it a
+; shape — without touching the drift, which is the thing worth watching.
 ;
 ; THE BEATS WAIT ON DIFFERENT THINGS, deliberately.
 ;
 ;   UP     the fade ramp — waits on `fade` going idle, not on a frame count,
 ;          so retuning the ramp cannot desynchronise this
-;   PLAY   AUR_RATE_LEN ticks, which is EXACTLY one pass of the tinted run:
-;          the generated rate curve sums to one phase over that many entries
-;          and the cycle reads one entry a tick. So the beat ends when the
-;          aurora has finished rising, without watching a cursor for a wrap
+;   PLAY   the PEN, watched on its own frame counter: the beat ends when the
+;          word is written, whatever that costs, rather than on a count that
+;          would have to be retuned beside it
 ;   HOLD   a tuned count — the only beat that is a matter of taste
 ;   DOWN   the ramp again
-;   RESET  both restores draining — the pen's ink and the aurora's CHR page,
-;          each counted down in slices by its own VBlank arm
+;   RESET  the ink draining, counted down in slices by aur_write's VBlank arm
+;
+; THE COLOUR CYCLE IS NOT A BEAT AND IS NEVER RESET. It runs underneath all
+; five of them and the loop does not touch it, which is the whole reason the
+; piece is worth watching twice: the aurora is a different colour every time
+; round, and over sixteen passes it travels the rail's full journey from
+; cyan-teal to violet. An earlier cut put the CHR page back at each loop and
+; the cost was exactly that — every pass opened on the same teal, and fifteen
+; of the sixteen phases were unreachable without a stopwatch.
 ;
 ; THE TIMER IS IN TICKS, NOT FRAMES. It is stepped by the same TS_STEP output
 ; the hue cycle reads, so a PAL console holds the card for the same wall-clock
@@ -33,8 +40,8 @@
 ;   entry:    A16 I16
 ;   exit:     A16 I16
 ;   in:       nothing
-;   out:      the first beat armed: UP, with the cycle and the pen held so the
-;             scene fades up on a bare sky. MAIN has already armed the ramp
+;   out:      the first beat armed: UP, with the pen held so the word does not
+;             start writing behind a fade. MAIN has already armed the ramp
 ;   clobbers: A, N, Z
 ;   assumes:  enter-time. Power-on dp is RANDOM (rule 5), so this is the
 ;             write-before-read contract for both words
@@ -95,7 +102,8 @@ aur_pres_tick:
 @beat:
     .addr @up, @play, @hold, @down, @reset
 
-; ---- UP: bare sky, brightening. Held, so neither the pen nor the cycle move
+; ---- UP: the scene, brightening. The pen is held so the word does not
+; start writing behind a fade.
 @up:
     .a16
     .i16
@@ -106,17 +114,16 @@ aur_pres_tick:
     rts                             ; still ramping
 :   lda #AUR_P_PLAY
     sta z:ES_AUR_PST
-    lda #AUR_RATE_LEN               ; one whole pass of the tinted run
-    sta z:ES_AUR_PTIM
     rts
 
-; ---- PLAY: the pen writes and the aurora rises, for exactly one pass
+; ---- PLAY: the pen writes the word, and the beat is over when it has
 @play:
     .a16
     .i16
-    jsr @spend
-    beq :+
-    rts                             ; the pass is not finished
+    lda z:ES_AUR_WFRAME
+    cmp #AUR_WRITE_FRAMES
+    bcs :+
+    rts                             ; the pen is still moving
 :   lda #AUR_P_HOLD
     sta z:ES_AUR_PST
     lda #AUR_PRES_HOLD
@@ -147,25 +154,21 @@ aur_pres_tick:
     and #$FF00
     beq :+
     rts                             ; still ramping
-:   ; At black: ask for the ink and the aurora back, and hold everything while
-    ; they drain. Both are counted down in slices by their own VBlank arms.
-    jsr aur_hue_unrise
+:   ; At black: ask for the ink back, counted down in slices by aur_write's
+    ; own VBlank arm. The AURORA is deliberately left alone — see the header.
     jsr aur_write_restart
     lda #AUR_P_RESET
     sta z:ES_AUR_PST
     rts
 
-; ---- RESET: both restores draining, at black
+; ---- RESET: the ink draining, at black
 @reset:
     .a16
     .i16
     jsr @freeze
-    lda z:ES_AUR_RST
+    lda z:ES_AUR_WRESET
     beq :+
-    rts                             ; the aurora is still draining
-:   lda z:ES_AUR_WRESET
-    beq :+
-    rts                             ; ...or the ink is
+    rts                             ; the ink is still draining
 :   stz z:ES_AUR_PST                ; = AUR_P_UP, and round again
     sep #$20
     .a8
@@ -175,9 +178,15 @@ aur_pres_tick:
     rts
 
 ; ---- the two helpers ------------------------------------------------------
-; `freeze` raises the hold the hue cycle and the pen both read. It is raised
-; per frame rather than latched because the scene clears it every frame — B
-; and the beats are then one flag with one writer instead of two that argue.
+; `freeze` raises the hold the pen reads — the same flag B raises for the
+; whole piece. It is raised per frame rather than latched because the scene
+; clears it every frame, so B and the beats are one flag with one writer
+; instead of two that argue.
+;
+; THE HUE CYCLE READS IT TOO, which is the one place a beat still stops the
+; colour: `aur_hue_tick` early-outs on it, so the drift pauses through UP and
+; RESET. Both are short and both sit at or near black, so it costs the journey
+; about forty frames a lap and nothing a viewer can see.
 @freeze:
     .a16
     .i16

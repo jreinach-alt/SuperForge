@@ -251,10 +251,8 @@ def tint(a, deg):
             wb * 0.95 * a + 0.30 * a ** 4)
 
 
-def bg1_px(x, y, ph=0, lit=True):
+def bg1_px(x, y, ph=0):
     r, g, b = sky(y)
-    if not lit:
-        return r, g, b               # the sky ALONE — see _block's note
     a, v, ci = aurora_at(x, y, ph)
     # NOT `a > 0`. A pixel the cycling set does not cover must not be tinted at
     # all, or it wears phase 0's colour for the whole cycle — which is a teal
@@ -328,18 +326,8 @@ def fit_tile(px, force=None):
     return best[1], best[2], best[0]
 
 
-def _block(ph, tx, ty, lit=True):
-    """One 8x8 of BG1 at a phase. `lit=False` is the same block with NO
-    AURORA IN IT — bare sky, at the same dither and the same lattice.
-
-    That is what the base CHR page holds for every tinted tile, and it is why
-    the aurora RISES for free. The cycle's first pass over the tinted run
-    replaces bare sky with phase 0, tile by tile, at the rate curve's own
-    pace; every pass after it replaces one phase with the next. The rise is
-    not a separate animation with a cost of its own, it is the ordinary cycle
-    arriving somewhere it has not been yet.
-    """
-    return [tuple(to5(v) for v in bg1_px(tx * 8 + i, ty * 8 + j, ph, lit))
+def _block(ph, tx, ty):
+    return [tuple(to5(v) for v in bg1_px(tx * 8 + i, ty * 8 + j, ph))
             for j in range(8) for i in range(8)]
 
 
@@ -376,31 +364,31 @@ def cut_bg1():
     would update the other. They are also given a CONTIGUOUS run of tile
     indices, so a slice of the cycle is ONE DMA with one VMADD.
 
-    THE RUN IS ORDERED BOTTOM-UP ON SCREEN, and that order is doing two jobs.
+    THE RUN IS ORDERED SCATTERED ON SCREEN, and the reason is what the eye
+    does with a picture that is permanently mid-transition. A frame is always
+    a mix of two adjacent phases, so the only question is HOW that mix is
+    distributed. Scattered, it dissolves: the tiles carrying the new hue are
+    spread over the whole sky, no two adjacent, and at five degrees of hue
+    apart the difference is under the dither's own noise — the curtains simply
+    drift in colour with nothing to see moving.
 
-    The first is THE RISE. The base page holds these tiles unlit (see
-    `_block`), so the cycle's first pass over them is the aurora arriving —
-    and in this order it arrives from the horizon upward, the curtains growing
-    into the sky, instead of materialising in scattered 8x8 blocks all over
-    it. Measured, the scattered order made the half-risen picture read as a
-    corrupted tile upload; nothing else about the rise changed.
-
-    The second is that ORDER COSTS NOTHING ONCE RISEN, which had to be
-    measured rather than assumed — an earlier version of this file argued the
-    opposite, that a screen-coherent run would repaint the curtains in visible
-    bands, and that is why the order used to be scattered. It is false at
-    sixteen phases. A frame's picture is always a mix of two adjacent phases
-    split at a horizontal line, so the question is whether that line shows.
-    Measured on six frames spread across a phase (cursor at slots 3, 21, 90,
-    244, 289 and 290 of 304): the largest mean-colour step between adjacent
-    tile rows is 33-35 units and sits at TILE ROW 14 in every one of them —
-    the hills' edge, a fixed feature of the art. A visible seam would move
-    with the cursor. It does not move at all, because adjacent phases differ
-    by about 5 degrees of hue and that is under the dither's own noise.
+    A SCREEN-COHERENT ORDER WAS TRIED AND REJECTED BY THE OWNER, and the
+    record matters because the measurement that motivated it was correct and
+    the conclusion drawn from it was not. Ordered bottom-up the phase boundary
+    is a horizontal line that climbs, and measured on six frames across a
+    phase that line does not show as a colour STEP — the largest mean-colour
+    step between adjacent tile rows sits at the hills' edge and does not move
+    with the cursor. That much is true. What it misses is that a coherent
+    front is legible as MOTION even when it is not legible as a seam: the eye
+    follows an edge sweeping up the screen where it cannot see a boundary
+    standing still. Watched side by side, the scattered cycle reads as light
+    breathing and the coherent one reads as a wipe. This order is the one the
+    rail ships.
     """
     tint_cells = _tinted()
-    order = sorted(tint_cells, key=lambda c: (-c[1], (c[0] * 97) % TW))
-    slot_of = {c: k for k, c in enumerate(order)}
+    slot_of = {}
+    for k, c in enumerate(tint_cells):
+        slot_of[c] = (k * 97) % len(tint_cells)     # 97 is coprime with 304
 
     tiles, ix, words = [], {}, [0] * (TW * TH)
     for ty in range(TH):
@@ -426,10 +414,7 @@ def cut_bg1():
                    key=lambda f: sum(fit_tile(b, force=f)[2] for b in blocks))
         slot = slot_of[c]
         fields[slot] = best
-        # THE BASE PAGE HOLDS BARE SKY, not phase 0. The field is still the
-        # one chosen across the cycle above, because the map word is uploaded
-        # once and serves the unlit tile and every hue after it alike.
-        _, by, _ = fit_tile(_block(0, c[0], c[1], lit=False), force=best)
+        _, by, _ = fit_tile(_block(0, c[0], c[1]), force=best)
         tiles[hue_base + slot] = by
         words[c[1] * TW + c[0]] = (hue_base + slot) | (best << 10)
     return tiles, words, hue_base, tint_cells, slot_of, fields

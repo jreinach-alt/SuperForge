@@ -19,14 +19,12 @@
 # and it read as pixelation rather than as light.
 #
 # =============================================================================
-# ONE DMA A FRAME, CLIMBING
+# ONE DMA A FRAME, AND SCATTERED
 # =============================================================================
 # The tinted tiles are given a CONTIGUOUS run of BG1 tile indices, so a
 # frame's share of them is one VMADD and one transfer. They are given that run
-# ORDERED BOTTOM-UP ON SCREEN, and that order is what makes the aurora RISE:
-# the base CHR page holds them UNLIT, so this cycle's first pass over them is
-# the aurora arriving from the horizon upward — no rise animation, no second
-# mechanism, no extra byte of ROM. Every pass after it is the colour cycle.
+# in a SCATTERED order, so the share is spread across the whole sky instead of
+# sweeping down it.
 #
 # THE RATE IS A CURVE. A phase is 304 tile-updates however they are paced, so
 # a slow cycle means a low AVERAGE rate and the shape is only free to
@@ -34,15 +32,23 @@
 # so the aurora drifts at a tile or two a frame for most of a pass and moves
 # at five through the middle of it. Nothing ever holds still.
 #
-# That leaves the picture PERMANENTLY straddling two phases, split at a
-# horizontal line that climbs — the thing to check rather than assume, and the
-# thing an earlier cut of this file got wrong in both directions. It argued
-# that a screen-coherent run would repaint the curtains in visible bands, and
-# scattered the run to avoid it. Measured on six frames spread across a phase:
-# the largest mean-colour step between adjacent tile rows sits at the HILLS'
-# EDGE in every one of them and does not move with the cursor. A visible seam
-# would move. Adjacent phases are about five degrees of hue apart, which is
-# under the dither's own noise. At a coarser phase step none of this holds.
+# That leaves the picture PERMANENTLY straddling two phases, and the whole
+# effect rests on that mix being INVISIBLE — the thing to check rather than
+# assume. Measured on the real quantised art, a 50/50 scattered mix of two
+# adjacent phases is indistinguishable from either: five degrees of hue apart
+# is under the dither's own noise, so the curtains drift in colour with
+# nothing to see moving.
+#
+# A SCREEN-COHERENT ORDER WAS BUILT, MEASURED AND REJECTED, and the record is
+# kept because the measurement was right and the conclusion was not. Ordered
+# bottom-up the phase boundary is a horizontal line that climbs, and it does
+# not show as a colour STEP — the largest step between adjacent tile rows sits
+# at the hills' edge and does not move with the cursor. What that misses is
+# that a coherent front is legible as MOTION even where it is not legible as a
+# seam: the eye follows an edge sweeping up the screen where it cannot see a
+# boundary standing still. Side by side the scattered cycle reads as light
+# breathing and the coherent one reads as a wipe. At a coarser phase step none
+# of this holds.
 #
 # B freezes the whole thing, which is what makes a still of it worth taking.
 name = "aur_hue"
@@ -92,16 +98,6 @@ bytes = 8                # NMI-local scratch: the tile offset inside a chunk,
                          # one routine is still a claim
 
 [[claims.dp]]
-name = "aur_rst"
-bytes = 2                # tiles of the tinted run still to be restored to
-                         # UNLIT, after the presentation asks for the aurora
-                         # to be taken back out of the sky. Counted down a
-                         # slice at a time, exactly as aur_write's erase is,
-                         # and out of the same place: the base CHR page, which
-                         # already holds those tiles unlit, so there is no
-                         # second copy of the picture in ROM
-
-[[claims.dp]]
 name = "aur_hold"
 bytes = 2                # nonzero while B holds the cycle still
 
@@ -121,12 +117,3 @@ vblank_transfers_per_frame = 2  # ...in ONE transfer, or two when the run
                                 # crosses one wraps inside its own bank to
                                 # $0000 and reads the WRAM mirror
                                 #
-                                # THE UN-RISE FITS INSIDE THIS and does not
-                                # widen it: AUR_RST_SLICE is sized to the 768 B
-                                # above, and it is always one transfer (the
-                                # base page is a single blob, not bank_tiled).
-                                # The two can never transfer in one frame
-                                # because aur_hue_nmi tests ES_AUR_RST first
-                                # and returns — the presentation's hold during
-                                # the drain is about the rate curve, not about
-                                # this channel

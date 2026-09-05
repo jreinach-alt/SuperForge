@@ -94,9 +94,10 @@ def _art():
 
 ART = _art()
 PST, PTIM = _dp("ES_AUR_PST"), _dp("ES_AUR_PTIM")
-RST, WRESET = _dp("ES_AUR_RST"), _dp("ES_AUR_WRESET")
+WRESET = _dp("ES_AUR_WRESET")
 PHASE, SLOT, HOLD = _dp("ES_AUR_PHASE"), _dp("ES_AUR_SLOT"), _dp("ES_AUR_HOLD")
 FADE = _dp("ES_FADE_CTL")
+WFRAME = _dp("ES_AUR_WFRAME")
 
 # The beats, in the jump table's order — aur_pres.asm and game/aurora/aurora.inc
 P_UP, P_PLAY, P_HOLD, P_DOWN, P_RESET = range(5)
@@ -195,35 +196,39 @@ def test_the_sky_is_drawn_from_colours_cgram_does_not_hold(tmp_path):
 # =============================================================================
 # The beats, each observed as a rendered difference
 # =============================================================================
-def test_the_scene_fades_up_on_a_sky_with_no_aurora_in_it(tmp_path):
-    """The first beat. The base CHR page holds the tinted run UNLIT, so what
-    the fade reveals is bare sky — and the aurora is not merely dim here, it
-    is ABSENT: the rise has not started because the cycle is held.
+def test_the_scene_fades_up_on_the_whole_picture(tmp_path):
+    """The first beat reveals the card COMPLETE — sky, hills, figures and the
+    aurora already hanging in it — and only the word is missing.
 
-    Asserted as a colour-count difference rather than a pixel diff, because
-    the two frames also differ in brightness and a pixel diff would pass on
-    that alone.
+    That is a deliberate reversal. An earlier cut shipped the tinted run UNLIT
+    in the base CHR page so the cycle's first pass over it was the aurora
+    ARRIVING, which cost nothing and made a pretty beat; the owner watched
+    both and kept this one, because the arrival forced a screen-coherent slot
+    order and that order reads as a wipe. The aurora being present from the
+    first frame is now a property worth holding, not an absence of one.
     """
     with Machine(str(ROM)) as m:
         _run_to_beat(m, P_UP)
         m.advance(8)                          # mid-ramp: lit enough to read
-        bare = _pixels(m, tmp_path / "bare.png")
         assert m.read_u16(W, PST) == P_UP, "the beat ended before it was read"
-        assert m.read_u16(W, HOLD), "the UP beat is not holding the cycle"
-        assert m.read_u16(W, SLOT) == 0, "the rise started during the fade"
+        up = _pixels(m, tmp_path / "up.png")
         _run_to_beat(m, P_HOLD)
         m.advance(30)
-        risen = _pixels(m, tmp_path / "risen.png")
-    # The aurora's own hues are greens/blues well clear of the sky gradient.
+        card = _pixels(m, tmp_path / "card.png")
+
     def _lit(im):
-        return sum(1 for r, g, b in _sky(im) if max(g, b) > 60 and b > r + 16)
-    bare_n, risen_n = _lit(bare), _lit(risen)
-    assert bare_n < 200, (
-        f"{bare_n} aurora-coloured pixels before the rise — the base CHR page "
-        f"is supposed to hold the tinted run UNLIT")
-    assert risen_n > 20 * max(bare_n, 1), (
-        f"the rise moved {bare_n} -> {risen_n} aurora-coloured pixels, which "
-        f"is not an arrival")
+        return sum(1 for r, g, b in _sky(im) if max(g, b) > 40 and b > r + 12)
+    assert _lit(up) > 500, (
+        f"only {_lit(up)} aurora-coloured pixels while the scene fades up — "
+        f"the base CHR page is supposed to ship the tinted run LIT")
+    # ...and the WORD is the thing that is missing, which is what the pen beat
+    # is for. Read in the black band, not the sky.
+    def _ink(im):
+        px = im.load()
+        return sum(1 for y in range(CLIFF + 8, 222) for x in range(im.size[0])
+                   if sum(px[x, PICTURE_TOP + y]) > 90)
+    assert _ink(up) < 40, f"{_ink(up)} ink pixels before the pen has started"
+    assert _ink(card) > 400, "the word never arrived"
 
 
 def test_the_loop_closes_on_the_frame_it_should_and_keeps_closing(tmp_path):
@@ -232,7 +237,7 @@ def test_the_loop_closes_on_the_frame_it_should_and_keeps_closing(tmp_path):
 
     A loop that merely comes back round would pass a test that waited for UP
     to reappear; this one pins the period, so a beat that started overrunning
-    (a ramp that stopped going idle, a restore that stalled a slice) is a red
+    (a ramp that stopped going idle, a pen that stopped finishing) is a red
     even though the loop still works.
     """
     seen = []
@@ -254,20 +259,22 @@ def test_the_loop_closes_on_the_frame_it_should_and_keeps_closing(tmp_path):
     assert len(set(periods)) == 1, (
         f"the loop period wanders: {periods}. Every beat waits on something "
         f"that finishes in a fixed number of frames, so it must not")
-    assert periods[0] == 398, (
-        f"the loop closes in {periods[0]} frames, not the 398 measured when "
-        f"the beats landed. A changed ramp, hold or slice moves this — update "
+    assert periods[0] == 390, (
+        f"the loop closes in {periods[0]} frames, not the 390 measured when "
+        f"the beats landed. A changed ramp, hold or pen moves this — update "
         f"the number WITH the measurement, do not widen the assertion")
 
 
-def test_each_pass_rises_in_a_colour_the_last_one_did_not(tmp_path):
+def test_the_colour_travels_and_the_loop_never_puts_it_back(tmp_path):
     """THE LOOP IS NOT A RESTART, and this is the case that says so.
 
-    Only the ink and the aurora's CHR page are put back; the hue cursor is
-    left running, so a pass opens on the phase the cycle has reached. Without
-    this case the difference between passes would read as drift rather than as
-    the design, and a future change that "fixed" it by resetting the phase
-    would pass every other case in this module.
+    The cycle runs underneath every beat and nothing resets it, so a pass
+    opens on whatever hue the drift has reached. That is the rail's whole
+    claim — a fifty-one-second journey from cyan-teal to violet — and it is
+    exactly what a tidy-looking loop destroys: an earlier cut restored the CHR
+    page at each lap, every pass opened on the same teal, and fifteen of the
+    sixteen phases became unreachable. Every other case in this module passed
+    against that. This one would not.
     """
     shots, phases = [], []
     with Machine(str(ROM)) as m:
@@ -278,79 +285,12 @@ def test_each_pass_rises_in_a_colour_the_last_one_did_not(tmp_path):
             shots.append(set(_sky(_pixels(m, tmp_path / f"pass{k}.png"))))
             _run_to_beat(m, P_UP)             # ...on into the next pass
     assert len(set(phases)) == 3, (
-        f"three passes opened on phases {phases} — the cursor is being reset")
+        f"three passes stood at phases {phases} — the cursor is being reset")
     for a, b in ((0, 1), (1, 2), (0, 2)):
         shared = len(shots[a] & shots[b]) / len(shots[a] | shots[b])
-        assert shared < 0.75, (
+        assert shared < 0.9, (
             f"passes {a} and {b} share {shared:.0%} of their colours: the "
             f"cycle is not travelling between them")
-
-
-def _row_profile(im):
-    """Aurora-coloured pixels per 8px tile row of the sky band.
-
-    The predicate has a BASELINE — stars and the sky's own top gradient answer
-    to it — so every use below is a DELTA against the unlit page rather than
-    an absolute count.
-    """
-    px = im.load()
-    return [sum(1 for y in range(ty * 8, ty * 8 + 8) for x in range(im.size[0])
-                if (lambda c: max(c[1], c[2]) > 60 and c[2] > c[0] + 16)(
-                    px[x, PICTURE_TOP + y]))
-            for ty in range(SKY_TOP // 8, SKY_BOT // 8)]
-
-
-def test_the_rise_climbs_from_the_horizon_rather_than_appearing_all_over(
-        tmp_path):
-    """The slot order is BOTTOM-UP ON SCREEN, and this is what that buys.
-
-    It is invisible in a finished frame — the risen card is identical either
-    way — so without this case the order is unasserted and the next person to
-    touch `cut_bg1` has nothing to tell them it was a decision. It was: the
-    run used to be scattered, which is right for a cycle whose adjacent phases
-    are five degrees apart and wrong for a first pass whose two states are
-    "nothing" and "a curtain". Scattered, the half-risen sky read as a
-    corrupted tile upload.
-
-    MEASURED at slot 55 of 304 — 18% risen: the delta against the unlit page
-    is EXACTLY ZERO for every tile row above the front, and all of it sits in
-    the bottom four rows. A scattered order spreads the same delta over all
-    thirteen. The assertion is that shape, not a threshold: the lit rows must
-    be a run reaching the bottom of the band, with nothing lit above it.
-    """
-    with Machine(str(ROM)) as m:
-        # THE THIRD PASS, NOT THE BOOT ONE. The boot pass rises from a cursor
-        # that has never moved, so it climbs correctly even on a rail whose
-        # LOOP does not put the cursor back — and that is a real defect
-        # (`aur_hue_unrise`'s snap), planted as
-        # `unrise-does-not-snap-the-cursor`. Measured against that plant: a
-        # pass resuming mid-phase lights the tiles between the cursor and the
-        # end of the run FIRST, which is the top of the screen, so the lit
-        # rows are two runs with a gap instead of one reaching the bottom.
-        # A first-pass test cannot see any of it.
-        for k in range(3):
-            _run_to_beat(m, P_PLAY)
-            if k < 2:
-                _run_to_beat(m, P_RESET)
-        base = _row_profile(_pixels(m, tmp_path / "r0.png"))
-        assert m.read_u16(W, SLOT) == 0, "the rise had already started"
-        m.advance(70)
-        risen = m.read_u16(W, SLOT)
-        mid = _row_profile(_pixels(m, tmp_path / "r1.png"))
-    assert 0 < risen < HUE_TILES // 3, (
-        f"the front is at {risen}/{HUE_TILES}: too far along to tell a "
-        f"climbing rise from a scattered one")
-    delta = [b - a for a, b in zip(base, mid)]
-    lit = [i for i, d in enumerate(delta) if d > 0]
-    assert lit, f"nothing lit up in 70 frames of PLAY: {delta}"
-    assert lit == list(range(lit[0], len(delta))), (
-        f"the lit rows are {lit} of {len(delta)} — not a run reaching the "
-        f"bottom of the band. The aurora is arriving in scattered places "
-        f"instead of climbing. Per-row delta: {delta}")
-    assert lit[0] >= len(delta) // 2, (
-        f"the front reached row {lit[0]} of {len(delta)} while only "
-        f"{risen}/{HUE_TILES} tiles had been uploaded — it is not climbing "
-        f"in step with the cursor")
 
 
 def _diff(a, b):
@@ -376,21 +316,31 @@ def test_b_stops_the_whole_piece_and_not_merely_the_roll(tmp_path):
     against a FREE-RUNNING span of the same length from the same point, and
     the claim is the ratio.
 
-    MEASURED, from the beat PLAY + 20 frames over a 120-frame span: 39 pixels
-    move while B is held against 10,135 free — 260x. The 39 are the two
-    capture frames' own ticks and nothing else, which is why the cursor and
-    the beat below are asserted UNCHANGED and exactly: those reads cost no
-    frame, so they see the held stretch with no tax on it.
+    MEASURED, from the beat PLAY + 10 frames over a 60-frame span: 36 pixels
+    move while B is held against 1,057 free — 29x. The 36 are the two capture
+    frames' own ticks and nothing else, which is why the cursor and the beat
+    below are asserted UNCHANGED and exactly: those reads cost no frame, so
+    they see the held stretch with no tax on it.
 
-    THE SPAN IS 120 AND MUST NOT BE 398. The loop closes in 398 frames, so a
+    THE CONTROL'S MOTION IS THE PEN, and that is worth naming because it used
+    to be something else. While the rail shipped an aurora that ROSE, the same
+    span moved 10,135 pixels and the ratio was 260x. The rise is gone — the
+    base page ships the tinted run lit — so what remains to move in sixty
+    frames is the word being written, plus a colour drift so slow that four
+    8x8 cells change in a hundred and twenty frames. A control this much
+    smaller is not a weaker test; it is an honest one, and the number it must
+    stay clear of is still the held reading.
+
+    THE SPAN MUST NOT APPROACH THE LOOP PERIOD, which is 390 frames. A
     free-running control of about that length returns the picture to where it
-    started and the control collapses — measured at 400 it reported 133 px and
-    would have "passed" against a rail that was not frozen at all.
+    started and the control collapses — measured on the earlier 398-frame loop
+    at a span of 400, it reported 133 px and would have "passed" against a
+    rail that was not frozen at all.
     """
-    span = 120
+    span = 60
     with Machine(str(ROM)) as m:
         _run_to_beat(m, P_PLAY)
-        m.advance(20)                          # ...mid-rise, mid-word
+        m.advance(10)                          # ...mid-word
         before = _pixels(m, tmp_path / "b0.png")
         beat, slot = m.read_u16(W, PST), m.read_u16(W, SLOT)
         m.advance(span, pad1={"b": True})
@@ -403,56 +353,17 @@ def test_b_stops_the_whole_piece_and_not_merely_the_roll(tmp_path):
             "released, the piece did not resume")
     with Machine(str(ROM)) as m:               # the control, same start
         _run_to_beat(m, P_PLAY)
-        m.advance(20)
+        m.advance(10)
         c0 = _pixels(m, tmp_path / "c0.png")
         m.advance(span)
         free = _diff(c0, _pixels(m, tmp_path / "c1.png"))
-    assert free > 3000, (
+    assert free > 500, (
         f"the free-running control only moved {free} pixels in {span} frames, "
         f"so it cannot tell a frozen picture from a running one. Check the "
-        f"span is not near the 398-frame loop period")
-    assert held * 20 < free, (
+        f"span is not near the 390-frame loop period")
+    assert held * 8 < free, (
         f"B held: {held} pixels moved against {free} free over the same span. "
-        f"Measured when the beats landed: 39 against 10,135")
-
-
-def test_the_unrise_restores_the_page_the_rom_actually_ships(tmp_path):
-    """After the reset beat, BG1's tinted CHR run equals the base page BYTE
-    FOR BYTE — and the oracle is build/aurora.sfc, not the generator.
-
-    THIS IS THE CASE THAT COSTS NOTHING TO GET WRONG QUIETLY. The un-rise is a
-    DMA out of the same blob the boot upload used, so a restore that moved the
-    wrong bytes, or short-changed the last slice, would still leave a sky that
-    LOOKS empty — the difference between "unlit" and "nearly unlit" is a few
-    units on a night gradient. An equality against the ROM's own bytes is the
-    only observation that can tell them apart.
-
-    The claim's file offset comes from the allocator (`ES_R_AUR_CHR1`), and
-    the run inside it from the generated geometry both sides compile against.
-    """
-    claim = _sym("ES_R_AUR_CHR1")
-    assert claim["class"] == "rom", claim
-    off = claim["start"] + ART["AUR_HUE_OFF"]
-    want = ROM.read_bytes()[off:off + ART["AUR_HUE_BYTES"]]
-    assert len(want) == ART["AUR_HUE_BYTES"] == HUE_TILES * 64
-    assert any(want), "the base page's tinted run is all zeroes in the ROM"
-
-    with Machine(str(ROM)) as m:
-        _run_to_beat(m, P_HOLD)                # ...risen: the run is NOT base
-        m.advance(30)
-        risen = m.read_bytes(V, (CHR1_WORD + HUE_BASE * 32) * 2, len(want))
-        assert risen != want, (
-            "VRAM already equals the base page while the aurora is up — the "
-            "rise is not writing, and the restore case below would pass on a "
-            "rail that never animated at all")
-        _run_to_beat(m, P_UP)                  # ...the reset has drained
-        assert m.read_u16(W, RST) == 0 and m.read_u16(W, WRESET) == 0
-        back = m.read_bytes(V, (CHR1_WORD + HUE_BASE * 32) * 2, len(want))
-    assert back == want, (
-        f"{sum(1 for a, b in zip(back, want) if a != b)} of {len(want)} bytes "
-        f"differ from the base page the ROM ships. The un-rise reads that "
-        f"same blob, so a mismatch is a wrong offset, a short last slice, or "
-        f"a run that stopped early")
+        f"Measured when the rise was removed: 36 against 1,057")
 
 
 def test_the_pen_writes_the_word_and_then_holds_it(tmp_path):

@@ -21,13 +21,6 @@ AUR_TICK_BASE = $0100
 ; blink, because the word un-writes rather than vanishing.
 AUR_INK_SLICE = 16
 
-; HOW MUCH OF THE AURORA THE UN-RISE TAKES BACK OUT PER FRAME, in tiles. 12
-; 8bpp tiles is 768 B, which is the hue claim's whole declared VBlank budget —
-; spendable here because the cycle is held while the un-rise runs, so the two
-; never transfer in the same frame. At this slice the 304-tile run clears in 26
-; frames, which is under half a second and happens with the screen at black.
-AUR_RST_SLICE = 12
-
 ; THE BEATS. Their ORDER is the jump table's order in aur_pres.asm, so these
 ; are indices and not flags. What each one waits on is in that file's header;
 ; only one of them is a matter of taste, and it is the one below.
@@ -38,11 +31,18 @@ AUR_P_DOWN  = 3        ; fading to black, still cycling
 AUR_P_RESET = 4        ; at black: the ink and the aurora draining back out
 
 ; HOW LONG THE FINISHED CARD STANDS, in ticks (one an NTSC frame). The rest of
-; the loop is not tuned at all — it is a ramp, a pass of the cycle, a ramp and
-; a drain, each of which ends when the thing it is waiting on has finished.
-; This is the one number somebody chose, and it is what "let it play for a few
-; seconds" came to: at AUR_TICK_BASE the whole loop is about seven seconds.
-AUR_PRES_HOLD = 150
+; the loop is not tuned at all — a ramp, the pen, a ramp and a drain, each of
+; which ends when the thing it is waiting on has finished. This is the one
+; number somebody chose, and it is the beat where the COLOUR is the only thing
+; happening: the word is written, nothing moves, and the curtains drift. It is
+; long because that drift is the rail.
+;
+; It is also what puts the loop's period on the recorder's capture grid. The
+; other four beats cost 106 frames between them, so 284 makes the period 390
+; = 130 captures exactly at EVERY=3 — which is a convenience, not a
+; requirement: the loop closes at black and one black frame is the same as
+; another, so a period off the grid would still cut cleanly.
+AUR_PRES_HOLD = 284
 
 ; The pad bits this rail reads. A BIT POSITION in the joypad word the input
 ; feature publishes, not an address — every rail in this tree spells its own,

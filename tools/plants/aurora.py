@@ -1,64 +1,36 @@
 """aurora — what a sky with no palette can get wrong while still looking right.
 
-Nine plants. Eight are silent-corruption defects that still produce a plausible
-night sky, and one is the allocator refusing a declaration that lies. TWO ARE
-DEFECTS THIS RAIL SHIPPED and a person caught by looking, put here so the next
-one is caught by the harness instead.
+Seven plants. Six are silent-corruption defects that still produce a plausible
+night sky, and one is the allocator refusing a declaration that lies.
 
 THE SET IS BUILT AROUND WHAT IS UNOBSERVABLE IN A FINISHED FRAME. The card at
-the end of a pass is the same picture whether the aurora rose or was simply
-there, whether it climbed or appeared in scattered blocks, whether the loop
-resets the colour or carries it. Every one of those is a real decision this
-rail made and none of them is visible in a still, which is exactly the shape a
-falsification harness exists for.
+the end of a pass is the same picture whether the aurora was there from the
+first frame or arrived, whether the loop carries the colour forward or puts it
+back, whether the pen finished before the beat ended. Every one of those is a
+real decision this rail made and none of them is visible in a still, which is
+the shape a falsification harness exists for.
 
-  * `base-page-ships-the-aurora-lit` is the rise, deleted. The generator
-    paints the tinted run at phase 0 instead of unlit, so the aurora is
-    already there when the fade comes up and the cycle's first pass is an
-    ordinary recolour. THE FINISHED CARD IS BYTE-IDENTICAL. Only the first
-    beat differs, and only for the two seconds the fade takes.
+  * `the-loop-puts-the-colour-back` is the defect this rail SHIPPED for a
+    while, and it is the tidy-looking one: restore the CHR page at each lap
+    and every pass opens on exactly the same picture, which is what a loop is
+    supposed to do. What it throws away is the headline — fifteen of the
+    sixteen phases become unreachable and the fifty-one-second journey from
+    cyan-teal to violet never happens. Every other case in the module passes
+    against it.
 
-  * `slot-order-scattered-again` is the order the rail SHIPPED before it was
-    measured, and it is the subtler of the pair: the finished card is again
-    identical, the rise still takes exactly as long, and the aurora still
-    arrives — in 8x8 blocks all over the sky instead of climbing out of the
-    horizon. A case that only asked "is more of it lit than before" passes.
+  * `base-page-ships-the-run-unlit` is the reverse of a beat the rail shipped
+    and the owner rejected. Unlit, the cycle's first pass IS the aurora
+    arriving — free, and pretty — and it forces a screen-coherent slot order
+    to stop the half-risen picture reading as a corrupted upload. That order
+    reads as a wipe. The finished card is byte-identical either way.
 
-  * `unrise-loses-its-last-slice` is an off-by-one in the drain, and it is
-    the plant that says why the restore is asserted as a BYTE EQUALITY. The
-    sky still looks empty at the next fade-in: what is left behind is a dozen
-    tiles of aurora at a hue two phases old, on a night gradient, which is a
-    few units of difference. Only the shipped bytes tell them apart.
-
-  * `unrise-does-not-snap-the-cursor` is the second SHIPPED defect. Without
-    the snap a pass resumes mid-phase, so the tiles between the cursor and the
-    end of the run light FIRST, high in the sky, and sit there disconnected
-    while the curtains climb underneath them. Thirteen tiles, at the top, once
-    a loop.
-
-WHAT THIS SET DOES NOT HOLD, and why it is stated rather than quietly absent.
-A tenth plant was written and withdrawn: removing `@freeze` from the RESET
-beat, on the stated grounds that the restore and the cycle share a channel and
-would contend. **They do not.** `aur_hue_nmi` tests `ES_AUR_RST` first and
-returns, so no hue slice can reach the channel while a drain is running — the
-freeze's only consequence is that `ES_AUR_PEND` stops accumulating, worth
-about thirteen tiles of burst at the top of the next pass. That is a
-difference of DEGREE from the three to five tiles the rate cursor's own
-one-entry offset already produces, and no assertion separates them without
-being brittle about a number that has no reason to be stable. The plant was
-measured, found not to fail DIFFERENTLY from the tree's own behaviour, and
-dropped; `aur_hue_unrise`'s contract was corrected to say what the freeze
-actually buys instead of repeating the contention claim.
+  * `play-ends-before-the-pen-does` stops watching the pen twelve frames
+    early, so the card begins standing while the exit swash is still being
+    drawn. The word finishes anyway; only the PERIOD moves.
 
   * `the-hold-does-not-reach-the-pen` restores the rail's original gate, where
     B held the colour cycle and the pen went on writing underneath it. A still
     taken with B down still shows a sky that is not moving.
-
-  * `play-waits-a-round-number` replaces the beat's exact wait with 200 frames
-    — close enough to AUR_RATE_LEN that the rise still finishes and the card
-    still stands, and wrong enough that the loop no longer closes on the frame
-    it should. It is the plant for asserting a PERIOD rather than "it comes
-    back round".
 
   * `the-straddle-is-one-transfer` reintroduces the defect the uninitialised
     read detector named. A1B is constant, so a slice crossing a chunk boundary
@@ -67,11 +39,37 @@ actually buys instead of repeating the contention claim.
     garbage in it, which is why a screenshot never found it.
 
   * `direct-colour-cleared` is the allocator half and the rail's headline in
-    reverse: CGWSEL bit 0 comes from the video claim, so clearing it there is
-    the one-line change that turns BG1 back into an indexed layer. The sky
-    then draws from CGRAM like anything else — and the picture is still a
-    picture, which is why the case that catches it counts colours against
-    CGRAM rather than looking at the screen.
+    reverse. It is expected to REFUSE the build: CGWSEL bit 0 comes from the
+    video claim, so clearing it means the composition no longer owns the port,
+    `ES_SCR_CREDITS_CGWSEL` stops being emitted, and the scene's write to
+    $2130 becomes undeclared. `-and-the-write-with-it` carries the same defect
+    through into a ROM that assembles, which is what someone would do next.
+
+WHAT THIS SET DOES NOT HOLD, and why it is stated rather than quietly absent.
+
+Two plants were written and withdrawn after measurement.
+
+`the-reset-does-not-hold-the-cycle` removed `@freeze` from the RESET beat on
+the stated grounds that the restore and the cycle would contend for a channel.
+They never did. When the un-rise existed, `aur_hue_nmi` tested its counter
+first and returned; now there is no un-rise at all. The freeze is worth a few
+tiles of accumulated burst, which is a difference of degree from what the rate
+cursor's own offset already produces, and no assertion separates them without
+being brittle about a number that has no reason to be stable.
+
+`slot-order-scattered-again` — or rather its inverse, now that the tree ships
+the scattered order — CANNOT BE HELD AT ALL, and that is worth stating plainly
+because the order is a deliberate choice the owner made. While the aurora
+ROSE, the order was strongly observable: the two states of a rising tile are
+"nothing" and "a curtain", so a scattered first pass read as 8x8 blocks all
+over the sky. With the rise gone, the only difference the order makes is HOW a
+mix of two adjacent phases is distributed — and those phases are five degrees
+of hue apart, under the dither's own noise. MEASURED on the shipped ROM: four
+8x8 cells of the sky change in a hundred and twenty frames. A test asserting
+the scatter would be asserting something with almost no observable
+consequence, which is the indirect-evidence trap in a different costume. The
+order is recorded in `cut_bg1`'s docstring and in `aur_hue`'s header as a
+judgement, and it is not defended by a plant.
 """
 import sys
 from pathlib import Path
@@ -89,73 +87,6 @@ ROM = SUPERFORGE / "build" / "aurora.sfc"
 T = "tests/test_aurora.py::"
 
 PLANTS = [
-    Plant(id="base-page-ships-the-aurora-lit",
-          file=GEN,
-          old="        _, by, _ = fit_tile(_block(0, c[0], c[1], lit=False), force=best)",
-          new="        _, by, _ = fit_tile(_block(0, c[0], c[1]), force=best)"
-              "  # PLANT",
-          artifact=ROM,
-          build=["aurora"],
-          # NOT the un-rise case, which stays green here and SHOULD: it asserts
-          # VRAM equals the base page the ROM ships, and that holds whatever
-          # the base page holds. It is an equality against the artifact, not
-          # against a picture, so it is blind to this defect by construction
-          # rather than by omission.
-          tests=[T + "test_the_scene_fades_up_on_a_sky_with_no_aurora_in_it",
-                 T + "test_the_rise_climbs_from_the_horizon_rather_than_"
-                     "appearing_all_over"],
-          why="the rise is the one thing this rail gets for free, and free "
-              "things are the easiest to delete by accident. The finished "
-              "card is byte-identical with the aurora shipped lit; what goes "
-              "is the first beat"),
-
-    Plant(id="slot-order-scattered-again",
-          file=GEN,
-          old="    order = sorted(tint_cells, key=lambda c: (-c[1], (c[0] * 97) % TW))\n"
-              "    slot_of = {c: k for k, c in enumerate(order)}",
-          new="    slot_of = {c: (k * 97) % len(tint_cells)      # PLANT\n"
-              "               for k, c in enumerate(tint_cells)}",
-          artifact=ROM,
-          build=["aurora"],
-          tests=[T + "test_the_rise_climbs_from_the_horizon_rather_than_"
-                     "appearing_all_over"],
-          why="the order the rail shipped before it was measured. Nothing "
-              "about a finished frame distinguishes the two, and the rise "
-              "still takes exactly as long — it simply arrives in blocks "
-              "instead of climbing. One case stands between this and the tree"),
-
-    Plant(id="unrise-loses-its-last-slice",
-          file=HUE,
-          old="    lda #AUR_HUE_TILES\n    sta z:ES_AUR_RST\n    ; AND THE CURSOR",
-          new="    lda #(AUR_HUE_TILES - AUR_RST_SLICE)   ; PLANT\n"
-              "    sta z:ES_AUR_RST\n    ; AND THE CURSOR",
-          artifact=ROM,
-          build=["aurora"],
-          tests=[T + "test_the_unrise_restores_the_page_the_rom_actually_ships"],
-          why="why the restore is a byte equality and not a look. What this "
-              "leaves behind is a dozen tiles of two-phase-old aurora on a "
-              "night gradient — a few units of difference, on a sky that "
-              "still reads as empty"),
-
-    Plant(id="unrise-does-not-snap-the-cursor",
-          file=HUE,
-          # The snap is everything AFTER the RST store, so returning there is
-          # exactly "no snap" and leaves the arm itself intact. The first cut
-          # of this plant branched to a label it did not define and the BUILD
-          # broke — which the harness reports as a plant fault, correctly:
-          # a defect that cannot be assembled proves nothing about the tests.
-          old="    sta z:ES_AUR_RST\n    ; AND THE CURSOR SNAPS",
-          new="    sta z:ES_AUR_RST\n    rts                             ; PLANT\n"
-              "    ; AND THE CURSOR SNAPS",
-          artifact=ROM,
-          build=["aurora"],
-          tests=[T + "test_the_rise_climbs_from_the_horizon_rather_than_"
-                     "appearing_all_over"],
-          why="a defect this rail shipped and a contact sheet caught. A pass "
-              "resuming mid-phase lights the tiles between the cursor and the "
-              "end of the run first, at the TOP, and they sit there while the "
-              "curtains climb underneath"),
-
     Plant(id="the-hold-does-not-reach-the-pen",
           file=WRITE,
           old="    lda z:ES_AUR_HOLD\n    beq :+\n    sep #$20\n    .a8\n    rts\n"
@@ -168,17 +99,59 @@ PLANTS = [
               "else. A still taken with B down still shows a sky that is not "
               "moving, so the defect is only visible in the black band"),
 
-    Plant(id="play-waits-a-round-number",
+    Plant(id="play-ends-before-the-pen-does",
           file=PRES,
-          old="    lda #AUR_RATE_LEN               ; one whole pass of the tinted run",
-          new="    lda #200                        ; PLANT",
+          old="    cmp #AUR_WRITE_FRAMES\n    bcs :+",
+          new="    cmp #(AUR_WRITE_FRAMES - 12)    ; PLANT\n    bcs :+",
           artifact=ROM,
           build=["aurora"],
           tests=[T + "test_the_loop_closes_on_the_frame_it_should_and_keeps_"
-                     "closing"],
-          why="close enough that the rise still finishes and the card still "
-              "stands. This is the plant that makes asserting a PERIOD worth "
-              "more than asserting the loop comes back round — it does"),
+                     "closing",
+                 T + "test_the_pen_writes_the_word_and_then_holds_it"],
+          why="the beat stops watching the pen twelve frames early, so the "
+              "card begins standing while the exit swash is still being "
+              "drawn. Nothing about a still announces it — the word finishes "
+              "anyway, a fifth of a second into a beat that lasts five "
+              "seconds — and only the PERIOD moves. This is why the loop case "
+              "asserts a frame count rather than that the loop comes round"),
+
+    Plant(id="the-loop-puts-the-colour-back",
+          file=PRES,
+          old="@reset:\n    .a16\n    .i16\n    jsr @freeze",
+          new="@reset:\n    .a16\n    .i16\n"
+              "    stz z:ES_AUR_SRC                ; PLANT\n"
+              "    stz z:ES_AUR_PHASE              ; PLANT\n    jsr @freeze",
+          artifact=ROM,
+          build=["aurora"],
+          tests=[T + "test_the_colour_travels_and_the_loop_never_puts_it_back"],
+          why="THE DEFECT THIS RAIL ACTUALLY SHIPPED FOR A WHILE, in the cut "
+              "where the loop restored the CHR page. It is the tidy-looking "
+              "change — every pass then opens on exactly the same picture, "
+              "which is what a loop is supposed to do — and it silently "
+              "throws away the rail's headline: fifteen of the sixteen phases "
+              "become unreachable, and the fifty-one-second journey from "
+              "cyan-teal to violet never happens. EVERY OTHER CASE IN THE "
+              "MODULE PASSES AGAINST IT. A single frame cannot show it and "
+              "neither can a single pass"),
+
+    Plant(id="base-page-ships-the-run-unlit",
+          file=GEN,
+          old="        _, by, _ = fit_tile(_block(0, c[0], c[1]), force=best)",
+          new="        _, by, _ = fit_tile(                                # PLANT\n"
+              "            [tuple(to5(v) for v in sky(c[1] * 8 + j))\n"
+              "             for j in range(8) for _i in range(8)], force=best)",
+          artifact=ROM,
+          build=["aurora"],
+          tests=[T + "test_the_scene_fades_up_on_the_whole_picture"],
+          why="the reverse of a beat this rail once shipped and the owner "
+              "rejected. With the tinted run unlit in the base page the "
+              "cycle's first pass over it becomes the aurora ARRIVING, which "
+              "costs nothing and makes a pretty rise — and forces a "
+              "screen-coherent slot order to keep the half-risen picture from "
+              "reading as a corrupted upload, which reads as a wipe. THE "
+              "FINISHED CARD IS BYTE-IDENTICAL either way; what changes is "
+              "only the first two seconds, which is exactly why the beat "
+              "needs a case of its own"),
 
     Plant(id="the-straddle-is-one-transfer",
           file=HUE,

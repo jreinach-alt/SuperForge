@@ -19,19 +19,19 @@
 ; tile or two a frame and moves at six through the middle of a pass.
 ;
 ; The tinted tiles hold a CONTIGUOUS run of BG1 tile indices, so a frame's run
-; of them is one VMADD and one transfer. The run is ordered BOTTOM-UP ON
-; SCREEN, which is what makes the aurora RISE: the base CHR page holds those
-; tiles unlit, so this cycle's first pass over them is the aurora arriving
-; from the horizon upward, at the rate curve's own pace and for no ROM and no
-; mechanism of its own.
+; of them is one VMADD and one transfer; the run is assigned in a SCATTERED
+; order, so what changes is spread over the screen rather than sweeping down
+; it.
 ;
-; That leaves the picture permanently straddling two phases, split at a
-; horizontal line that climbs. Measured on the real quantised art across six
-; cursor positions, the line does not show: the largest step between adjacent
-; tile rows is fixed at the hills' edge and does not move with the cursor,
-; because adjacent phases differ by about five degrees of hue and that is
-; under the dither's own noise. It is what makes a continuous curve preferable
-; to burst-and-hold here, and it would not be true at a coarser phase step.
+; That leaves the picture permanently straddling two phases, and the whole
+; effect rests on that mix being INVISIBLE. Measured on the real quantised
+; art, a 50/50 scattered mix of two adjacent phases is indistinguishable from
+; either — five degrees of hue apart is under the dither's own noise — so the
+; curtains drift in colour with nothing to see moving. A screen-coherent order
+; was tried and rejected: it is legible as MOTION even where it is not legible
+; as a seam, because the eye follows an edge sweeping up the screen where it
+; cannot see a boundary standing still. At a coarser phase step none of this
+; holds, and burst-and-hold would be the right shape instead.
 
 AUR_HUE_REGS = $4300 + ES_D_AUR_HUE_UP_CH * 16
 AUR_HUE_SPAN = AUR_HUE_PHASES * AUR_HUE_TILES   ; the source's wrap, in tiles
@@ -113,10 +113,9 @@ aur_hue_xfer:
 ;             the pending count and the freeze all seeded — the source at the
 ;             top of the blob, the destination at the aurora's first BG1 tile
 ;   clobbers: A, N, Z
-;   assumes:  enter-time, and that `aur_arm_bg` has already uploaded the base
-;             CHR page — which holds the tinted tiles UNLIT, not at phase 0,
-;             so this cursor's first pass over them is the rise. Power-on dp
-;             is RANDOM (rule 5), so this is the write-before-read contract
+;   assumes:  enter-time, and that `aur_arm_bg` has already uploaded phase 0
+;             as part of the base CHR page. Power-on dp is RANDOM (rule 5), so
+;             this is the write-before-read contract for all seven words
 ;   tail:     rts
 aur_hue_init:
     .a16
@@ -128,149 +127,8 @@ aur_hue_init:
     stz z:ES_AUR_SRC                ; tile 0 of phase 0
     stz z:ES_AUR_RATEI
     stz z:ES_AUR_PEND
-    stz z:ES_AUR_RST
     lda #(ES_V_AUR_CHR1 + AUR_HUE_BASE * 32)
     sta z:ES_AUR_DST                ; ...lands on the aurora's first tile
-    rts
-
-; --- aur_hue_unrise: put the aurora back in the page it came out of --------
-; CONTRACT aur_hue_unrise
-;   entry:    A16 I16
-;   exit:     A16 I16
-;   in:       nothing
-;   out:      ES_AUR_RST set to the whole tinted run; the next VBlanks restore
-;             it a slice at a time
-;   clobbers: A, N, Z
-;   assumes:  main-loop, and that the CYCLE IS HELD for the duration — but NOT
-;             for channel safety, which `aur_hue_nmi` already provides by
-;             testing ES_AUR_RST first and returning: no hue slice can reach
-;             the channel while a drain runs. What the hold buys is that
-;             ES_AUR_PEND stops ACCUMULATING, so the next pass opens at the
-;             foot of the rise instead of bursting about thirteen tiles into
-;             it. Measured, and smaller than the first version of this
-;             contract claimed
-;   tail:     rts
-aur_hue_unrise:
-    .a16
-    .i16
-    SF_ASSERT_WIDTH 16, 16, "aur_hue_unrise"
-    lda #AUR_HUE_TILES
-    sta z:ES_AUR_RST
-    ; AND THE CURSOR SNAPS TO THE TOP OF THE NEXT PHASE. Every tile in the run
-    ; is about to be unlit, so there is no two-phase straddle left to preserve
-    ; — and a rise that resumed mid-phase would light the tiles between the
-    ; cursor and the end of the run FIRST, high in the sky, before wrapping to
-    ; the bottom and starting the sweep. Measured on the second pass of the
-    ; loop: the cursor stood at slot 291 of 304, so thirteen tiles would have
-    ; appeared at the top and sat there disconnected while the curtains rose
-    ; underneath them. That is the scattered artefact again, in miniature.
-    ;
-    ; The PHASE still advances, which is the point of the loop: each pass
-    ; rises in the colour the cycle has reached, not in the one before it.
-    sec
-    lda #AUR_HUE_TILES
-    sbc z:ES_AUR_SLOT               ; tiles left in the phase, skipped whole
-    clc
-    adc z:ES_AUR_SRC
-    cmp #AUR_HUE_SPAN
-    bcc :+
-    sbc #AUR_HUE_SPAN               ; carry is set by the cmp, so this subtracts
-:   sta z:ES_AUR_SRC
-    stz z:ES_AUR_SLOT
-    stz z:ES_AUR_PEND               ; whatever the curve had asked for is void
-    stz z:ES_AUR_RATEI              ; ...AND THE CURVE GOES BACK TO ITS START.
-    ; The curve IS the shape of a pass — a slow beginning, a rush through the
-    ; middle, a slow end — so a pass that resumed it wherever the last one
-    ; stopped would ease backwards. Measured at the PLAY edge before this line
-    ; existed: pass 0 opened at curve entry 0, and passes 1 and 2 opened at
-    ; 165 and 138 OF 192 — on the curve's falling tail, so each rise ran the
-    ; end of the shape first and wrapped into its slow start partway up.
-    ; The first frame of a pass looks the same either way, which is why this
-    ; was not visible in the opening picture and had to be read off the
-    ; cursor at the beat edges.
-    lda #(ES_V_AUR_CHR1 + AUR_HUE_BASE * 32)
-    sta z:ES_AUR_DST
-    lda z:ES_AUR_PHASE
-    inc a
-    cmp #AUR_HUE_PHASES
-    bcc :+
-    lda #0
-:   sta z:ES_AUR_PHASE
-    rts
-
-; --- aur_hue_unrise_nmi: one slice of it -----------------------------------
-; CONTRACT aur_hue_unrise_nmi
-;   entry:    A16 I16 DB=0
-;   exit:     A16 I16
-;   in:       ES_AUR_RST — tiles REMAINING, so the slice starts at
-;             AUR_HUE_TILES - RST and the arithmetic needs no second cursor
-;   out:      up to AUR_RST_SLICE tiles of BG1 CHR restored from the base page
-;             and ES_AUR_RST counted down
-;   clobbers: A, X, Y, N, Z, C, VMAIN, VMADD, DMA channel ES_D_AUR_HUE_UP_CH
-;   assumes:  called from aur_hue_nmi, inside VBlank
-;   tail:     rts
-;
-; THE SOURCE IS THE BASE CHR PAGE, so this needs no second copy of the picture
-; in ROM — exactly the trick `aur_write_nmi`'s erase uses, for the same reason.
-; `aur_chr1_bin` is one blob in one bank rather than bank_tiled, so unlike a
-; cycle slice this can never straddle a chunk and is always ONE transfer.
-;
-; AUR_RST_SLICE x 64 is the hue claim's whole declared VBlank budget, which it
-; can spend here because the cycle is held while this runs and the two never
-; transfer in the same frame.
-aur_hue_unrise_nmi:
-    .a16
-    .i16
-    SF_ASSERT_WIDTH 16, 16, "aur_hue_unrise_nmi"
-    sep #$20
-    .a8
-    lda #$80
-    sta a:$2115                     ; VMAIN: +1 word after the high byte
-    rep #$20
-    .a16
-    sec
-    lda #AUR_HUE_TILES
-    sbc z:ES_AUR_RST                ; the first tile of this slice
-    pha
-    .repeat 5
-    asl a
-    .endrepeat                      ; x32 WORDS: an 8bpp tile is 64 B
-    clc
-    adc #(ES_V_AUR_CHR1 + AUR_HUE_BASE * 32)
-    sta a:$2116                     ; VMADD
-    pla
-    .repeat 6
-    asl a
-    .endrepeat                      ; x64 BYTES, into the blob
-    clc
-    adc #(.loword(aur_chr1_bin) + AUR_HUE_OFF)
-    sta a:AUR_HUE_REGS + 2          ; A1T
-    lda z:ES_AUR_RST
-    cmp #AUR_RST_SLICE
-    bcc :+
-    lda #AUR_RST_SLICE              ; ...the last slice is the remainder
-:   .repeat 6
-    asl a
-    .endrepeat
-    sta a:AUR_HUE_REGS + 5          ; DAS — re-armed for THIS transfer
-    sep #$20
-    .a8
-    lda #^aur_chr1_bin
-    sta a:AUR_HUE_REGS + 4          ; A1B
-    lda #ES_D_AUR_HUE_UP_DMAP
-    sta a:AUR_HUE_REGS + 0
-    lda #ES_D_AUR_HUE_UP_BBAD
-    sta a:AUR_HUE_REGS + 1
-    lda #(1 << ES_D_AUR_HUE_UP_CH)
-    sta a:$420B
-    rep #$20
-    .a16
-    lda z:ES_AUR_RST
-    sec
-    sbc #AUR_RST_SLICE
-    bcs :+
-    lda #0
-:   sta z:ES_AUR_RST
     rts
 
 ; --- aur_hue_tick: read the curve, at the region-correct rate --------------
@@ -349,17 +207,6 @@ aur_hue_nmi:
     SF_ASSERT_WIDTH 8, 16, "aur_hue_nmi"
     rep #$20
     .a16
-    ; A RESTORE OWNS THE WHOLE VBLANK when one is running: it is the same
-    ; channel and the same destination run as a cycle slice, and the
-    ; presentation holds the cycle for its duration, so the two never contend.
-    lda z:ES_AUR_RST
-    beq :+
-    jsr aur_hue_unrise_nmi
-    sep #$20
-    .a8
-    rts
-:   .a16
-    .i16
     ; Frozen by B, or the curve asked for nothing this frame. The early-out
     ; returns HERE rather than branching to the tail: a `bne` over the whole
     ; body is out of range, and the assembler says so.

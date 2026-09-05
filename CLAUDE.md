@@ -243,10 +243,15 @@ writing your first test.
   cannot stand in, being one low bit a channel and moving in 8x8 blocks. It
   also records what `bank_tiled` does NOT protect: a chunk boundary never
   splits a tile, but A1B is constant so it splits TRANSFERS, and the
-  uninitialised-read detector found that where a screenshot could not. The
-  aurora RISES for no ROM at all — the base page ships the tinted run unlit,
-  so the cycle's first pass IS the arrival — and the slot order that makes it
-  climb overturned a comment arguing the opposite, measured) and `mill`
+  uninitialised-read detector found that where a screenshot could not. §14.5
+  records a beat BUILT, MEASURED AND REJECTED — shipping the tinted run unlit
+  makes the cycle's first pass the aurora ARRIVING, for no ROM at all, and it
+  forces a screen-coherent slot order whose assumed cost (a banding seam) was
+  measured and is not there. It was dropped anyway, because a coherent front
+  is legible as MOTION even where it is not legible as a seam. §14.6 records
+  the other half: the loop puts back the ink and NOTHING else, because a loop
+  that also restored the colour opened every pass on the same teal and made
+  fifteen of the sixteen phases unreachable) and `mill`
   (**mode 4, where BIT 15 OF EACH WORD PICKS THE AXIS** — pistons pumping
   vertically on BG1 beside conveyors running horizontally on BG2, in the same
   32-word row; plus a lift whose car is a BG1 column, whose rider is occluded
