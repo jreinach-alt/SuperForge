@@ -128,8 +128,135 @@ aur_hue_init:
     stz z:ES_AUR_SRC                ; tile 0 of phase 0
     stz z:ES_AUR_RATEI
     stz z:ES_AUR_PEND
+    stz z:ES_AUR_RST
     lda #(ES_V_AUR_CHR1 + AUR_HUE_BASE * 32)
     sta z:ES_AUR_DST                ; ...lands on the aurora's first tile
+    rts
+
+; --- aur_hue_unrise: put the aurora back in the page it came out of --------
+; CONTRACT aur_hue_unrise
+;   entry:    A16 I16
+;   exit:     A16 I16
+;   in:       nothing
+;   out:      ES_AUR_RST set to the whole tinted run; the next VBlanks restore
+;             it a slice at a time
+;   clobbers: A, N, Z
+;   assumes:  main-loop, and that the CYCLE IS HELD for the duration. The two
+;             share a channel and a destination run, so a cycle slice landing
+;             in the middle of a restore would paint hue over sky the restore
+;             has already swept past
+;   tail:     rts
+aur_hue_unrise:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "aur_hue_unrise"
+    lda #AUR_HUE_TILES
+    sta z:ES_AUR_RST
+    ; AND THE CURSOR SNAPS TO THE TOP OF THE NEXT PHASE. Every tile in the run
+    ; is about to be unlit, so there is no two-phase straddle left to preserve
+    ; — and a rise that resumed mid-phase would light the tiles between the
+    ; cursor and the end of the run FIRST, high in the sky, before wrapping to
+    ; the bottom and starting the sweep. Measured on the second pass of the
+    ; loop: the cursor stood at slot 291 of 304, so thirteen tiles would have
+    ; appeared at the top and sat there disconnected while the curtains rose
+    ; underneath them. That is the scattered artefact again, in miniature.
+    ;
+    ; The PHASE still advances, which is the point of the loop: each pass
+    ; rises in the colour the cycle has reached, not in the one before it.
+    sec
+    lda #AUR_HUE_TILES
+    sbc z:ES_AUR_SLOT               ; tiles left in the phase, skipped whole
+    clc
+    adc z:ES_AUR_SRC
+    cmp #AUR_HUE_SPAN
+    bcc :+
+    sbc #AUR_HUE_SPAN               ; carry is set by the cmp, so this subtracts
+:   sta z:ES_AUR_SRC
+    stz z:ES_AUR_SLOT
+    stz z:ES_AUR_PEND               ; whatever the curve had asked for is void
+    lda #(ES_V_AUR_CHR1 + AUR_HUE_BASE * 32)
+    sta z:ES_AUR_DST
+    lda z:ES_AUR_PHASE
+    inc a
+    cmp #AUR_HUE_PHASES
+    bcc :+
+    lda #0
+:   sta z:ES_AUR_PHASE
+    rts
+
+; --- aur_hue_unrise_nmi: one slice of it -----------------------------------
+; CONTRACT aur_hue_unrise_nmi
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       ES_AUR_RST — tiles REMAINING, so the slice starts at
+;             AUR_HUE_TILES - RST and the arithmetic needs no second cursor
+;   out:      up to AUR_RST_SLICE tiles of BG1 CHR restored from the base page
+;             and ES_AUR_RST counted down
+;   clobbers: A, X, Y, N, Z, C, VMAIN, VMADD, DMA channel ES_D_AUR_HUE_UP_CH
+;   assumes:  called from aur_hue_nmi, inside VBlank
+;   tail:     rts
+;
+; THE SOURCE IS THE BASE CHR PAGE, so this needs no second copy of the picture
+; in ROM — exactly the trick `aur_write_nmi`'s erase uses, for the same reason.
+; `aur_chr1_bin` is one blob in one bank rather than bank_tiled, so unlike a
+; cycle slice this can never straddle a chunk and is always ONE transfer.
+;
+; AUR_RST_SLICE x 64 is the hue claim's whole declared VBlank budget, which it
+; can spend here because the cycle is held while this runs and the two never
+; transfer in the same frame.
+aur_hue_unrise_nmi:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "aur_hue_unrise_nmi"
+    sep #$20
+    .a8
+    lda #$80
+    sta a:$2115                     ; VMAIN: +1 word after the high byte
+    rep #$20
+    .a16
+    sec
+    lda #AUR_HUE_TILES
+    sbc z:ES_AUR_RST                ; the first tile of this slice
+    pha
+    .repeat 5
+    asl a
+    .endrepeat                      ; x32 WORDS: an 8bpp tile is 64 B
+    clc
+    adc #(ES_V_AUR_CHR1 + AUR_HUE_BASE * 32)
+    sta a:$2116                     ; VMADD
+    pla
+    .repeat 6
+    asl a
+    .endrepeat                      ; x64 BYTES, into the blob
+    clc
+    adc #(.loword(aur_chr1_bin) + AUR_HUE_OFF)
+    sta a:AUR_HUE_REGS + 2          ; A1T
+    lda z:ES_AUR_RST
+    cmp #AUR_RST_SLICE
+    bcc :+
+    lda #AUR_RST_SLICE              ; ...the last slice is the remainder
+:   .repeat 6
+    asl a
+    .endrepeat
+    sta a:AUR_HUE_REGS + 5          ; DAS — re-armed for THIS transfer
+    sep #$20
+    .a8
+    lda #^aur_chr1_bin
+    sta a:AUR_HUE_REGS + 4          ; A1B
+    lda #ES_D_AUR_HUE_UP_DMAP
+    sta a:AUR_HUE_REGS + 0
+    lda #ES_D_AUR_HUE_UP_BBAD
+    sta a:AUR_HUE_REGS + 1
+    lda #(1 << ES_D_AUR_HUE_UP_CH)
+    sta a:$420B
+    rep #$20
+    .a16
+    lda z:ES_AUR_RST
+    sec
+    sbc #AUR_RST_SLICE
+    bcs :+
+    lda #0
+:   sta z:ES_AUR_RST
     rts
 
 ; --- aur_hue_tick: read the curve, at the region-correct rate --------------
@@ -208,6 +335,17 @@ aur_hue_nmi:
     SF_ASSERT_WIDTH 8, 16, "aur_hue_nmi"
     rep #$20
     .a16
+    ; A RESTORE OWNS THE WHOLE VBLANK when one is running: it is the same
+    ; channel and the same destination run as a cycle slice, and the
+    ; presentation holds the cycle for its duration, so the two never contend.
+    lda z:ES_AUR_RST
+    beq :+
+    jsr aur_hue_unrise_nmi
+    sep #$20
+    .a8
+    rts
+:   .a16
+    .i16
     ; Frozen by B, or the curve asked for nothing this frame. The early-out
     ; returns HERE rather than branching to the tail: a `bne` over the whole
     ; body is out of range, and the assembler says so.

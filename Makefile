@@ -1300,7 +1300,8 @@ AUR_INC := -I $(AUR_MAP) -I $(VROM) -I $(AUR) -I $(BUILD)/assets \
            -I engine/features/fade -I engine/features/region \
            -I engine/features/tick_scale -I engine/features/oam_sprites \
            -I engine/features/aur_bg -I engine/features/aur_obj \
-           -I engine/features/aur_hue -I engine/features/aur_write
+           -I engine/features/aur_hue -I engine/features/aur_write \
+           -I engine/features/aur_pres
 
 $(BUILD)/aurora.sfc: $(AUR_ASM) $(AUR)/aurora.inc \
 		$(AUR_MAP)/engine_state_globals.inc $(AUR_ASSETS) \

@@ -156,6 +156,16 @@ aur_write_nmi:
 @play:
     .a16
     .i16
+    ; HELD — by B, or by a beat that has not released the pen yet. Only the
+    ; PLAY arm is gated: the erase above is a reset action, not the pen
+    ; moving, and the beat that runs it holds everything by definition.
+    lda z:ES_AUR_HOLD
+    beq :+
+    sep #$20
+    .a8
+    rts
+:   .a16
+    .i16
     lda z:ES_AUR_WFRAME
     cmp #AUR_WRITE_FRAMES
     bcs @spent                      ; the word is written; it just stands

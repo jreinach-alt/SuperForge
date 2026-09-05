@@ -7,8 +7,8 @@
 # every pixel using it changes at once, for two bytes. Direct colour is
 # exactly the mode that gives that up — the pixel IS the colour, so there is
 # no palette to cycle and the colour lives in the tiles. The cost is therefore
-# the demonstration, and it is not small: TWELVE copies of every tile the
-# aurora tints, 230,400 B of art for an effect an indexed layer gets for two
+# the demonstration, and it is not small: SIXTEEN copies of every tile the
+# aurora tints, 311,296 B of art for an effect an indexed layer gets for two
 # bytes a frame.
 #
 # THE PALETTE FIELD CANNOT DO THIS, which is why the rail's first cut was
@@ -19,26 +19,30 @@
 # and it read as pixelation rather than as light.
 #
 # =============================================================================
-# ONE DMA A FRAME, AND SCATTERED
+# ONE DMA A FRAME, CLIMBING
 # =============================================================================
-# The tinted tiles are given a CONTIGUOUS run of BG1 tile indices, so a fifth
-# of them is one VMADD and one 3,840 B transfer. They are given that run in a
-# SCATTERED order, so the fifth is spread across the screen instead of
-# sweeping down it — a run that was contiguous on screen as well would repaint
-# the curtains top to bottom in five visible bands, which is the artefact this
-# feature exists to avoid.
+# The tinted tiles are given a CONTIGUOUS run of BG1 tile indices, so a
+# frame's share of them is one VMADD and one transfer. They are given that run
+# ORDERED BOTTOM-UP ON SCREEN, and that order is what makes the aurora RISE:
+# the base CHR page holds them UNLIT, so this cycle's first pass over them is
+# the aurora arriving from the horizon upward — no rise animation, no second
+# mechanism, no extra byte of ROM. Every pass after it is the colour cycle.
 #
-# THE RATE IS A CURVE. A phase is 296 tile-updates however they are paced, so
+# THE RATE IS A CURVE. A phase is 304 tile-updates however they are paced, so
 # a slow cycle means a low AVERAGE rate and the shape is only free to
 # redistribute it: a raised sine to the fourth, summing to exactly one phase,
 # so the aurora drifts at a tile or two a frame for most of a pass and moves
-# at six through the middle of it. Nothing ever holds still.
+# at five through the middle of it. Nothing ever holds still.
 #
-# That leaves the picture PERMANENTLY straddling two phases, which is the
-# thing to check rather than assume — and measured on the real quantised art,
-# a 50/50 scattered mix of two adjacent phases is indistinguishable from
-# either of them. At a coarser phase step it would not be, and the
-# burst-and-hold this replaces would still be the right shape.
+# That leaves the picture PERMANENTLY straddling two phases, split at a
+# horizontal line that climbs — the thing to check rather than assume, and the
+# thing an earlier cut of this file got wrong in both directions. It argued
+# that a screen-coherent run would repaint the curtains in visible bands, and
+# scattered the run to avoid it. Measured on six frames spread across a phase:
+# the largest mean-colour step between adjacent tile rows sits at the HILLS'
+# EDGE in every one of them and does not move with the cursor. A visible seam
+# would move. Adjacent phases are about five degrees of hue apart, which is
+# under the dither's own noise. At a coarser phase step none of this holds.
 #
 # B freezes the whole thing, which is what makes a still of it worth taking.
 name = "aur_hue"
@@ -67,9 +71,9 @@ bytes = 2                # tiles the curve has asked for and VBlank has not
 [[claims.dp]]
 name = "aur_src"
 bytes = 2                # the source TILE index into the hue blob, carried
-                         # rather than multiplied: phase x 300 does not fit a
+                         # rather than multiplied: phase x 304 does not fit a
                          # shift, and the byte offset does not fit 16 bits at
-                         # all (230,400), but the tile index does
+                         # all (311,296), but the tile index does
 
 [[claims.dp]]
 name = "aur_dst"
@@ -86,6 +90,16 @@ bytes = 8                # NMI-local scratch: the tile offset inside a chunk,
                          # was clamped, and getting that wrong left tiles
                          # behind at stale hues. A word only ever live inside
                          # one routine is still a claim
+
+[[claims.dp]]
+name = "aur_rst"
+bytes = 2                # tiles of the tinted run still to be restored to
+                         # UNLIT, after the presentation asks for the aurora
+                         # to be taken back out of the sky. Counted down a
+                         # slice at a time, exactly as aur_write's erase is,
+                         # and out of the same place: the base CHR page, which
+                         # already holds those tiles unlit, so there is no
+                         # second copy of the picture in ROM
 
 [[claims.dp]]
 name = "aur_hold"
@@ -106,3 +120,10 @@ vblank_transfers_per_frame = 2  # ...in ONE transfer, or two when the run
                                 # A1B is constant, so an uncut transfer that
                                 # crosses one wraps inside its own bank to
                                 # $0000 and reads the WRAM mirror
+                                #
+                                # THE UN-RISE FITS INSIDE THIS and does not
+                                # widen it: AUR_RST_SLICE is sized to the 768 B
+                                # above, it is always one transfer (the base
+                                # page is a single blob, not bank_tiled), and
+                                # the presentation holds the cycle while it
+                                # runs, so the two never transfer in one frame

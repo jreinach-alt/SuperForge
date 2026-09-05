@@ -55,4 +55,5 @@ globals = ["scene_mgr", "input", "fade", "region", "tick_scale",
 
 [[scene]]
 id = "credits"
-features = ["aur_mode", "aur_bg", "aur_hue", "aur_write", "aur_obj"]
+features = ["aur_mode", "aur_bg", "aur_hue", "aur_write", "aur_obj",
+            "aur_pres"]
