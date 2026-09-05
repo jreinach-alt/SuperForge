@@ -48,7 +48,39 @@ PIF = _sym("US_P_IFRAME")["start"]
 RESULT = _sym("US_B_RESULT")["start"]
 M7AFF = _sym("ES_M7AFF", scene=None)["start"]
 FADE = _sym("ES_FADE_CTL", scene=None)["start"]   # +0 level 0..15, +1 dir
-OAM_SLOT0 = 0                     # OAM is its own address space, slot*4
+
+# The PPU's OAM entry FORMAT — hardware, not allocation. An entry is four
+# bytes (X, Y, tile, attr); OAM_HI is the low/high table BOUNDARY (544 B =
+# 128 x 4 B entries, then 32 B of X9/size bits). None of these is an allocated
+# base and none can move, which is why they are written here — and why the
+# slot BASES below are read out of the map instead.
+OAM_ENTRY, OAM_Y, OAM_TILE, OAM_HI = 4, 1, 2, 512
+
+
+def _oam(name):
+    """One declared `[[claims.oam]]` as (first slot, sprite count).
+
+    OAM is its own address space, so an `oam` placement's `start` is the
+    SPRITE SLOT index and a slot's byte address is slot * OAM_ENTRY. BOTH
+    halves are read out of the map: a test that derives its base but retypes
+    its length still goes red when a repack RESIZES the claim instead of
+    moving it, which is the same defect one step along.
+    """
+    p = _sym(name)
+    assert p["class"] == "oam", f"{name} is a {p['class']} placement, not oam"
+    return p["start"], p["size"]
+
+
+PLAYER, PLAYER_N = _oam("ES_O_PLAYER")
+ATTACKS, ATTACKS_N = _oam("ES_O_ATTACKS")
+HUD, HUD_N = _oam("ES_O_HUD")
+SHOTS, SHOTS_N = _oam("ES_O_SHOTS")
+HI_PAD, HI_PAD_N = _oam("ES_O_HI_PAD")
+# Every slot bs_obj claims, 0..SLOTS-1 — taken as the maximum end over the
+# claims rather than off the last one, so it survives a reorder.
+SLOTS = max(b + n for b, n in ((PLAYER, PLAYER_N), (ATTACKS, ATTACKS_N),
+                               (HUD, HUD_N), (SHOTS, SHOTS_N),
+                               (HI_PAD, HI_PAD_N)))
 
 # the boss.inc state indices (constants, mirrored — a drift breaks sequencing,
 # not an assertion, and the state reads themselves are sequencing only)
@@ -56,6 +88,11 @@ REVEAL, HOLD, FIGHT, DEATH, LOSE, RES_ST, RESET, DYING = 1, 2, 3, 4, 5, 6, 7, 8
 
 T_ORB, T_SHOT, T_PIP_LIT, T_PIP_DIM = 4, 5, 6, 7
 PARK_Y = 240
+BOSS_HP0 = 240                    # BS_BOSS_HP0, game/boss/boss.inc
+# BS_HUD_SEG_HP is BS_BOSS_HP0 / BS_HUD_SEGS in the rail, and BS_HUD_SEGS is
+# what the hud claim's sprite count IS — so the HP a pip is worth follows a
+# resize of the claim instead of being retyped beside it.
+HUD_SEG_HP = BOSS_HP0 // HUD_N
 
 
 def _rt(rgb):
@@ -276,7 +313,7 @@ def test_the_rain_falls_toward_the_ship(tmp_path):
 
 def test_a_hit_flashes_the_ship_and_costs_a_heart(tmp_path):
     """Stand still under the column: on contact p_hp drops (state) AND the
-    rendered ship blinks — OAM slot 0's tile byte alternates to the flash
+    rendered ship blinks — the player slot's tile byte alternates to the flash
     frame on the blink phase, and a screenshot inside the window shows the
     flash-white tone. OAM + pixels are the output; p_hp sequences."""
     with Machine(ROM) as m:
@@ -293,9 +330,8 @@ def test_a_hit_flashes_the_ship_and_costs_a_heart(tmp_path):
             m.advance(1)
             if _rd16(m, PIF) == 0:
                 break
-            # MAP: ok — byte 2 of an OAM entry is the TILE field, from the PPU's
-            #   four-byte entry format (X, Y, tile, attr). A format offset, not a base.
-            tiles.add(m.read_bytes(MemoryType.SnesSpriteRam, 2, 1)[0])
+            tiles.add(m.read_bytes(MemoryType.SnesSpriteRam,
+                                   PLAYER * OAM_ENTRY + OAM_TILE, 1)[0])
             img = _pixels(m, tmp_path / f"flash{i}.png")
             if _count(img, {_rt(GA.SPRITE_COLOURS[12])}) > 20:
                 flash_seen += 1
@@ -327,9 +363,10 @@ def test_holding_a_fires_bolts_that_climb_the_screen(tmp_path):
 
 
 def test_the_hud_pips_dim_exactly_at_the_hp_thresholds():
-    """The eight HUD OAM entries (slots 9-16) show lit-vs-dim tiles matching
-    ceil-count(hp / 30) at every sampled fight frame — the rendered HUD is a
-    function of HP, read from the OAM bytes it is drawn through."""
+    """The HUD OAM entries — the `hud` claim's band — show lit-vs-dim tiles
+    matching ceil-count(hp / HUD_SEG_HP) at every sampled fight frame: the
+    rendered HUD is a function of HP, read from the OAM bytes it is drawn
+    through."""
     with Machine(ROM) as m:
         _run_until_state(m, FIGHT, 200)
         checked = 0
@@ -342,12 +379,13 @@ def test_the_hud_pips_dim_exactly_at_the_hp_thresholds():
             hp = _rd16(m, BHP)
             if hp != hp_before:
                 continue                       # a landing raced the sample
-            oam = m.read_bytes(MemoryType.SnesSpriteRam, 9 * 4, 8 * 4)
-            tiles = [oam[i * 4 + 2] for i in range(8)]
-            want_lit = sum(1 for i in range(8) if hp > i * 30)
+            oam = m.read_bytes(MemoryType.SnesSpriteRam,
+                               HUD * OAM_ENTRY, HUD_N * OAM_ENTRY)
+            tiles = [oam[i * OAM_ENTRY + OAM_TILE] for i in range(HUD_N)]
+            want_lit = sum(1 for i in range(HUD_N) if hp > i * HUD_SEG_HP)
             lit = sum(1 for t in tiles if t == T_PIP_LIT)
             dim = sum(1 for t in tiles if t == T_PIP_DIM)
-            assert lit + dim == 8, f"HUD slots hold foreign tiles: {tiles}"
+            assert lit + dim == HUD_N, f"HUD slots hold foreign tiles: {tiles}"
             assert lit == want_lit, (hp, tiles)
             checked += 1
         assert checked > 20, "the fight ended before the HUD was exercised"
@@ -367,9 +405,10 @@ def test_the_win_cycle_recede_and_loop(tmp_path):
         _run_until_state(m, (DYING, DEATH), 3000, pad=pad, step=6)
         _run_until_state(m, DEATH, 100)       # the capture is bounded at 64
         n_start = _count(_pixels(m, tmp_path / "d0.png"), FACE_COLOURS)
-        oam = m.read_bytes(MemoryType.SnesSpriteRam, 9 * 4, 8 * 4)
-        assert all(oam[i * 4 + 2] == T_PIP_DIM for i in range(8)), \
-            "a dead boss still shows lit pips"
+        oam = m.read_bytes(MemoryType.SnesSpriteRam,
+                           HUD * OAM_ENTRY, HUD_N * OAM_ENTRY)
+        assert all(oam[i * OAM_ENTRY + OAM_TILE] == T_PIP_DIM
+                   for i in range(HUD_N)), "a dead boss still shows lit pips"
         m.advance(30)
         n_mid = _count(_pixels(m, tmp_path / "d1.png"), FACE_COLOURS)
         m.advance(28)
@@ -382,7 +421,7 @@ def test_the_win_cycle_recede_and_loop(tmp_path):
         assert _count(img, FACE_COLOURS) > 0, "the win card faded to black"
         _run_until_state(m, RESET, 200)
         _run_until_state(m, REVEAL, 100)
-        assert _rd16(m, BHP) == 240, "the loop did not re-arm the battle"
+        assert _rd16(m, BHP) == BOSS_HP0, "the loop did not re-arm the battle"
         m.advance(22)                         # the fade-in's 15 steps, done
         n_again = _count(_pixels(m, tmp_path / "loop.png"), FACE_COLOURS)
         assert 0 < n_again < n_start, \
@@ -480,30 +519,40 @@ def test_the_lose_path_fades_out_without_input(tmp_path):
 # The stable slot map and the palettes — the claims, on hardware
 # =============================================================================
 def test_oam_slot_identities_hold_mid_fight():
-    """The reference's stable-slot contract on the OAM bytes: slot 0 is the
-    ship (16x16 LARGE bit set, its X9 clear), 1-8 are orbs or parked, 9-16
-    are pips, 17-20 are bolts or parked, 21-23 parked; the hi-table SIZE bit
-    is set for exactly slot 0."""
+    """The rail's stable-slot contract on the OAM bytes, read against the
+    CLAIMS rather than against retyped slot numbers: the player slot is a
+    ship (16x16 LARGE bit set, its X9 clear), the attack band is orbs or
+    parked, the HUD band is pips, the shot band is bolts or parked, the pad
+    band is parked; the hi-table SIZE bit is set for exactly the player."""
     with Machine(ROM) as m:
         _run_until_state(m, FIGHT, 200)
         m.advance(40, pad1={"a": True})       # some bolts + some rain live
+        # The WHOLE OAM address space — 0 is the region ORIGIN and 544 its
+        # hardware size (512 low + 32 hi). Every slot BASE indexed out of
+        # this buffer below is derived from the claims.
         oam = m.read_bytes(MemoryType.SnesSpriteRam, 0, 544)
-    assert oam[2] in (0, 2), f"slot 0 tile {oam[2]} is not a ship frame"
-    assert oam[1] != PARK_Y, "the ship is parked mid-fight"
-    for s in range(1, 9):
-        tile, y = oam[s * 4 + 2], oam[s * 4 + 1]
-        assert tile == T_ORB or y == PARK_Y, (s, tile, y)
-    for s in range(9, 17):
-        assert oam[s * 4 + 2] in (T_PIP_LIT, T_PIP_DIM), (s, oam[s * 4 + 2])
-    for s in range(17, 21):
-        tile, y = oam[s * 4 + 2], oam[s * 4 + 1]
-        assert tile == T_SHOT or y == PARK_Y, (s, tile, y)
-    for s in range(21, 24):
-        assert oam[s * 4 + 1] == PARK_Y, f"pad slot {s} not parked"
-    hi = oam[512:512 + 6]
-    for s in range(24):
+
+    def tile(s):
+        return oam[s * OAM_ENTRY + OAM_TILE]
+
+    def y(s):
+        return oam[s * OAM_ENTRY + OAM_Y]
+
+    assert tile(PLAYER) in (0, 2), \
+        f"player slot {PLAYER} tile {tile(PLAYER)} is not a ship frame"
+    assert y(PLAYER) != PARK_Y, "the ship is parked mid-fight"
+    for s in range(ATTACKS, ATTACKS + ATTACKS_N):
+        assert tile(s) == T_ORB or y(s) == PARK_Y, (s, tile(s), y(s))
+    for s in range(HUD, HUD + HUD_N):
+        assert tile(s) in (T_PIP_LIT, T_PIP_DIM), (s, tile(s))
+    for s in range(SHOTS, SHOTS + SHOTS_N):
+        assert tile(s) == T_SHOT or y(s) == PARK_Y, (s, tile(s), y(s))
+    for s in range(HI_PAD, HI_PAD + HI_PAD_N):
+        assert y(s) == PARK_Y, f"pad slot {s} not parked"
+    hi = oam[OAM_HI:OAM_HI + -(-SLOTS // 4)]  # a hi byte covers four sprites
+    for s in range(SLOTS):
         field = (hi[s // 4] >> ((s % 4) * 2)) & 3
-        if s == 0:
+        if s == PLAYER:
             assert field == 2, f"ship slot missing the LARGE bit ({field})"
         else:
             assert field in (0,), f"slot {s} hi field {field} (want 0)"
@@ -564,12 +613,13 @@ def test_shot_slots_recycle_between_flights():
         recycled = False
         for _ in range(50):
             m.advance(2, pad1={"a": True, "left": True})
-            oam = m.read_bytes(MemoryType.SnesSpriteRam, 17 * 4, 4 * 4)
-            for s in range(4):
-                y = oam[s * 4 + 1]
+            oam = m.read_bytes(MemoryType.SnesSpriteRam,
+                               SHOTS * OAM_ENTRY, SHOTS_N * OAM_ENTRY)
+            for s in range(SHOTS_N):
+                y = oam[s * OAM_ENTRY + OAM_Y]
                 live = y != PARK_Y
                 assert (not live) or (10 <= y <= 176), \
-                    f"shot slot {17 + s} at y={y}: outside the flight " \
+                    f"shot slot {SHOTS + s} at y={y}: outside the flight " \
                     f"corridor and not parked — a leaked or wrapped slot"
                 if was_live[s] and not live:
                     recycled = True

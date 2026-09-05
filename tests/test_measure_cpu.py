@@ -61,10 +61,63 @@ WR = MemoryType.SnesWorkRam
 FRAME_MC = 357368
 LINE_MC, DOT_MC = 1364, 4
 
-# instrument map (fixed by the derivation script; see make_probe_cpu.py)
-CY_WORK_IDX, CY_NMI_IDX = 0xE7F0, 0xE7F1
-CY_WORK_RING, CY_NMI_RING = 0xE800, 0xF000
-DBG_FRAMES, DBG_VEL, DBG_ANGLE, DBG_REBUILD = 0xE00C, 0xE034, 0xE004, 0xE018
+# --- the instrument map, READ out of the ROM's own source -------------------
+# build/probe_cpu*.sfc is assembled STRAIGHT from vendor/probes/
+# probe_cpu_ref.asm by ca65 (see the Makefile recipe) — no allocator runs over
+# it, so there is no `symbol_map.json` to read these out of and the ASM's own
+# equates are the primary source. They are `NAME = $E000` and
+# `NAME = DEBUG_BASE + $7F4` shapes, so this resolves earlier equates and
+# evaluates, the way test_mill.py's `_rail` reads a hand-written .inc.
+#
+# Retyping them here would be the MAP-DERIVATION defect in the form
+# `make map-check` cannot see: a stale address parked in a module constant,
+# still pointing where the instrument used to be. The probe is frozen and
+# generated, which makes that unlikely — not impossible, and "unlikely" is
+# what every stale address was before it went stale.
+PROBE_SRC = SUPERFORGE / "vendor" / "probes" / "probe_cpu_ref.asm"
+
+
+def _probe_equates():
+    env = {}
+    for line in PROBE_SRC.read_text().splitlines():
+        if not line or line[0].isspace():        # equates sit at column 0
+            continue
+        head, eq, rest = line.partition("=")
+        name = head.strip()
+        if not eq or not name.isidentifier():
+            continue
+        if not name.startswith(("DEBUG_", "CY_")):
+            continue
+        expr = rest.split(";")[0].strip().replace("$", "0x")
+        if not expr or not all(c.isalnum() or c in " _+-*" for c in expr):
+            continue
+        try:
+            env[name] = int(eval(expr, {"__builtins__": {}}, dict(env)))  # noqa: S307
+        except Exception:
+            continue
+    return env
+
+
+_PROBE = _probe_equates()
+
+
+def _dbg(name):
+    """One instrument address out of the probe's own equates."""
+    if name not in _PROBE:
+        raise KeyError(
+            f"{name} is not a resolvable equate in {PROBE_SRC.name} — the "
+            f"probe's instrument map moved or the file was re-derived")
+    v = _PROBE[name]
+    assert 0x2000 <= v <= 0xFFFF, f"{name} = ${v:04X} is not a WRAM address"
+    return v
+
+
+CY_WORK_IDX, CY_NMI_IDX = _dbg("CY_WORK_IDX"), _dbg("CY_NMI_IDX")
+CY_WORK_RING, CY_NMI_RING = _dbg("CY_WORK_RING"), _dbg("CY_NMI_RING")
+CY_STEP_ITERS = _dbg("CY_STEP_ITERS")
+DBG_MAGIC = _dbg("DEBUG_MAGIC")
+DBG_FRAMES, DBG_VEL = _dbg("DEBUG_FRAMES"), _dbg("DEBUG_VELOCITY")
+DBG_ANGLE, DBG_REBUILD = _dbg("DEBUG_ANGLE"), _dbg("DEBUG_REBUILD")
 
 ANCHOR_FRAME = 240        # the fixed game-loop frame every run measures from
 PIN_PASSES = 3            # full re-boot/re-anchor passes of the winning rung
@@ -129,7 +182,7 @@ def _boot_to_anchor(runner, sfc: Path):
     runner.boot_rom(str(sfc), frames=30)
     runner.debug_break()
     for _ in range(600):                       # wait for ROM init if parked early
-        if runner.read_bytes(WR, 0xE000, 4) == b"SFDB":
+        if runner.read_bytes(WR, DBG_MAGIC, 4) == b"SFDB":
             break
         runner.frame_step(1)
     else:
@@ -314,10 +367,10 @@ def test_stream_step_cost(runner):
         f = runner.ppu_frame_count()
         assert f < 140, f"boot overran the stream anchor (ppu frame {f})"
         runner.frame_step(150 - f)             # fixed PPU-frame anchor
-        it1 = int.from_bytes(runner.read_bytes(WR, 0xE7F4, 4), "little")
+        it1 = int.from_bytes(runner.read_bytes(WR, CY_STEP_ITERS, 4), "little")
         fr1 = runner.ppu_frame_count()
         runner.frame_step(180)
-        it2 = int.from_bytes(runner.read_bytes(WR, 0xE7F4, 4), "little")
+        it2 = int.from_bytes(runner.read_bytes(WR, CY_STEP_ITERS, 4), "little")
         fr2 = runner.ppu_frame_count()
     finally:
         runner.debug_resume()

@@ -71,7 +71,8 @@ W = MemoryType.SnesWorkRam
 SEAM = 44                   # sky band 0..43, Mode-7 floor 44..223
 KART_X, KART_Y = 120, 176
 BAR_Y = 16
-BAR_TICKS = 6
+BAR_X0, BAR_DX = 16, 12     # rc_kart.asm: the first tick's x, and the pitch
+PARK_Y = 240                # $F0 — oam_sprites' off-screen park
 TICK_DIM, TICK_LIT = 4, 5
 KART_T_STR, KART_T_LEAN = 0, 2
 ATTR_NOFLIP, ATTR_HFLIP = 0x30, 0x70
@@ -94,11 +95,42 @@ def _chan(name):
 
 
 def _sym(name):
+    return _place(name)["start"]
+
+
+def _place(name):
     for p in MAP["scenes"]["race"]["placements"]:
         if p["sym"] == name:
-            return p["start"]
+            return p
     raise KeyError(f"{name} is not an emitted placement of the race scene")
 
+
+def _oam(name):
+    """One declared `[[claims.oam]]` as (first slot, sprite count).
+
+    OAM is its own address space, so an `oam` placement's `start` is the
+    SPRITE SLOT index and a slot's byte address is slot * OAM_ENTRY. BOTH
+    halves are read out of the map: a test that derives its base but retypes
+    its length still goes red when a repack RESIZES the claim instead of
+    moving it, which is the same defect one step along.
+    """
+    p = _place(name)
+    assert p["class"] == "oam", f"{name} is a {p['class']} placement, not oam"
+    return p["start"], p["size"]
+
+
+# The PPU's OAM entry FORMAT — hardware, not allocation. An entry is four
+# bytes (X, Y, tile, attr); OAM_HI is the low/high table BOUNDARY (544 B =
+# 128 x 4 B entries, then 32 B of X9/size bits). None of these is an allocated
+# base and none can move, which is why they are written here — and why the
+# slot BASES below are read out of the map instead.
+OAM_ENTRY, OAM_Y, OAM_TILE, OAM_HI = 4, 1, 2, 512
+
+# The rc_kart claims, read rather than retyped. BAR_TICKS is the `bar` claim's
+# SPRITE COUNT: the bar is six ticks because six slots were declared for it.
+KART, KART_N = _oam("ES_O_KART")
+BAR, BAR_TICKS = _oam("ES_O_BAR")
+HI_PAD, HI_PAD_N = _oam("ES_O_HI_PAD")
 
 M7ORG, HEADING = _sym("ES_M7ORG"), _sym("US_HEADING")
 
@@ -156,8 +188,9 @@ def _m7_tilemap(m):
 
 
 def _bar_tiles(m):
-    """The speed bar's six tile numbers, read from HARDWARE OAM."""
-    return [m.read_bytes(O, 4 + i * 4 + 2, 1)[0] for i in range(BAR_TICKS)]
+    """The speed bar's tile numbers, read from HARDWARE OAM."""
+    return [m.read_bytes(O, (BAR + i) * OAM_ENTRY + OAM_TILE, 1)[0]
+            for i in range(BAR_TICKS)]
 
 
 def _cg_word(m, idx):
@@ -261,13 +294,13 @@ def test_the_floor_is_not_a_flat_fill(tmp_path):
 def test_the_kart_is_one_large_obj_at_the_declared_screen_position():
     m = _boot()
     try:
-        x, y, tile, attr = m.read_bytes(O, 0, 4)
+        x, y, tile, attr = m.read_bytes(O, KART * OAM_ENTRY, OAM_ENTRY)
         assert (x, y, tile, attr) == (KART_X, KART_Y, KART_T_STR, ATTR_NOFLIP)
-        # size bit set in the hi table = large (16x16 in OBSEL mode 0), X9 clear
-        # MAP: ok — 512 is the OAM low/high table boundary, a PPU fact
-        #   (544 B = 128 x 4 B entries, then 32 B of X9/size bits). It is
-        #   not an allocated base and cannot move.
-        assert m.read_bytes(O, 512, 1)[0] == 0x02
+        # size bit set in the hi table = large (16x16 in OBSEL mode 0), X9
+        # clear. A hi byte covers four sprites, 2 bits each, so WHICH byte
+        # and WHICH field both follow the kart's declared slot.
+        hi = m.read_bytes(O, OAM_HI + KART // 4, 1)[0]
+        assert (hi >> ((KART % 4) * 2)) & 3 == 0x02
     finally:
         m.close()
 
@@ -299,12 +332,14 @@ def test_the_speed_bar_is_six_sprites_in_the_sky_band():
     m = _boot()
     try:
         for i in range(BAR_TICKS):
-            x, y, tile, _ = m.read_bytes(O, 4 + i * 4, 4)
+            x, y, tile, _ = m.read_bytes(O, (BAR + i) * OAM_ENTRY, OAM_ENTRY)
             assert y == BAR_Y, f"tick {i} at y={y}, not in the sky band"
             assert tile == TICK_DIM, f"tick {i} boots lit"
-            assert x == 16 + 12 * i, f"tick {i} at x={x}"
-        # the HUD is sprites BECAUSE there is no BG3: the pad slot stays parked
-        assert m.read_bytes(O, 7 * 4 + 1, 1)[0] == 240
+            assert x == BAR_X0 + BAR_DX * i, f"tick {i} at x={x}"
+        # the HUD is sprites BECAUSE there is no BG3: the pad slots stay parked
+        for i in range(HI_PAD_N):
+            assert m.read_bytes(O, (HI_PAD + i) * OAM_ENTRY + OAM_Y,
+                                1)[0] == PARK_Y
     finally:
         m.close()
 
@@ -356,7 +391,8 @@ def test_the_bar_lights_from_the_left(tmp_path):
 def test_the_kart_frame_follows_the_steer_direction(held, tile, attr):
     m = _boot(drives=[(6, held)])
     try:
-        assert tuple(m.read_bytes(O, 0, 4)[2:]) == (tile, attr)
+        assert tuple(m.read_bytes(O, KART * OAM_ENTRY,
+                                  OAM_ENTRY)[OAM_TILE:]) == (tile, attr)
     finally:
         m.close()
 
@@ -366,7 +402,9 @@ def test_the_kart_returns_to_the_straight_frame_when_the_pad_releases():
     latch. Same discipline as the throttle: drive the transition BACK."""
     m = _boot(drives=[(6, {"left": True}), (4, {})])
     try:
-        assert tuple(m.read_bytes(O, 0, 4)[2:]) == (KART_T_STR, ATTR_NOFLIP)
+        assert tuple(m.read_bytes(O, KART * OAM_ENTRY,
+                                  OAM_ENTRY)[OAM_TILE:]) == (KART_T_STR,
+                                                             ATTR_NOFLIP)
     finally:
         m.close()
 

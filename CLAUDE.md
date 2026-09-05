@@ -56,8 +56,14 @@ keeps pointing where the thing used to be and the module goes RED on a correct
 ROM. Measured 2026-09-04: BG2's tilemap moved $3C00 -> $5000 when a tile count
 grew and a script holding the old base reported 1,230 wrong pixels in a ROM
 whose CHR was byte-identical to the blob that built it. Override
-`# MAP: ok — <reason>`, reason REQUIRED; baseline holds 7, small enough to sit
-IN `gates` rather than wait to be driven down. Rule is deliberately narrow —
+`# MAP: ok — <reason>`, reason REQUIRED; **baseline EMPTY** — the seven it
+shipped with were closed rather than carried (four OAM slot bases derived from
+the rails' emitted `ES_O_*` placements, three probe addresses resolved from
+`vendor/probes/probe_cpu_ref.asm`'s own equates, which is the primary source
+for a ROM the allocator never touches), and
+`tests/test_map_lint.py::test_the_baseline_is_empty` is the ratchet that keeps
+it there: a grandfathered finding is neither derived nor approved. Rule is
+deliberately narrow —
 only the ADDRESS argument of a `Machine` accessor, and never zero, because a
 zero is a hardware region ORIGIN and cannot move; widening it to any four-hex
 literal finds 251 lines and teaches people to ignore the gate. Stated limits:

@@ -5,6 +5,7 @@ is checked against a fixture that plants it, and the two silences — a region
 origin, and an address read out of the symbol map — are checked too, because a
 lint that fires on everything gets switched off.
 """
+import json
 import pathlib
 import subprocess
 import sys
@@ -48,11 +49,35 @@ def test_a_reasoned_override_silences_its_site():
     assert (ok - 1) not in fired, "a reasoned override did not silence its site"
 
 
+BASELINE = ROOT / "reports" / "map_lint_baseline.json"
+
+
 def test_the_tree_is_clean_against_its_baseline():
-    r = _run("tests", "tools", "--baseline",
-             str(ROOT / "reports" / "map_lint_baseline.json"), "--summary")
+    r = _run("tests", "tools", "--baseline", str(BASELINE), "--summary")
     assert r.returncode == 0, r.stdout + r.stderr
     assert "accessor call site(s) examined" in r.stdout
+
+
+def test_the_baseline_is_empty():
+    """The RATCHET. A baselined finding is neither derived nor approved — it
+    is a third thing, and the only reason it ever passes is that it was
+    already there when the gate landed. The seven it shipped with were driven
+    to zero (four derived from the emitted map, three from the probe's own
+    equates), so the file's job now is to say the tree is clean.
+
+    It must still EXIST: `map_lint` treats a missing baseline as an empty one,
+    so deleting it would look identical here while removing the artifact a
+    reviewer reads. This asserts the stronger thing — present and empty.
+    """
+    assert BASELINE.exists(), \
+        "the baseline file is gone — an absent baseline and an empty one " \
+        "behave the same in the gate and read very differently to a person"
+    entries = json.loads(BASELINE.read_text())
+    assert entries == [], (
+        f"{len(entries)} grandfathered finding(s) are back in the baseline. "
+        f"Derive the address out of the rail's symbol_map.json, or write a "
+        f"`# MAP: ok — <reason>` at the site; do not re-baseline it: "
+        f"{[ (e['file'], e['line']) for e in entries ]}")
 
 
 def test_the_gate_reports_itself_disarmed():
