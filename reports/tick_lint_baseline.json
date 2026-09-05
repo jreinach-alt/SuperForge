@@ -1,5 +1,12 @@
 [
   {
+    "file": "engine/features/aur_pres/aur_pres.asm",
+    "rule": "tick-routine",
+    "site": "aur_pres_tick",
+    "ordinal": 0,
+    "message": "`aur_pres_tick` is a per-frame routine by name. The kit's only clock is the NMI, and main.asm's loop calls one of these once per hardware frame \u2014 so its unit of time is the frame, not a declared tick."
+  },
+  {
     "file": "engine/features/dialog/dialog.asm",
     "rule": "tick-routine",
     "site": "dialog_advance",
@@ -2133,6 +2140,13 @@
     "site": "357366",
     "ordinal": 0,
     "message": "the NTSC frame's master-cycle count as a literal. A PAL frame is 425,568 mc (measured); every percent-of-frame and modulo built on this number means 'the NTSC frame' where it reads as 'the frame'."
+  },
+  {
+    "file": "tools/gen_aurora_assets.py",
+    "rule": "tick-generator",
+    "site": "AUR_WRITE_FRAMES",
+    "ordinal": 0,
+    "message": "`AUR_WRITE_FRAMES = %d      ; the pen's span` bakes a table against a FRAME index at build time. docs/95 \u00a75.3: a 6:5 tick scheme leaves these correct (a tick indexes a row); a delta-scale scheme requires every one regenerated at 5/6 length with new steps, and each has a bit-exact Python mirror that must be re-calibrated with it."
   },
   {
     "file": "tools/gen_boss_tracks.py",

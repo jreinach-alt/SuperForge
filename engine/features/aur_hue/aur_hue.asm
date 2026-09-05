@@ -143,6 +143,14 @@ aur_hue_init:
 ;   assumes:  called once a frame from the main loop
 ;   tail:     rts
 ;
+; TICK: ok — this routine's unit of time is the DECLARED TICK, not the frame.
+;   `A` arrives as TS_STEP's published whole-unit step, so the scaler has
+;   already expressed this frame's share against the tick and carried the
+;   fraction; the body reads no frame counter and holds no per-frame
+;   immediate. The name-matched `_tick` here CONSUMES a removed frame
+;   coupling rather than stating a new one. (haze.asm:123 is the same routine
+;   shape reaching the same conclusion, and for the same reason.)
+;
 ; IT ACCUMULATES RATHER THAN ASSIGNS, and that is what keeps the pace
 ; region-correct: a PAL frame scales to two ticks, reads two entries of the
 ; curve, and the VBlank after it moves both entries' worth. Assigning would

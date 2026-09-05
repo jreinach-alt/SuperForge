@@ -89,6 +89,20 @@ aur_pres_again:
 ;   assumes:  called once a frame from the scene's tick, BEFORE aur_hue_tick —
 ;             the hold it raises is what that reads
 ;   tail:     rts
+;
+; NOT OVERRIDDEN, AND CARRIED IN THE TICK BASELINE ON PURPOSE. Three of the
+; five beats are honestly tick-timed — HOLD spends `A` through @spend, and
+; UP/DOWN wait on the fade's own ramp — but PLAY is not: it ends when
+; ES_AUR_WFRAME reaches AUR_WRITE_FRAMES, and that counter is raised once per
+; VBLANK by aur_write's arm, one stream entry a frame. So the pen's span is a
+; FRAME span, and stamping this routine `TICK: ok` would silence a coupling
+; that is really here. It is left visible instead, beside fade_tick and
+; sm_tick, which are frame-timed for the same kind of reason.
+;
+; WHAT THAT COSTS ON PAL: the pen writes in 1.40 s rather than 1.17 s, and the
+; lap runs about 5% long, because HOLD scales with the region and PLAY does
+; not. Nothing in the piece reads a wall clock, so the only visible effect is
+; a slightly longer card.
 aur_pres_tick:
     .a16
     .i16
