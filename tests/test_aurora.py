@@ -441,27 +441,41 @@ def test_nothing_reads_a_byte_the_rom_never_wrote(tmp_path):
                     for mt, v in named.items()))
 
 
-def test_the_three_figures_are_three_different_people(tmp_path):
+# The silhouettes the ROM is supposed to draw, as width-per-row. This is a
+# PIN, not a derivation: the three figures were traced off the owner's own
+# reference render, and the point of the case below is that nobody regenerates
+# them. Held here as a second copy on purpose — comparing the ROM against the
+# generator that built it would agree by construction.
+TRACED_PROFILES = (
+    [1, 3, 4, 4, 4, 6, 6, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 9,
+     10, 10, 10, 10, 10, 10, 10, 10],
+    [1, 5, 5, 5, 4, 4, 8, 8, 8, 8, 8, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+     10, 10, 11, 12, 12, 12, 12, 12, 12, 12, 12, 14],
+    [1, 3, 4, 4, 4, 6, 6, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 9,
+     10, 10, 10, 10, 10, 10, 10],
+)
+
+
+def test_the_figures_are_the_traced_ones_and_not_regenerated(tmp_path):
     """THE SILHOUETTES ARE THE ONLY THING A VIEWER CAN READ AT THIS SIZE, and
-    for a while they read as three board-game meeples. Nothing in this module
-    saw it — the owner did, twice, from a published render.
+    getting them wrong is the single defect this rail shipped that a person
+    caught rather than the harness — repeatedly, from published renders.
 
-    Two properties are asserted, and between them they are what "a person and
-    not a token" comes to in a sixteen-pixel-wide sprite.
+    THIS CASE IS A PIN, and it is deliberately not a shape RULE. Three shape
+    rules were tried and each was wrong about what a person is:
 
-    NO WAIST. The meeple shape is a ball head joined to a body by a narrow
-    NECK, so its width profile from crown to hem goes wide, then NARROW, then
-    wide again. The figures traced off the concept render are robed: the top
-    continues straight into the body and the profile only ever widens. A local
-    minimum anywhere in that profile is the neck coming back.
+      * "widest point must not be the feet" — true of the meeple the formula
+        drew, false of a cloak, which is exactly what the reference draws
+      * "no local minimum in the width profile" — describes a robe, not a
+        person; a real figure has a neck narrower than head and shoulders
+      * "every row below the hips splits into two runs" — demands LEGS, which
+        the reference's hooded figures do not have
 
-    THREE DIFFERENT CROWNS. The formula that drew the meeples was one shape at
-    three sizes, which is not differentiation at all. What the concept render
-    differentiates on is the TOP: 9 pixels wide on the left figure, 7 on the
-    right, 5 on the tall one, which at this size is the difference between a
-    bare head, a covered one and a hood. The left and right figures are the
-    same HEIGHT in the concept — 23 rows each — so height is not asserted
-    three ways; the tall one being half again their height is.
+    Each of those was written while the tree briefly held a different shape,
+    and each would now reject the art the owner actually asked for. So the
+    assertion is the profile itself, pinned: these are the reference's three
+    silhouettes at 10x28, 14x32 and 10x26, and a change to them is a change
+    somebody has to make on purpose and record here.
 
     Read out of the OBJ CHR the PPU actually fetches, decoded from VRAM as
     4bpp — not from the generator, which would agree with itself.
@@ -485,7 +499,7 @@ def test_the_three_figures_are_three_different_people(tmp_path):
                         | (((hi2 >> (7 - x)) & 1) << 3) for x in range(8)])
         return out
 
-    profiles = []
+    got = []
     for n in range(3):
         # obj_sheet lays each figure as 2 columns x 4 rows on the PPU's
         # 16-tile-wide OBJ grid, at tile n*2.
@@ -494,24 +508,18 @@ def test_the_three_figures_are_three_different_people(tmp_path):
             left, right = tile(j * 16 + n * 2), tile(j * 16 + n * 2 + 1)
             for y in range(8):
                 rows.append(left[y] + right[y])
-        widths = [sum(1 for v in r if v) for r in rows]
-        profiles.append([w for w in widths if w])          # drop empty rows
-    assert all(profiles), "a figure has no pixels at all"
+        got.append([sum(1 for v in r if v) for r in rows if any(r)])
 
-    for n, w in enumerate(profiles):
-        dips = [i for i in range(1, len(w) - 1) if w[i] < w[i - 1] and w[i] < w[i + 1]]
-        assert not dips, (
-            f"figure {n} narrows and widens again at row(s) {dips} of its "
-            f"width profile {w} — that pinch is a NECK, and a ball head on a "
-            f"neck is what made these read as meeples")
+    for n, (a, b) in enumerate(zip(got, TRACED_PROFILES)):
+        assert a == b, (
+            f"figure {n}'s silhouette is not the traced one.\n"
+            f"  in the ROM: {a}\n"
+            f"  expected:   {b}\n"
+            f"These were lifted from the owner's reference render, not drawn. "
+            f"If the change was deliberate, re-trace and update the pin; if it "
+            f"was not, something has regenerated them.")
 
-    heights = [len(w) for w in profiles]
-    assert heights[1] == max(heights) and heights[1] >= 1.3 * min(heights), (
-        f"the middle figure should be the tall one by half again: {heights}")
-    crowns = [w[0] for w in profiles]
-    assert len(set(crowns)) == 3, (
-        f"the three crowns are {crowns} — two figures start the same width, "
-        f"so at this size two of them are the same person")
-    assert crowns[1] == min(crowns), (
-        f"the tall figure's crown should be the narrowest — it is the hood "
-        f"that tells it apart at this size: crowns {crowns}")
+    heights = [len(g) for g in got]
+    assert heights[1] == max(heights) and len(set(heights)) == 3, (
+        f"the reference has three heights with the middle one tallest: "
+        f"{heights}")
