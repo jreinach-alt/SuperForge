@@ -25,7 +25,7 @@ LD65    := ld65
 	m7dg-assets m7_dungeon m7dg-labels m7dg-measure m7dg-measure-logic \
 	sh2-assets split_h_2p_demo sh2-variants sh2-labels sh2-measure bare-check \
 	m7x-assets mode7_explore pfs-assets platformer_stream scroller \
-	lakeside heathaze smelter mill mill-direct \
+	lakeside heathaze smelter mill mill-direct aurora \
 	scroller-tb tb-measure tb-picture rate-oracle \
 	camera_follow maze jumper patrol sprite_game stomper scroll_run brawler \
 	split_h_matrix_demo split_h_persp3_demo \
@@ -3124,6 +3124,7 @@ gates: | $(BUILD)
 	run sh2-variants; \
 	run mode7_explore; run platformer_stream; run scroller; \
 	run lakeside; run heathaze; run smelter; run mill; run mill-direct; \
+	run aurora; \
 	run camera_follow; run maze; run jumper; run patrol; \
 	run sprite_game; \
 	run stomper; \
@@ -3146,7 +3147,7 @@ gates: | $(BUILD)
 	cat $(BUILD)/gates_summary.txt; \
 	for rom in microzero room breaker shmup platformer split_v_fight m7_dungeon \
 	           split_h_2p_demo mode7_explore platformer_stream hud_game \
-	           scroller lakeside heathaze smelter mill camera_follow maze jumper patrol sprite_game \
+	           scroller lakeside heathaze smelter mill aurora camera_follow maze jumper patrol sprite_game \
 	           stomper scroll_run brawler \
 	           split_h_matrix_demo split_h_persp3_demo split_v_demo \
 	           split_v_seamtrial split_h_demo split_h_persp_demo \
@@ -3321,7 +3322,7 @@ PYTEST_DIST := $(if $(strip $(XDIST)),-n $(strip $(XDIST)) --dist loadfile,)
 # tools/harness_faults.py then says which KIND of red it is (docs/44 section 8).
 test: toy microzero room probes breaker shmup platformer split_v_fight \
 	m7_dungeon split_h_2p_demo sh2-variants mode7_explore platformer_stream \
-	hud_game scroller lakeside heathaze smelter mill mill-direct camera_follow maze jumper patrol sprite_game \
+	hud_game scroller lakeside heathaze smelter mill mill-direct aurora camera_follow maze jumper patrol sprite_game \
 	stomper \
 	scroll_run brawler split_h_matrix_demo split_h_persp3_demo \
 	split_v_demo svd-nowin split_v_seamtrial split_h_demo shd-autodemo \
