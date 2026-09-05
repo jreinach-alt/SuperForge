@@ -5,7 +5,7 @@
 ; the classic indexed trick — rewrite one CGRAM word and every pixel using it
 ; changes at once, for two bytes. Direct colour gives that up: the pixel IS
 ; the colour, so there is no palette to cycle and the colour lives in the
-; tiles. Twelve copies of every tile the aurora tints, 230,400 B, for what an
+; tiles. Sixteen copies of every tile the aurora tints, 311,296 B, for what an
 ; indexed layer buys with two.
 ;
 ; THE PALETTE FIELD CANNOT DO IT. One low bit a channel — 2 of 31 in red and
@@ -19,15 +19,19 @@
 ; tile or two a frame and moves at six through the middle of a pass.
 ;
 ; The tinted tiles hold a CONTIGUOUS run of BG1 tile indices, so a frame's run
-; of them is one VMADD and one transfer; the run is assigned in a SCATTERED
-; order, so what changes is spread over the screen rather than sweeping down
-; it.
+; of them is one VMADD and one transfer. The run is ordered BOTTOM-UP ON
+; SCREEN, which is what makes the aurora RISE: the base CHR page holds those
+; tiles unlit, so this cycle's first pass over them is the aurora arriving
+; from the horizon upward, at the rate curve's own pace and for no ROM and no
+; mechanism of its own.
 ;
-; That leaves the picture permanently straddling two phases. Measured on the
-; real quantised art, a 50/50 scattered mix of two adjacent phases is
-; indistinguishable from either — which is what makes a continuous curve
-; preferable to burst-and-hold here, and would not be true at a coarser phase
-; step.
+; That leaves the picture permanently straddling two phases, split at a
+; horizontal line that climbs. Measured on the real quantised art across six
+; cursor positions, the line does not show: the largest step between adjacent
+; tile rows is fixed at the hills' edge and does not move with the cursor,
+; because adjacent phases differ by about five degrees of hue and that is
+; under the dither's own noise. It is what makes a continuous curve preferable
+; to burst-and-hold here, and it would not be true at a coarser phase step.
 
 AUR_HUE_REGS = $4300 + ES_D_AUR_HUE_UP_CH * 16
 AUR_HUE_SPAN = AUR_HUE_PHASES * AUR_HUE_TILES   ; the source's wrap, in tiles
@@ -109,9 +113,10 @@ aur_hue_xfer:
 ;             the pending count and the freeze all seeded — the source at the
 ;             top of the blob, the destination at the aurora's first BG1 tile
 ;   clobbers: A, N, Z
-;   assumes:  enter-time, and that `aur_arm_bg` has already uploaded phase 0
-;             as part of the base CHR page. Power-on dp is RANDOM (rule 5), so
-;             this is the write-before-read contract for all seven words
+;   assumes:  enter-time, and that `aur_arm_bg` has already uploaded the base
+;             CHR page — which holds the tinted tiles UNLIT, not at phase 0,
+;             so this cursor's first pass over them is the rise. Power-on dp
+;             is RANDOM (rule 5), so this is the write-before-read contract
 ;   tail:     rts
 aur_hue_init:
     .a16

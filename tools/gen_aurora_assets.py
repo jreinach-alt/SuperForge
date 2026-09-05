@@ -251,8 +251,10 @@ def tint(a, deg):
             wb * 0.95 * a + 0.30 * a ** 4)
 
 
-def bg1_px(x, y, ph=0):
+def bg1_px(x, y, ph=0, lit=True):
     r, g, b = sky(y)
+    if not lit:
+        return r, g, b               # the sky ALONE — see _block's note
     a, v, ci = aurora_at(x, y, ph)
     # NOT `a > 0`. A pixel the cycling set does not cover must not be tinted at
     # all, or it wears phase 0's colour for the whole cycle — which is a teal
@@ -326,8 +328,18 @@ def fit_tile(px, force=None):
     return best[1], best[2], best[0]
 
 
-def _block(ph, tx, ty):
-    return [tuple(to5(v) for v in bg1_px(tx * 8 + i, ty * 8 + j, ph))
+def _block(ph, tx, ty, lit=True):
+    """One 8x8 of BG1 at a phase. `lit=False` is the same block with NO
+    AURORA IN IT — bare sky, at the same dither and the same lattice.
+
+    That is what the base CHR page holds for every tinted tile, and it is why
+    the aurora RISES for free. The cycle's first pass over the tinted run
+    replaces bare sky with phase 0, tile by tile, at the rate curve's own
+    pace; every pass after it replaces one phase with the next. The rise is
+    not a separate animation with a cost of its own, it is the ordinary cycle
+    arriving somewhere it has not been yet.
+    """
+    return [tuple(to5(v) for v in bg1_px(tx * 8 + i, ty * 8 + j, ph, lit))
             for j in range(8) for i in range(8)]
 
 
@@ -359,19 +371,36 @@ def cut_bg1():
     Two populations, and they are laid out differently on purpose.
 
     The SKY tiles dedupe, as any tilemap art does. The TINTED tiles do not:
-    each is rewritten twelve times over the cycle, so two cells that happen to
-    match at phase 0 must still own separate VRAM slots or updating one would
-    update the other. They are also given a CONTIGUOUS run of tile indices in
-    a SCATTERED order — contiguous so a slice of the cycle is ONE DMA with one
-    VMADD, scattered so that slice is spread across the screen rather than
-    sweeping down it. A contiguous VRAM run that was also contiguous on screen
-    would repaint the curtains top to bottom in five visible bands, which is
-    the artefact this rewrite exists to remove.
+    each is rewritten sixteen times over the cycle, so two cells that happen
+    to match at one phase must still own separate VRAM slots or updating one
+    would update the other. They are also given a CONTIGUOUS run of tile
+    indices, so a slice of the cycle is ONE DMA with one VMADD.
+
+    THE RUN IS ORDERED BOTTOM-UP ON SCREEN, and that order is doing two jobs.
+
+    The first is THE RISE. The base page holds these tiles unlit (see
+    `_block`), so the cycle's first pass over them is the aurora arriving —
+    and in this order it arrives from the horizon upward, the curtains growing
+    into the sky, instead of materialising in scattered 8x8 blocks all over
+    it. Measured, the scattered order made the half-risen picture read as a
+    corrupted tile upload; nothing else about the rise changed.
+
+    The second is that ORDER COSTS NOTHING ONCE RISEN, which had to be
+    measured rather than assumed — an earlier version of this file argued the
+    opposite, that a screen-coherent run would repaint the curtains in visible
+    bands, and that is why the order used to be scattered. It is false at
+    sixteen phases. A frame's picture is always a mix of two adjacent phases
+    split at a horizontal line, so the question is whether that line shows.
+    Measured on six frames spread across a phase (cursor at slots 3, 21, 90,
+    244, 289 and 290 of 304): the largest mean-colour step between adjacent
+    tile rows is 33-35 units and sits at TILE ROW 14 in every one of them —
+    the hills' edge, a fixed feature of the art. A visible seam would move
+    with the cursor. It does not move at all, because adjacent phases differ
+    by about 5 degrees of hue and that is under the dither's own noise.
     """
     tint_cells = _tinted()
-    slot_of = {}
-    for k, c in enumerate(tint_cells):
-        slot_of[c] = (k * 97) % len(tint_cells)     # 97 is coprime with 300
+    order = sorted(tint_cells, key=lambda c: (-c[1], (c[0] * 97) % TW))
+    slot_of = {c: k for k, c in enumerate(order)}
 
     tiles, ix, words = [], {}, [0] * (TW * TH)
     for ty in range(TH):
@@ -397,7 +426,10 @@ def cut_bg1():
                    key=lambda f: sum(fit_tile(b, force=f)[2] for b in blocks))
         slot = slot_of[c]
         fields[slot] = best
-        _, by, _ = fit_tile(_block(0, c[0], c[1]), force=best)
+        # THE BASE PAGE HOLDS BARE SKY, not phase 0. The field is still the
+        # one chosen across the cycle above, because the map word is uploaded
+        # once and serves the unlit tile and every hue after it alike.
+        _, by, _ = fit_tile(_block(0, c[0], c[1], lit=False), force=best)
         tiles[hue_base + slot] = by
         words[c[1] * TW + c[0]] = (hue_base + slot) | (best << 10)
     return tiles, words, hue_base, tint_cells, slot_of, fields
@@ -770,6 +802,12 @@ AUR_HUE_BASE    = %d        ; the first BG1 tile the aurora owns. The sky's %d
                           ;   that match at phase 0 still need separate slots
 AUR_HUE_TILES   = %d      ; ...and they are CONTIGUOUS, so a frame's run of
                           ;   them is one VMADD and one transfer
+AUR_HUE_BYTES   = %d    ; AUR_HUE_TILES x 64 — the slice of chr1 the RISE
+                          ;   re-uploads to take the aurora back out of the
+                          ;   sky. The base page holds those tiles UNLIT, so
+                          ;   restoring is a DMA out of the picture the ROM
+                          ;   already ships, exactly as the pen's erase is
+AUR_HUE_OFF     = %d      ; ...at this offset into the chr1 blob
 AUR_HUE_PHASES  = %d
 AUR_RATE_LEN    = %d       ; the rate curve: whole tiles a frame, one entry
 AUR_RATE_PEAK   = %d         ;   per frame, summing to EXACTLY one phase so the
@@ -789,7 +827,8 @@ AUR_FIG_TOP     = %d      ; every figure's OAM Y — a 16x32 sprite whose bottom
 """ % (W, H, TW, TH, CLIFF,
        ink_base, len(ink_cells), write_on.FRAMES, peak,
        len(ink_cells) * 32, ink_base * 32,
-       hue_base, hue_base, len(tint_cells), HUE_PHASES,
+       hue_base, hue_base, len(tint_cells),
+       len(tint_cells) * 64, hue_base * 64, HUE_PHASES,
        RATE_LEN, max(rate), len(tint_cells) * 64, hue_chunks,
        HUE_CHUNK // 64, (HUE_CHUNK // 64).bit_length() - 1,
        len(FIGURES), CLIFF + 2 - OBJ_H)
