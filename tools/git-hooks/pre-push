@@ -15,6 +15,14 @@
 #                     for the same reason width-check is: the rule
 # existed as prose in AGENTS.md for two work items and
 #                     22 violating call sites accumulated underneath it.
+#   make map-check    the MAP-DERIVATION lint — a tests/ or tools/ Python
+#                     file addressing emulator memory with a LITERAL instead
+#                     of a value read out of the rail's symbol_map.json. Same
+#                     tier: 1.3 s. It is here for the reason rom-unbacked is
+#                     — it shipped wired into `make gates` and `make test`
+#                     only, so the documented front door did not run it. Its
+#                     baseline went to zero on 2026-09-05; this is what keeps
+#                     the third state (grandfathered) from coming back.
 #   make toy-bad      the allocator collision gate (exit 0 = refused correctly)
 #   make rom-unbacked the rom-claim BACKING gate, toy-bad's presence-side twin
 #                     and the same polarity (exit 0 = the gate refused the
@@ -58,7 +66,7 @@ cd "$TOPLEVEL" || {
 # code is checked individually ("never pipe a gate", CLAUDE.md via AGENTS.md:
 # a pipe replaces the gate's exit code with the last stage's, so the gate is
 # the exit code or it is nothing).
-for gate in register width-check time-check toy-bad rom-unbacked; do
+for gate in register width-check time-check map-check toy-bad rom-unbacked; do
     echo "pre-push: make $gate"
     make "$gate"
     st=$?
@@ -70,5 +78,5 @@ for gate in register width-check time-check toy-bad rom-unbacked; do
     fi
 done
 
-echo "pre-push: register + width-check + time-check + toy-bad + rom-unbacked green — push proceeds"
+echo "pre-push: register + width-check + time-check + map-check + toy-bad + rom-unbacked green — push proceeds"
 exit 0
