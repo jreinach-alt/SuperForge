@@ -67,7 +67,16 @@ PERIOD_FRAMES = 398
 # EVERY, not STEP: a capture is EVERY emulated frames, of which the drive
 # advances STEP and take_screenshot pays the remaining one. Sizing this off
 # STEP would ask for half again as many captures as a pass contains.
-CAPTURES = PERIOD_FRAMES // EVERY + 1       # ...plus the frame it closes on
+TAKE = PERIOD_FRAMES // EVERY + 1           # ...plus the frame it closes on
+
+# `captures` IS A CEILING OVER THE LEAD-IN AND THE TAKE TOGETHER, not the take
+# alone — `record_clip` runs `for i in range(captures)` and a dropped lead-in
+# capture spends one of them. The drive opens on the SECOND entry into UP, so
+# the lead-in is one whole pass: 398 frames, 133 captures. Sized as TAKE alone
+# the first cut of this file recorded 113 dropped + 20 kept and closed the take
+# mid-card — the seam check caught it immediately (first frame luma 0.1
+# against a last of 7.0, which is a fade-to-black glued onto a lit sky).
+CAPTURES = 2 * TAKE + 8                     # lead-in + take, with margin
 
 W = MemoryType.SnesWorkRam
 _J = json.loads((ROOT / "build" / "aur" / "symbol_map.json").read_text())
@@ -115,7 +124,8 @@ class Drive:
             self.was = beat
             return r.frame_step(STEP)
         self.n += 1
-        self.done = self.n >= CAPTURES
+        self.done = self.n >= TAKE      # TAKE, not CAPTURES: the latter is
+                                        #   the ceiling and includes the lead-in
         return r.frame_step(STEP)
 
 

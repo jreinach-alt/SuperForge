@@ -306,6 +306,33 @@ Measured between the two clips: 64–80% of the picture differs, by a median of
 is the honest result — what direct colour buys is not fidelity, it is that a
 picture can be built with no palette to run out of.
 
+### `aurora`
+
+![aurora — a night sky and a cursive card, drawn without a palette](docs/img/gif_aurora.gif)
+
+`mill_direct` showed the bit set on a picture built for a palette. This is a
+picture built for the **absence** of one: an end-credits card in mode 3, whose
+sky is drawn from 2048 colours on a palette budget of **zero**, leaving all 256
+CGRAM words to the hills, the figures and the lettering. Measured on the
+finished card, **161 of the sky band's 166 distinct colours are not in CGRAM at
+all** — on an indexed BG1 that number is zero by construction, because a
+palette is the only place a colour could have come from.
+
+The other half of the trade is paid in the open: there is no palette to
+*cycle*, so colour animation is CHR traffic — sixteen copies of every tile the
+aurora tints, 311,296 B, for what an indexed layer buys with two bytes a frame.
+That is also what makes the aurora **rise for free**. The base CHR page ships
+those tiles unlit, so the cycle's first pass over them *is* the aurora
+arriving, climbing out of the horizon because the run is ordered bottom-up on
+screen.
+
+The card plays itself and plays again — black, a bare sky, the pen and the
+rise together, the held card, black — and the loop is deliberately not a
+restart: the hue cursor keeps running across it, so each pass rises in the
+colour the cycle has reached. Eight passes cover the whole 51-second journey
+from cyan-teal to violet, which is why this clip is one colour band and not
+the tour.
+
 ---
 
 The other 28 games are in `game/` — among them `microzero`, the smallest
