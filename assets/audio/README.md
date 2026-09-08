@@ -81,7 +81,7 @@ ordinary events next, and `footstep`/`skid` lowest — a footstep must lose to
 an explosion.
 
 **Cost, measured:** the eleven added effects and two added instruments took the
-blob from 8,450 to 8,701 B against a 32,768 B claim. Bytecode is nearly free
+blob from 8,450 to 8,701 B against a 16,384 B claim (halved 2026-09-08). Bytecode is nearly free
 (~15 B an effect); BRR is not (~1 KB per 0.12 s one-shot). That is why the set
 leans on `play_noise` and `portamento_calc` and why the only new instruments
 are single-cycle 64-sample loops at ~36 B each.

@@ -1336,7 +1336,7 @@ plf_sfx:
 ; and OAM assertion still passes. Diagnosed exactly that way -- the arena's
 ; grass rendered its declared colour with no ramp added, which is what an
 ; armed channel reading nothing looks like.
-.segment "BANK2"
+.segment "BANK1"
 grad_tabs_bin:
     .incbin "plf_grad.bin"
 .assert ^grad_tabs_bin = ES_R_GRAD_TABS_BANK, error, "grad_tabs bank drifted from allocator claim"

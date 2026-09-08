@@ -73,7 +73,7 @@ text_dp_init:
 ; These blobs live in BANK2 because window 1 is the tad_export whole-window
 ; claim (the generated export demands a bank start and the 32 KB claim
 ; guarantees it).
-.segment "BANK2"
+.segment "BANK1"
 plf_level_bin:
     .incbin "plf_level.bin"
 .assert ^plf_level_bin = ES_R_PLF_LEVEL_ROM_BANK, error, "plf_level bank drifted from allocator claim"

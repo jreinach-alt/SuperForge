@@ -48,11 +48,32 @@ SUPERFORGE = Path(__file__).resolve().parent.parent.parent
 SHMUP_MAIN = SUPERFORGE / "game" / "shmup" / "main.asm"
 SHMUP_PLAY = SUPERFORGE / "game" / "shmup" / "scenes" / "play.asm"
 RACE = SUPERFORGE / "game" / "racer" / "scenes" / "race.asm"
+CFG = SUPERFORGE / "vendor" / "rom" / "lorom_512k.cfg"
 OVERWORLD = SUPERFORGE / "game" / "rpg" / "scenes" / "overworld.asm"
 
 T = "tests/test_sfx_vocabulary.py::"
 
 PLANTS = [
+    Plant(
+        id="sfx-bank1-alignment-dropped",
+        file=CFG,
+        old="""    BANK1:      load = ROM1,  type = ro,  optional = yes, align = $4000;""",
+        new="""    BANK1:      load = ROM1,  type = ro,  optional = yes;""",
+        artifact=SUPERFORGE / "build" / "room.sfc",
+        build=["room"],
+        expect="build-fails",
+        build_names="drifted from allocator claim",
+        tests=[],
+        why="THE ONE LINE HOLDING THE HALF-WINDOW CLAIM TOGETHER. `tad_export` "
+            "reserves 16,384 B but the export's real segment content is 8,752 B, "
+            "so without this alignment ld65 packs BANK1 immediately behind it "
+            "(~$01A230) while the allocator emitted $01C000 for the blobs it "
+            "put in the same window. Every blob would then be read from the "
+            "wrong address — the silent-corruption shape this repo's .incbin "
+            "asserts exist for. This plant proves those asserts still catch it: "
+            "the build must FAIL, by name, rather than produce a ROM. It is an "
+            "`expect=build-fails` plant because there is no ROM to test.",
+    ),
     Plant(
         id="sfx-mono-audio-mode",
         file=SHMUP_MAIN,

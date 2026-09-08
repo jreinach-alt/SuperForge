@@ -70,14 +70,22 @@ text_dp_init:
 
 ; --- global ROM blobs (allocator-claimed; .incbin order inside a segment ----
 ; must match the allocator's packing order — the .asserts refuse drift) ------
-.segment "BANK2"
+.segment "BANK1"
 ; ORDER IS NOT FREE: it must match the allocator's ROM packing (largest
 ; first from window 1) — see build/rm/allocation_report.txt. Each site
 ; .asserts its blob's linker bank/addr against the emitted symbols, so a
 ; reorder here (or a size change upstream) refuses the build rather than
-; silently shifting every later blob. These blobs live in BANK2 because
-; window 1 is the tad_export whole-window claim (AUDIO_DATA0 — the
-; generated export demands a bank start and the 32 KB claim guarantees it).
+; silently shifting every later blob.
+;
+; BANK1, and it used to be BANK2: `tad_export` claims the first HALF of
+; window 1 (16,384 B) rather than the whole of it, so these blobs pack into
+; the SAME window behind it instead of starting the next one. The cfg gives
+; BANK1 `align = $4000` so ld65 starts it where the allocator's arithmetic
+; says it does — the export's real content is only 8,752 B, and without the
+; alignment ld65 would pack this segment immediately behind that. The two
+; .asserts below are what proved the pairing rather than assuming it: they
+; fired, by name, on the first build after the claim shrank and before the
+; segment moved.
 bg1_map_bin:
     .incbin "bg1_map.bin"
 .assert ^bg1_map_bin = ES_R_BG1_MAP_ROM_BANK, error, "bg1_map_bin bank drifted from allocator claim"

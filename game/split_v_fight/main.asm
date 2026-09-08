@@ -79,7 +79,7 @@ NMI:
 ; PRESENCE side is `make rom-unbacked` (docs/37): a claim with no .incbin here
 ; would reserve the window and let whatever the linker left there be read as
 ; art, which is exactly the grad_tabs bug that gate exists to close.
-.segment "BANK2"
+.segment "BANK1"
 sv_knight_chr_bin:
     .incbin "sv_knight_chr.bin"
 .assert ^sv_knight_chr_bin = ES_R_SV_KNIGHT_CHR_BANK, error, "sv_knight_chr bank drifted from allocator claim"

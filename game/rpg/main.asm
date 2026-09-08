@@ -139,11 +139,18 @@ rpg_m7_bin:
 .assert ^rpg_m7_bin = ES_R_M7_WORLD_BANK, error, "m7_world bank drifted from allocator claim"
 .assert .loword(rpg_m7_bin) = ES_R_M7_WORLD_ADDR, error, "m7_world addr drifted from allocator claim"
 
-.segment "BANK7"
+; col_world moved to BANK1 when `tad_export` shrank from a whole window to its
+; first HALF (16,384 B): it is the one blob small enough to pack into window
+; 1's freed tail behind the export, so it is split out of the BANK7 run below
+; rather than renamed with it. The .asserts are what caught the split — the
+; bank one fired here, by name, on the first build after the claim changed.
+.segment "BANK1"
 rpg_col_bin:
     .incbin "rpg_col.bin"
 .assert ^rpg_col_bin = ES_R_COL_WORLD_BANK, error, "col_world bank drifted from allocator claim"
 .assert .loword(rpg_col_bin) = ES_R_COL_WORLD_ADDR, error, "col_world addr drifted from allocator claim"
+
+.segment "BANK7"
 rpg_obj_chr_bin:
     .incbin "rpg_obj_chr.bin"
 .assert ^rpg_obj_chr_bin = ES_R_OBJ_CHR_BANK, error, "obj_chr bank drifted from allocator claim"

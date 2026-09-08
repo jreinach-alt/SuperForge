@@ -903,7 +903,7 @@ brk_floor_check:
 ; of THIS scope. It packs after every global blob, which is the order
 ; main.asm's BANK2 block and this one produce between them (see
 ; build/bk/allocation_report.txt). The .asserts refuse any drift.
-.segment "BANK2"
+.segment "BANK1"
 grad_tabs_bin:
     .incbin "brk_grad.bin"
 .assert ^grad_tabs_bin = ES_R_GRAD_TABS_BANK, error, "grad_tabs bank drifted from allocator claim"

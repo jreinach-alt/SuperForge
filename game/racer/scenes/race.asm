@@ -392,7 +392,7 @@ rc_surface_cue:
     rts
 
 ; --- this scene's ROM blobs (allocator-claimed; the .asserts refuse drift) --
-.segment "BANK14"
+.segment "BANK1"
 sky_map_bin:
     .incbin "sky_map.bin"
 .assert ^sky_map_bin = ES_R_SKY_MAP_ROM_BANK, error, "sky_map bank drifted from allocator claim"

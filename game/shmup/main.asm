@@ -69,7 +69,7 @@ text_dp_init:
 ; These blobs live in BANK2 because window 1 is the tad_export whole-window
 ; claim (AUDIO_DATA0 — the generated export demands a bank start and the 32 KB
 ; claim guarantees it).
-.segment "BANK2"
+.segment "BANK1"
 shm_bg_chr_bin:
     .incbin "shm_bg_chr.bin"
 .assert ^shm_bg_chr_bin = ES_R_SHM_BG_CHR_ROM_BANK, error, "shm_bg_chr bank drifted from allocator claim"

@@ -89,7 +89,7 @@ sau_map_bin:
 .assert ^sau_map_bin = ES_R_SAU_MAP_BANK, error, "sau_map bank drifted from allocator claim"
 .assert .loword(sau_map_bin) = ES_R_SAU_MAP_ADDR, error, "sau_map addr drifted from allocator claim"
 
-.segment "BANK3"
+.segment "BANK1"
 ; Packing order by (-bytes, name): m7_lut (2,048) leads, then sau_sprite_chr
 ; (1,536), sau_ring (1,026), the two 246 B ramps (death < reveal), the two
 ; 186 B lunge halves (appr < retr), then sau_sprite_pal (64 B — TWO OBJ

@@ -88,7 +88,7 @@ SB_TM_BOT   = $11               ; BG1 (the Mode 7 floor) + OBJ (the kart)
 ; inside a single LoROM window at a known base (rc_grad.asm asserts the base;
 ; this is where the bytes land). The rest of the window follows in the
 ; allocator's packing order — a `.incbin` out of order fails the addr assert.
-.segment "BANK14"
+.segment "BANK1"
 sky_keys_bin:
     .incbin "racer_sky_keys.bin"
 .assert ^sky_keys_bin = ES_R_SKY_KEYS_BANK, error, "sky_keys bank drifted from allocator claim"
