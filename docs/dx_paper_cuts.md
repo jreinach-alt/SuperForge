@@ -160,3 +160,51 @@ outside the parallel suite the way `falsify` and `determinism` already are, or
 give the guards a budget that survives a loaded box.
 
 Recorded with the verdict left at RED both times.
+
+## SFX request queue (2026-09-08)
+
+### A hardcoded address in a test blamed the ROM for a re-packed map — **surprise, HIGH**
+
+Adding a 17-byte GLOBAL claim moved `ES_SM_FRAME` from `$04A0` to `$04B1`.
+`tests/test_room_window.py` carried `SM_FRAME = 0x04A0` as a literal, so it
+began reading the first byte of the new feature's state — which is zero — and
+two cases went red saying *"the loop is missing frames"* and *"0 usable
+samples"*. Both accuse the ROM. The ROM was fine.
+
+What makes it worth filing is that the module's own `_room_symbols()` docstring
+**names this exact class**, describes a previous sweep that removed such
+literals, and even names `0x04A4` as one of them — and `IRIS_TAB = 0x04A4` was
+still sitting eight lines below it. A cleanup that documents itself but leaves
+survivors reads, to the next person, as a cleanup that finished.
+
+The useful generalisation: **a test that hardcodes an allocator-owned address
+is a landmine for whoever adds the next claim**, and the blast lands on them,
+not on the author. `grep -nE "^\s*[A-Z_]+ = 0x[0-9A-Fa-f]{3,}" tests/*.py`
+finds them in a second; something like it belongs in a gate.
+
+### A falsification plant went quiet when the config underneath it moved — **surprise, MEDIUM**
+
+`sfx-bank1-alignment-dropped` patched `lorom_512k.cfg` and built `room` to
+prove the build refuses a mis-aligned `BANK1`. Two commits later `room` was
+relinked with `lorom_64k.cfg`, so the plant patched a file that rail no longer
+used: it still "passed" the eye, but the harness reported **TEST-BLIND** —
+the defect reached nothing.
+
+A plant going quiet is the same rot as a test going quiet, and it is *harder*
+to notice because plants are only run deliberately. Two things follow. Run the
+WHOLE set after any build-system change, not just the plants you think you
+touched — `--only` would have hidden this indefinitely. And when a mechanism
+lives in two files (both linker configs carry that alignment now), it wants a
+plant per file: one checked by accident is one not checked.
+
+### The ring self-heals, which hid a missing power-on reset — **surprise, MEDIUM**
+
+The plant that removes `sf_sfx_reset` came back TEST-BLIND at first. The reason
+is a genuine property rather than a mistake: an unreset garbage count drains at
+one entry per frame and the driver rejects out-of-range ids, so a test looking
+minutes into a boot sees a perfectly normal ring. The defect is real but its
+window is the first few frames.
+
+Generalises to anything with a pump: **self-healing state cannot be tested
+after it has healed.** The case that catches it reads the structure 8 frames in
+and asserts four bytes at once, so a lucky random-RAM seed cannot pass it.
