@@ -203,7 +203,7 @@ $(BUILD)/room.sfc: $(RM_ASM) $(RM_MAP)/engine_state_globals.inc \
 		$(BUILD)/assets/iris_lut.bin $(BUILD)/assets/crc16_lut.bin \
 		$(BUILD)/rm_tad_wrapper.o $(BUILD)/rm_tad_data.o \
 		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
-		$(VROM)/lorom_512k.cfg | $(BUILD)
+		$(VROM)/lorom_64k.cfg | $(BUILD)
 	$(PY) allocator/no_literals.py --map $(RM_MAP)/symbol_map.json $(RM_ASM)
 	$(CA65) -I $(RM_MAP) -I $(VROM) -I $(RM) \
 		-I engine/features/scene_mgr -I engine/features/input \
@@ -216,7 +216,7 @@ $(BUILD)/room.sfc: $(RM_ASM) $(RM_MAP)/engine_state_globals.inc \
 		-I vendor/tad -I assets/audio/export \
 		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/room.o $(RM)/main.asm
-	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/room.o \
+	$(LD65) -C $(VROM)/lorom_64k.cfg -o $@ $(BUILD)/room.o \
 		$(BUILD)/rm_tad_wrapper.o $(BUILD)/rm_tad_data.o
 	$(PY) tools/fix_checksum.py $@
 
@@ -266,7 +266,7 @@ $(BUILD)/breaker.sfc: $(BK_ASM) $(BK)/breaker.inc \
 		$(BUILD)/assets/brk_grad.bin \
 		$(BUILD)/bk_tad_wrapper.o $(BUILD)/bk_tad_data.o \
 		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
-		$(VROM)/lorom_512k.cfg | $(BUILD)
+		$(VROM)/lorom_64k.cfg | $(BUILD)
 	$(PY) allocator/no_literals.py --map $(BK_MAP)/symbol_map.json $(BK_ASM)
 	$(CA65) -I $(BK_MAP) -I $(VROM) -I $(BK) \
 		-I engine/features/scene_mgr -I engine/features/input \
@@ -277,7 +277,7 @@ $(BUILD)/breaker.sfc: $(BK_ASM) $(BK)/breaker.inc \
 		-I vendor/tad -I assets/audio/export \
 		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/breaker.o $(BK)/main.asm
-	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/breaker.o \
+	$(LD65) -C $(VROM)/lorom_64k.cfg -o $@ $(BUILD)/breaker.o \
 		$(BUILD)/bk_tad_wrapper.o $(BUILD)/bk_tad_data.o
 	$(PY) tools/fix_checksum.py $@
 
@@ -412,7 +412,7 @@ $(BUILD)/shmup.sfc: $(SH_ASM) $(SH)/shmup.inc \
 		$(BUILD)/assets/shm_foe_pal.bin $(BUILD)/assets/shm_burst_pal.bin \
 		$(BUILD)/sh_tad_wrapper.o $(BUILD)/sh_tad_data.o \
 		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
-		$(VROM)/lorom_512k.cfg | $(BUILD)
+		$(VROM)/lorom_64k.cfg | $(BUILD)
 	$(PY) allocator/no_literals.py --map $(SH_MAP)/symbol_map.json $(SH_ASM)
 	$(CA65) -I $(SH_MAP) -I $(VROM) -I $(SH) \
 		-I engine/features/scene_mgr -I engine/features/input \
@@ -423,7 +423,7 @@ $(BUILD)/shmup.sfc: $(SH_ASM) $(SH)/shmup.inc \
 		-I vendor/tad -I assets/audio/export \
 		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/shmup.o $(SH)/main.asm
-	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/shmup.o \
+	$(LD65) -C $(VROM)/lorom_64k.cfg -o $@ $(BUILD)/shmup.o \
 		$(BUILD)/sh_tad_wrapper.o $(BUILD)/sh_tad_data.o
 	$(PY) tools/fix_checksum.py $@
 
@@ -481,7 +481,7 @@ $(BUILD)/platformer.sfc: $(PL_ASM) $(PL)/platformer.inc \
 		$(BUILD)/assets/plf_sky.bin $(BUILD)/assets/plf_grad.bin \
 		$(BUILD)/pl_tad_wrapper.o $(BUILD)/pl_tad_data.o \
 		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
-		$(VROM)/lorom_512k.cfg | $(BUILD)
+		$(VROM)/lorom_64k.cfg | $(BUILD)
 	$(PY) allocator/no_literals.py --map $(PL_MAP)/symbol_map.json $(PL_ASM)
 	$(CA65) -I $(PL_MAP) -I $(VROM) -I $(PL) \
 		-I engine/features/scene_mgr -I engine/features/input \
@@ -493,7 +493,7 @@ $(BUILD)/platformer.sfc: $(PL_ASM) $(PL)/platformer.inc \
 		-I vendor/tad -I assets/audio/export \
 		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/platformer.o $(PL)/main.asm
-	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/platformer.o \
+	$(LD65) -C $(VROM)/lorom_64k.cfg -o $@ $(BUILD)/platformer.o \
 		$(BUILD)/pl_tad_wrapper.o $(BUILD)/pl_tad_data.o
 	$(PY) tools/fix_checksum.py $@
 
@@ -817,11 +817,11 @@ $(BUILD)/split_v_fight.sfc: $(SV_ASM) $(SV)/split_v.inc \
 		$(SV_MAP)/engine_state_globals.inc $(SV_ASSETS) \
 		$(BUILD)/sv_tad_wrapper.o $(BUILD)/sv_tad_data.o \
 		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
-		$(VROM)/lorom_512k.cfg | $(BUILD)
+		$(VROM)/lorom_64k.cfg | $(BUILD)
 	$(PY) allocator/no_literals.py --map $(SV_MAP)/symbol_map.json $(SV_ASM)
 	$(CA65) $(SV_INC) --bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/split_v_fight.o $(SV)/main.asm
-	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/split_v_fight.o \
+	$(LD65) -C $(VROM)/lorom_64k.cfg -o $@ $(BUILD)/split_v_fight.o \
 		$(BUILD)/sv_tad_wrapper.o $(BUILD)/sv_tad_data.o
 	$(PY) tools/fix_checksum.py $@
 
