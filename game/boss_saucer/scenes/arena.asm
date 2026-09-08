@@ -620,9 +620,9 @@ player_move:
 ; The battle's outcome is player-driven: fire to damage the saucer; hold off
 ; and it never dies. The cadence makes a held A a
 ; stream that cannot exhaust the 4-slot pool in one burst.
-; WIDTH-RISK: Tad_QueueSoundEffect is a CROSS-FILE callee (vendor/tad) and
-; takes A8; the width linter is single-file and cannot see the contract, so
-; the sep/rep pair around it is load-bearing.
+; WIDTH-RISK: Tad_QueuePannedSoundEffect is a CROSS-FILE callee (vendor/tad)
+; and takes A8 with the pan in X; the width linter is single-file and cannot
+; see the contract, so the sep/rep pair around it is load-bearing.
 player_fire:
     .a16
     .i16
@@ -649,10 +649,15 @@ player_fire:
     sta f:ES_SAU_ACTORS_LONG + SAU_SHOT_Y, x
     lda #SAU_FIRE_GAP
     sta z:US_FIRE_TIMER
+    ; X held the claimed pool slot and is dead from here (the tick calls this
+    ; and its siblings in a straight line), so it can carry the pan.
+    lda z:US_P_X
+    lsr a                           ; 256-px screen -> TAD's 0..128 pan
+    tax
     sep #$20
     .a8
-    lda #SFX::footstep              ; the gun report, one per fired shot
-    jsr Tad_QueueSoundEffect
+    lda #SFX::laser                 ; the gun report, one per fired shot
+    jsr Tad_QueuePannedSoundEffect  ; ...heard from where the ship is
     rep #$20
     .a16
 @no_fire:
@@ -868,8 +873,17 @@ lg_retreat:
 ;              and gains iframes
 ; The column's hitbox is a narrow vertical strip at beam_x spanning the player
 ; band, so the player dodges by strafing out of it during the telegraph.
+; THE BEAM'S TWO CUES. These used to be `room_b_ambience` and
+; `room_a_ambience` — the `room` GAME's per-room reverb, borrowed. The beam
+; therefore had no sound of its own, and the arena was retuning the shared echo
+; unit as a side effect under another rail's names. `beam_fire` / `beam_end`
+; are this rail's own, and each carries its echo write AND a tone in ONE effect
+; because the ca65 queue holds only one sound effect per frame: a separate tone
+; and re-shape would contend, and the re-shape would win silently.
+;
 ; WIDTH-RISK: A16/I16 entry/exit; the two A8 windows are the SFX queue calls
-; (Tad_QueueSoundEffect is a cross-file A8 callee) and both restore A16.
+; (Tad_QueuePannedSoundEffect is a cross-file A8 callee taking the pan in X)
+; and both restore A16.
 beam_update:
     .a16
     .i16
@@ -883,10 +897,13 @@ beam_update:
     sta z:US_BEAM_TIMER
     bne @hit
     stz z:US_BEAM_STATE             ; the active window closed
+    lda z:US_BEAM_X
+    lsr a                           ; 256-px screen -> TAD's 0..128 pan
+    tax
     sep #$20
     .a8
-    lda #SFX::room_a_ambience       ; the arena's echo settles back
-    jsr Tad_QueueSoundEffect
+    lda #SFX::beam_end              ; the arena's echo settles back
+    jsr Tad_QueuePannedSoundEffect
     rep #$20
     .a16
     rts
@@ -922,10 +939,13 @@ beam_update:
     sta z:US_BEAM_STATE
     lda #SAU_BEAM_FIRE_F
     sta z:US_BEAM_TIMER
+    lda z:US_BEAM_X
+    lsr a                           ; 256-px screen -> TAD's 0..128 pan
+    tax                             ; the column the player must dodge OUT of
     sep #$20
     .a8
-    lda #SFX::room_b_ambience       ; the beam ignites: the arena rings
-    jsr Tad_QueueSoundEffect
+    lda #SFX::beam_fire             ; the beam ignites: the arena rings
+    jsr Tad_QueuePannedSoundEffect
     rep #$20
     .a16
 @done:

@@ -580,22 +580,29 @@ brk_probe_score:
     lda z:US_DIRTY
     ora #BRK_DIRTY_SCORE
     sta z:US_DIRTY
-    jsr brk_blip
+    lda #SFX::pickup            ; a brick breaks: the bright one
+    jsr brk_sfx
     lda #BRK_CELL_BRICK
     rts
 
-; --- brk_blip: one sound effect ---------------------------------------------
-; In/out: A16/I16, DB=0.
+; --- brk_sfx: queue the sound effect named in A -----------------------------
+; In: A16 = the SFX:: id (low byte). In/out: A16/I16, DB=0. Clobbers A.
+;
+; FIVE EVENTS, FOUR SOUNDS. This rail used to fire `footstep` for all five,
+; which made a brick, a wall, the bat and a lost ball indistinguishable. The
+; two wall bounces share `thud` on purpose — they are the same physical event
+; on two axes — while the bat gets `jump`, whose rising sweep is the ball
+; coming back up at the player rather than glancing off the side.
+;
 ; WIDTH-RISK: Tad_QueueSoundEffect is a CROSS-FILE callee (vendor/tad) and
 ; takes A8; the width linter is single-file and cannot see the contract, so
 ; the sep/rep pair around it is load-bearing and stays here rather than at the
 ; call sites.
-brk_blip:
+brk_sfx:
     .a16
     .i16
     sep #$20
     .a8
-    lda #SFX::footstep
     jsr Tad_QueueSoundEffect
     rep #$20
     .a16
@@ -709,7 +716,8 @@ brk_move_x:
     lda z:US_HITF
     and #BRK_CELL_BRICK
     bne @reflect                    ; a brick broke: its ding already played
-    jsr brk_blip                    ; a wall: its own tick
+    lda #SFX::thud                  ; a wall: its own tick
+    jsr brk_sfx
 @reflect:
     .a16
     .i16
@@ -764,7 +772,8 @@ brk_move_y:
     lda z:US_HITF
     and #BRK_CELL_BRICK
     bne @reflect
-    jsr brk_blip
+    lda #SFX::thud                  ; the other axis, the same knock
+    jsr brk_sfx
 @reflect:
     .a16
     .i16
@@ -803,7 +812,8 @@ brk_paddle_check:
     cmp z:US_BX
     bcc @miss                       ; ...its left edge is right of the bat
     ; ---- a catch --------------------------------------------------------
-    jsr brk_blip
+    lda #SFX::jump              ; off the bat and back up the screen
+    jsr brk_sfx
     ; Snap the ball onto the paddle's top. A deliberate rescue: a fast descent
     ; can already be several px inside the box when the hit registers, and
     ; snapping up keeps it from sinking through on the next frame. Visible
@@ -862,7 +872,8 @@ brk_floor_check:
 @lost:
     .a16
     .i16
-    jsr brk_blip
+    lda #SFX::hit               ; the pit
+    jsr brk_sfx
     lda z:US_BALLS
     dec a
     sta z:US_BALLS

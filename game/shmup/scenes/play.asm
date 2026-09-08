@@ -595,7 +595,8 @@ shm_fire:
     sec
     sbc #BULLET_DY              ; the muzzle, just above the nose
     sta f:ES_SHM_POOLS_LONG + SHM_PY, x
-    jmp shm_blip
+    lda #SFX::laser
+    jmp shm_sfx
 @full:
     .a16
     .i16
@@ -742,19 +743,51 @@ shm_burst:
     .i16
     rts
 
-; --- shm_blip: one sound effect --------------------------------------------
-; In/out: A16/I16, DB=0.
+; --- shm_sfx: queue the sound effect named in A -----------------------------
+; In: A16 = the SFX:: id (low byte). In/out: A16/I16, DB=0. Clobbers A.
+; The id arrives in A16 and `sep #$20` narrows to its low byte, so a call site
+; reads `lda #SFX::laser` and the event names its own sound. This rail used to
+; fire `footstep` for the shot AND both kinds of kill.
 ; WIDTH-RISK: Tad_QueueSoundEffect is a CROSS-FILE callee (vendor/tad) and
 ; takes A8; the width linter is single-file and cannot see the contract, so the
 ; sep/rep pair around it is load-bearing and stays here rather than at the call
 ; sites.
-shm_blip:
+shm_sfx:
     .a16
     .i16
     sep #$20
     .a8
-    lda #SFX::footstep
     jsr Tad_QueueSoundEffect
+    rep #$20
+    .a16
+    rts
+
+; --- shm_sfx_burst: the same, PANNED to the fighter that just died ----------
+; In: A16 = the SFX:: id. In/out: A16/I16, DB=0. Clobbers A, X, Y.
+;
+; A kill has a position, so the explosion gets one. US_BX is the dying
+; fighter's SCREEN x (shm_burst spawns the visual burst from the same word),
+; and TAD's pan runs 0..128 across the 256-px screen, so the conversion is one
+; `lsr`. An out-of-range pan is not a hazard: the driver falls back to centre.
+;
+; The id is parked in Y rather than on the stack — Y is already dead at both
+; call sites (shm_burst's contract clobbers A, X and Y immediately before), and
+; a push/pop pair spanning a width toggle is the documented stack-drift trap.
+;
+; WIDTH-RISK: Tad_QueuePannedSoundEffect is a CROSS-FILE callee (vendor/tad)
+; and takes A8 with the pan in X; same single-file blind spot as above, so the
+; sep/rep pair is load-bearing here.
+shm_sfx_burst:
+    .a16
+    .i16
+    tay                         ; hold the id
+    lda z:US_BX
+    lsr a                       ; 256-px screen -> TAD's 0..128 pan
+    tax
+    tya
+    sep #$20
+    .a8
+    jsr Tad_QueuePannedSoundEffect
     rep #$20
     .a16
     rts
@@ -851,7 +884,8 @@ shm_hits:
     jsr shm_pool_kill           ; ...and the bullet that spent itself on it
     jsr shm_burst               ; the explosion, at the fighter (US_BX/US_BY)
     jsr shm_score
-    jsr shm_blip
+    lda #SFX::explosion
+    jsr shm_sfx_burst           ; ...and it is heard where it is seen
     bra @next_bullet
 @next_foe:
     .a16
@@ -948,7 +982,8 @@ shm_damage:
     ldx z:US_OFF
     jsr shm_pool_kill           ; the colliding fighter bursts too
     jsr shm_burst
-    jsr shm_blip
+    lda #SFX::explosion
+    jsr shm_sfx_burst
     lda #SHIP_SPAWN_X
     sta z:US_PX
     lda #SHIP_SPAWN_Y

@@ -610,7 +610,8 @@ do_jump:
     sta z:US_VY
     lda #0
     sta z:US_GROUNDED
-    jsr plf_blip
+    lda #SFX::jump
+    jsr plf_sfx
     rts                         ; a launch frame is never also a cut frame
 @cut:
     .a16
@@ -784,7 +785,8 @@ do_coin:
     lda z:US_DIRTY
     ora #2                      ; the coins digit wants reprinting
     sta z:US_DIRTY
-    jsr plf_blip
+    lda #SFX::pickup
+    jsr plf_sfx
     lda z:US_COINS
     cmp #PLF_COINS_ALL
     bcc @done
@@ -1046,7 +1048,8 @@ stomp_bounce:
     sta z:US_VY
     lda #0
     sta z:US_GROUNDED
-    jmp plf_blip
+    lda #SFX::thud              ; the stomp lands, not the hop that follows
+    jmp plf_sfx
 
 ; =============================================================================
 ; LIVES, AND THE TWO WAYS A ROUND ENDS
@@ -1061,7 +1064,8 @@ stomp_bounce:
 life_lost:
     .a16
     .i16
-    jsr plf_blip
+    lda #SFX::hit
+    jsr plf_sfx
     lda z:US_LIVES
     beq @over                   ; already at zero: do not wrap
     dec a
@@ -1290,27 +1294,30 @@ do_draw:
     .i16
     rts
 
-; --- plf_blip: the rail's one sound effect ----------------------------------
-; In/out: A16/I16, DB=0.
+; --- plf_sfx: queue the sound effect named in A -----------------------------
+; In: A16 = the SFX:: id (low byte). In/out: A16/I16, DB=0. Clobbers A.
 ;
-; ONE SFX FOR EVERY TICK — a jump, a coin, a stomp, a hit. `assets/audio/
-; export/` is a SHARED, checked-in TAD export whose set is room_a_ambience /
-; room_b_ambience / footstep, and regenerating it to add platformer-flavoured
-; blips would move `room`'s ROM, whose md5 is pinned. Moving another game's
-; pinned artifact to improve this one's audio is not a trade this rail gets to
-; make on its own, so the audio-content question stays open for whoever
-; regenerates the export deliberately.
+; ONE HELPER, A SOUND PER EVENT. This used to fire `footstep` for the jump,
+; the coin AND the death, because the shared export had exactly one real sound
+; in it. It also used to carry a paragraph declining to fix that, on the
+; grounds that regenerating the export "would move `room`'s ROM, whose md5 is
+; pinned". That reading was wrong and the paragraph is gone: the tree's only
+; md5 pin is `microzero`'s (tests/test_c2_sram_class.py,
+; tools/falsify_*_binding.py), `microzero` does not compose `audio`, and the
+; ROM lists in `gates:` and bare-check's census are recorded, not pinned.
+;
+; The id arrives in A16 and `sep #$20` simply narrows to its low byte, so the
+; call sites read `lda #SFX::jump` — the event names its own sound.
 ;
 ; WIDTH-RISK: Tad_QueueSoundEffect is a CROSS-FILE callee (vendor/tad) and
 ; takes A8; the width linter is single-file and cannot see the contract, so the
 ; sep/rep pair around it is load-bearing and stays here rather than at the call
 ; sites.
-plf_blip:
+plf_sfx:
     .a16
     .i16
     sep #$20
     .a8
-    lda #SFX::footstep
     jsr Tad_QueueSoundEffect
     rep #$20
     .a16

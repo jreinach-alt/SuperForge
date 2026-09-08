@@ -46,21 +46,32 @@
 ; FLAGS. Defaults are one-channel + interruptible (project file). `both` lets a
 ; sound occupy either SFX channel so two can overlap; `uninterruptible` is for
 ; the ones whose loss is a STATE bug rather than a missed noise.
+;
+; GAIN vs ADSR, AND THE TRAP IN BETWEEN. A percussive one-shot must declare an
+; ATTACK. `E<rate>` / `D<rate>` GAIN are DECREASE modes -- they fall from the
+; envelope's CURRENT level, and key-on leaves that at zero, so an effect that
+; opens `set_instrument_and_gain step E14` decays from silence and is NEVER
+; AUDIBLE. It compiles, it queues, it key-ons, and the S-DSP voice reads
+; ENVX = 0 forever. Every percussive effect here therefore opens with
+; `set_instrument_and_adsr <inst> 15 <decay> <sustain> <rate>` (attack 15 =
+; instant); fixed `F<level>` gain is fine as-is, and `I<rate>` (increase) is
+; fine because it rises from zero by definition. Caught on the emulator, which
+; is the only place it is visible -- CLAUDE.md rule 2.
 ; =============================================================================
 
 ; --- impacts ---------------------------------------------------------------
 
 === thud ===
-    set_instrument_and_gain step E14
+    set_instrument_and_adsr step 15 5 0 31
     play_note c2 8
 
 === hit === uninterruptible
-    set_instrument_and_gain step E12
+    set_instrument_and_adsr step 15 6 0 31
     play_noise 14 sn 3
     play_note c2 5
 
 === explosion === both
-    set_instrument_and_gain step E8
+    set_instrument_and_adsr step 15 3 2 16
     play_noise 26 sn 4
     play_noise 18 sn 6
     play_noise 10 8
@@ -68,7 +79,7 @@
 ; --- weapons and motion ----------------------------------------------------
 
 === laser ===
-    set_instrument_and_gain saw E10
+    set_instrument_and_adsr saw 15 5 0 31
     play_note g5 sn 1
     portamento_calc c4 keyoff 8 9
 
@@ -118,5 +129,5 @@
 === beam_end === uninterruptible
     set_echo_feedback   24
     set_echo_volume     12
-    set_instrument_and_gain tri_bass E18
+    set_instrument_and_adsr tri_bass 15 4 0 31
     play_note c2 6
