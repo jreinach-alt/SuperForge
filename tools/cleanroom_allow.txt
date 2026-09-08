@@ -33,3 +33,15 @@ vendor/mesen_runner.py	timed-out run_to_break
 # it and are NOT listed, because an entry for a file the gate never flags is a
 # line nobody has to keep true.
 size: ./vendor/art/forge_line/frames_sheet.png
+
+# vendor/art/buried_machine — the same case as forge_line above, on a second
+# pack. Six continuous-tone concept sheets at 1415x1111, 51k-152k unique
+# colours each and 0.00% of substantially-opaque aligned 8x8 blocks constant,
+# so the grain is in every one of them and the bytes as supplied are what
+# kit_import's resample reads. They are the unmodified files as delivered and
+# SHA256SUMS fixes them, so shrinking one would break its own checksum and the
+# provenance row in docs/92 §5.1c that rests on it.
+# Only hazards_transitions crosses the 2 MB line (2,235,072 B); the other five
+# sit under it and are NOT listed, because an entry for a file the gate never
+# flags is a line nobody has to keep true.
+size: ./vendor/art/buried_machine/hazards_transitions.png
