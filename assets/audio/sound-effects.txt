@@ -26,3 +26,97 @@
 === footstep ===
     set_instrument_and_gain step F127
     play_note c3 4
+
+; =============================================================================
+; The demo SFX vocabulary — the primitives a rail actually needs, shared.
+;
+; SHARED ON PURPOSE. There is ONE export blob for the whole tree, so a sound
+; authored for one rail is linked into all of them. That makes a shared set of
+; primitives the architecture working as designed, not a compromise: `laser`
+; is the shmup's shot AND the saucer arena's gun, and neither pays for the
+; other's.
+;
+; WHY SO LITTLE NEW SAMPLE DATA. The S-DSP's own noise generator (`play_noise`)
+; and pitch sweeps (`portamento_calc`) carry most of this set, so the eleven
+; sounds below cost bytecode rather than BRR. Only two new instruments were
+; needed — `bell` and `saw`, single-cycle 64-sample loops at ~36 B each —
+; because `square_lead` (a 25 % pulse) and `step` (a low-passed footstep burst)
+; genuinely cannot voice a bright pickup or a full-spectrum laser.
+;
+; FLAGS. Defaults are one-channel + interruptible (project file). `both` lets a
+; sound occupy either SFX channel so two can overlap; `uninterruptible` is for
+; the ones whose loss is a STATE bug rather than a missed noise.
+; =============================================================================
+
+; --- impacts ---------------------------------------------------------------
+
+=== thud ===
+    set_instrument_and_gain step E14
+    play_note c2 8
+
+=== hit === uninterruptible
+    set_instrument_and_gain step E12
+    play_noise 14 sn 3
+    play_note c2 5
+
+=== explosion === both
+    set_instrument_and_gain step E8
+    play_noise 26 sn 4
+    play_noise 18 sn 6
+    play_noise 10 8
+
+; --- weapons and motion ----------------------------------------------------
+
+=== laser ===
+    set_instrument_and_gain saw E10
+    play_note g5 sn 1
+    portamento_calc c4 keyoff 8 9
+
+=== jump ===
+    set_instrument_and_gain square_lead F100
+    play_note c4 sn 1
+    portamento_calc c5 keyoff 6 7
+
+=== skid ===
+    set_instrument_and_gain step F80
+    play_noise 22 sn 12
+    set_temp_gain_and_rest E20 6
+
+; --- rewards and UI --------------------------------------------------------
+
+=== pickup ===
+    set_instrument_and_gain bell F110
+    play_note e5 3
+    play_note b5 7
+
+=== chime ===
+    set_instrument_and_gain bell F127
+    play_note e5 4
+    play_note a5 12
+
+=== select ===
+    set_instrument_and_gain pluck F127
+    play_note a3 3
+    play_note e4 5
+
+; --- the saucer arena's beam -----------------------------------------------
+; These two carry ECHO STATE as well as a sound, which is why they exist at
+; all: the arena used to fire `room_b_ambience` / `room_a_ambience` — another
+; game's per-room reverb — as its beam cues, so the beam had no sound of its
+; own and left the shared echo unit retuned. One SFX does both jobs because
+; the ca65 queue only carries ONE sound effect per frame; a separate tone and
+; re-shape would contend and the re-shape would win, silently.
+; The echo write comes FIRST so the state lands even if the tail is cut.
+
+=== beam_fire === uninterruptible
+    set_echo_feedback   96
+    set_echo_volume     70
+    set_instrument_and_gain saw I18
+    play_note c3 sn 2
+    portamento_calc c5 keyoff 10 12
+
+=== beam_end === uninterruptible
+    set_echo_feedback   24
+    set_echo_volume     12
+    set_instrument_and_gain tri_bass E18
+    play_note c2 6

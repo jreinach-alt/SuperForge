@@ -117,7 +117,7 @@ AUDIO_DATA_BANK = .bankbyte(__Tad_AudioData_0)
 .assert .sizeof(LoadAudioData) = 51, error
 
   __Tad_AudioData_0: .incbin "tad_audio_data.bin", $0
-  .assert .sizeof(__Tad_AudioData_0) = $2102, error, "tad_audio_data.bin file size does not match binary size in the assembly file"
+  .assert .sizeof(__Tad_AudioData_0) = $21fd, error, "tad_audio_data.bin file size does not match binary size in the assembly file"
 
 .assert .bankbyte(Tad_DataTable) = .bankbyte(Tad_DataTable + Tad_DataTable_SIZE), lderror, "Tad_DataTable does not fit in a single bank"
 

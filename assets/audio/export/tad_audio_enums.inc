@@ -7,7 +7,7 @@
 
 
 LAST_SONG_ID = 1
-N_SOUND_EFFECTS = 3
+N_SOUND_EFFECTS = 14
 
 ;; Song enum.
 ;; Input argument for `Tad_LoadSong`
@@ -20,8 +20,21 @@ N_SOUND_EFFECTS = 3
 ;; Sound Effects enum.
 ;; Input argument for `Tad_QueueSoundEffect` and `Tad_QueuePannedSoundEffect`
 .enum SFX
-  ; normal-priority sound effects
+  ; high-priority sound effects
   room_a_ambience = 0
   room_b_ambience = 1
-  footstep = 2
+  beam_end = 2
+  beam_fire = 3
+  ; normal-priority sound effects
+  explosion = 4
+  hit = 5
+  laser = 6
+  jump = 7
+  pickup = 8
+  chime = 9
+  select = 10
+  thud = 11
+  ; low-priority sound effects
+  footstep = 12
+  skid = 13
 .endenum
