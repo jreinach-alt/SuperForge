@@ -359,107 +359,254 @@ def flattest(kit, ids):
     return best
 
 
-def world(kit, runs, base):
+# --- terrain: synthesised, not sourced --------------------------------------
+# THE SHEETS CONTAIN OBJECTS, NOT TERRAIN. Arches, columns, pipes and platforms
+# are drawn things; edges and corners are a SYSTEM, and asking an illustrator
+# for a role-tagged autotile set gets a picture with labels on it rather than a
+# set. So terrain is derived here from two inputs the rail already has — a
+# zone's flat fill block and its palette ramp — the same way every other
+# generated asset in this tree is made.
+N, S, E, W = 1, 2, 4, 8         # which faces are EXPOSED (open to air)
+
+
+def _shade(v, lift):
+    """Move an index along its 15-step ramp without leaving the group."""
+    if v == 0:
+        return 0
+    return max(1, min(15, v + lift))
+
+
+def terrain_block(fill, faces):
+    """One autotile piece: the fill block, lit where it meets open air.
+
+    THE SHADING IS DIRECTIONAL, because a non-directional rim made all sixteen
+    pieces look alike — seen on the first render, where a floor edge and a
+    ceiling edge were indistinguishable. Light falls from above, so a top face
+    gets a bright lip over a dark shoulder (a lit edge reads as a SURFACE), a
+    bottom face gets shadow alone (an underside is never lit), and the sides
+    get a weaker version. That asymmetry is what makes a chamber read as a room
+    rather than as a rectangle.
+
+    `faces` is an OR of N/S/E/W for the sides open to air. All sixteen
+    combinations are legal, so the caller indexes this by a neighbour bitmask
+    and never thinks about corners.
+    """
+    out = []
+    for y in range(16):
+        row = []
+        for x in range(16):
+            v = fill[y][x]
+            lift = 0
+            if faces & N:
+                if y == 0:
+                    lift = max(lift, 7)
+                elif y == 1:
+                    lift = max(lift, 5)
+                elif y < 5:
+                    lift = min(lift, -3)
+            if faces & S:
+                if y >= 14:
+                    lift = min(lift, -6)
+                elif y >= 11:
+                    lift = min(lift, -3)
+            if faces & W:
+                if x == 0:
+                    lift = max(lift, 4)
+                elif x < 3:
+                    lift = min(lift, -2)
+            if faces & E:
+                if x == 15:
+                    lift = min(lift, -5)
+                elif x > 12:
+                    lift = min(lift, -2)
+            row.append(_shade(v, lift))
+        out.append(tuple(row))
+    return tuple(out)
+
+
+def terrain_set(fill):
+    """The sixteen pieces, indexed by exposed-face bitmask."""
+    return [terrain_block(fill, f) for f in range(16)]
+
+
+def world(kit, runs, base, terrain):
     """The map, the collision grid, and the piston banks.
 
-    BUILT BY CARVING, not by decorating. The first attempt placed ledges on an
-    empty field and rendered as a slab with rectangles in it: a buried place is
-    MASS with voids cut through it, so this fills every row below the surface
-    solid and then cuts the route out of it. The route descends but has to
-    cross the map to keep descending, which is what makes the world's width
-    matter as much as its depth.
+    CONNECTIVITY IS CONSTRUCTED AND THEN PROVED. The first version carved
+    chambers and shafts independently and produced SEVEN disconnected air
+    regions with 28% of the world solid dead rock — a world you cannot walk
+    through, which rendered green because nothing checked. Here every shaft is
+    cut from one chamber's floor to the NEXT chamber's ceiling, so the route is
+    connected by the way it is built, and `check_world` re-derives it with a
+    flood fill and refuses to emit a map that is not one region.
+
+    Terrain is autotiled: every solid cell picks its piece from the exposed
+    faces of its neighbours, so chambers get lit floors, dark ceilings and
+    shaded walls without a single edge being placed by hand.
     """
     by = kit_by_sheet(runs)
     sand, steel = by["sandstone_ruins.png"], by["machine_structure.png"]
     deck, pipe = by["platforms.png"], by["pipes.png"]
     hot = by["hazards_transitions.png"]
 
-    def pool_for(r):
-        return sand if r < MACHINE_TOP else (steel if r < FURNACE_TOP else hot)
-
     def pick(pool, salt):
         return pool[salt % len(pool)]
 
-    grid = [[AIR] * COLS for _ in range(ROWS)]
-    mp = [[None] * COLS for _ in range(ROWS)]
+    grid = [[SOLID] * COLS for _ in range(ROWS)]
+    prop = {}                       # cells that carry an OBJECT, not terrain
 
-    FILL = {id(sand): flattest(kit, sand), id(steel): flattest(kit, steel),
-            id(hot): flattest(kit, hot), id(deck): flattest(kit, deck),
-            id(pipe): flattest(kit, pipe)}
-
-    def fill(r, c, cls, pool=None, salt=0, flat=False):
-        if not (0 <= r < ROWS and 0 <= c < COLS):
-            return
-        pool = pool if pool is not None else pool_for(r)
-        blk = FILL[id(pool)] if flat else pick(pool, salt)
-        mp[r][c] = entry(base[blk], zone_of_row(r))
-        grid[r][c] = cls
-
-    def carve(r, c):
-        if 0 <= r < ROWS and 0 <= c < COLS:
-            mp[r][c] = None
+    for r in range(RUIN_TOP):       # the sky
+        for c in range(COLS):
             grid[r][c] = AIR
 
-    # --- 1. solid to the horizon -------------------------------------------
-    for r in range(RUIN_TOP, ROWS):
-        for c in range(COLS):
-            fill(r, c, SOLID, flat=True)
-
-    # --- 2. the route: chambers, alternating side to side -------------------
-    # Six chambers down the map. Each is a wide void; consecutive chambers sit
-    # on opposite sides, and a shaft joins them, so getting down means crossing.
-    chambers = []
-    r = RUIN_TOP + 3
-    left = True
-    while r < FURNACE_TOP - 4 and len(chambers) < 6:
-        w = 22 + (len(chambers) % 3) * 6
-        h = 5 + (len(chambers) % 2) * 2
-        c0 = 3 if left else COLS - 3 - w
+    # --- the route ----------------------------------------------------------
+    # Seven halls down the map, alternating side to side, each joined to the
+    # next by a shaft cut through the floor between them. The last one is the
+    # furnace hall, which is the destination and fills the band that used to be
+    # dead rock.
+    # THE WIDTHS ARE WHAT MAKE THE ROUTE CONNECT, and the first version got it
+    # wrong: halls 20-36 wide alternating sides of a 64-column map never
+    # OVERLAP, so every shaft between them started in solid rock and the world
+    # came apart into seven regions. Each hall now spans more than half the
+    # map, so consecutive halls always share columns and a shaft always has
+    # somewhere legal to land.
+    halls, r, left = [], RUIN_TOP + 2, True
+    while r < ROWS - 10:
+        w = 34 + (len(halls) % 3) * 4
+        h = 6 + (len(halls) % 2) * 2
+        c0 = 2 if left else COLS - 2 - w
         for rr in range(r, r + h):
             for cc in range(c0, c0 + w):
-                carve(rr, cc)
-        # its floor is walkable
-        for cc in range(c0, c0 + w):
-            fill(r + h, cc, PLATFORM, pool=deck if r >= MACHINE_TOP else sand,
-                 salt=r + cc)
-        chambers.append((r, c0, w, h))
-        # the shaft down to the next chamber, at the far end from the entrance
-        sx = c0 + w - 4 if left else c0 + 2
-        for rr in range(r + h, r + h + 4):
-            for cc in range(sx, sx + 3):
-                carve(rr, cc)
+                grid[rr][cc] = AIR
+        halls.append((r, c0, w, h))
+        r += h + 3
         left = not left
-        r += h + 4
+    # the furnace hall: wide, deep, and the floor of the world
+    fr = ROWS - 9
+    for rr in range(fr, ROWS - 2):
+        for cc in range(2, COLS - 2):
+            grid[rr][cc] = AIR
+    halls.append((fr, 2, COLS - 4, ROWS - 2 - fr))
 
-    # --- 3. the piston banks, standing in the machine chambers -------------
-    # Four banks of four 16-pixel columns. These are the columns the offset
-    # table displaces, and they stand INSIDE a void so their travel is visible.
+    # --- the entrance: the sky opens into the first hall --------------------
+    hr, hc, hw, hh = halls[0]
+    ex = hc + 4
+    for rr in range(0, hr + 1):
+        for cc in range(ex, ex + 3):
+            grid[rr][cc] = AIR
+
+    # --- the shafts, each cut BETWEEN a pair, so the route cannot break -----
+    for (ar, ac, aw, ah), (br, bc, bw, bh) in zip(halls, halls[1:]):
+        lo, hi = max(ac, bc), min(ac + aw, bc + bw)
+        sx = (lo + hi) // 2 - 1 if hi - lo >= 4 else max(ac, bc)
+        for rr in range(ar + ah, br + 1):
+            for cc in range(sx, sx + 3):
+                if 0 <= cc < COLS:
+                    grid[rr][cc] = AIR
+
+    # --- the piston banks, standing in the machine halls --------------------
     banks = []
-    machine = [ch for ch in chambers if ch[0] >= MACHINE_TOP - 4]
-    for i, ch in enumerate(machine[:4]):
-        cr, c0, w, h = ch
-        bx = c0 + 4 + i * 2
-        banks.append({"col0": bx, "width": 4, "phase": i * 32,
-                      "travel": 24 + i * 8, "row0": cr, "rows": h})
-        for cc in range(bx, bx + 4):
-            for rr in range(cr, cr + h):
-                fill(rr, cc, SOLID, pool=steel, salt=rr + cc)
-
-    # --- 4. the furnace floor ----------------------------------------------
-    for c in range(COLS):
-        fill(FURNACE_TOP, c, HAZARD, pool=hot, salt=c * 5)
-
-    # --- 5. pipework on the chamber ceilings, for the eye -------------------
-    for cr, c0, w, h in chambers:
-        if cr < MACHINE_TOP:
+    for i, (hr, c0, w, h) in enumerate(halls):
+        if not (MACHINE_TOP <= hr < FURNACE_TOP) or len(banks) >= 4:
             continue
-        for cc in range(c0 + 1, c0 + w - 1, 5):
-            fill(cr, cc, AIR, pool=pipe, salt=cr + cc)
+        bx = c0 + 5 + i * 3
+        if bx + 4 >= c0 + w:
+            continue
+        banks.append({"col0": bx, "width": 4, "phase": len(banks) * 32,
+                      "travel": 24 + len(banks) * 8, "row0": hr, "rows": h})
+        # THE BANK LEAVES HEADROOM. Filling the hall's full height walled it
+        # in half and orphaned everything past it — two of the three regions
+        # the gate found. A piston is a column you get past and ride, not a
+        # partition, so the top two rows of the hall stay open above it.
+        for cc in range(bx, bx + 4):
+            for rr in range(hr + 2, hr + h):
+                grid[rr][cc] = SOLID
 
-    blank = entry(base[0], PAL_SAND)   # kit block 0 is the empty one
-    words = bytearray()
-    for rr in range(ROWS):
+    # --- props: objects from the sheets, on hall floors and ceilings --------
+    for hr, c0, w, h in halls:
+        pool = sand if hr < MACHINE_TOP else (steel if hr < FURNACE_TOP else hot)
+        for cc in range(c0 + 2, c0 + w - 2, 7):
+            if grid[hr + h - 1][cc] == AIR:
+                prop[(hr + h - 1, cc)] = pick(pool, hr + cc)
+        for cc in range(c0 + 4, c0 + w - 2, 9):
+            if grid[hr][cc] == AIR:
+                prop[(hr, cc)] = pick(pipe if hr >= MACHINE_TOP else sand,
+                                      hr * 3 + cc)
+    return grid, halls, banks, prop
+
+
+def check_world(grid):
+    """Refuse a world you cannot walk through.
+
+    THE GATE THAT WAS MISSING. The first layout rendered as a plausible picture
+    while being seven disconnected air regions with a quarter of the map dead
+    rock. A picture cannot show that and a look did not catch it; a flood fill
+    does, in milliseconds, every build. Returns the stats so the emitter can
+    print them rather than merely pass.
+    """
+    from collections import deque
+    seen = [[False] * COLS for _ in range(ROWS)]
+    regions = []
+    for r in range(ROWS):
         for c in range(COLS):
-            w = mp[rr][c] if mp[rr][c] is not None else blank
+            if seen[r][c] or grid[r][c] != AIR:
+                continue
+            q = deque([(r, c)])
+            seen[r][c] = True
+            n = 0
+            rows = set()
+            while q:
+                y, x = q.popleft()
+                n += 1
+                rows.add(y)
+                for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    ny, nx = y + dy, x + dx
+                    if (0 <= ny < ROWS and 0 <= nx < COLS and not seen[ny][nx]
+                            and grid[ny][nx] == AIR):
+                        seen[ny][nx] = True
+                        q.append((ny, nx))
+            regions.append((n, min(rows), max(rows)))
+    regions.sort(reverse=True)
+    big = regions[0]
+    assert len(regions) == 1, (
+        f"the world is {len(regions)} disconnected air regions, not one: "
+        f"{[(n, a, b) for n, a, b in regions[:6]]}")
+    assert big[1] <= RUIN_TOP and big[2] >= ROWS - 4, (
+        f"the route spans rows {big[1]}..{big[2]}, not surface to floor")
+    dead = 0
+    for r in range(ROWS):
+        if all(grid[r][c] != AIR for c in range(COLS)):
+            dead += 1
+    assert dead <= 6, f"{dead} map rows have no route in them at all"
+    return {"regions": len(regions), "air": big[0],
+            "spans": (big[1], big[2]), "dead_rows": dead}
+
+
+def faces_of(grid, r, c):
+    """Which sides of a solid cell are open to air — the autotile index."""
+    f = 0
+    if r == 0 or grid[r - 1][c] == AIR:
+        f |= N
+    if r == ROWS - 1 or grid[r + 1][c] == AIR:
+        f |= S
+    if c > 0 and grid[r][c - 1] == AIR:
+        f |= W
+    if c < COLS - 1 and grid[r][c + 1] == AIR:
+        f |= E
+    return f
+
+
+def paint(grid, prop, kit, terrain, base):
+    """The tilemap: autotiled terrain everywhere, props where they were placed."""
+    words = bytearray()
+    for r in range(ROWS):
+        for c in range(COLS):
+            zone = zone_of_row(r)
+            if (r, c) in prop:
+                w = entry(base[prop[(r, c)]], zone)
+            elif grid[r][c] == AIR:
+                w = entry(base[0], zone)
+            else:
+                w = entry(base[terrain[zone][faces_of(grid, r, c)]], zone)
             words += bytes((w & 0xFF, (w >> 8) & 0xFF))
-    return bytes(words), grid, banks
+    return bytes(words)
