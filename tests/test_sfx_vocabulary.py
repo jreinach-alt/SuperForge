@@ -46,6 +46,7 @@ sys.path.insert(0, str(SUPERFORGE / "vendor"))
 from mesen_runner import MesenRunner, MemoryType  # noqa: E402
 
 DSP = MemoryType.SpcDspRegisters
+WR2 = MemoryType.SnesWorkRam
 SFX_VOICES = (6, 7)
 
 TRI_BASS, SQUARE_LEAD, PLUCK, STEP, BELL, SAW = range(6)
@@ -192,6 +193,43 @@ def test_rail_is_audible_at_all(shmup):
     assert _rms(shmup["wav"]) > 500, "the shmup records near-silence"
 
 
+@pytest.fixture(scope="module")
+def shmup_kill_shape():
+    """The DSP's view of one explosion, frame by frame, after a real kill.
+
+    Driven to an actual kill rather than a synthetic trigger so the reading is
+    of the effect as the game fires it. US_SCORE is read from the emitted scene
+    map — hardcoding it is how the first version of this probe measured zero
+    kills for a whole run.
+    """
+    import re
+    inc = (SUPERFORGE / "build" / "sh" / "engine_state_play.inc").read_text()
+    score = int(re.search(r"^US_SCORE\s*=\s*\$([0-9A-Fa-f]+)", inc, re.M).group(1), 16)
+    r = MesenRunner(enable_audio=True)
+    r.boot_rom(_rom("shmup"), frames=180)
+    r.frame_step(3, start=True)
+    r.frame_step(3)
+    r.frame_step(90)
+    u16 = lambda a: int.from_bytes(r.read_bytes(WR2, a, 2), "little")   # noqa: E731
+    prev, rows = u16(score), None
+    for i in range(1500):
+        r.frame_step(1, a=(i % 6 < 3), left=(i % 240 < 120),
+                     right=(i % 240 >= 120))
+        if u16(score) != prev:
+            rows = []
+            for f in range(14):
+                r.frame_step(1)
+                d = r.read_bytes(DSP, 0, 128)
+                env = max((d[v * 0x10 + 8] for v in SFX_VOICES
+                           if d[v * 0x10 + 4] == STEP), default=0)
+                rows.append((f, d[0x6C] & 0x1F, env))
+            break
+        prev = u16(score)
+    r.stop()
+    assert rows, "no kill ever landed — the drive geometry has rotted"
+    return {"rows": rows, "peak": max(rows, key=lambda t: t[2])}
+
+
 # =============================================================================
 # racer — the edge-vs-condition invariant
 # =============================================================================
@@ -275,3 +313,32 @@ def test_rpg_footstep_is_one_per_tile_not_one_per_frame(rpg):
     assert f < 0.45, \
         f"the step voice is live on {f:.0%} of walking frames — the cadence " \
         f"is the frame's, not the tile's"
+
+
+# =============================================================================
+# the explosion's SHAPE — a cue can be on time and still sound late
+# =============================================================================
+
+def test_the_explosion_leads_with_its_low_band(shmup_kill_shape):
+    """The identifying content must arrive at full envelope, not after it.
+
+    `play_noise <n>` sets the S-DSP's noise frequency (FLG $6C bits 0-4): 0 is
+    the slowest, 31 the fastest. This effect was authored 26 -> 18 -> 10, so it
+    opened as a thin HISS and only reached the low band at tick 10. Measured on
+    the DSP, that put the envelope peak (ENVX 114) at frame 0 with the noise
+    index still 26, and the low content at frame 4 with ENVX already down to
+    64 — and a player reported it as the sound firing LATE even though the
+    trigger is immediate (0-2 frames from the kill, measured separately).
+
+    The bang is what identifies an explosion, so the assertion is that the
+    LOUDEST frame carries the LOW band. That is a property of the rendered
+    voice, not of the source text: an author can reorder the sweep, change the
+    envelope, or swap the sample and this still says whether the result leads
+    with a bang or with a hiss.
+    """
+    frame, noise, envx = shmup_kill_shape["peak"]
+    assert envx > 0, "the explosion never sounded"
+    assert noise <= 14, (
+        f"at its loudest frame ({frame}, ENVX={envx}) the explosion's noise "
+        f"index is {noise} — that is the HIGH band, so the sound opens with a "
+        f"hiss and the bang arrives later and quieter")

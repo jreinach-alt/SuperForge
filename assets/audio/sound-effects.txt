@@ -70,11 +70,21 @@
     play_noise 14 sn 3
     play_note c2 5
 
+; THE SWEEP RUNS LOW -> HIGH, and it used to run the other way. `play_noise`
+; sets the S-DSP's noise frequency (FLG bits 0-4): 0 is the slowest, 31 the
+; fastest. Authored 26 -> 18 -> 10 the effect opened as a thin HISS and only
+; reached the low band at tick 10 — measured on the DSP, the envelope peaks at
+; frame 0 (ENVX 114) while the noise index is still 26, and the low content
+; arrives at frame 4 with ENVX already down to 64. The bang is what identifies
+; an explosion, so putting it 67 ms behind the trigger reads as the sound
+; firing LATE even though the trigger is immediate (measured: 0-2 frames from
+; the kill). Reversed, the low band lands at full envelope and the hiss is the
+; decaying tail — the shape an impact actually has.
 === explosion === both
     set_instrument_and_adsr step 15 3 2 16
-    play_noise 26 sn 4
-    play_noise 18 sn 6
-    play_noise 10 8
+    play_noise 10 sn 5
+    play_noise 18 sn 5
+    play_noise 26 8
 
 ; --- weapons and motion ----------------------------------------------------
 
