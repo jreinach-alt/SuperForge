@@ -478,7 +478,8 @@ def world(kit, runs, base, terrain):
         for rr in range(r, r + h):
             for cc in range(c0, c0 + w):
                 grid[rr][cc] = AIR
-        halls.append((r, c0, w, h))
+        halls.append({"row": r, "col": c0, "w": w, "h": h,
+                      "zone": None, "role": None})
         r += h + 3
         left = not left
     # the furnace hall: wide, deep, and the floor of the world
@@ -486,30 +487,59 @@ def world(kit, runs, base, terrain):
     for rr in range(fr, ROWS - 2):
         for cc in range(2, COLS - 2):
             grid[rr][cc] = AIR
-    halls.append((fr, 2, COLS - 4, ROWS - 2 - fr))
+    halls.append({"row": fr, "col": 2, "w": COLS - 4, "h": ROWS - 2 - fr,
+                  "zone": PAL_HOT, "role": "furnace"})
+
+    # --- ZONE IS A PROPERTY OF THE HALL, NOT OF THE ROW --------------------
+    # A row threshold let one hall straddle two zones and painted a quarter of
+    # the props in a ramp they were never fitted against. A room has one
+    # material; the room BETWEEN two materials is a transition and says so.
+    n = len(halls)
+    for i, hall in enumerate(halls):
+        if hall["zone"] is not None:
+            continue
+        t = i / max(1, n - 1)
+        if t < 0.33:
+            hall["zone"], hall["role"] = PAL_SAND, "ruins"
+        elif t < 0.45:
+            hall["zone"], hall["role"] = PAL_SAND, "transition"
+        elif t < 0.80:
+            hall["zone"], hall["role"] = PAL_STEEL, "machine"
+        else:
+            hall["zone"], hall["role"] = PAL_STEEL, "transition"
 
     # --- the entrance: the sky opens into the first hall --------------------
-    hr, hc, hw, hh = halls[0]
-    ex = hc + 4
+    h0 = halls[0]
+    hr, ex = h0["row"], h0["col"] + 4
     for rr in range(0, hr + 1):
         for cc in range(ex, ex + 3):
             grid[rr][cc] = AIR
 
     # --- the shafts, each cut BETWEEN a pair, so the route cannot break -----
-    for (ar, ac, aw, ah), (br, bc, bw, bh) in zip(halls, halls[1:]):
+    shaft_cols = set()
+    for a, b in zip(halls, halls[1:]):
+        ar, ac, aw, ah = a["row"], a["col"], a["w"], a["h"]
+        br, bc, bw = b["row"], b["col"], b["w"]
         lo, hi = max(ac, bc), min(ac + aw, bc + bw)
         sx = (lo + hi) // 2 - 1 if hi - lo >= 4 else max(ac, bc)
         for rr in range(ar + ah, br + 1):
             for cc in range(sx, sx + 3):
                 if 0 <= cc < COLS:
                     grid[rr][cc] = AIR
+        shaft_cols.update(range(sx - 1, sx + 4))
 
     # --- the piston banks, standing in the machine halls --------------------
     banks = []
-    for i, (hr, c0, w, h) in enumerate(halls):
-        if not (MACHINE_TOP <= hr < FURNACE_TOP) or len(banks) >= 4:
+    for i, hall in enumerate(halls):
+        hr, c0, w, h = hall["row"], hall["col"], hall["w"], hall["h"]
+        if hall["role"] not in ("machine", "transition") or len(banks) >= 4:
             continue
+        # A BANK MAY NOT STAND OVER A SHAFT MOUTH. One did, sealing the only
+        # way down to the furnace hall and splitting the world in two — caught
+        # by the gate, not by looking. Slide it along until it clears.
         bx = c0 + 5 + i * 3
+        while bx + 4 < c0 + w and any(x in shaft_cols for x in range(bx, bx + 4)):
+            bx += 4
         if bx + 4 >= c0 + w:
             continue
         banks.append({"col0": bx, "width": 4, "phase": len(banks) * 32,
@@ -523,15 +553,21 @@ def world(kit, runs, base, terrain):
                 grid[rr][cc] = SOLID
 
     # --- props: objects from the sheets, on hall floors and ceilings --------
-    for hr, c0, w, h in halls:
-        pool = sand if hr < MACHINE_TOP else (steel if hr < FURNACE_TOP else hot)
+    # A ZONE MAY ONLY DRAW FROM POOLS FITTED TO IT. `deck` is fitted against
+    # the steel ramp, so lending it to a sandstone hall painted twelve props in
+    # a ramp they were never quantised for — the last of the mixing, and
+    # invisible until it was counted.
+    ZONE_POOLS = {PAL_SAND: (sand,), PAL_STEEL: (steel, deck, pipe),
+                  PAL_HOT: (hot,)}
+    for hall in halls:
+        hr, c0, w, h = hall["row"], hall["col"], hall["w"], hall["h"]
+        pools = ZONE_POOLS[hall["zone"]]
         for cc in range(c0 + 2, c0 + w - 2, 7):
             if grid[hr + h - 1][cc] == AIR:
-                prop[(hr + h - 1, cc)] = pick(pool, hr + cc)
+                prop[(hr + h - 1, cc)] = pick(pools[0], hr + cc)
         for cc in range(c0 + 4, c0 + w - 2, 9):
             if grid[hr][cc] == AIR:
-                prop[(hr, cc)] = pick(pipe if hr >= MACHINE_TOP else sand,
-                                      hr * 3 + cc)
+                prop[(hr, cc)] = pick(pools[-1], hr * 3 + cc)
     return grid, halls, banks, prop
 
 
@@ -596,12 +632,33 @@ def faces_of(grid, r, c):
     return f
 
 
-def paint(grid, prop, kit, terrain, base):
+def zone_rows(halls):
+    """Which zone paints each map row, derived from the HALLS.
+
+    Mass belongs to the room above it, so the material changes where a room
+    changes rather than at an arbitrary row constant. This replaces
+    `zone_of_row`, which was a threshold that let a hall straddle two zones and
+    painted a quarter of the props in a ramp they had never been fitted to.
+    """
+    out = [None] * ROWS
+    for h in halls:
+        for r in range(h["row"], min(ROWS, h["row"] + h["h"])):
+            out[r] = h["zone"]
+    cur = halls[0]["zone"]
+    for r in range(ROWS):
+        if out[r] is None:
+            out[r] = cur
+        else:
+            cur = out[r]
+    return out
+
+
+def paint(grid, prop, kit, terrain, base, zrows):
     """The tilemap: autotiled terrain everywhere, props where they were placed."""
     words = bytearray()
     for r in range(ROWS):
         for c in range(COLS):
-            zone = zone_of_row(r)
+            zone = zrows[r]
             if (r, c) in prop:
                 w = entry(base[prop[(r, c)]], zone)
             elif grid[r][c] == AIR:
@@ -610,3 +667,21 @@ def paint(grid, prop, kit, terrain, base):
                 w = entry(base[terrain[zone][faces_of(grid, r, c)]], zone)
             words += bytes((w & 0xFF, (w >> 8) & 0xFF))
     return bytes(words)
+
+
+def check_palette(prop, fitted, zrows):
+    """No block may be painted in a ramp it was not fitted against.
+
+    Every block is quantised against ONE 15-step ramp at kit time. Painting it
+    with a different group does not recolour it — it re-reads its indices in
+    the wrong ramp, and the block comes out in colours nobody chose. It is
+    invisible in a thumbnail and obvious in a screenshot, which is why it
+    survived three renders and is a gate now. Measured before this existed:
+    15 of 59 props, 25%.
+    """
+    bad = [(r, c, fitted.get(b), zrows[r])
+           for (r, c), b in prop.items() if fitted.get(b) != zrows[r]]
+    assert not bad, (
+        f"{len(bad)} of {len(prop)} props are painted in a ramp they were not "
+        f"fitted against, e.g. {bad[:4]}")
+    return len(prop)
