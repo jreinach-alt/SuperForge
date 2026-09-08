@@ -24,8 +24,9 @@ from being renamed and moved into this directory.
 | `pipes.png` | 1415x1112 | magenta | 80 | pipes, ducts, grates, fittings, bends |
 | `pistons.png` | 1415x1112 | magenta | 74 | piston assemblies, housings, rods, shaft furniture |
 | `hazards_transitions.png` | 1415x1111 | magenta | 117 | hazards, furnace glow, ruin-to-machine transitions |
+| `rod_segments.png` | 1415x1111 | magenta | 24 | repeating rod and shaft segments — the sliding part (2026-09-08, second delivery) |
 
-516 assets in total, every one separable — the counts above are connected
+540 assets in total, every one separable — the counts above are connected
 components over the keyed alpha at area >= 400 px, not a hand tally.
 
 ## THEY ARE NOT PIXEL ART, AND THE CONVERSION IS NOT AN EXTRACTION
@@ -66,27 +67,76 @@ already there. Roughly five lines; not yet made.
 
 The concept's central mechanism is 16-pixel-wide columns displaced vertically.
 Art bound for such a column must be **vertically invariant**, or the variation
-visibly slides with the column — `kit_import.row_variance` exists to put a
-number on exactly this, and it wants **0**.
+visibly slides with the column. `kit_import.row_variance` exists to put a
+number on exactly this, but it is the wrong instrument for THIS input — see
+the rod section below.
 
-Every tall-and-narrow candidate on `pistons.png` was converted at 16x64 through
-the full palette-mapping path and measured. Of 29 candidates among the sheet's
-74 assets:
+Every tall-and-narrow candidate on `pistons.png` was measured. 29 candidates
+among the sheet's 74 assets, by the DEVIATION method described in the rod
+section below (the `row_variance == 0` rule this pack was first checked
+against is not usable on grainy source — that section shows why, with the
+control):
 
-- best: **54 of 64 rows differ from the modal row**
-- worst: **63 of 64**
-- count meeting the rule (0): **none**
+- best: **4.6** mean deviation from the median row profile
+- median: **22.4**
+- worst: **37.4**
+- count at the grain floor (<= 3.5): **none**
+
+For scale, the nine usable rod segments sit at 1.3 - 2.6. The verdict is
+unchanged from the first pass, but it now rests on a measure that can tell
+grain from structure rather than on one that rejects both.
 
 The reason is design rather than quality: these are complete piston
 *assemblies* — housing, rod, base, and directional shading down the length —
-and an assembly is supposed to vary vertically. What the mechanism needs and
-this pack does not contain is a **repeating rod segment**: short, seamlessly
-tiling top-to-bottom, no bolt, bracket or highlight band anywhere along it.
+and an assembly is supposed to vary vertically.
 
 So the pistons sheet is usable for the STATIC furniture that frames a shaft
 (housings, caps, bases, mounts) and not for the shaft itself. A future sheet
 should supply the segment, and it should be measured with `row_variance`
 before anything is built on it.
+
+## THE ROD SEGMENTS: 9 OF 24 ARE USABLE, AND row_variance IS THE WRONG TEST
+
+`rod_segments.png` was requested to fill the gap above, and it does — but
+measuring it surfaced a defect in how the gap was stated.
+
+**`row_variance == 0` cannot be an acceptance test on continuous-tone art.**
+Controlled: a synthetic rod with a cylindrical profile and NO vertical
+variation converts at 16x64 to `row_variance` **0**, so the instrument is
+sound. Add per-pixel grain to that same rod — noise only, still no structure —
+and it scores **48 of 64**. The measure answers "is any row not bit-identical
+to the modal row", and on grainy source the answer is yes for reasons that have
+nothing to do with whether the art slides. Every one of these sheets carries
+grain (see the table above), so the test rejects everything.
+
+**What separates grain from structure is the SIZE of the deviation, not its
+presence.** Resample to 16x64, take the per-column MEDIAN down the 64 rows as
+the rod's profile, then measure each row's mean absolute deviation from it on
+a 0-255 scale. Grain sits near the noise floor; a collar, a bolt or a
+lengthwise gradient does not. Crop the ends first — an antialiased end cap
+lands in rows 0 and 63 and dominates an otherwise clean rod (that is a
+cropping artifact, and it moved every worst-row figure here).
+
+Measured over the sheet's 24 segments, with a 3 % vertical inset:
+
+| band | mean deviation | count | verdict |
+|---|---|---|---|
+| grain floor | **1.3 - 2.6** (max row 2.6 - 5.2) | **9** | uniform; usable as sliding parts |
+| middle | 3.7 - 7.1 | 4 | borderline; measure again at final size before use |
+| structured | 8.3 - 35.3 | 11 | real lengthwise variation; NOT usable as sliding parts |
+
+The split is positional, which is worth knowing when reading the sheet: **all
+nine uniform segments are the top row** (y = 18), and the structured ones are
+almost all the lower band (y = 566).
+
+**The production path follows from the measurement.** Build a rod's CHR from
+the MEDIAN ROW PROFILE rather than from the resampled block: vertical
+invariance then holds by construction rather than by inspection, and the
+deviation figures above are exactly what that reconstruction costs — under 3
+grey levels out of 255 for the nine. Nothing has to be re-drawn.
+
+Nine distinct sliding rods is enough for the mechanism. The eleven structured
+ones remain useful as static shaft furniture, alongside `pistons.png`.
 
 ## Other things worth knowing before wiring these up
 
