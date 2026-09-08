@@ -86,3 +86,45 @@ fails with "No rule to make target", which is easy to skim past in a long
 output block and leaves the previous ROM in place — so the next measurement
 silently describes the old binary. Cost twice here. Absolute `make -C` or a
 leading `cd` back to the repo root avoids it.
+
+### `make X | tail` reports TAIL's exit code — and I read a RED landing gate as green — **surprise, HIGH**
+
+`make bare-check 2>&1 | tail -45` exits with `tail`'s status, not `make`'s. The
+run came back "exit code 0", I reported the landing gate green, and the
+artifact it had just written said `verdict: RED, exit_code: 1`. One gate had
+failed.
+
+The infuriating part is that the Makefile warns about this *by name*, eleven
+lines above the target I was invoking — the `test:` target exists precisely
+because "`pytest -q | tail` reports TAIL's status, not pytest's ... that masked
+a red". I read that comment earlier in the same session and then made the
+mistake anyway, because the pipe was about output volume, not about exit codes,
+and those felt like different concerns.
+
+**What actually fixes it** is not "remember to be careful": it is to never read
+a verdict from a pipeline's exit code when the target writes an artifact.
+`bare-check` writes `build/bare_check.json` with `verdict`, `exit_code`,
+per-gate status and `fault_reading` — read THAT. A wrapper that refuses to pipe
+(or a `bare-check` recipe that prints the verdict line last, unpiped) would
+close the class for good.
+
+### A concurrent build turned the landing gate red, and the artifact said so before I did — **clunky, MEDIUM**
+
+The gate that failed was `measure`, which counts cycles on the emulator, and
+`bare_check.json`'s own `fault_reading` read `harness-liveness` — docs/44 §6's
+"a wall-clock guard fired, not a tree break". I had run allocator spikes
+concurrently with the run, having noted one turn earlier that bare-check is
+flaky under load and that I should not.
+
+Two things would have helped, neither of which is discipline. First, the run
+takes ~25 minutes with no output until it ends (its own `tail` buffering), so
+there is no ambient signal that something expensive is in flight — a poller
+that prints progress makes the cost visible and is what I should have armed at
+the start, not after being told. Second, `fault_reading` is excellent and I did
+not look at it until the verdict surprised me; it deserves to be in the line
+the target PRINTS, not only in the JSON, so a red arrives already labelled
+tree-break or liveness.
+
+Filed with the verdict left at RED. The reading is advisory and re-running
+clean is the answer, but a red that gets explained away in a report is how a
+real one ships.
