@@ -128,3 +128,35 @@ tree-break or liveness.
 Filed with the verdict left at RED. The reading is advisory and re-running
 clean is the answer, but a red that gets explained away in a report is how a
 real one ships.
+
+### `test_measure_vblank` times out under bare-check — SECOND sighting, which docs/44 says is a harness bug report — **surprise, MEDIUM**
+
+Two bare-check runs on this branch went RED in the substrate-measurement
+family, and both carried `fault_reading: harness-liveness`:
+
+  7e3dbca   the `measure` gate failed
+  c78d955   `test_measure_vblank.py::test_measure_usable_vblank_bytes` and
+            `::test_measure_multi_queue_arm_cost`, exceptions
+            `TimeoutError` + `AssertionError`
+
+docs/44 §6 is explicit that this is not something to argue away: *"a
+`harness-liveness` reading is never a pass, and a SECOND sighting of one is a
+bug report — against the harness rather than a rail."* This is that second
+sighting, so it is filed rather than dismissed.
+
+The tree is not answerable for it. The probe links with `lorom_32k.cfg`, which
+this branch never touched; `git diff --name-only origin/main...HEAD` has
+nothing on the probe path at all; and both cases pass locally in 1.8 s on a
+free box, re-measuring rather than reading a cached artifact (checked:
+`build/measurements_vblank.json`'s mtime moves).
+
+What is worth someone's attention is the CONDITION. These are wall-clock
+measurements and the landing gate runs the suite with `XDIST=2`, so they are
+timed while another worker is doing arbitrary work on the same box. That is a
+race the measurement cannot win reliably, and it makes the landing gate's
+verdict a coin-flip on any branch, not just this one. Options a future sprint
+might weigh: pin the measurement modules to a worker of their own, run them
+outside the parallel suite the way `falsify` and `determinism` already are, or
+give the guards a budget that survives a loaded box.
+
+Recorded with the verdict left at RED both times.
