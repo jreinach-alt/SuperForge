@@ -205,7 +205,12 @@ def build_kit(budget=128):
     structural fills recur across a sheet and across sheets, and two identical
     16x16 blocks are one block however many assets drew them.
     """
-    blocks, index, kit = {}, [], []
+    # THE EMPTY BLOCK IS ALWAYS INDEX 0. Every cell the world does not place
+    # something in resolves here, and it must be genuinely transparent —
+    # filling air with a solid block turns the whole map into a slab with
+    # rectangles cut in it, which is exactly what the first render showed.
+    empty = tuple((0,) * 16 for _ in range(16))
+    blocks, kit = {empty: 0}, [empty]
     runs = []
     for fname, zone, take in SHEETS:
         im, cs = components(str(KIT / fname))
@@ -225,3 +230,236 @@ def build_kit(budget=128):
         if len(kit) >= budget:
             break
     return kit, runs
+
+
+# --- the rods: the parts that slide -----------------------------------------
+# A rod is built from its MEDIAN ROW PROFILE rather than from the resampled
+# block, and that is not a shortcut — it is what makes vertical invariance
+# hold BY CONSTRUCTION. Art driven by a vertical offset column must be
+# identical along its length or the variation visibly travels with the column;
+# reconstructing every row from one profile guarantees it, where inspecting a
+# resampled block only hopes for it.
+#
+# The pack README records what the reconstruction costs (under three grey
+# levels of 255 for the nine segments that sit at the grain floor) and why
+# `row_variance == 0` could not be used as the acceptance test on grainy
+# source: pure noise with no structure scores 48 of 64 on it.
+ROD_SHEET = "rod_segments.png"
+ROD_INSET = 0.03               # drop the antialiased end caps before profiling
+
+
+def rod_profiles(zone=PAL_STEEL, want=9):
+    """The `want` most uniform rod segments, each as ONE 16-wide index row.
+
+    Ranked by mean absolute deviation from their own median profile, which is
+    the measure that separates grain from structure. The nine that pass sit at
+    1.3-2.6; the structured ones run to 35.
+    """
+    import statistics
+    im, cs = components(str(KIT / ROD_SHEET))
+    pal, ix0 = group(zone)
+    scored = []
+    for c in cs:
+        x, y, w, h = c
+        if h < 2.2 * w:
+            continue                      # not a shaft: too squat
+        inset = max(4, int(h * ROD_INSET))
+        src = key_to_alpha(im.crop((x, y + inset, x + w, y + h - inset)))
+        small = resample(src, (16, 64)).convert("RGB").load()
+        prof = [statistics.median([small[i, r][0] for r in range(64)])
+                for i in range(16)]
+        dev = statistics.mean(
+            sum(abs(small[i, r][0] - prof[i]) for i in range(16)) / 16
+            for r in range(64))
+        scored.append((dev, c))
+    scored.sort()
+    rods = []
+    for dev, c in scored[:want]:
+        x, y, w, h = c
+        inset = max(4, int(h * ROD_INSET))
+        src = key_to_alpha(im.crop((x, y + inset, x + w, y + h - inset)))
+        buf = map_to_palette(resample(src, (16, 64)), pal, ix0)
+        # the profile: per-column MODE down the 64 rows, so one bad row cannot
+        # move it the way a mean would
+        row = tuple(max(set(col), key=col.count)
+                    for col in ([buf[r][i] for r in range(64)] for i in range(16)))
+        rods.append((round(dev, 2), row))
+    return rods
+
+
+def rod_block(row):
+    """A rod segment as a 16x16 block: the profile, sixteen times."""
+    return tuple(row for _ in range(16))
+
+
+# --- the world ---------------------------------------------------------------
+# 64 x 64 BLOCKS, which under tiles16 is 1024 x 1024 PIXELS in an 8 KB map --
+# four screens wide by four and a half tall, continuous, no repeats. That is
+# the whole reason the rail exists: the same map at 8x8 would cover 512 x 512.
+COLS = 64
+ROWS = 64
+WORLD_W = COLS * 16
+WORLD_H = ROWS * 16
+
+# the descent, in map rows
+SKY_ROWS = 4                   # open air above the ruins
+RUIN_TOP = SKY_ROWS
+MACHINE_TOP = 22               # the ruins give way
+FURNACE_TOP = 46               # and the machine stands over the heat
+
+# collision classes, one per map cell
+AIR, SOLID, PLATFORM, HAZARD = 0, 1, 2, 3
+
+
+def zone_of_row(r):
+    if r < MACHINE_TOP:
+        return PAL_SAND
+    if r < FURNACE_TOP:
+        return PAL_STEEL
+    return PAL_HOT
+
+
+def entry(base_slot, pal, hflip=False, vflip=False):
+    """One tilemap word. Under tiles16 the index field is the block's BASE
+    slot N — the PPU derives N+1/N+16/N+17 itself, so nothing else is stored.
+    Bits: 0-9 index, 10-12 palette, 13 priority, 14 H flip, 15 V flip."""
+    return (base_slot & 0x3FF) | ((pal & 7) << 10) \
+        | (0x4000 if hflip else 0) | (0x8000 if vflip else 0)
+
+
+def kit_by_sheet(runs):
+    """Block ids grouped by the sheet they came from, so the world asks for a
+    PLATFORM or a PIPE rather than for a number nobody can check."""
+    out = {}
+    for fname, zone, bw, bh, ids in runs:
+        out.setdefault(fname, []).extend(ids)
+    return out
+
+
+def flattest(kit, ids):
+    """The most uniform block in a pool, by pixel variance.
+
+    MASS WANTS ONE BLOCK, NOT TWENTY. Picking a different block per cell reads
+    as television static rather than masonry — the first carved render showed
+    exactly that. Variety belongs on edges and features; the body of a wall is
+    one repeated block, and which one is measured rather than chosen.
+    """
+    best, score = ids[0], None
+    for i in ids:
+        flat = [v for row in kit[i] for v in row]
+        if not flat:
+            continue
+        m = sum(flat) / len(flat)
+        var = sum((v - m) ** 2 for v in flat) / len(flat)
+        lit = sum(1 for v in flat if v) / len(flat)
+        if lit < 0.9:                 # a fill block has to actually be solid
+            continue
+        if score is None or var < score:
+            best, score = i, var
+    return best
+
+
+def world(kit, runs, base):
+    """The map, the collision grid, and the piston banks.
+
+    BUILT BY CARVING, not by decorating. The first attempt placed ledges on an
+    empty field and rendered as a slab with rectangles in it: a buried place is
+    MASS with voids cut through it, so this fills every row below the surface
+    solid and then cuts the route out of it. The route descends but has to
+    cross the map to keep descending, which is what makes the world's width
+    matter as much as its depth.
+    """
+    by = kit_by_sheet(runs)
+    sand, steel = by["sandstone_ruins.png"], by["machine_structure.png"]
+    deck, pipe = by["platforms.png"], by["pipes.png"]
+    hot = by["hazards_transitions.png"]
+
+    def pool_for(r):
+        return sand if r < MACHINE_TOP else (steel if r < FURNACE_TOP else hot)
+
+    def pick(pool, salt):
+        return pool[salt % len(pool)]
+
+    grid = [[AIR] * COLS for _ in range(ROWS)]
+    mp = [[None] * COLS for _ in range(ROWS)]
+
+    FILL = {id(sand): flattest(kit, sand), id(steel): flattest(kit, steel),
+            id(hot): flattest(kit, hot), id(deck): flattest(kit, deck),
+            id(pipe): flattest(kit, pipe)}
+
+    def fill(r, c, cls, pool=None, salt=0, flat=False):
+        if not (0 <= r < ROWS and 0 <= c < COLS):
+            return
+        pool = pool if pool is not None else pool_for(r)
+        blk = FILL[id(pool)] if flat else pick(pool, salt)
+        mp[r][c] = entry(base[blk], zone_of_row(r))
+        grid[r][c] = cls
+
+    def carve(r, c):
+        if 0 <= r < ROWS and 0 <= c < COLS:
+            mp[r][c] = None
+            grid[r][c] = AIR
+
+    # --- 1. solid to the horizon -------------------------------------------
+    for r in range(RUIN_TOP, ROWS):
+        for c in range(COLS):
+            fill(r, c, SOLID, flat=True)
+
+    # --- 2. the route: chambers, alternating side to side -------------------
+    # Six chambers down the map. Each is a wide void; consecutive chambers sit
+    # on opposite sides, and a shaft joins them, so getting down means crossing.
+    chambers = []
+    r = RUIN_TOP + 3
+    left = True
+    while r < FURNACE_TOP - 4 and len(chambers) < 6:
+        w = 22 + (len(chambers) % 3) * 6
+        h = 5 + (len(chambers) % 2) * 2
+        c0 = 3 if left else COLS - 3 - w
+        for rr in range(r, r + h):
+            for cc in range(c0, c0 + w):
+                carve(rr, cc)
+        # its floor is walkable
+        for cc in range(c0, c0 + w):
+            fill(r + h, cc, PLATFORM, pool=deck if r >= MACHINE_TOP else sand,
+                 salt=r + cc)
+        chambers.append((r, c0, w, h))
+        # the shaft down to the next chamber, at the far end from the entrance
+        sx = c0 + w - 4 if left else c0 + 2
+        for rr in range(r + h, r + h + 4):
+            for cc in range(sx, sx + 3):
+                carve(rr, cc)
+        left = not left
+        r += h + 4
+
+    # --- 3. the piston banks, standing in the machine chambers -------------
+    # Four banks of four 16-pixel columns. These are the columns the offset
+    # table displaces, and they stand INSIDE a void so their travel is visible.
+    banks = []
+    machine = [ch for ch in chambers if ch[0] >= MACHINE_TOP - 4]
+    for i, ch in enumerate(machine[:4]):
+        cr, c0, w, h = ch
+        bx = c0 + 4 + i * 2
+        banks.append({"col0": bx, "width": 4, "phase": i * 32,
+                      "travel": 24 + i * 8, "row0": cr, "rows": h})
+        for cc in range(bx, bx + 4):
+            for rr in range(cr, cr + h):
+                fill(rr, cc, SOLID, pool=steel, salt=rr + cc)
+
+    # --- 4. the furnace floor ----------------------------------------------
+    for c in range(COLS):
+        fill(FURNACE_TOP, c, HAZARD, pool=hot, salt=c * 5)
+
+    # --- 5. pipework on the chamber ceilings, for the eye -------------------
+    for cr, c0, w, h in chambers:
+        if cr < MACHINE_TOP:
+            continue
+        for cc in range(c0 + 1, c0 + w - 1, 5):
+            fill(cr, cc, AIR, pool=pipe, salt=cr + cc)
+
+    blank = entry(base[0], PAL_SAND)   # kit block 0 is the empty one
+    words = bytearray()
+    for rr in range(ROWS):
+        for c in range(COLS):
+            w = mp[rr][c] if mp[rr][c] is not None else blank
+            words += bytes((w & 0xFF, (w >> 8) & 0xFF))
+    return bytes(words), grid, banks
