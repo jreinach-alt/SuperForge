@@ -444,6 +444,16 @@ try_step:
     sta z:::RPG_STEP_PX             ;   a duration would have to know the region
     rep #$20
     .a16
+    ; ONE PER TILE, not per frame: the commit above sets STEP_PX, and read_step
+    ; is gated on the slide finishing, so the cadence is the walk's own.
+    ;
+    ; NOTHING ON @blocked, DELIBERATELY. read_step reads HELD buttons, so a
+    ; step into a wall re-enters try_step every frame while the direction is
+    ; held — a cue there would fire at 60 Hz. That is the same invariant the
+    ; room rail asserts as "silent when pinned at the wall"; giving a wall its
+    ; own knock needs an edge latch, and this rail has no state for one.
+    lda #SFX::footstep
+    jsr sfx_q
     rts
 @blocked:
     .a16
@@ -462,6 +472,25 @@ try_step:
     lda #::TM_BG1                   ; the affected-BG nibble for $2106
     ldx #.loword(::rpg_blank_to_town)
     jsr ::mosaic_arm
+    rep #$20
+    .a16
+    lda #SFX::select                ; the gate accepts: the town is coming
+    jsr sfx_q
+    rts
+
+; --- sfx_q: queue the sound effect named in A -------------------------------
+; In: A16 = the SFX:: id (low byte). In/out: A16/I16, DB=0. Clobbers A.
+; KEEPS X and Y — Tad_QueueSoundEffect's own contract — which the walk-commit
+; path relies on, because it still holds the destination tile there.
+; WIDTH-RISK: Tad_QueueSoundEffect is a CROSS-FILE A8 callee (vendor/tad); the
+; width linter is single-file and cannot see the contract, so the sep/rep pair
+; is load-bearing here rather than at the call sites.
+sfx_q:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    jsr Tad_QueueSoundEffect
     rep #$20
     .a16
     rts

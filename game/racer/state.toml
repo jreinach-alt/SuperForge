@@ -22,3 +22,9 @@ tod_t      = "u16"       # frames left in the current phase
 grad_k     = "u8"        # gradient keyframe currently pointed at, 0..7
                          # (0 = full day, 7 = full night) — rc_grad retargets
                          # its three WRAM header tables at this index
+offr       = "u8"        # 0 = the kart was on the road last frame, 1 = it
+                         # was on grass. The EDGE latch behind the skid cue:
+                         # rc_offroad bleeds speed every frame the kart is off
+                         # the road, so queueing a sound on the CONDITION would
+                         # be a 60 Hz stutter. Returning to the road re-arms it;
+                         # the road itself is silent.

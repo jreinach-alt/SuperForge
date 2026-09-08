@@ -288,6 +288,8 @@ tick:
                                 ;   step word that stops being republished is
                                 ;   a stale word waiting to be read, and a
                                 ;   frozen frame reads none of them anyway
+    jsr rc_start_cue            ; BEFORE the freeze gate: pausing is a UI act
+                                ;   and the frame it happens on is skipped
     jsr rc_pause
     beq @racing
     rts                         ; frozen: the whole body is skipped
@@ -297,6 +299,7 @@ tick:
     jsr rc_steer
     jsr rc_throttle
     jsr rc_offroad              ; the map is collision ground truth
+    jsr rc_surface_cue          ; ...and leaving it is HEARD, once per crossing
     jsr rc_move
     ; scroll shadows follow the origin (the NMI hook commits all four)
     lda z:ES_M7ORG + 0
@@ -320,6 +323,72 @@ tick:
     jsr kart_draw
     ; ---- effects ----------------------------------------------------------
     jsr tod_tick
+    rts
+
+; --- rc_start_cue: the pause toggle, as a sound ----------------------------
+; In/out: A16/I16, DB=0. Clobbers A. Runs BEFORE rc_pause so it does not
+; disturb the Z flag rc_pause returns the racing verdict in, and so the frame
+; the freeze begins on still gets its cue — that frame's body is skipped.
+; input's pressed latch is stable for exactly one frame, so holding START does
+; not strobe, the same property rc_pause relies on.
+; WIDTH-RISK: Tad_QueueSoundEffect is a CROSS-FILE A8 callee (vendor/tad); the
+; width linter is single-file and cannot see the contract, so the sep/rep pair
+; is load-bearing.
+rc_start_cue:
+    .a16
+    .i16
+    lda z:ES_INP_PRESS
+    and #JOY_START
+    beq @none
+    sep #$20
+    .a8
+    lda #SFX::select
+    jsr Tad_QueueSoundEffect
+    rep #$20
+    .a16
+@none:
+    .a16
+    .i16
+    rts
+
+; --- rc_surface_cue: the skid, on the EDGE of leaving the road -------------
+; In/out: A16/I16, DB=0. Clobbers A.
+;
+; rc_offroad has just probed the tile under the camera and left its verdict in
+; CM_FLAG, so this reads THAT byte rather than probing the map a second time —
+; one query per frame, and the sound cannot disagree with the physics.
+;
+; EDGE, not condition. Grass bleeds speed every frame the kart is on it; a cue
+; on the condition would queue 60 times a second and read as a stutter rather
+; than a skid. US_OFFR remembers which surface the last frame ended on.
+; WIDTH-RISK: Tad_QueueSoundEffect is a CROSS-FILE A8 callee (vendor/tad); the
+; width linter is single-file and cannot see the contract, so the sep/rep pair
+; is load-bearing.
+rc_surface_cue:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda z:CM_FLAG
+    and #RC_FLAG_DRIVABLE
+    beq @off_road
+    lda #0                          ; on the road: re-arm, say nothing.
+    sta f:US_OFFR_LONG              ;   STZ has no absolute-long form
+    bra @done
+@off_road:
+    .a8
+    .i16
+    lda f:US_OFFR_LONG
+    bne @done                       ; already off it: this is not a crossing
+    lda #1
+    sta f:US_OFFR_LONG
+    lda #SFX::skid
+    jsr Tad_QueueSoundEffect
+@done:
+    .a8
+    .i16
+    rep #$20
+    .a16
     rts
 
 ; --- this scene's ROM blobs (allocator-claimed; the .asserts refuse drift) --

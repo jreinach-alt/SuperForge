@@ -246,6 +246,8 @@ handle_a:
     lda #.loword(npc_pages)
     ldx #NPC_PAGE_COUNT
     jsr dialog_open
+    lda #SFX::select                ; she starts talking
+    jsr sfx_q
     rts
 @save:
     .a16
@@ -264,6 +266,8 @@ handle_a:
     sta z:::RPG_TOWN_FLARE
     rep #$20
     .a16
+    lda #SFX::chime                 ; the save is recorded — heard as well as
+    jsr sfx_q                       ;   seen, beside the torch's flare
     rts
 
 ; --- adj_to: is the player a 4-neighbour of town cell (X=tx, Y=ty)? ---------
@@ -460,6 +464,8 @@ try_step:
     bne @blocked
     sty z:::RPG_TOWN_TY
     stx z:::RPG_TOWN_TX
+    lda #SFX::footstep              ; the step committed; X/Y survive the call
+    jsr sfx_q
     ; ---- stepping ONTO the south gate wipes out to the overworld ------------
     ; The gate (TOWN_EXIT_TX/TY) is a WALKABLE door tile, so the avatar steps
     ; onto it and the exit arms HERE — matching the entry mechanic (overworld
@@ -487,6 +493,23 @@ arm_exit:
     lda #::TM_BG1                   ; the affected-BG nibble for $2106
     ldx #.loword(::rpg_blank_to_overworld)
     jsr ::mosaic_arm
+    rep #$20
+    .a16
+    rts
+
+; --- sfx_q: queue the sound effect named in A -------------------------------
+; In: A16 = the SFX:: id (low byte). In/out: A16/I16, DB=0. Clobbers A.
+; KEEPS X and Y — Tad_QueueSoundEffect's own contract — which the walk-commit
+; path relies on, because it still holds the destination tile there.
+; WIDTH-RISK: Tad_QueueSoundEffect is a CROSS-FILE A8 callee (vendor/tad); the
+; width linter is single-file and cannot see the contract, so the sep/rep pair
+; is load-bearing here rather than at the call sites.
+sfx_q:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    jsr Tad_QueueSoundEffect
     rep #$20
     .a16
     rts
