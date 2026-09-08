@@ -275,8 +275,26 @@ def hero_centre(runner):
 # the ROM exists and boots
 # --------------------------------------------------------------------------
 
-def test_room_rom_is_a_valid_512k_image():
-    assert ROM.stat().st_size == 512 * 1024
+def test_room_rom_is_a_valid_image():
+    """The artifact is present, and its size agrees with its OWN declaration.
+
+    This used to read `== 512 * 1024`. The rail is 65,536 B now — `tad_export`
+    shrank to a half-window claim, room's whole allocation fitted one window,
+    and it was relinked with `lorom_64k.cfg`. Rather than swap one hardcoded
+    size for another, the case asserts the INVARIANT: `$FFD7` declares 2^N KB
+    and the image must be exactly that long.
+
+    That is the shape docs/94 R0 took out of `header.inc` — a size written
+    down in two places and checked in neither, which is how twenty rails came
+    to declare 32 KB while linking 524,288 B. `tools/fix_checksum.py` enforces
+    this on every image at build time and `tests/test_rom_header.py` checks it
+    across the tree; this keeps the rail's own smoke check meaningful without
+    re-pinning a number that is free to change again.
+    """
+    img = ROM.read_bytes()
+    declared = 2 ** img[0x7FD7] * 1024
+    assert len(img) == declared, (
+        f"room.sfc is {len(img)} B but its $FFD7 declares {declared} B")
 
 
 def test_room_scene_renders_the_room(runner, anchor, tmp_path):
