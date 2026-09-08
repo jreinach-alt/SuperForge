@@ -942,3 +942,55 @@ def piston_fixtures(runs, rod_ids, zone=PAL_STEEL):
                     [heads[i % len(heads)], feet[i % len(feet)]],
                     "pistons.png", body=[rod_ids[i % len(rod_ids)]])
             for i in range(len(rod_ids))]
+
+
+# --- rooms -> world ---------------------------------------------------------
+# THE ANCHORS PLACE WHOLE FIXTURES. The first room preview blitted a fixture's
+# FIRST BLOCK, so a 1x2 arch showed its top half standing on nothing and a
+# stair fragment appeared alone in mid-air — the same asset-splitting mistake
+# the fixture model was built to end, resurfacing in the renderer that consumed
+# it. An anchor now places the whole footprint, seated on the floor for `o` and
+# hung from the ceiling for `x`, and refuses rather than placing a fragment.
+def seat_fixture(fx, r, c, occupied, free_at, ceiling=False):
+    """Whole-footprint placement at an anchor. Returns the cells or None."""
+    w, h, cells = fx.footprint()
+    top = r if ceiling else r - h + 1
+    if not all(free_at(top + dr, c + dc) and (top + dr, c + dc) not in occupied
+               for dr in range(h) for dc in range(w)):
+        return None
+    return [(top + dr, c + dc, b) for dr, dc, b in cells]
+
+
+DRESS_EVERY = 3          # one border cell in this many gets an object
+
+
+def dress_border(kit, plain, pool, r, c, side):
+    """An object to stand in for a plain terrain piece on a room's border.
+
+    ROOM TOPS AND WALLS WERE THE SAME BLOCK EVERYWHERE, which is what made the
+    rooms read as boxes however good their interiors were. The sheets are full
+    of wall courses, cornices and springers that belong exactly there. Which
+    one may stand in is not a guess: the candidate's edge facing INTO the room
+    has to agree with the plain piece it replaces, so the substitution cannot
+    open a seam. That is what the adjacency work is actually for.
+    """
+    if not pool or (r * 7 + c * 13) % DRESS_EVERY:
+        return None
+    inward = {"N": "S", "S": "N", "W": "E", "E": "W"}[side]
+    want = edge_strips(kit[plain])[inward]
+    body = [v for row in kit[plain] for v in row]
+    # AMONG THE ONES THAT DO NOT OPEN A SEAM, TAKE THE MOST DIFFERENT. Picking
+    # the lowest seam cost selects the block most similar to the one being
+    # replaced, so 301 substitutions landed and the walls still looked
+    # identical. Fit is the constraint; contrast is the objective.
+    legal = [c for c in pool
+             if seam_cost(edge_strips(kit[c])[inward], want) <= JOIN_MAX * 2]
+    if not legal:
+        return None
+
+    def difference(c):
+        other = [v for row in kit[c] for v in row]
+        return sum(1 for a, b in zip(body, other) if a != b)
+
+    legal.sort(key=lambda c: (-difference(c), c))
+    return legal[(r * 3 + c) % min(4, len(legal))]
