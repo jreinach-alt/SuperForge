@@ -51,6 +51,68 @@ Commit all three outputs together — the `.asm` carries size asserts against
 the `.bin` and a `TAD_IO_VERSION` link-assert against `vendor/tad/`
 `tad-audio.s`, so a partial update refuses the build.
 
+## The sound-effect vocabulary
+
+Fourteen effects, shared by every rail that composes `audio`. Sharing is the
+architecture working, not a compromise: there is ONE export blob for the whole
+tree, so an effect authored for one rail is linked into all of them — `laser`
+is the shmup's gun and the saucer arena's, and neither pays for the other's.
+
+| effect | what it is for | voice |
+|---|---|---|
+| `room_a_ambience` / `room_b_ambience` | `room`'s per-space reverb (EVOL/EFB only) | echo, no note |
+| `beam_fire` / `beam_end` | the saucer arena's beam: an echo swell AND a tone, in ONE effect | `saw` / `tri_bass` |
+| `explosion` | a kill | noise |
+| `hit` | damage taken | noise + `step` |
+| `laser` | a shot | `saw`, falling sweep |
+| `jump` | a take-off, a ball off a bat | `square_lead`, rising sweep |
+| `pickup` | a coin, a brick, score | `bell` |
+| `chime` | a round bell, a save recorded | `bell` |
+| `select` | a confirm, a gate accepting, an NPC starting to talk | `pluck` |
+| `thud` | a wall, a stomp | `step` |
+| `footstep` | a walked tile | `step` |
+| `skid` | leaving the road | sustained noise |
+
+**Export order IS the priority policy.** The ca65 queue holds ONE effect per
+frame and the LOWER id wins (`tad-audio.s:1293`), so the ordering in
+`slice_b.terrificaudio` is a design decision: the four echo-carrying effects
+sort highest (losing one leaves the reverb wrong for the rest of the scene),
+ordinary events next, and `footstep`/`skid` lowest — a footstep must lose to
+an explosion.
+
+**Cost, measured:** the eleven added effects and two added instruments took the
+blob from 8,450 to 8,701 B against a 32,768 B claim. Bytecode is nearly free
+(~15 B an effect); BRR is not (~1 KB per 0.12 s one-shot). That is why the set
+leans on `play_noise` and `portamento_calc` and why the only new instruments
+are single-cycle 64-sample loops at ~36 B each.
+
+### Two things that are silent, not broken-looking
+
+Both compile, queue and key on. Neither produces a sound. Both were found on
+the emulator by reading the S-DSP voice, and neither is visible any other way.
+
+1. **A DECREASE-mode GAIN as an effect's opening envelope.** `E<rate>` and
+   `D<rate>` fall from the envelope's CURRENT level, and key-on leaves that at
+   zero — so `set_instrument_and_gain step E14` decays from silence and the
+   voice reads `ENVX = 0` forever. Percussive effects open with
+   `set_instrument_and_adsr <inst> 15 <decay> <sustain> <rate>` instead
+   (attack 15 = instant). Fixed `F<level>` gain is fine; `I<rate>` is fine
+   because it rises from zero by definition.
+
+2. **TAD's default audio mode is MONO** (`tad-audio.inc:123`). In mono the
+   driver collapses every channel to centre, so `Tad_QueuePannedSoundEffect`
+   costs cycles and achieves nothing — and it is not subtle: before this was
+   found, EVERY DSP voice on every rail, music included, read
+   `VOL_L == VOL_R`. A rail that pans must set
+   `Tad_audioMode = TadAudioMode::STEREO` **between `Tad_Init` and
+   `Tad_LoadSong`**; the mode only takes effect at the next song load
+   (`tad-audio.inc:525`). `shmup`, `boss_saucer` and `split_v_fight` do.
+
+Both are guarded by `tests/test_sfx_vocabulary.py`, whose cases read the DSP
+voice rather than the queue byte — the queue is consumed and reset inside the
+same frame (`tad-audio.s:993`), so it reads `$FF` at every frame boundary and
+a test watching it would pass on a silent rail.
+
 ## Design notes that live in the content
 
 - **Echo delay is CONSTANT (128 ms, `#EchoLength` = max)**: at the pin the

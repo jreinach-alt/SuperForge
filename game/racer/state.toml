@@ -22,8 +22,13 @@ tod_t      = "u16"       # frames left in the current phase
 grad_k     = "u8"        # gradient keyframe currently pointed at, 0..7
                          # (0 = full day, 7 = full night) — rc_grad retargets
                          # its three WRAM header tables at this index
-offr       = "u8"        # 0 = the kart was on the road last frame, 1 = it
-                         # was on grass. The EDGE latch behind the skid cue:
+# TICK: ok — a BOOLEAN LATCH, not a count of frames. It records WHICH SURFACE
+# the previous update ended on so the cue can find a crossing; it is written to
+# 0 or 1 and never accumulates, so there is no duration to scale and no
+# rounding decision to get wrong. A PAL kart crosses onto grass at the same
+# place an NTSC one does, and hears the same single skid.
+offr       = "u8"        # 0 = the kart was on the road on the previous update,
+                         # 1 = it was on grass. The EDGE latch behind the skid:
                          # rc_offroad bleeds speed every frame the kart is off
                          # the road, so queueing a sound on the CONDITION would
                          # be a 60 Hz stutter. Returning to the road re-arms it;
