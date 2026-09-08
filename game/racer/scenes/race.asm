@@ -343,7 +343,7 @@ rc_start_cue:
     sep #$20
     .a8
     lda #SFX::select
-    jsr Tad_QueueSoundEffect
+    jsr sf_sfx_queue_c
     rep #$20
     .a16
 @none:
@@ -383,7 +383,7 @@ rc_surface_cue:
     lda #1
     sta f:US_OFFR_LONG
     lda #SFX::skid
-    jsr Tad_QueueSoundEffect
+    jsr sf_sfx_queue_c
 @done:
     .a8
     .i16

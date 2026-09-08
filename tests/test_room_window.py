@@ -646,10 +646,20 @@ def test_caption_is_never_dimmed_inside_or_outside_the_lantern(
 # --------------------------------------------------------------------------
 
 MC_PER_FRAME = 357368            # allocator/substrate.toml [frame.ntsc]
-IRIS_TAB = 0x04A4                # the iris_tab claim (build/rm/*.inc)
+
+# ASKED FOR, NOT TRANSCRIBED — the same rule _room_symbols() above states, and
+# these two were the last places in this module still breaking it. They read
+# `IRIS_TAB = 0x04A4` and `SM_FRAME = 0x04A0`: faithful copies of one build's
+# WRAM packing, and the docstring above even names 0x04A4 as a literal a
+# previous sweep had removed. A new GLOBAL claim landing below them re-packed
+# the map and moved ES_SM_FRAME to $04B1, so SM_FRAME then addressed the first
+# byte of an unrelated feature's state — which reads as zero. Both cases went
+# red saying "the loop is missing frames" and "0 usable samples", i.e. blaming
+# the ROM for a stale constant in the test. Asking the map cannot rot that way.
+IRIS_TAB = _SYMS["ES_IRIS_TAB"]["start"]
 IRIS_FIRST_DATA = IRIS_TAB + 1                  # row 0's WH0
 IRIS_LAST_DATA = IRIS_TAB + 256 + 2 * 96 + 1    # row 223's WH1
-SM_FRAME = 0x04A0                # scene_mgr's frame counter
+SM_FRAME = _SYMS["ES_SM_FRAME"]["start"]        # scene_mgr's frame counter
 
 
 def _clock_at_write(runner, addr, max_frames=300):

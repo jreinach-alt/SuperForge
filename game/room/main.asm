@@ -17,6 +17,10 @@ SF_HDR_TITLE_SET = 1
 .include "engine_state_globals.inc" ; GENERATED — system + game-lifetime map
 .assert SF_INC_FORMAT = 1, error, "this rail was written against allocator include format 1 — allocate.py now emits a different symbol shape; re-read the emitted engine_state_globals.inc before bumping this"
 .include "tad-audio.inc"            ; vendor/tad — the TAD API imports + enums
+.import sf_sfx_reset, sf_sfx_queue, sf_sfx_queue_c, sf_audio_tick
+                                    ; engine/features/audio — the request
+                                    ;   queue in front of TAD's one-deep
+                                    ;   one (tad_wrapper.asm)
 .include "tad_audio_enums.inc"      ; GENERATED — Song:: / SFX:: ids for this
                                     ; game's export (assets/audio/export)
 JOY_START = 1 << 12                 ; $4218 bit 12 — a bit POSITION.
@@ -179,6 +183,7 @@ MAIN:
     sep #$20
     .a8
     jsl Tad_Init
+    jsr sf_sfx_reset                ; the ring holds power-on garbage
     lda #Song::slice_b_song
     jsr Tad_LoadSong
     rep #$20
@@ -231,7 +236,7 @@ MAIN:
     ; queues are just processed late.
     sep #$20
     .a8
-    jsl Tad_Process
+    jsr sf_audio_tick               ; delivers one queued cue, then Tad_Process
     rep #$20
     .a16
     jsr sm_frame_sync

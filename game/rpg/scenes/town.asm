@@ -509,7 +509,7 @@ sfx_q:
     .i16
     sep #$20
     .a8
-    jsr Tad_QueueSoundEffect
+    jsr sf_sfx_queue_c
     rep #$20
     .a16
     rts

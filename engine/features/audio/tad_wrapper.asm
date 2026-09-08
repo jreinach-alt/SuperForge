@@ -70,7 +70,7 @@ SFXQ_DFULL  = ES_SFX_QUEUE_LONG + 14
 SFXQ_DSTALE = ES_SFX_QUEUE_LONG + 15
 SFXQ_DELIV  = ES_SFX_QUEUE_LONG + 16
 
-.export sf_sfx_reset, sf_sfx_queue, sf_audio_tick
+.export sf_sfx_reset, sf_sfx_queue, sf_sfx_queue_c, sf_audio_tick
 
 .a8
 .i16
@@ -285,4 +285,30 @@ sf_audio_tick:
     .a8
     .i16
     jsl Tad_Process
+    rts
+
+.a8
+.i16
+; --- sf_sfx_queue_c: the same, centred -------------------------------------
+; CONTRACT sf_sfx_queue_c
+;   entry:    A8 I16 DB=0
+;   exit:     A8 I16
+;   in:       A = the SFX:: id
+;   out:      the request held with a centre pan
+;   clobbers: A, N, Z, C
+;   tail:     rts
+;
+; The centred counterpart of sf_sfx_queue, and the reason it exists rather
+; than an `ldx` at each call site: X SURVIVES. room_logic's footstep call is
+; marked "KEEP X/Y" by its caller, so loading a pan into X there would be a
+; silent register clobber in engine code — the shape this repo keeps finding.
+; Callers that already have a position use sf_sfx_queue directly.
+;
+; SFXQ_PAN_CENTRE is above TAD_MAX_PAN, which the driver reads as centre
+; (tad-audio.s:976) — the same convention Tad_QueueSoundEffect uses internally.
+sf_sfx_queue_c:
+    phx
+    ldx #SFXQ_PAN_CENTRE
+    jsr sf_sfx_queue
+    plx
     rts

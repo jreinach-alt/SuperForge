@@ -49,6 +49,7 @@ SHMUP_MAIN = SUPERFORGE / "game" / "shmup" / "main.asm"
 SHMUP_PLAY = SUPERFORGE / "game" / "shmup" / "scenes" / "play.asm"
 RACE = SUPERFORGE / "game" / "racer" / "scenes" / "race.asm"
 CFG = SUPERFORGE / "vendor" / "rom" / "lorom_512k.cfg"
+CFG64 = SUPERFORGE / "vendor" / "rom" / "lorom_64k.cfg"
 SAU_MAIN = SUPERFORGE / "game" / "boss_saucer" / "main.asm"
 SAU_ARENA = SUPERFORGE / "game" / "boss_saucer" / "scenes" / "arena.asm"
 OVERWORLD = SUPERFORGE / "game" / "rpg" / "scenes" / "overworld.asm"
@@ -97,8 +98,8 @@ PLANTS = [
         file=CFG,
         old="""    BANK1:      load = ROM1,  type = ro,  optional = yes, align = $4000;""",
         new="""    BANK1:      load = ROM1,  type = ro,  optional = yes;""",
-        artifact=SUPERFORGE / "build" / "room.sfc",
-        build=["room"],
+        artifact=SUPERFORGE / "build" / "boss_saucer.sfc",
+        build=["boss_saucer"],
         expect="build-fails",
         build_names="drifted from allocator claim",
         tests=[],
@@ -110,7 +111,28 @@ PLANTS = [
             "wrong address — the silent-corruption shape this repo's .incbin "
             "asserts exist for. This plant proves those asserts still catch it: "
             "the build must FAIL, by name, rather than produce a ROM. It is an "
-            "`expect=build-fails` plant because there is no ROM to test.",
+            "`expect=build-fails` plant because there is no ROM to test.\n"
+            "It BUILT boss_saucer, not room: room moved to lorom_64k.cfg when "
+            "its allocation fitted one window, so a plant patching the 512 KB "
+            "cfg and building room tested nothing. The harness reported that "
+            "as TEST-BLIND the first run after the move — a plant going quiet "
+            "is the same class of rot as a test going quiet.",
+    ),
+    Plant(
+        id="sfxq-bank1-align-dropped-64k",
+        file=CFG64,
+        old="""    BANK1:      load = ROM1,  type = ro,  optional = yes, align = $4000;""",
+        new="""    BANK1:      load = ROM1,  type = ro,  optional = yes;""",
+        artifact=SUPERFORGE / "build" / "room.sfc",
+        build=["room"],
+        expect="build-fails",
+        build_names="drifted from allocator claim",
+        tests=[],
+        why="The SAME load-bearing alignment, in the OTHER config. Five rails "
+            "link through lorom_64k.cfg now, so the 512 KB plant above no "
+            "longer covers them at all — and an alignment that is only "
+            "checked in one of the two files it lives in is checked by "
+            "accident. Same mechanism, same loud refusal, different cart.",
     ),
     Plant(
         id="sfx-mono-audio-mode",

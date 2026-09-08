@@ -185,7 +185,7 @@ rm_move:
     sep #$20
     .a8
     lda #SFX::footstep
-    jsr Tad_QueueSoundEffect        ; A8, KEEP X/Y, DB=0 is lowram, DP=0
+    jsr sf_sfx_queue_c        ; A8, KEEP X/Y, DB=0 is lowram, DP=0
     rep #$20
     .a16
     lda #RM_STEP_PERIOD

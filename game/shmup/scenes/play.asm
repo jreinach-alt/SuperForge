@@ -757,7 +757,7 @@ shm_sfx:
     .i16
     sep #$20
     .a8
-    jsr Tad_QueueSoundEffect
+    jsr sf_sfx_queue_c
     rep #$20
     .a16
     rts
@@ -787,7 +787,7 @@ shm_sfx_burst:
     tya
     sep #$20
     .a8
-    jsr Tad_QueuePannedSoundEffect
+    jsr sf_sfx_queue
     rep #$20
     .a16
     rts

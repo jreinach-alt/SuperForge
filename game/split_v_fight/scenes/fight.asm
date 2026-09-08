@@ -387,7 +387,7 @@ round_arm:
     sep #$20
     .a8
     lda #SFX::chime
-    jsr Tad_QueueSoundEffect
+    jsr sf_sfx_queue_c
     rep #$20
     .a16
     rts
@@ -1002,7 +1002,7 @@ sv_sfx:
     pla                             ; ...and A is the id again
     sep #$20
     .a8
-    jsr Tad_QueuePannedSoundEffect
+    jsr sf_sfx_queue
     rep #$20
     .a16
     plx
