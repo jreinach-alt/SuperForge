@@ -49,11 +49,49 @@ SHMUP_MAIN = SUPERFORGE / "game" / "shmup" / "main.asm"
 SHMUP_PLAY = SUPERFORGE / "game" / "shmup" / "scenes" / "play.asm"
 RACE = SUPERFORGE / "game" / "racer" / "scenes" / "race.asm"
 CFG = SUPERFORGE / "vendor" / "rom" / "lorom_512k.cfg"
+SAU_MAIN = SUPERFORGE / "game" / "boss_saucer" / "main.asm"
+SAU_ARENA = SUPERFORGE / "game" / "boss_saucer" / "scenes" / "arena.asm"
 OVERWORLD = SUPERFORGE / "game" / "rpg" / "scenes" / "overworld.asm"
 
 T = "tests/test_sfx_vocabulary.py::"
+Q = "tests/test_sfx_queue.py::"
 
 PLANTS = [
+    Plant(
+        id="sfxq-queue-bypassed",
+        file=SAU_ARENA,
+        old="""    jsr sf_sfx_queue                ; ...heard from where the ship is""",
+        new="""    jsr Tad_QueuePannedSoundEffect  ; PLANT: straight to the one-deep API""",
+        artifact=SUPERFORGE / "build" / "boss_saucer.sfc",
+        build=["boss_saucer"],
+        tests=[Q + "test_both_cues_reach_the_driver",
+               Q + "test_both_cues_are_audible"],
+        why="THE DEFECT THE QUEUE EXISTS FOR, restored at one call site. The "
+            "gun goes straight to TAD's one-deep API again, so a shot fired on "
+            "the beam's ignition frame loses the slot to beam_fire (id 3 beats "
+            "id 6) and a real bullet flies in silence. Nothing else changes: "
+            "the bullet still spawns, still travels, still kills, and the beam "
+            "still fires — which is exactly why this went unnoticed before it "
+            "was forced. The collision PRECONDITION case must stay GREEN under "
+            "this plant, and does; only the two cases that count deliveries "
+            "and per-voice onsets can see it.",
+    ),
+    Plant(
+        id="sfxq-reset-dropped",
+        file=SAU_MAIN,
+        old="""    jsr sf_sfx_reset                ; the ring holds power-on garbage until this""",
+        new="""                                    ; PLANT: no reset — the ring boots dirty""",
+        artifact=SUPERFORGE / "build" / "boss_saucer.sfc",
+        build=["boss_saucer"],
+        tests=[Q + "test_the_ring_boots_empty"],
+        why="POWER-ON FIDELITY (CLAUDE.md rule 5), on a ring rather than a "
+            "framebuffer. RAM is random at boot and the harness runs ROMs that "
+            "way deliberately, so an unreset head/count indexes and drains "
+            "garbage from the first frame. It is a one-line omission in a boot "
+            "block — the most plausible way this comes back — and it is "
+            "invisible on any emulator that zero-fills, which is the whole "
+            "reason the house rule exists.",
+    ),
     Plant(
         id="sfx-bank1-alignment-dropped",
         file=CFG,

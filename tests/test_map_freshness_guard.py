@@ -214,6 +214,15 @@ def test_the_tree_agrees_with_the_rule():
         "test_mode7_flight.py": ["build/m7f/symbol_map.json"],
         "test_m7_dungeon.py": ["build/m7dg/symbol_map.json"],
         "test_breaker.py": ["build/bk/symbol_map.json"],
+        # The SFX-queue module, on boss_saucer — the rail whose tick order
+        # makes a same-frame cue collision forceable rather than hoped for.
+        # Its map went into conftest.MAPS ("boss_saucer") and _SUBDIR_MAP
+        # ("sau") with this entry, and `make rail-registered` demanded all
+        # three in turn: sites 4 and 5 first, then this one. Unregistered, the
+        # resolver falls back to the TOY map and the module is checked for
+        # freshness against another game entirely — the silent failure that
+        # site 5's message calls out by name.
+        "test_sfx_queue.py": ["build/sau/symbol_map.json"],
         # an earlier phase a later sweep, same shape: its map IS in
         # conftest.MAPS ("shmup").
         "test_shmup.py": ["build/sh/symbol_map.json"],

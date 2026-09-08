@@ -657,7 +657,7 @@ player_fire:
     sep #$20
     .a8
     lda #SFX::laser                 ; the gun report, one per fired shot
-    jsr Tad_QueuePannedSoundEffect  ; ...heard from where the ship is
+    jsr sf_sfx_queue                ; ...heard from where the ship is
     rep #$20
     .a16
 @no_fire:
@@ -903,7 +903,7 @@ beam_update:
     sep #$20
     .a8
     lda #SFX::beam_end              ; the arena's echo settles back
-    jsr Tad_QueuePannedSoundEffect
+    jsr sf_sfx_queue              
     rep #$20
     .a16
     rts
@@ -945,7 +945,7 @@ beam_update:
     sep #$20
     .a8
     lda #SFX::beam_fire             ; the beam ignites: the arena rings
-    jsr Tad_QueuePannedSoundEffect
+    jsr sf_sfx_queue              
     rep #$20
     .a16
 @done:

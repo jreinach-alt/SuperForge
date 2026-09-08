@@ -675,7 +675,7 @@ Generated from the tree by `tools/gen_register.py`; `make register` fails when t
 
 | dir | role | scope | claims | depends |
 |---|---|---|---|---|
-| `audio` | **feature** | unused | `dp`, `wram`, `reg`, `spc` | `tad_rom` |
+| `audio` | **feature** | unused | `dp`, `wram`&times;2, `reg`, `spc` | `tad_rom` |
 | `backdrop` | **feature** | scene | `cgram`, `reg` | &mdash; |
 | `barrel_rom` | **blob** | unused | `rom`&times;2 | &mdash; |
 | `bg_text` | **feature** | scene | `vram`, `cgram`, `reg` | `text_dp`, `font_rom`, `text_chr` |

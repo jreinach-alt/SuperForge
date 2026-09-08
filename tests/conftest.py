@@ -1089,6 +1089,9 @@ MAPS = {
     "build/bk/symbol_map.json": (
         "breaker",
         ["--game", "game/breaker", "--features-dir", "engine/features"]),
+    "build/sau/symbol_map.json": (
+        "boss_saucer",
+        ["--game", "game/boss_saucer", "--features-dir", "engine/features"]),
     "build/sh/symbol_map.json": (
         "shmup",
         ["--game", "game/shmup", "--features-dir", "engine/features"]),
@@ -1215,6 +1218,7 @@ _SUBDIR_MAP = {"hz": "build/hz/symbol_map.json",
                "mz": "build/mz/symbol_map.json",
                "rm": "build/rm/symbol_map.json",
                "bk": "build/bk/symbol_map.json",
+               "sau": "build/sau/symbol_map.json",
                "sh": "build/sh/symbol_map.json",
                "hud": "build/hud/symbol_map.json",
                "pl": "build/pl/symbol_map.json",
