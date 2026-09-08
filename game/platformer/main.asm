@@ -185,6 +185,15 @@ MAIN:
     .a8
     jsl Tad_Init
     jsr sf_sfx_reset                ; the ring holds power-on garbage
+    ; STEREO, because the song it is about to load is PANNED — the mid
+    ; pulse sits left and the arpeggio right. TAD's default is MONO
+    ; (tad-audio.inc:123) and in mono the driver collapses every channel
+    ; to centre, so the image would be authored and then discarded. The
+    ; mode only takes effect at the next song load (tad-audio.inc:525),
+    ; so it is set HERE — after Tad_Init, which initialises it, and
+    ; before Tad_LoadSong.
+    lda #TadAudioMode::STEREO
+    sta Tad_audioMode
     ; The ACTION rails' song — kit, sixteenth bass, saw lead, scored on
     ; A-F so nothing of it sits on the two channels a sound effect ducks.
     ; `slice_b_song` stays the room rail's: assets/audio/README.md, "Two songs".
