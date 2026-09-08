@@ -43,6 +43,8 @@ NON = 0x3D                      # S-DSP per-voice noise enable
 MUSIC_VOICES = tuple(range(6))  # channels A-F
 SFX_VOICES = (6, 7)             # channels G/H — TAD's two effect channels
 MUSIC_MASK = 0x3F
+PANNED = (1, 3)                 # channels B (p40) and D (p96)
+CENTRED = (0, 2, 4, 5)          # lead, bass, snare/hat, kick
 
 
 def _rom(name):
@@ -144,3 +146,60 @@ def test_the_kit_never_takes_the_noise_generator(shmup_song):
             f"{name} drive: a music voice is in the noise mask on "
             f"{len(bad)} frames (first frame {bad[0][0]}, NON={bad[0][1]:#04x}) "
             f"— that voice is silenced whenever an effect plays noise")
+
+
+# =============================================================================
+# the stereo image — a pan that never reaches the chip is not a pan
+# =============================================================================
+
+def _sgn(b):
+    return b - 256 if b > 127 else b
+
+
+@pytest.fixture(scope="module")
+def racer_pan():
+    """VOL_L vs VOL_R per music voice on the racer, over the title.
+
+    The racer rather than the shmup because the racer is one of the three
+    rails that did NOT set an audio mode until this song arrived. TAD's
+    default is MONO (tad-audio.inc:123) and in mono the driver collapses
+    every channel to centre, so the song's `p40` and `p96` were being
+    authored and then discarded. This is the case that says otherwise.
+    """
+    r = MesenRunner(enable_audio=True)
+    r.boot_rom(_rom("racer"), frames=240)
+    off = {v: 0 for v in MUSIC_VOICES}
+    lit = {v: 0 for v in MUSIC_VOICES}
+    for _ in range(480):
+        r.frame_step(1)
+        d = r.read_bytes(DSP, 0, 128)
+        for v in MUSIC_VOICES:
+            if d[v * 0x10 + 8]:
+                lit[v] += 1
+                if _sgn(d[v * 0x10 + 0]) != _sgn(d[v * 0x10 + 1]):
+                    off[v] += 1
+    r.stop()
+    return {v: (off[v] / lit[v] if lit[v] else None) for v in MUSIC_VOICES}
+
+
+def test_the_panned_parts_are_actually_panned(racer_pan):
+    """Measured: 100% on both, and 0% on every voice with the rail in MONO."""
+    flat = {v: racer_pan[v] for v in PANNED if (racer_pan[v] or 0) < 0.90}
+    assert not flat, (
+        f"voices {sorted(flat)} carry the song's `p40`/`p96` but their "
+        f"VOL_L and VOL_R agree (divergence {flat}) — the rail is in MONO, "
+        f"where the driver collapses every channel to centre, so the stereo "
+        f"image is authored and thrown away")
+
+
+def test_nothing_else_drifts_off_centre(racer_pan):
+    """The other half of the claim, so the first cannot pass by accident.
+
+    Only two parts carry a pan command. A rail that panned everything —
+    or a driver that put a channel off-centre on its own — would satisfy
+    the case above while meaning something different.
+    """
+    drifted = {v: racer_pan[v] for v in CENTRED if racer_pan[v]}
+    assert not drifted, (
+        f"voices {sorted(drifted)} sit off centre (divergence {drifted}) "
+        f"but the song writes no pan for the lead, bass or kit")

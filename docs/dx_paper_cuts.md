@@ -266,3 +266,62 @@ small fraction of the frames no matter how loud it is, and the average says
 tuning went into chasing that number before noticing the metric was wrong for
 the class. Peak-per-part, or simply the listener, is the right judge; the
 average is only comparable *between* parts of the same kind.
+
+### A song's echo header is a CONTRACT with the sound effects, and only two of the three couplings were written down — **surprise, HIGH**
+
+Giving `drive_song` its own echo (EVOL 10 / EFB 20) broke `boss_saucer`, and
+the landing gate is what found it. The rail's arena rests at a dry echo, the
+beam swells it, and `beam_end` settles it back — by writing `set_echo_volume
+12` / `set_echo_feedback 24` LITERALLY. Those are `slice_b_song`'s header
+values. On a song whose header is 10/20, the first beam would have moved the
+arena to a rest state it was never in, permanently.
+
+So 12/24 is not one song's taste, it is a TREE-WIDE constant: two effects
+write it back (`room_a_ambience` when the player leaves the cavern,
+`beam_end` when the beam stops), and any song playing on a rail that uses
+either must match it or the restore is a lie.
+
+The 20 minutes spent before writing a line found the `room` coupling and
+missed this one, and the reason is worth keeping: the room coupling is stated
+in PROSE that names the song, so grepping for `slice_b_song` found it.
+boss_saucer's coupling is four bare integers in a test (`ECHO_REST = (12, 12,
+24)`) and two bare integers in an effect, and nothing in either says which
+song they came from. **A grep for the asset's NAME cannot find a coupling
+expressed as its VALUE.** The check that would have worked is the one done
+afterwards: `awk` the effects file for every `set_echo` write and ask what
+each restored value belongs to — four lines, and it enumerates the contract
+completely.
+
+Fixed by aligning the song to the constant and writing the reason into the
+MML header, where the next person to pick an echo volume will be standing.
+The song keeps its own buffer length and FIR taps, which are genuinely free:
+the vendored compiler structurally refuses `set_echo_delay` inside an effect,
+and no effect touches the FIR.
+
+### Two test modules race through the shared tree, and the loser blames the allocator — **surprise, MEDIUM**
+
+The same landing-gate run also erred with:
+
+    FileNotFoundError: 'engine/features/zz_lockprobe_20442_1/feature.toml'
+    make[3]: *** [Makefile:82: build/mz/engine_state_globals.inc] Error 1
+
+`tests/test_repo_tree_lock.py` deliberately plants
+`engine/features/zz_lockprobe_<pid>_<n>/` into the LIVE tree and removes it
+again; `tests/test_measure_rebuild.py`'s fixture shells out to `make
+microzero`, which enumerates `engine/features/*`. Under `-n 2 --dist
+loadfile` the two land on different workers and the enumeration catches the
+probe mid-life. The artifact's own `suite_schedule` shows them at positions
+60/62 and 49/51 — both in their worker's tail, so they overlapped.
+
+Nothing about it points at the cause: the traceback accuses the allocator of
+failing to open a feature that no one wrote, on a build target unrelated to
+either module. It is also intermittent — the immediately preceding run of the
+same gate on the parent commit was green — so a single red here is not
+evidence about the tree.
+
+Unfixed, and named here rather than papered over. The shape of a fix is
+scheduling, not allocator code: the tree-lock module wants the shared tree to
+itself, so it should not be co-schedulable with any module that shells out to
+`make`. `docs/44` §8's `fault_reading` called this run `defect` rather than
+`harness-liveness`, correctly — it IS a defect, just not one in the diff
+under test, which is a third category the reading does not yet have.

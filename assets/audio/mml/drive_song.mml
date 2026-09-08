@@ -8,13 +8,30 @@
 ; and a piece with a drum kit under it has no such window. Two rails, two
 ; jobs, two songs.
 ;
-; Its own echo, not room A's: 64 ms of buffer (8 KiB of ARAM instead of 16)
-; with a low-passed FIR, so the tail is a slap that darkens rather than a
+; A tighter echo than room A's: 64 ms of buffer (8 KiB of ARAM instead of 16)
+; behind a low-passed FIR, so the tail is a slap that darkens rather than a
 ; cavern that smears the hats. Taps sum to 127 -- the compiler rejects an
 ; absolute sum over 128.
+;
+; EVOL AND EFB ARE NOT FREE, and this song was authored at 10/20 until the
+; landing gate said otherwise. 12/24 is a TREE-WIDE constant: it is the dry
+; rest state that two sound effects WRITE BACK literally -- `room_a_ambience`
+; when the player leaves the cavern, and `beam_end` when the saucer's beam
+; stops swelling the arena (both in sound-effects.txt). An effect that
+; restores a value the running song never had does not restore anything; it
+; moves the rail to a rest state it was never in, permanently, after the
+; first use. boss_saucer's echo cycle caught this: its arena rested at
+; 10/20, the beam swelled it to 70/96, and `beam_end` would have settled it
+; to 12/24 and left it there.
+;
+; The buffer length and the FIR are this song's own, because nothing writes
+; them back: the vendored compiler structurally refuses `set_echo_delay`
+; inside a sound effect (sound-effects.txt's header says so), and no effect
+; touches the FIR taps. So the character survives; only the two numbers under
+; contract are given up.
 #EchoLength 64
-#EchoVolume 10
-#EchoFeedback 20
+#EchoVolume 12
+#EchoFeedback 24
 #FirFilter 64 32 16 8 4 2 1 0
 
 ; D minor. The key signature flats every `b` so the mode is written, not
