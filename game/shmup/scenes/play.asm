@@ -882,10 +882,11 @@ shm_hits:
     jsr shm_pool_kill           ; the fighter
     ldx z:US_OFF
     jsr shm_pool_kill           ; ...and the bullet that spent itself on it
+    lda #SFX::explosion
+    jsr shm_sfx_burst           ; heard where it is about to be seen: this
+                                ;   reads the same US_BX shm_burst is about to
     jsr shm_burst               ; the explosion, at the fighter (US_BX/US_BY)
     jsr shm_score
-    lda #SFX::explosion
-    jsr shm_sfx_burst           ; ...and it is heard where it is seen
     bra @next_bullet
 @next_foe:
     .a16
@@ -981,9 +982,9 @@ shm_damage:
     .i16
     ldx z:US_OFF
     jsr shm_pool_kill           ; the colliding fighter bursts too
-    jsr shm_burst
     lda #SFX::explosion
     jsr shm_sfx_burst
+    jsr shm_burst
     lda #SHIP_SPAWN_X
     sta z:US_PX
     lda #SHIP_SPAWN_Y

@@ -380,6 +380,16 @@ round_arm:
     jsr round_arm_one
     ldx #2
     jsr round_arm_one
+    ; The bell belongs to the ARENA rather than to either fighter, so it is the
+    ; one cue on this rail that stays centred.
+    ; WIDTH-RISK: Tad_QueueSoundEffect is a CROSS-FILE A8 callee (vendor/tad);
+    ; the sep/rep pair is load-bearing for the same single-file reason.
+    sep #$20
+    .a8
+    lda #SFX::chime
+    jsr Tad_QueueSoundEffect
+    rep #$20
+    .a16
     rts
 
 ; --- round_arm_one: one fighter's half of that ----------------------------
@@ -636,6 +646,8 @@ fighter_input:
     beq @walk
     lda z:US_VJUMP
     sta z:US_JVEL, x
+    lda #SFX::jump
+    jsr sv_sfx
     lda #SV_ST_JUMP
     jmp set_state                   ; the take-off frame does not also walk
 @walk:
@@ -947,6 +959,55 @@ swing_check:
     sta z:US_SWH, x                 ; ...and this swing is spent
     jmp swing_land
 
+; --- sv_sfx: queue the sound in A, panned to the half its fighter owns ------
+; In: A16 = the SFX:: id, X = that fighter's pair index (0 or 2).
+; In/out: A16/I16, DB=0. Clobbers A. KEEPS X and Y.
+;
+; THE PAN IS NOT A WORLD POSITION. This rail is a split screen and each fighter
+; is centred in its own half, so what a listener localises is which HALF the
+; event happened in — and that swaps when the fighters cross, which US_CROSSED
+; already latches for the camera. Reading it here means the sound follows the
+; picture through a crossover instead of contradicting it.
+;
+; X is preserved because every call site is mid-routine with the fighter index
+; still live (swing_land goes on to compute a knockback with it). The id rides
+; the stack rather than a register: both pushes and both pulls happen in 16-bit
+; mode, so the pair nets to zero bytes across the sep/rep — the documented
+; stack-drift trap is a push in one width and a pull in the other.
+;
+; WIDTH-RISK: Tad_QueuePannedSoundEffect is a CROSS-FILE callee (vendor/tad)
+; and takes A8 with the pan in X; the width linter is single-file and cannot
+; see the contract, so the sep/rep pair around it is load-bearing.
+SV_PAN_L = 32                       ; TAD's pan runs 0..128 across the screen
+SV_PAN_R = 96
+sv_sfx:
+    .a16
+    .i16
+    phx
+    pha
+    txa
+    lsr a                           ; pair index 0/2 -> fighter 0/1
+    eor z:US_CROSSED                ; ...and the halves swap when they cross
+    beq @left
+    lda #SV_PAN_R
+    bra @have
+@left:
+    .a16
+    .i16
+    lda #SV_PAN_L
+@have:
+    .a16
+    .i16
+    tax                             ; X = the pan
+    pla                             ; ...and A is the id again
+    sep #$20
+    .a8
+    jsr Tad_QueuePannedSoundEffect
+    rep #$20
+    .a16
+    plx
+    rts
+
 ; --- other_jmp: both fighters' jump heights, in whole pixels ---------------
 ; In/out: A16/I16, DB=0. X = this fighter's pair index. Out: A = the OTHER
 ; fighter's height in px, US_SLOT = this fighter's. X unchanged. Clobbers A.
@@ -999,12 +1060,16 @@ swing_land:
     sta z:US_RSTATE
     lda #SV_KO_LEN
     sta z:US_RTIMER
+    lda #SFX::explosion             ; the blow that ends it
+    jsr sv_sfx
     bra @knock
 @staggered:
     .a16
     .i16
     lda #SV_ST_HIT
     jsr set_state
+    lda #SFX::hit
+    jsr sv_sfx
 @knock:
     .a16
     .i16

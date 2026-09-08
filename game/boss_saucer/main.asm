@@ -197,6 +197,16 @@ MAIN:
     sep #$20
     .a8
     jsl Tad_Init
+    ; STEREO, because this rail PANS its sound effects and TAD's default audio
+    ; mode is MONO (tad-audio.inc:123) — in mono the driver collapses every
+    ; channel to centre, so a panned queue call is a lie that costs cycles.
+    ; Measured before it was found: every DSP voice, music included, read
+    ; VOL_L == VOL_R, and a hard-left pan set from the game AND a `set_pan 0`
+    ; inside the effect's own bytecode BOTH changed nothing. The mode only
+    ; takes effect at the next song load (tad-audio.inc:525), so it is set
+    ; HERE — after Tad_Init, which initialises it, and before Tad_LoadSong.
+    lda #TadAudioMode::STEREO
+    sta Tad_audioMode
     lda #Song::slice_b_song
     jsr Tad_LoadSong
     rep #$20
