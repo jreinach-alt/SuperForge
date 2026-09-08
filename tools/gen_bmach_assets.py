@@ -429,7 +429,7 @@ def terrain_set(fill):
     return [terrain_block(fill, f) for f in range(16)]
 
 
-def world(kit, runs, base, terrain, chains, lone, fitted_zone):
+def world(kit, runs, base, terrain, fixtures):
     """The map, the collision grid, and the piston banks.
 
     CONNECTIVITY IS CONSTRUCTED AND THEN PROVED. The first version carved
@@ -557,52 +557,55 @@ def world(kit, runs, base, terrain, chains, lone, fitted_zone):
     # the steel ramp, so lending it to a sandstone hall painted twelve props in
     # a ramp they were never quantised for — the last of the mixing, and
     # invisible until it was counted.
-    # --- arrangements ------------------------------------------------------
-    # Props are placed as CHAINS the adjacency found, anchored to a wall or the
-    # centre of a hall, never at a stride. A chain butts together without a
-    # seam by construction; the 28 objects nothing joins are placed singly with
-    # air beside them, which is the only way they can look deliberate.
-    SHEET_ZONE = {f: z for f, z, _ in SHEETS}
+    # --- fixtures -----------------------------------------------------------
+    # PLACED AS ASSETS, NOT AS BLOCKS. Each fixture keeps the footprint the
+    # artist drew it at, so an arch arrives as an arch instead of as four
+    # blocks that happened to pass an edge test. Pistons are extensible and
+    # take their length from the hall they stand in.
     by_zone = {}
-    for fname, chain in chains:
-        by_zone.setdefault(SHEET_ZONE[fname], []).append((fname, chain))
-    lone_zone = {}
-    for i in lone:
-        lone_zone.setdefault(fitted_zone[i], []).append(i)
+    for fx in fixtures:
+        by_zone.setdefault(fx.zone, []).append(fx)
 
-    def lay(r, c, ids):
-        if any(not (0 <= c + k < COLS) or grid[r][c + k] != AIR
-               or (r, c + k) in prop for k in range(len(ids))):
+    def free(r, c, w, h):
+        return all(0 <= r + dr < ROWS and 0 <= c + dc < COLS
+                   and grid[r + dr][c + dc] == AIR
+                   and (r + dr, c + dc) not in prop
+                   for dr in range(h) for dc in range(w))
+
+    def place(fx, r, c, length=None):
+        w, h, cells = fx.footprint(length)
+        if not free(r, c, w, h):
             return False
-        for k, b in enumerate(ids):
-            prop[(r, c + k)] = b
+        for dr, dc, b in cells:
+            prop[(r + dr, c + dc)] = b
         return True
 
     for n, hall in enumerate(halls):
         hr, c0, w, h = hall["row"], hall["col"], hall["w"], hall["h"]
-        pool = by_zone.get(hall["zone"], [])
+        pool = [f for f in by_zone.get(hall["zone"], []) if f.kind == "unit"]
+        ext = [f for f in by_zone.get(hall["zone"], []) if f.kind == "extensible"]
         if not pool:
             continue
         floor = hr + h - 1
-        # ANCHORS, not intervals: hard against the left wall, hard against the
-        # right, and one centred. A hall reads as arranged because things line
-        # up with its edges.
-        anchors = []
-        for k, (fname, chain) in enumerate(pool):
-            if k >= 3:
-                break
-            L = len(chain)
-            anchors.append((floor, c0 + 1, chain))
-            anchors.append((floor, c0 + w - 1 - L, chain))
-            anchors.append((floor, c0 + (w - L) // 2, chain))
-        for k, (r, c, ids) in enumerate(anchors):
-            if k % 3 == n % 3:
-                lay(r, c, list(ids))
-        # a single loner in the far corner, where nothing has to join it
-        singles = lone_zone.get(hall["zone"], [])
-        if singles:
-            lay(floor, c0 + 2 if n % 2 else c0 + w - 3,
-                [singles[n % len(singles)]])
+        # a bay rhythm rather than a stride: fixtures are laid left to right
+        # with a gap between them, so the hall reads as a colonnade of things
+        # that each occupy their own width.
+        c = c0 + 1
+        k = n
+        while c < c0 + w - 2:
+            fx = pool[k % len(pool)]
+            k += 1
+            if place(fx, floor - fx.h + 1, c):
+                c += fx.w + 1 + (k % 2)
+            else:
+                c += 1
+        # one piston per machine hall, as tall as the hall allows
+        if ext and hall["role"] in ("machine", "transition"):
+            fx = ext[n % len(ext)]
+            length = max(1, h - 3)
+            for cc in (c0 + w // 3, c0 + 2 * w // 3):
+                if place(fx, hr, cc, length):
+                    break
     return grid, halls, banks, prop
 
 
@@ -667,6 +670,40 @@ def faces_of(grid, r, c):
     return f
 
 
+def zone_map(halls):
+    """Per-CELL material, so a transition hall can carry both.
+
+    A row constant cannot express a transition — the material has to change
+    THROUGH a room, not at its edge. A hall whose role is "transition" dithers
+    between its own zone and the next one down on a vertical probability
+    gradient, per block, because a 4bpp tilemap entry carries one palette field
+    and the mixing therefore has to happen BETWEEN blocks rather than inside
+    one. That is also how the hardware wants it done.
+    """
+    zm = [[None] * COLS for _ in range(ROWS)]
+    order = list(halls)
+    for n, h in enumerate(order):
+        nxt = order[n + 1]["zone"] if n + 1 < len(order) else h["zone"]
+        r0, r1 = h["row"], min(ROWS, h["row"] + h["h"])
+        for r in range(r0, r1):
+            for c in range(COLS):
+                if h["role"] != "transition" or nxt == h["zone"]:
+                    zm[r][c] = h["zone"]
+                else:
+                    # depth through the hall drives the odds; a stable hash of
+                    # the cell decides, so the dither is deterministic
+                    t = (r - r0 + 1) / max(1, r1 - r0)
+                    k = ((r * 73856093) ^ (c * 19349663)) % 1000 / 1000.0
+                    zm[r][c] = nxt if k < t else h["zone"]
+    cur = order[0]["zone"]
+    for r in range(ROWS):
+        for c in range(COLS):
+            if zm[r][c] is None:
+                zm[r][c] = cur
+        cur = zm[r][COLS // 2]
+    return zm
+
+
 def zone_rows(halls):
     """Which zone paints each map row, derived from the HALLS.
 
@@ -688,12 +725,12 @@ def zone_rows(halls):
     return out
 
 
-def paint(grid, prop, kit, terrain, base, zrows):
+def paint(grid, prop, kit, terrain, base, zmap):
     """The tilemap: autotiled terrain everywhere, props where they were placed."""
     words = bytearray()
     for r in range(ROWS):
         for c in range(COLS):
-            zone = zrows[r]
+            zone = zmap[r][c]
             if (r, c) in prop:
                 w = entry(base[prop[(r, c)]], zone)
             elif grid[r][c] == AIR:
@@ -815,6 +852,8 @@ def object_chains(kit, runs, adj, side="E", maxlen=4):
             sheet.setdefault(i, fname)
     out = []
     for i in range(len(kit)):
+        if i not in sheet:            # synthesised terrain is not an object
+            continue
         chain = [i]
         while len(chain) < maxlen:
             nxts = [j for j in adj[side][chain[-1]]
@@ -839,3 +878,67 @@ def loners(kit, runs, adj):
             if i in sheet
             and not any(j != i and sheet.get(j) == sheet.get(i)
                         for j in adj["E"][i] + adj["W"][i])]
+
+
+# --- fixtures: the unit of composition is the ASSET, not the block ----------
+# THE ARTIST ALREADY GROUPED THESE AND THE FIRST PASS THREW IT AWAY. An arch
+# drawn 2x2 on the sheet is four blocks that belong together; `block_run`
+# recorded that footprint and `build_kit` kept it in `runs`, and then the world
+# flattened everything into a bag of blocks and tried to re-derive the
+# relationships by matching edges. Measured: 24 of 84 assets are multi-block,
+# and every "arrangement" the edge walk produced was four blocks long because
+# the walk's own cap was four.
+#
+# So a FIXTURE is an asset placed whole. Three kinds:
+#   unit        — the asset's own bw x bh footprint, placed as one thing
+#   extensible  — a cap, a repeatable body, a cap: the piston, whose length is
+#                 a property of where it is standing rather than of the art
+#   loner       — one block nothing joins, placed with air around it
+class Fixture:
+    __slots__ = ("kind", "zone", "w", "h", "cells", "body", "sheet")
+
+    def __init__(self, kind, zone, w, h, cells, sheet, body=None):
+        self.kind, self.zone, self.sheet = kind, zone, sheet
+        self.w, self.h, self.cells, self.body = w, h, cells, body
+
+    def footprint(self, length=None):
+        """(w, h, [(dr, dc, block)]) — for an extensible fixture, `length` is
+        how many body blocks sit between the caps."""
+        if self.kind != "extensible":
+            return self.w, self.h, self.cells
+        n = max(1, length if length is not None else 1)
+        out = [(0, 0, self.cells[0])]
+        for k in range(n):
+            out.append((1 + k, 0, self.body[k % len(self.body)]))
+        out.append((1 + n, 0, self.cells[-1]))
+        return 1, n + 2, out
+
+
+def unit_fixtures(runs):
+    """Every asset, as a fixture that keeps its footprint."""
+    out = []
+    for fname, zone, bw, bh, ids in runs:
+        cells = [(k // bw, k % bw, ids[k]) for k in range(len(ids))]
+        out.append(Fixture("unit", zone, bw, bh, cells, fname))
+    return out
+
+
+def piston_fixtures(runs, rod_ids, zone=PAL_STEEL):
+    """Cap / body / cap, with the rod profiles as the repeatable middle.
+
+    THIS IS THE SHAPE THE MECHANISM ACTUALLY NEEDS. A piston is not a picture
+    of a fixed height — it is a head, a shaft as long as the hall it stands in,
+    and a foot. The rods are the only blocks in the kit that may repeat
+    vertically without the repeat showing, because they are built from one
+    median row.
+    """
+    heads = [ids[0] for f, z, bw, bh, ids in runs
+             if f == "pistons.png" and bh >= 2]
+    feet = [ids[-1] for f, z, bw, bh, ids in runs
+            if f == "pistons.png" and bh >= 2]
+    if not heads:                      # the pistons sheet is objects-only here
+        heads = feet = [rod_ids[0]]
+    return [Fixture("extensible", zone, 1, 3,
+                    [heads[i % len(heads)], feet[i % len(feet)]],
+                    "pistons.png", body=[rod_ids[i % len(rod_ids)]])
+            for i in range(len(rod_ids))]
