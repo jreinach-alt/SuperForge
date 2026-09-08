@@ -117,9 +117,9 @@ PLANTS = [
         build_names="drifted from allocator claim",
         tests=[],
         why="THE ONE LINE HOLDING THE HALF-WINDOW CLAIM TOGETHER. `tad_export` "
-            "reserves 16,384 B but the export's real segment content is 8,752 B, "
+            "reserves 16,384 B but the export's real segment content is 11,029 B, "
             "so without this alignment ld65 packs BANK1 immediately behind it "
-            "(~$01A230) while the allocator emitted $01C000 for the blobs it "
+            "(~$01AB15) while the allocator emitted $01C000 for the blobs it "
             "put in the same window. Every blob would then be read from the "
             "wrong address — the silent-corruption shape this repo's .incbin "
             "asserts exist for. This plant proves those asserts still catch it: "

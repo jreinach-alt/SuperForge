@@ -10,8 +10,9 @@
 # HALF-WINDOW claim, PINNED to window 1.
 #
 # It was a WHOLE window (32,768 B) until 2026-09-08, and the reason it no
-# longer is: the export is 8,752 B of segment content (51 B of LoadAudioData
-# plus an 8,701 B .incbin), so a whole-window claim reserved 24,016 B that
+# longer is: the export was then 8,752 B of segment content (51 B of
+# LoadAudioData plus an 8,701 B .incbin), so a whole-window claim reserved
+# 24,016 B that
 # nothing could ever use — and every rail that composes audio carries its OWN
 # copy of that reservation. Measured across the eight audio rails, halving the
 # claim takes `room` and `shmup` from a 64 KB cart to a 32 KB one, and it is
@@ -47,10 +48,19 @@
 # placement. `window = 1` states the constraint the cfg already imposes, and
 # the tie cannot recur now that this claim is half the size.
 #
-# HEADROOM, and it is smaller than it was: 16,384 - 8,752 = 7,632 B of tail
-# slack for content growth, where a whole window gave 24,016. That is roughly
-# seven more 0.12 s one-shot samples, or several hundred more sound effects
-# (SFX bytecode runs ~15 B each) — the set that lives here today spends 251 B.
+# HEADROOM, and it is smaller than it was: at the halving it was
+# 16,384 - 8,752 = 7,632 B of tail slack, where a whole window gave 24,016.
+# The action rails' song then spent 2,277 B of it — a `kick` one-shot (1,440 B
+# of BRR) and 730 B of song bytecode — so the export is now 11,029 B of
+# segment content (51 B of LoadAudioData plus a 10,978 B .incbin) and the
+# slack is 5,355 B. That is roughly four more 0.12 s one-shot samples, or
+# several hundred more sound effects (SFX bytecode runs ~15 B each) — the set
+# that lives here today spends 251 B.
+#
+# The two asserts in the generated export pin those figures rather than
+# leaving them as prose: `.sizeof(LoadAudioData) = 51` and
+# `.sizeof(__Tad_AudioData_0) = $2b46`. Regenerating the export rewrites the
+# second one, so a stale .bin cannot link against a fresh .asm.
 # If the export ever outgrows the claim, `BANK1`'s aligned start moves to
 # $020000, which is outside ROM1, and ld65 refuses the link. NOTE for that
 # day: LoadAudioData's bank arithmetic assumes a spill bank is the ADJACENT

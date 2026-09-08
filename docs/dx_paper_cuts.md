@@ -208,3 +208,61 @@ window is the first few frames.
 Generalises to anything with a pump: **self-healing state cannot be tested
 after it has healed.** The case that catches it reads the structure 8 frames in
 and asserts four bytes at once, so a lucky random-RAM seed cannot pass it.
+
+---
+
+## The action rails' song (2026-09-08)
+
+### Which song a rail plays, and what depends on it, was nowhere written down — **clunky, MEDIUM**
+
+The ask was "make the music sound less like a music box." The obvious move —
+rewrite `slice_b_song` — would have been wrong, and nothing in the docs said
+so. Eight rails all did `lda #Song::slice_b_song`, and the fact that ONE of
+them (`room`) has an entire test module calibrated to that song's shape lives
+in two places, neither of them a doc: a comment inside the MML ("Bar 8 is a
+deliberate near-silence … the audibility test's window") and a constant block
+in `tests/test_slice_b_audio.py` (`LOOP_TICKS, REST_ALIGN = 768, 716`). The
+song's echo header is coupled the same way — `room_a_ambience` restores exactly
+`#EchoVolume 12` / `#EchoFeedback 24`, so those three header lines are a
+contract with a sound effect, not a taste decision.
+
+Finding that out cost ~20 minutes of reading before a line was written, and the
+failure mode had it been missed was not a red test but a *silently destroyed
+demonstration* — the room rail would still have passed its RMS threshold while
+no longer showing what it exists to show.
+
+Fixed by writing it down: `assets/audio/README.md` now has a "Two songs"
+section naming which rail plays which and why the split exists. The general
+shape — **an asset whose properties are load-bearing for a test should say so
+in the asset's own directory, not only in the test** — is worth carrying.
+
+### `tad-compiler` resolves song paths against the project file, not the cwd — **surprise, LOW**
+
+`tad-compiler song project.terrificaudio mml/drive_song.mml` from the repo root
+gives `unable to open drive_song.mml: No such file or directory`, which names a
+file *without* the directory prefix that was passed. The tool resolves the path
+relative to the project file's own directory (the same way the project's
+`source` fields are resolved). Run it from `assets/audio/` and it works. ~2 min,
+and the export command in `assets/audio/README.md` already says "from
+`assets/audio/`" — the one-off `song` subcommand is where it bites.
+
+### An alphanumeric MML subroutine id needs a trailing space, and the error blames the wrong thing — **surprise, LOW**
+
+`[!e]16` fails with `cannot find subroutine: !e]16` plus two cascading errors
+about an unclosed loop. The rule is in the syntax doc ("If the id is an
+alphanumeric, a space is required after the `id`"), but the diagnostic reports
+the id it *parsed* rather than saying the id ran on into the next token, so the
+message reads as "this subroutine does not exist" when the subroutine is fine
+and the space is missing. `[!e ]16` compiles. ~3 min, twice (once for `!e`,
+once for `!k2`).
+
+### Time-averaged mix levels are the wrong instrument for percussion — **surprise, LOW**
+
+Reading `|VxVOL| × VxENVX` per voice off the S-DSP gives a genuine per-part mix
+balance and is the right tool for sustained parts. It systematically
+under-reads drums: a kick is a 160 ms one-shot at 2.3 hits/s, so it occupies a
+small fraction of the frames no matter how loud it is, and the average says
+"8%" for a part that dominates every transient it lands on. Two rounds of
+tuning went into chasing that number before noticing the metric was wrong for
+the class. Peak-per-part, or simply the listener, is the right judge; the
+average is only comparable *between* parts of the same kind.

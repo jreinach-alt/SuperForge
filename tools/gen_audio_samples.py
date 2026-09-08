@@ -15,6 +15,7 @@ Outputs (16-bit mono PCM, written to the directory given as argv[1]):
   step.wav      filtered noise burst, 0.1 s      -> footstep SFX
   bell.wav      64-sample single-cycle bell      -> pickup / chime SFX
   saw.wav       64-sample band-limited sawtooth  -> laser / engine SFX
+  kick.wav      pitch-dropping sine, 0.16 s      -> song kick drum
 
 The last two exist because the SFX set needs TIMBRES the four instruments
 above cannot reach: `square_lead` is a 25 % pulse (hollow, buzzy) and `step`
@@ -129,6 +130,34 @@ def noise_step(seconds: float = 0.1) -> list[int]:
     return out
 
 
+def drum_kick(seconds: float = 0.16) -> list[int]:
+    """Pitch-dropping sine with a click transient -- a one-shot kick drum.
+
+    A single-cycle loop cannot be a kick: the sound IS the pitch envelope, a
+    fast drop from ~160 Hz to ~45 Hz. It exists so the song can have a bottom
+    end WITHOUT the S-DSP noise generator -- there is only one, and the driver
+    zeroes a music channel's volume whenever a sound effect wants noise
+    (audio-driver.asm, `nonShadow_music` under `SfxNoise`), so a noise-based
+    kick would drop out under every explosion.
+
+    Normalised rather than clamped: the click and the body sum past full scale,
+    and clipping a kick is audible as a rasp.
+    """
+    rng = random.Random(0x4B1C)
+    n = int(RATE * seconds)
+    click = int(0.004 * RATE)
+    out, phase = [], 0.0
+    for i in range(n):
+        t = i / n
+        phase += 2.0 * math.pi * (45.0 + 115.0 * math.exp(-14.0 * t)) / RATE
+        v = math.sin(phase) * math.exp(-5.5 * t)
+        if i < click:
+            v += rng.uniform(-0.55, 0.55) * (1.0 - i / click)
+        out.append(v)
+    peak = max(abs(v) for v in out)
+    return [clamp(v / peak * AMP) for v in out]
+
+
 def main() -> int:
     outdir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("assets/audio/samples")
     outdir.mkdir(parents=True, exist_ok=True)
@@ -139,6 +168,7 @@ def main() -> int:
     write_wav(outdir / "step.wav", noise_step())
     write_wav(outdir / "bell.wav", bell_cycle())
     write_wav(outdir / "saw.wav", saw_cycle())
+    write_wav(outdir / "kick.wav", drum_kick())
     return 0
 
 

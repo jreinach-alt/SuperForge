@@ -207,7 +207,10 @@ MAIN:
     .a8
     jsl Tad_Init
     jsr sf_sfx_reset                ; the ring holds power-on garbage
-    lda #Song::slice_b_song
+    ; The ACTION rails' song — kit, sixteenth bass, saw lead, scored on
+    ; A-F so nothing of it sits on the two channels a sound effect ducks.
+    ; `slice_b_song` stays the room rail's: assets/audio/README.md, "Two songs".
+    lda #Song::drive_song
     jsr Tad_LoadSong
     rep #$20
     .a16

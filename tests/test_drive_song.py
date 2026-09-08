@@ -1,0 +1,121 @@
+"""The action rails' song, on the chip that plays it.
+
+TEST SURFACE, per CLAUDE.md rule 2 — the rendered output, never a proxy. A
+song's rendered output is the S-DSP voice set, and the two things asserted
+here are the two arrangement decisions that would silently wreck the music
+under gameplay. Neither is visible in the MML text; both are visible on the
+chip while the rail runs.
+
+  * `VxENVX` on voices 6 and 7. TAD maps song channels G and H onto those
+    two voices and DUCKS them while a sound effect plays (docs/mml-syntax.md,
+    "Engine Limitations"; audio-driver.asm's `musicSfxChannelMask`). A part
+    written to G or H therefore VANISHES every time the game makes a noise —
+    on the shmup, most of the time. `drive_song` is scored on A-F only, and
+    the observable of that is voices 6/7 sitting at ENVX 0 whenever no effect
+    is playing.
+
+  * `NON` ($3D), the per-voice noise-enable mask. There is exactly one noise
+    generator, and when a sound effect wants it the driver ZEROES the volume
+    of every music channel that is also using it (audio-driver.asm, the
+    `SfxNoise` branch: `nonShadow_music` under `noiseLock`). A noise hi-hat
+    would drop out under every explosion. So the kit is samples — a
+    pitch-dropping `kick` one-shot and the `step` burst as snare and hat —
+    and the observable of THAT is that no music voice ever appears in NON.
+
+The non-vacuity case matters as much as either: an empty song passes both of
+the above trivially, so the six music voices are also asserted to be doing
+work.
+
+Driving is `frame_step` throughout — emulated frames, no host clock.
+"""
+import sys
+from pathlib import Path
+
+import pytest
+
+SUPERFORGE = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(SUPERFORGE / "vendor"))
+
+from mesen_runner import MesenRunner, MemoryType  # noqa: E402
+
+DSP = MemoryType.SpcDspRegisters
+NON = 0x3D                      # S-DSP per-voice noise enable
+MUSIC_VOICES = tuple(range(6))  # channels A-F
+SFX_VOICES = (6, 7)             # channels G/H — TAD's two effect channels
+MUSIC_MASK = 0x3F
+
+
+def _rom(name):
+    p = SUPERFORGE / "build" / f"{name}.sfc"
+    assert p.exists(), f"{p} not built — run `make {name}` first"
+    return str(p)
+
+
+def _sample(r, frames, drive):
+    """Per-frame ENVX for all eight voices, plus the NON mask."""
+    rows = []
+    for i in range(frames):
+        drive(r, i)
+        d = r.read_bytes(DSP, 0, 128)
+        rows.append(([d[v * 0x10 + 8] for v in range(8)], d[NON]))
+    return rows
+
+
+@pytest.fixture(scope="module")
+def shmup_song():
+    """Two drives on one boot: silent (no gun) and loud (firing at enemies).
+
+    The silent drive is what makes the reserved-voice claim readable — with
+    effects going off, voices 6 and 7 are legitimately busy and prove
+    nothing. The loud drive is what makes the noise claim readable, because
+    the driver only contends for the noise generator when an effect wants it.
+    """
+    r = MesenRunner(enable_audio=True)
+    r.boot_rom(_rom("shmup"), frames=180)
+    r.frame_step(3, start=True)                       # title -> play
+    r.frame_step(3)
+    r.frame_step(120)                                 # fade + enter, settle
+    quiet = _sample(r, 360, lambda rr, i: rr.frame_step(1))
+    loud = _sample(r, 420, lambda rr, i: rr.frame_step(
+        1, a=(i % 6 < 3), left=(i % 240 < 120), right=(i % 240 >= 120)))
+    r.stop()
+    return {"quiet": quiet, "loud": loud}
+
+
+def test_the_song_reserves_the_sound_effect_voices(shmup_song):
+    """Nothing of the music is scored where an effect would erase it."""
+    busy = [i for i, (env, _) in enumerate(shmup_song["quiet"])
+            if any(env[v] for v in SFX_VOICES)]
+    assert not busy, (
+        f"voices 6/7 sound on {len(busy)} of {len(shmup_song['quiet'])} frames "
+        f"with no effect playing (first at frame {busy[0]}) — the song is "
+        f"scored on G or H, and every part written there is ducked away the "
+        f"moment the game makes a noise")
+
+
+def test_the_song_actually_drives_six_voices(shmup_song):
+    """Non-vacuity: silence would satisfy every other case in this module."""
+    rows = shmup_song["quiet"]
+    idle = {v: sum(1 for env, _ in rows if env[v] == 0) / len(rows)
+            for v in MUSIC_VOICES}
+    dead = [v for v, frac in idle.items() if frac > 0.90]
+    assert not dead, (
+        f"music voices {dead} are silent on over 90% of frames "
+        f"(idle fractions {idle}) — the song is not using the six channels "
+        f"the reserved-voice case assumes it uses")
+
+
+def test_the_kit_never_takes_the_noise_generator(shmup_song):
+    """The drums are samples, so an explosion cannot mute them.
+
+    There is one noise generator; the driver zeroes the volume of any music
+    channel sharing it with an effect. A snare on `N` would pass a listening
+    test on a quiet screen and disappear in a firefight.
+    """
+    for name in ("quiet", "loud"):
+        bad = [(i, non) for i, (_, non) in enumerate(shmup_song[name])
+               if non & MUSIC_MASK]
+        assert not bad, (
+            f"{name} drive: a music voice is in the noise mask on "
+            f"{len(bad)} frames (first frame {bad[0][0]}, NON={bad[0][1]:#04x}) "
+            f"— that voice is silenced whenever an effect plays noise")

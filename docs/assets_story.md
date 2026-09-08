@@ -48,8 +48,9 @@ different `.hex` and rebuilding is the entire face swap). What was examined
 and rejected, and the still-open search for a licence-verified proportional
 face, is [`docs/11`](11_font_assets.md).
 
-**Audio.** `assets/audio/` is the audio content: a song authored as MML
-(`mml/slice_b_song.mml`), sound effects (`sound-effects.txt`), and six
+**Audio.** `assets/audio/` is the audio content: two songs authored as MML
+(`mml/slice_b_song.mml`, `mml/drive_song.mml`), sound effects
+(`sound-effects.txt`), and seven
 instrument samples all synthesised by `tools/gen_audio_samples.py` —
 fixed-seed, byte-identical on re-run — because the standing rule there is
 **no reference-sourced sample material, generate instead**. Four are the

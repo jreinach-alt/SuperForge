@@ -8,22 +8,55 @@ never compiles Rust, and regeneration is a documented one-command local step
 ## Provenance — every sample is procedurally generated
 
 **No external or reference sample material is used anywhere in here** — a
-hard provenance rule for this tree. All four wavs under `samples/` are synthesised,
+hard provenance rule for this tree. All seven wavs under `samples/` are synthesised,
 deterministically, by [`tools/gen_audio_samples.py`](../../tools/gen_audio_samples.py)
-— fixed-seed Karplus-Strong pluck, single-cycle triangle and 25 % pulse,
-and a filtered-noise footstep. Re-running the tool reproduces the wavs
+— fixed-seed Karplus-Strong pluck, single-cycle triangle, 25 % pulse, bell
+partial stack and band-limited saw, a filtered-noise footstep, and a
+pitch-dropping kick. Re-running the tool reproduces the wavs
 byte-for-byte:
 
 ```bash
 python3 tools/gen_audio_samples.py assets/audio/samples
 ```
 
-The song (`mml/slice_b_song.mml`) and the SFX (`sound-effects.txt`) are
-authored in this repo. Licence: this directory is SuperForge project content;
+The songs (`mml/slice_b_song.mml`, `mml/drive_song.mml`) and the SFX
+(`sound-effects.txt`) are authored in this repo. Licence: this directory is SuperForge project content;
 the *generated* `export/tad_audio_data.asm` carries tad-compiler's own
 Unlicense header, and the loader/driver binaries embedded in
 `export/tad_audio_data.bin` are Terrific Audio Driver code (Zlib, © Marcus
 Rowe) — see `vendor/tad/README.md` for the pin.
+
+## Two songs, because the rails want different things
+
+| song | rails | what it is |
+|---|---|---|
+| `slice_b_song` | `room`, `rpg` | the ambient piece. Three channels, a whole-bar rest at the end of its 768-tick loop, and echo settings that ARE room A's acoustics |
+| `drive_song` | `shmup`, `racer`, `boss_saucer`, `breaker`, `split_v_fight`, `platformer` | the action piece. Six channels, a drum kit, a sixteenth-note bass |
+
+The split is not decoration. `slice_b_song`'s rest half-bar is the window
+`tests/test_slice_b_audio.py` uses to hear room B's echo tail ring where room
+A's collapses — a piece with a kit under it has no such window, so making the
+action rails loud would have cost the room rail its demonstration. Its echo
+header is load-bearing for the same reason: `room_a_ambience` restores exactly
+those EVOL/EFB values, so they are not free to change.
+
+`drive_song` therefore carries its own header — 64 ms of echo buffer (8 KiB of
+ARAM rather than 16) behind a low-passed FIR, a slap instead of a cavern.
+
+Two arrangement rules in it are hardware, not taste, and
+`tests/test_drive_song.py` asserts both off the S-DSP:
+
+* **Nothing is scored on channels G or H.** Those map onto DSP voices 6 and 7,
+  which the driver ducks while a sound effect plays, so any part written there
+  vanishes whenever the game makes a noise.
+* **The kit does not use the noise generator.** There is one, and when an
+  effect wants it the driver zeroes the volume of every music channel sharing
+  it (`audio-driver.asm`, the `SfxNoise` branch). A noise hi-hat would drop out
+  under every explosion. So the drums are samples: `kick` is a one-shot written
+  for the job, and `step` — the footstep burst — is the snare at `o3` and the
+  hat at `o5`. Both drum channels run under `K0` (no key-off, since the
+  one-shots decay to zero themselves and a key-off would choke the kick's
+  tail), which is why their gaps are `w` waits and never `r` rests.
 
 ## Regenerating the export
 

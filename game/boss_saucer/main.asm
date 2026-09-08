@@ -211,7 +211,10 @@ MAIN:
     ; HERE — after Tad_Init, which initialises it, and before Tad_LoadSong.
     lda #TadAudioMode::STEREO
     sta Tad_audioMode
-    lda #Song::slice_b_song
+    ; The ACTION rails' song — kit, sixteenth bass, saw lead, scored on
+    ; A-F so nothing of it sits on the two channels a sound effect ducks.
+    ; `slice_b_song` stays the room rail's: assets/audio/README.md, "Two songs".
+    lda #Song::drive_song
     jsr Tad_LoadSong
     rep #$20
     .a16
