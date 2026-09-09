@@ -345,9 +345,19 @@ $(BUILD)/assets/sprg_obj_chr.bin $(BUILD)/assets/sprg_obj_pal.bin: \
 		tools/gen_sprite_game_assets.py | $(BUILD)
 	$(PY) tools/gen_sprite_game_assets.py $(BUILD)/assets
 
+$(BUILD)/sprg_tad_wrapper.o: engine/features/audio/tad_wrapper.asm \
+		vendor/tad/tad-audio.s vendor/tad/tad-audio.inc \
+		$(SPRG_MAP)/engine_state_globals.inc | $(BUILD)
+	$(CA65) -I $(SPRG_MAP) -I vendor/tad -o $@ $<
+
+$(BUILD)/sprg_tad_data.o: assets/audio/export/tad_audio_data.asm \
+		assets/audio/export/tad_audio_data.bin | $(BUILD)
+	$(CA65) --bin-include-dir assets/audio/export -o $@ $<
+
 $(BUILD)/sprite_game.sfc: $(SPRG_ASM) $(SPRG)/sprg.inc \
 		$(SPRG_MAP)/engine_state_globals.inc \
 		$(BUILD)/assets/sprg_obj_chr.bin $(BUILD)/assets/sprg_obj_pal.bin \
+		$(BUILD)/sprg_tad_wrapper.o $(BUILD)/sprg_tad_data.o \
 		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
 		$(VROM)/lorom_512k.cfg | $(BUILD)
 	$(PY) allocator/no_literals.py --map $(SPRG_MAP)/symbol_map.json $(SPRG_ASM)
@@ -357,9 +367,11 @@ $(BUILD)/sprite_game.sfc: $(SPRG_ASM) $(SPRG)/sprg.inc \
 		-I engine/features/oam_sprites \
 		-I engine/features/region -I engine/features/tick_scale \
 		-I engine/features/sprg_obj \
+		-I vendor/tad -I assets/audio/export \
 		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/sprite_game.o $(SPRG)/main.asm
-	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/sprite_game.o
+	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/sprite_game.o \
+		$(BUILD)/sprg_tad_wrapper.o $(BUILD)/sprg_tad_data.o
 	$(PY) tools/fix_checksum.py $@
 
 sprite_game: $(BUILD)/sprite_game.sfc
@@ -1606,15 +1618,27 @@ PAT_INC := -I $(PAT_MAP) -I $(VROM) -I $(PAT) \
            -I engine/features/region -I engine/features/tick_scale \
            -I engine/features/patrol_bg -I engine/features/patrol_obj
 
+$(BUILD)/pat_tad_wrapper.o: engine/features/audio/tad_wrapper.asm \
+		vendor/tad/tad-audio.s vendor/tad/tad-audio.inc \
+		$(PAT_MAP)/engine_state_globals.inc | $(BUILD)
+	$(CA65) -I $(PAT_MAP) -I vendor/tad -o $@ $<
+
+$(BUILD)/pat_tad_data.o: assets/audio/export/tad_audio_data.asm \
+		assets/audio/export/tad_audio_data.bin | $(BUILD)
+	$(CA65) --bin-include-dir assets/audio/export -o $@ $<
+
 $(BUILD)/patrol.sfc: $(PAT_ASM) $(PAT)/patrol.inc \
 		$(PAT_MAP)/engine_state_globals.inc $(PAT_ASSETS) \
 		$(BUILD)/assets/font_2bpp.bin \
+		$(BUILD)/pat_tad_wrapper.o $(BUILD)/pat_tad_data.o \
 		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
 		$(VROM)/lorom_512k.cfg | $(BUILD)
 	$(PY) allocator/no_literals.py --map $(PAT_MAP)/symbol_map.json $(PAT_ASM)
-	$(CA65) $(PAT_INC) --bin-include-dir $(BUILD)/assets \
+	$(CA65) $(PAT_INC) -I vendor/tad -I assets/audio/export \
+		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/patrol.o $(PAT)/main.asm
-	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/patrol.o
+	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/patrol.o \
+		$(BUILD)/pat_tad_wrapper.o $(BUILD)/pat_tad_data.o
 	$(PY) tools/fix_checksum.py $@
 
 patrol: $(BUILD)/patrol.sfc

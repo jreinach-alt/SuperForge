@@ -325,3 +325,58 @@ itself, so it should not be co-schedulable with any module that shells out to
 `make`. `docs/44` §8's `fault_reading` called this run `defect` rather than
 `harness-liveness`, correctly — it IS a defect, just not one in the diff
 under test, which is a third category the reading does not yet have.
+
+---
+
+## Phase 2 — audio onto the silent rails (2026-09-09)
+
+### I sent `make` to /dev/null during a plant, and a FAILED BUILD read as a passing gate — **surprise, HIGH**
+
+Planting two cue sites at once to prove two new tests fire, I ran
+`make sprite_game >/dev/null 2>&1; make patrol >/dev/null 2>&1` and then the
+tests. They passed. For about a minute that read as "the tests are vacuous."
+
+Neither was true. The plant text had gone in (grep confirmed it) but the build
+had failed, so the ROMs under test were the UNPLANTED ones from the previous
+build — and a test that passes against an unplanted ROM is the correct answer
+to the wrong question. Redirecting `make` to /dev/null and not checking its
+status turned a build failure into a silent no-op.
+
+This is exactly the class `docs/46` exists for — "why a plant that no-ops used
+to read as a pass" — and the falsification harness guards it by requiring the
+ARTIFACT MD5 TO MOVE. I was planting by hand, outside the harness, and skipped
+the one check that makes a plant mean anything. Redone with `md5sum` before and
+after, both tests fired immediately and named the right cause.
+
+**The rule, and it costs one line: a hand-run plant proves nothing until the
+artifact's md5 has moved.** Print it, don't assume it. The same applies to the
+restore: both ROMs here were checked back to their exact pre-plant md5 rather
+than "it built again, so it must be fine."
+
+### A drive that never produces the event passes the cue test by never testing it — **clunky, MEDIUM**
+
+Every contact-triggered cue on these rails needed a drive that actually makes
+contact, and open-loop input sweeps mostly do not. Counted across the four
+rails: three geometries on stomper landed zero stomps (two swept symmetrically
+around spawn and never reached the enemy's lane; one held left and pinned the
+player against the wall at x=8 while the enemy patrolled 94..152 out of reach),
+one on sprite_game never met a dot at one of four presets, and one on patrol
+never met an enemy. Five drives, zero events, and every one of them would have
+passed a bare "is it audible" assertion.
+
+Two things fixed it, and both are cheap enough to be defaults. **Steer
+closed-loop**: read the target's own position out of WRAM each frame and press
+toward it, rather than authoring a geometry and hoping. **Assert the event
+happened**, from the game's own counter (US_FOES, US_SCORE, US_HITS), as a
+separate case — so a drive that rots fails loudly on the counter instead of
+going quiet on the cue.
+
+### The feature register's rail list says "derived from the tree" and nothing re-derives it — **surprise, LOW**
+
+`docs/09`'s AUD row names its eight audio rails and calls the list "derived
+from the tree" — wording added when a previous hand-maintained list was found
+stale. But `make register` checks the census (179 dirs), not that list, and
+`make register-write` reports "already up to date" without touching it. It is
+still hand-maintained prose; only its provenance changed. Adding four rails
+meant editing it by hand, which is fine — the trap is the phrase, which reads
+as a guarantee that no gate provides.
