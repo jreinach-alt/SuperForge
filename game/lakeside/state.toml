@@ -28,6 +28,25 @@
 # instant of measurement is not one.
 stilled = "u16@dp"
 
+# --- the sea's own cue clock ------------------------------------------------
+# HOW FAR THE SURFACE HAS DRIFTED SINCE THE LAST BREAK, in world pixels, and
+# nothing else. It is advanced by the SAME published step `wat_advance` takes
+# and inside the SAME branch, so it is a copy of the picture's own position
+# modulo the surf cycle rather than a second clock beside it: after enter (both
+# start at 0) `wave == ES_WAT_SCROLL mod LK_SURF_PERIOD_PX` holds for ever, and
+# the frame this word wraps is the frame the swash on screen restarts. A
+# free-running counter here would be a second opinion about when a wave breaks,
+# and two opinions is exactly the defect a sound gated on a picture exists to
+# rule out.
+#
+# TICK: ok -- a POSITION in world pixels, not a count of frames. Its increment
+# is US_TSW, which is tick_scale's published whole-unit step and therefore
+# already region-corrected; the wall-clock interval this produces (about 2.1 s)
+# is a CONSEQUENCE of the drift rate and the art's cycle length, not a number
+# anybody wrote down in frames. On PAL the same 128 px arrive in fewer, larger
+# steps and the sea sounds the same.
+wave = "u16@dp"
+
 # --- the TIMEBASE's per-consumer state (engine/features/tick_scale) ---------
 #
 # ONE RATE, ONE PAIR. The drift is a velocity in px/frame, so it takes exactly

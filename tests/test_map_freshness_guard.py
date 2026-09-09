@@ -283,8 +283,25 @@ def test_the_tree_agrees_with_the_rule():
         "test_hud_game_audio.py": ["build/hud/symbol_map.json"],
         "test_scroller.py": ["build/scr/symbol_map.json"],
         "test_lakeside.py": ["build/lks/symbol_map.json"],
+        # Its audio module reads the same map: ES_WAT_SCROLL is what its
+        # scene-live wait reads (the manager's own byte flips 16 frames
+        # early, so the drive waits on the scene's OUTPUT instead), and
+        # US_STILLED / US_WAVE carry the cue's own state. All allocator
+        # dp placements, never literals.
+        "test_lakeside_audio.py": ["build/lks/symbol_map.json"],
         "test_heathaze.py": ["build/hz/symbol_map.json"],
+        # Its audio module reads the same map: `US_FLAT` — the flat
+        # control whose move is that module's non-vacuity check — is the
+        # allocator's dp placement, never a literal.
+        "test_heathaze_audio.py": ["build/hz/symbol_map.json"],
         "test_smelter.py": ["build/smt/symbol_map.json"],
+        # Its audio module reads the same map: the flat/offset control
+        # (ES_SMT_FLATSEL) whose alternation is the cue drive's
+        # non-vacuity check, the animation phase the idle drive proves
+        # advanced, and ES_SM_CTL — all allocator addresses, never
+        # literals. The scene ids come from the same file's declared
+        # edges rather than from a hand-written 0 and 1.
+        "test_smelter_audio.py": ["build/smt/symbol_map.json"],
         "test_mill.py": ["build/mil/symbol_map.json"],
         # Its audio module reads the same map: the lift words its ride
         # drive waits on (ES_MIL_DOOR / _PX / _CAR / _ARRIVE) are the

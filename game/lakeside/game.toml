@@ -112,18 +112,32 @@ globals = ["audio", "tad_rom",
            "scene_mgr", "fade", "input", "text_dp", "font_rom", "bg_text",
            "lake_bg", "lake_rom", "water_rom", "region", "tick_scale"]
 
-# AUDIO, composed 2026-09-09. MUSIC ONLY, and the absence of cues is the
-# declaration: this rail is a SCREEN EFFECT and has no discrete event to
-# sound. There is no landing, no kill, no arrival — nothing whose 0 -> 1 edge
-# is a moment — so `sf_sfx_queue_c` is not even imported and there is no
-# `prev` word in state.toml. What it composes is `Tad_Init`, one
-# `Tad_LoadSong` and the per-frame pump.
+# AUDIO. `shallow_water_song` — this rail's own piece, not the tree's generic
+# ambient one — plus TWO CUES, and what makes the cues worth having is that
+# neither is decoration.
 #
-# `slice_b_song`, the tree's ambient piece, and not `drive_song`: a drum kit
-# under a screen effect would be the "prettify the demo" move that `scroller`
-# and `mode7_chamber` decline for themselves, and those two stay silent for
-# exactly that reason — they are MEASUREMENT rails and music changes what they
-# measure. This one is a picture, and a picture may have a room tone.
+# `wave_break` IS THE PICTURE, HEARD. The surf on screen restarts every
+# LK_SURF_PERIOD_PX of accumulated drift (`wat_nmi_surf` picks its phase
+# straight out of ES_WAT_SCROLL), and `lk_wave_cue` counts the SAME
+# region-scaled pixels from the SAME zero inside the SAME `US_STILLED` branch
+# that gates `wat_advance`. Three consequences, none of them a coincidence:
+# the break is heard on the frame the swash restarts; the cadence is correct
+# on PAL without a second constant, because the step it counts is TS_STEP's
+# output; and a lake latched STILL cannot crash, because the sound's clock and
+# the picture's are the same clock. That last one is the claim
+# tests/test_lakeside_audio.py measures as a bar of zero, and it is the reason
+# a screen-effect rail has cues at all — this one's cue is not an event added
+# beside the picture, it is the picture's own period made audible.
+#
+# `select` on the B toggle. The rail's one discrete player action, and it
+# needs no `prev` word: the site is reached only on ES_INP_PRESS's B bit,
+# which the `input` feature publishes as the RISING edge, so it runs at most
+# once per press however long B is held (`racer` sounds its pause key the same
+# way, for the same reason).
+#
+# The composition is unchanged by any of this: `audio` is already global,
+# scenes queue through `sf_sfx_queue_c` and claim NOTHING, and the title scene
+# — which has no water — queues neither cue.
 
 # The title: the same world, no water, and the blender carrying its off state.
 [[scene]]

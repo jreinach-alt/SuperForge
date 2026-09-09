@@ -42,10 +42,13 @@ SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "init.inc"                 ; RESET: native, A16/I16, forced blank
 .include "tad-audio.inc"            ; vendor/tad — the TAD API imports + enums
-.import sf_sfx_reset, sf_audio_tick  ; engine/features/audio — the request
-                                    ;   queue's reset and the per-frame pump.
-                                    ;   sf_sfx_queue_c is NOT imported: this
-                                    ;   rail has no cue to queue.
+.import sf_sfx_reset, sf_sfx_queue_c, sf_audio_tick
+                                    ; engine/features/audio — the request
+                                    ;   queue's reset, its centred enqueue and
+                                    ;   the per-frame pump. The desert scene
+                                    ;   queues TWO things through it: a wind
+                                    ;   bed on a cadence, and the B toggle's
+                                    ;   cue.
 .include "tad_audio_enums.inc"      ; GENERATED — Song:: / SFX:: ids
 .include "sf_asm.inc"               ; shared macros: placement assertions + the
                                     ;   data-bank idioms (vendor/rom)
@@ -320,12 +323,17 @@ MAIN:
     ; power-on; the song load is ASYNC and Tad_Process streams it during the
     ; frame loop.
     ;
-    ; MUSIC ONLY. This rail is a SCREEN EFFECT and has no discrete event to
-    ; sound — no landing, no kill, no arrival — so it queues nothing and the
-    ; sfx ring is reset purely so the pump reads a defined head rather than
-    ; power-on garbage (rule 5). `slice_b_song` is the tree's ambient piece
-    ; (assets/audio/README, "Three songs"); a kit under a screen effect would
-    ; be the "prettify the demo" move the measurement rails decline.
+    ; MUSIC AND WEATHER. `far_ridge_song` is this rail's own piece — D
+    ; mixolydian with a flattened sixth over a bare fifth drone, written for a
+    ; picture of heat and distance (assets/audio/mml/far_ridge_song.mml says
+    ; why that mode and not a plain minor). It replaced `slice_b_song`, the
+    ; tree's generic ambient piece, which this rail borrowed while it had no
+    ; sound of its own.
+    ;
+    ; THE RING IS NOW LOAD-BEARING rather than merely defined. The desert
+    ; scene queues a `wind` bed on a cadence and a `select` on the B toggle,
+    ; so the reset below is what stops the first frame reading power-on
+    ; garbage as a head index (rule 5) instead of being a formality.
     sep #$20
     .a8
     jsl Tad_Init
@@ -336,7 +344,7 @@ MAIN:
     ; between Tad_Init and Tad_LoadSong.
     lda #TadAudioMode::STEREO
     sta Tad_audioMode
-    lda #Song::slice_b_song         ; the ambient piece — assets/audio/README
+    lda #Song::far_ridge_song       ; this rail's own piece — assets/audio/README
     jsr Tad_LoadSong
     rep #$20
     .a16
@@ -369,8 +377,9 @@ MAIN:
     jsr sm_tick
     jsr fade_tick
     ; ---- audio pump: once per frame, MAIN THREAD ONLY (the TAD ABI forbids
-    ; ISR calls). Nothing on this rail queues a cue, so this is Tad_Process
-    ; with the (always empty) ring drained ahead of it.
+    ; ISR calls). It drains one request off the ring and then runs the driver,
+    ; in that order, so a cue queued by this frame's sm_tick reaches the chip
+    ; on this frame rather than the next.
     sep #$20
     .a8
     jsr sf_audio_tick

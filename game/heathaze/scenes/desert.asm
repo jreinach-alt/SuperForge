@@ -39,6 +39,12 @@ enter:
     stz z:US_FLAT                   ; shimmering on entry
     stz z:US_TSH_ACC                ; the timebase's carried fraction
     stz z:US_TSH
+    ; SEEDED AT THE THRESHOLD, not at zero: the first tick then queues the
+    ; wind bed immediately instead of opening the scene on 1.4 s of still air
+    ; while the counter fills. One initial value rather than a second queue
+    ; site that would have to say the same thing.
+    lda #HZ_WIND_PHASES
+    sta z:US_WIND
     sep #$20
     .a8
     lda #ES_V_HZ_CHR_NBA
@@ -94,6 +100,7 @@ tick:
     ; restarts.
     lda z:US_TSH
     jsr hz_advance
+    jsr hz_weather                  ; ...and the bed the same advance paces
     ; ---- B: latch the flat control ----------------------------------------
     lda z:ES_INP_PRESS
     and #JOY_B
@@ -102,6 +109,19 @@ tick:
     eor #1
     sta z:US_FLAT
     jsr hz_show
+    ; THE CUE YOU HEAR, AND IT NEEDS NO LATCH. This arm is reached only on
+    ; ES_INP_PRESS's B bit, which the `input` feature publishes as the RISING
+    ; edge (cur & ~prev), so it runs at most once per press however long B is
+    ; held. ES_INP_CUR is one token away and would sound on every held frame;
+    ; that is the mistake this site invites and what
+    ; tests/test_heathaze_audio.py's cadence case is aimed at.
+    ;
+    ; `select` rather than a sound of its own: the vocabulary already calls it
+    ; "a confirm, a gate accepting" (assets/audio/README) and `racer` uses it
+    ; for exactly this — a control toggling, not a thing happening in a world.
+    ; The shimmer going flat is a SETTING changing.
+    lda #SFX::select
+    jsr hz_sfx
 @no_toggle:
     .a16
     .i16
@@ -116,6 +136,79 @@ tick:
 @done:
     .a16
     .i16
+    rts
+
+; --- hz_sfx: queue the sound effect named in A ------------------------------
+; CONTRACT desert::hz_sfx
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       A = the SFX:: id (its low byte; every id in the enum is < 256)
+;   out:      the request held in the ring, or counted as a full-ring loss
+;   clobbers: A, N, Z, C
+;   tail:     rts
+;
+; WIDTH-RISK: sf_sfx_queue_c declares `entry: A8 I16 DB=0` and this rail's
+; scene code is A16 throughout, so the sep/rep pair is load-bearing and lives
+; HERE rather than at each of the two call sites — one place to be wrong
+; instead of two. X and Y survive it (the centred entry point exists precisely
+; so a pan does not have to be loaded into X), which is why neither caller
+; saves an index around a cue.
+hz_sfx:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "hz_sfx"
+    sep #$20
+    .a8
+    jsr sf_sfx_queue_c
+    rep #$20
+    .a16
+    rts
+
+; --- hz_weather: keep the wind bed alive -----------------------------------
+; CONTRACT desert::hz_weather
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       US_TSH — this frame's region-corrected phase advance, already
+;             computed by the tick's one TS_STEP
+;   out:      US_WIND advanced; on the frame it crosses HZ_WIND_PHASES, that
+;             many phases taken back off it and a `wind` request queued
+;   clobbers: A, N, Z, C
+;   tail:     rts
+;
+; A SOUND EFFECT IS A ONE-SHOT. `wind` is 212 SFX ticks of noise — 1.696 s at
+; the driver's fixed 125 Hz sound-effect clock — and then it is over, so an
+; AMBIENCE is something this routine makes out of it by asking again before
+; the last one has finished. HZ_WIND_PHASES carries the arithmetic and the
+; argument for the number.
+;
+; THE UNIT IS PHASES, WHICH IS WHY THERE IS NO SECOND TS_STEP HERE. US_TSH is
+; already the scaled advance; accumulating it gives a counter that reaches the
+; threshold in the same WALL-CLOCK time on PAL as on NTSC, for one add. A raw
+; frame count would need its own accumulator and its own base and would then
+; have to be kept in step with the one above it.
+;
+; SUBTRACT, DO NOT ZERO. The advance is 0 or 1 phase a frame at this rate so
+; the two spellings agree today — but zeroing throws away the remainder, and a
+; rail that later raised HZ_PHASE_BASE past one phase a frame would start
+; losing a fraction of a gust every cycle with nothing to show for it.
+hz_weather:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "hz_weather"
+    clc
+    lda z:US_WIND
+    adc z:US_TSH
+    cmp #HZ_WIND_PHASES
+    bcc @hold
+    sbc #HZ_WIND_PHASES             ; carry is SET on this arm — cmp left it so
+    sta z:US_WIND
+    lda #SFX::wind
+    jsr hz_sfx
+    rts
+@hold:
+    .a16
+    .i16
+    sta z:US_WIND
     rts
 
 ; --- exit: nothing to tear down --------------------------------------------

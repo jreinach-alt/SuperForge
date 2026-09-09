@@ -907,3 +907,228 @@ The sibling lesson from the same three: the gate's suite runs everything, so
 ONE red aborts nothing else — 1 failed / 2527 passed each time. That is what
 made the class visible as a class rather than as three unrelated flakes, and
 it is worth reading a red that way: the count of what PASSED is evidence too.
+
+---
+
+## Three screen-effect rails get audio CONTENT, in parallel (2026-09-09)
+
+`heathaze`, `lakeside` and `smelter` each gained a song of their own and cues
+of their own, dispatched as three simultaneous worktree-isolated agents. The
+entries below are merged from all three; where two agents found the same thing
+independently that is said so, because independent rediscovery is the strongest
+evidence that a doc gap is real rather than that one agent read carelessly.
+
+### `play_noise` LASTS AS LONG AS THE INSTRUMENT'S SAMPLE, NOT AS LONG AS YOU ASKED — surprise, MEDIUM (found TWICE, independently)
+
+The obvious instrument for a noise effect is `step` — it is the one `skid` and
+`hit` and `explosion` already use, and it is literally a noise burst. Written
+that way a wind BED is ~12 ticks long and then stops, no matter what duration
+the `play_noise` carries; a 0.8 s wave is cut off inside its own swell.
+
+The mechanism is one CAUTION line in the vendor's
+`docs/bytecode-assembly-syntax.md`: *"The instrument is used to determine the
+length of the noise. If the instrument does not loop, the noise is played for
+the length of the instrument's sample."* `play_noise` swaps the S-DSP voice's
+output for the noise generator but the BRR decoder keeps running underneath,
+so a non-looping sample still hits its END flag and takes the voice with it.
+`step`, `pluck` and `kick` do not loop; `tri_bass`, `square_lead`, `bell` and
+`saw` do. That is why `skid` gets 96 ms out of `step` and could not get more,
+and why both `wind` and `wave_break` are voiced by `saw` — an instrument whose
+waveform is never heard, chosen entirely for its loop flag.
+
+**What makes this a trap rather than a fact is that the house pattern encodes
+it.** Both noise effects already in `sound-effects.txt` open with `step`, and
+both are short enough that the cap never shows — so "copy the nearest existing
+noise effect", which is the right instinct everywhere else in this file, is
+precisely the wrong move for anything longer than a fifth of a second. Two
+agents on two different rails made that exact copy on the same afternoon.
+Nothing in `sound-effects.txt`'s own header said so, and that header is
+otherwise where this project records this kind of trap (the DECREASE-gain one,
+two sections above where `wind` now sits). Both new blocks carry it now,
+because "wind", "rain", "sea" and "engine" are all future asks and every one
+of them wants a noise bed longer than a sample.
+
+### DECREASE-mode GAIN rates are much slower than they read, and only the DSP will tell you — surprise, LOW
+
+`sound-effects.txt`'s header already warns that `E<rate>` at key-on decays from
+silence and is never audible. The sibling it did not warn about: a mid-effect
+`E<rate>` is far slower than the number suggests. `E11` from a level of 118
+reached only **81 after 27 frames** — so a "long fade away" authored by eye
+ends with an audible key-off chop at a third of full volume, which is the
+opposite of the shape a draining wave has. `E17` then `E24` reaches ENVX 1 by
+the key-off.
+
+There is no way to know but to read `VxENVX` per frame off the DSP and print
+the trace. That took one build-and-measure cycle, and the trace is worth
+keeping as the way to author any shaped effect:
+
+    envx: 0 2 6 10 14 ... 46 | 118 x9 | 114 108 ... 56 | 45 35 27 20 15 11 8 5 1
+          the gather          the break   the drain       ...to silence
+
+**Lesson, and it is CLAUDE.md rule 1 in its audio dialect:** an envelope is a
+rendered output. Do not author one from the rate table — plant the effect,
+sample `VxENVX` every frame, and read the shape.
+
+### PUT AN AMBIENCE'S SWELL IN THE VOLUME, NOT IN THE ENVELOPE — easy, LOW
+
+A gust wants to breathe. The instinct is to shape it with GAIN, which is what
+every percussive effect in the vocabulary does. Don't, for a BED: ENVX is also
+the byte a test reads to answer "is this voice sounding", so an envelope that
+breathes toward zero is indistinguishable from a bed with holes in it, and the
+continuity case cannot tell the two apart. `tremolo` modulates the CHANNEL
+VOLUME instead — same audible swell, ENVX stays flat at the fixed gain, and
+the two questions stay separable. Measured on the shipped effect: ENVX pinned
+at 48 for every frame it sounds, VOL_L walking 7..18.
+
+### `ES_SM_CTL` names the next scene 16 frames before that scene's `tick` runs — surprise, MEDIUM
+
+Driving a rail from the title into its play scene wants a "the scene is live"
+signal, and the obvious one is the scene manager's own control byte: step until
+`ES_SM_CTL` reads the destination id, then start pressing. Measured on
+`lakeside`, that byte flips **16 frames early** — scene_mgr names the
+destination when a FADED transition begins and holds the switch under `fade`'s
+ramp, so `lake::tick` has not run once when the byte already says `lake`.
+
+What made it cost time is how it PRESENTS. A press train of eleven presses
+landed ten toggles: the first press vanished and every other one worked. That
+reads as an off-by-one in the harness — the agent went looking at
+`frame_step`'s input latch timing and its docstring's "visible in the SAME
+step's readback" before suspecting the ROM side at all. The give-away, once
+measured, was that the ten that worked were exactly the ten that fell after
+the ramp.
+
+**The fix is to wait on the SCENE'S OWN OUTPUT, not on the manager's byte.**
+`tests/test_lakeside_audio.py::_enter_lake` steps until `ES_WAT_SCROLL` has
+actually advanced, which is `lake::tick` having called `wat_advance` — a signal
+that cannot be true before the scene runs. Frame-counted throughout, so
+`make time-check` stays clean. Any rail with a `style = "fade"` edge has this
+shape; a drive keyed to `ES_SM_CTL` alone spends its first ~16 frames of input
+on a scene that is not listening.
+
+### THE DRIVER CLEARS `NON` WHEN AN EFFECT ENDS — surprise, LOW (found by a plant)
+
+The noise-mask case has a non-vacuity companion — "something IS taking the
+generator" — and it was written at a 90% bar on the reasoning that `NON` is
+sticky once set. It is not: the driver clears the bit when the effect that set
+it finishes. So the plant that lengthened the wind's cadence past its own
+length reddened the NOISE case as well as the CONTINUITY case, saying one
+thing twice and in the worse of the two voices. The bar is now 50% — enough to
+say the generator is in real use, not enough to be a second copy of a case
+that asks the question directly. **A non-vacuity guard wants the loosest bar
+that still refuses vacuity;** tightening it past that silently annexes the
+neighbouring claim, and only a plant shows you.
+
+### RE-READING A RAIL BEAT INHERITING ITS PREDECESSOR'S ARGUMENT — surprise, MEDIUM
+
+The four screen-effect rails landed a day earlier as a SET, on the argument
+that a screen effect has no discrete event whose 0 -> 1 edge is a moment, so
+each gets music and no cues. Handed that argument, the `smelter` agent checked
+it against its own rail rather than inheriting it, and found it false there:
+`works` has a B toggle and a Start, both already gated on `ES_INP_PRESS`, i.e.
+two edges that were sitting there the whole time. The grouping was doing the
+reasoning.
+
+**The re-check then propagated, and that is the part worth carrying.** Applied
+to the other two, the same question found a surf cycle in `lakeside` whose
+crest is a timed moment and a Start in `heathaze` — so the argument that had
+covered four rails now covers exactly one (`mode7_flight`), and three rails
+that were "correctly" silent by a set-level argument were silent by an
+un-checked one. The cheapest place to check is the scene's own tick: **grep it
+for `ES_INP_PRESS` before believing "no discrete event", and do it per member,
+because a set's argument is only ever as true as its weakest member makes it.**
+
+### A MUSIC-ONLY EQUALITY DOES NOT SURVIVE THE RAIL GAINING CONTENT — surprise, MEDIUM
+
+`tests/test_screen_effect_audio.py` asserts, for four rails at once, that DSP
+voices 6 and 7 never sound: they are TAD channels G and H, the driver ducks
+them for any effect, and a rail that queues nothing has no window in which
+they are legitimately busy. It is a flat equality and it is the right shape
+for a rail with music only.
+
+All three rails now queue cues — `heathaze` a wind bed on 99.8% of frames in
+its desert scene — and **that module still passes**, because its drive never
+presses Start, so for those three it measures the TITLE scene, which has no
+cues. The equality is still true and it is now far weaker than it reads: for
+three of its four rails it says nothing at all about the scene where the
+content is. Its docstring ("none imports `sf_sfx_queue_c`", "queue nothing")
+is now false for all three.
+
+The agent that found it could see it on one rail; checking the other two
+showed the module had gone from measuring four rails to measuring one. What is
+worth carrying forward is the shape: **a case parameterised over rails
+inherits its strength from the weakest drive it runs, and a drive that stops
+at the boot scene can keep an equality green through exactly the change that
+should have retired it.** The replacement claims live in the three
+`tests/test_<rail>_audio.py` modules — WHAT sounds on 6/7 rather than WHETHER,
+which stays an equality (no music-only instrument is ever keyed there) on
+drives that do enter the scene — and the shared module is now scoped to
+`mode7_flight`, the one rail whose premise it still describes.
+
+### `make cleanroom` REFUSES AN ORDINARY ENGLISH VERB — surprise, LOW
+
+An assertion message read "the re-queue cadence has <V> the effect it is
+keeping alive", where <V> is the everyday verb meaning *to overtake by
+running*. It fails the name tripwire: the denylist carries an arcade racer of
+exactly that name, and the pattern makes the word separator optional, so all
+three spellings — hyphenated, spaced and joined — are unwritable in any
+committed file. (This entry cannot print the word for the same reason.)
+
+The failure prints `cleanroom: FAIL — commercial / company name in committed
+text` and the offending line, with nothing to say the hit is a verb rather
+than a title. Five minutes, and the fix was "grown past".
+
+Not a bug — the tripwire is doing precisely what it says, and its own header
+calls itself a floor rather than a ceiling. Recorded because the collision is
+invisible until you hit it and the message does not name the word it matched.
+
+### `make rail-registered` FOUND THE ONE SITE A NEW TEST MODULE OWES — easy, LOW (found twice)
+
+A new `tests/test_<rail>_audio.py` that reads its rail's `symbol_map.json`
+owes an entry in `test_map_freshness_guard.py`'s reviewed dict, and the gate
+named the file, the missing key, the value, and what the red would have looked
+like if pushed without it ("`test_the_tree_agrees_with_the_rule` goes red
+minutes into a full suite, in a module the port never touched"). Following the
+printed line was the whole of the fix, on two rails independently. Recorded as
+the gate working exactly as AGENTS.md says the gates work — run it and read
+what it prints rather than memorising its rules — and because the alternative
+is a ~30-minute landing-gate run to find the same thing. **Run
+`make rail-registered` after adding any test module, not only after adding a
+rail.**
+
+### ORCHESTRATOR: THE PARALLEL AGENTS' SCRATCHPAD IS ONE DIRECTORY — surprise, MEDIUM
+
+Three agents were dispatched at once, each into its own worktree, and each was
+handed the SAME scratchpad path. Worktree isolation says nothing about `/tmp`.
+One agent wrote a plant harness to `scratchpad/plant.py`, ran two plants from
+it, and the third run died on a `KeyError` inside a *different* script with a
+different data structure at the same path — another agent's harness, which had
+landed on top of it between the second and third invocation. Nothing was
+corrupted in any tree (each harness computes its paths from its own worktree
+root), and the cost was five minutes of "why does my file not look like my
+file". It would not have been five minutes if the collision had been in a
+`.orig` backup rather than in a script: a restore step reading another rail's
+saved file would have written it into the wrong tree, and the falsification
+harness's whole contract is that the tree restores EXACTLY.
+
+**This one is the orchestrator's, not the agents': the dispatch brief omitted
+the line.** The fix is one sentence in it — tell each agent to work in a
+subdirectory of the scratchpad named for its rail — and it costs nothing. The
+general shape: *worktree isolation isolates the REPO, not the machine.*
+Anything an agent writes outside its worktree is shared with its siblings.
+
+### ORCHESTRATOR: APPENDING AN EFFECT RENUMBERS EVERY EFFECT BELOW IT — clunky, MEDIUM
+
+`wave_break` and `wind` are appended to two different lists, and the export's
+enum is positional: `footstep` moved 12 -> 13 and `skid` 13 -> 14. So the
+central re-export obliges a relink of **every** rail that composes `audio` —
+28 of them — not only the three whose content changed. A rail rebuilt from a
+stale object file would queue `skid` where it meant `footstep`, silently and
+audibly, and no gate reads an effect's id against its name.
+
+Nothing here is wrong; the ordering IS the priority policy and that is worth
+more than stable ids. What is worth recording is the cost shape, because it is
+not visible from the diff: **a two-line content change to a shared blob is a
+whole-tree rebuild, and it is cheapest to batch all the content for a pass and
+export ONCE.** Doing it three times, once per agent branch, would have cost
+three full rebuilds and three sets of md5 pins. The README's export section now
+says so at the point where someone would be about to append.

@@ -29,10 +29,11 @@ SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "init.inc"                 ; RESET: native, A16/I16, forced blank
 .include "tad-audio.inc"            ; vendor/tad — the TAD API imports + enums
-.import sf_sfx_reset, sf_audio_tick  ; engine/features/audio — the request
-                                    ;   queue's reset and the per-frame pump.
-                                    ;   sf_sfx_queue_c is NOT imported: this
-                                    ;   rail has no cue to queue.
+.import sf_sfx_reset, sf_sfx_queue_c, sf_audio_tick
+                                    ; engine/features/audio — the request
+                                    ;   queue's reset, its centred enqueue and
+                                    ;   the per-frame pump. The lake scene has
+                                    ;   two cues; the title scene has none.
 .include "tad_audio_enums.inc"      ; GENERATED — Song:: / SFX:: ids
 .include "sf_asm.inc"               ; shared macros: placement assertions + the
                                     ;   data-bank idioms (vendor/rom)
@@ -306,12 +307,12 @@ MAIN:
     ; power-on; the song load is ASYNC and Tad_Process streams it during the
     ; frame loop.
     ;
-    ; MUSIC ONLY. This rail is a SCREEN EFFECT and has no discrete event to
-    ; sound — no landing, no kill, no arrival — so it queues nothing and the
-    ; sfx ring is reset purely so the pump reads a defined head rather than
-    ; power-on garbage (rule 5). `slice_b_song` is the tree's ambient piece
-    ; (assets/audio/README, "Three songs"); a kit under a screen effect would
-    ; be the "prettify the demo" move the measurement rails decline.
+    ; MUSIC AND TWO CUES. The music is `shallow_water_song`, written for this
+    ; rail rather than borrowed: a relaxed sunlit coastal piece, major sevenths
+    ; and add-nines over a turnaround that never resolves hard, which is what a
+    ; warm afternoon by water sounds like. The cues are the SEA — `wave_break`,
+    ; on the cadence the surf's own cycle sets — and the B toggle that stills
+    ; it. Both live in the lake scene; the title has neither.
     sep #$20
     .a8
     jsl Tad_Init
@@ -322,7 +323,7 @@ MAIN:
     ; between Tad_Init and Tad_LoadSong.
     lda #TadAudioMode::STEREO
     sta Tad_audioMode
-    lda #Song::slice_b_song         ; the ambient piece — assets/audio/README
+    lda #Song::shallow_water_song   ; this rail's own — assets/audio/mml/
     jsr Tad_LoadSong
     rep #$20
     .a16
@@ -355,8 +356,10 @@ MAIN:
     jsr sm_tick
     jsr fade_tick
     ; ---- audio pump: once per frame, MAIN THREAD ONLY (the TAD ABI forbids
-    ; ISR calls). Nothing on this rail queues a cue, so this is Tad_Process
-    ; with the (always empty) ring drained ahead of it.
+    ; ISR calls). It drains at most one held request into the driver and then
+    ; runs Tad_Process — the ring is what lets a wave and a toggle landing on
+    ; the same frame both be heard, one this frame and one the next, rather
+    ; than the second being discarded unseen.
     sep #$20
     .a8
     jsr sf_audio_tick

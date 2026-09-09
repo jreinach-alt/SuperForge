@@ -259,9 +259,14 @@ def test_claimless_microzero_keeps_a_no_sram_header_and_its_md5(tmp_path):
     you did not deliberately move microzero, the class has leaked into a
     composition that never asked for it.
 
-    MOVED ONCE, DELIBERATELY (2026-09-09): microzero composed `audio` and got
-    its own song, so the pin went
-    008b19045c002c1026f87696e9350472 -> 70c2b7cec5de23a62f4cfbce5d94f174.
+    MOVED TWICE, DELIBERATELY, both on 2026-09-09. First microzero composed
+    `audio` and got its own song
+    (008b19045c002c1026f87696e9350472 -> 70c2b7cec5de23a62f4cfbce5d94f174).
+    Then three OTHER rails gained songs and two effects were appended, and
+    this ROM moved again on content it does not contain
+    (-> 5953ac982e30b765a4bcf3a6174698c7): the audio blob is ONE artifact
+    shared by all 28 audio rails, so any rail's content grows every audio
+    rail's image. Expect this pin to move whenever `assets/audio/` does.
     That is what the sentence above anticipates. The header assertion either
     side of it is the part that actually guards the class, and it is unchanged
     — a rail that gains a soundtrack must still ship $00/$00, because `audio`
@@ -273,7 +278,7 @@ def test_claimless_microzero_keeps_a_no_sram_header_and_its_md5(tmp_path):
     assert r.returncode == 0, f"make microzero failed:\n{r.stderr}"
     img = (SUPERFORGE / "build" / "microzero.sfc").read_bytes()
     assert img[OFF_CART_TYPE] == 0x00 and img[OFF_SRAM_SIZE] == 0x00
-    assert hashlib.md5(img).hexdigest() == "70c2b7cec5de23a62f4cfbce5d94f174", \
+    assert hashlib.md5(img).hexdigest() == "5953ac982e30b765a4bcf3a6174698c7", \
         "microzero.sfc moved — the measurement reference is a pinned md5"
 
 

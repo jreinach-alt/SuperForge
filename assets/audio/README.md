@@ -20,25 +20,35 @@ python3 tools/gen_audio_samples.py assets/audio/samples
 ```
 
 The songs (`mml/slice_b_song.mml`, `mml/drive_song.mml`,
-`mml/circuit_song.mml`) and the SFX
+`mml/circuit_song.mml`, `mml/far_ridge_song.mml`,
+`mml/shallow_water_song.mml`, `mml/foundry_song.mml`) and the SFX
 (`sound-effects.txt`) are authored in this repo. Licence: this directory is SuperForge project content;
 the *generated* `export/tad_audio_data.asm` carries tad-compiler's own
 Unlicense header, and the loader/driver binaries embedded in
 `export/tad_audio_data.bin` are Terrific Audio Driver code (Zlib, © Marcus
 Rowe) — see `vendor/tad/README.md` for the pin.
 
-## Three songs, because the rails want different things
+## Six songs, because the rails want different things
 
 | song | rails | what it is |
 |---|---|---|
-| `slice_b_song` | `room`, `rpg`, `heathaze`, `lakeside`, `smelter`, `mode7_flight` | the ambient piece. Three channels, a whole-bar rest at the end of its 768-tick loop, and echo settings that ARE room A's acoustics |
+| `slice_b_song` | `room`, `rpg`, `mode7_flight` | the ambient piece. Three channels, a whole-bar rest at the end of its 768-tick loop, and echo settings that ARE room A's acoustics |
 | `drive_song` | the other 21: `boss_saucer`, `brawler`, `breaker`, `camera_follow`, `hud_game`, `jumper`, `m7_dungeon`, `m7_oshoot`, `maze`, `mill`, `mode7_explore`, `patrol`, `platformer`, `platformer_stream`, `racer`, `railshooter`, `scroll_run`, `shmup`, `split_v_fight`, `sprite_game`, `stomper` | the action piece. Six channels, a drum kit, a sixteenth-note bass |
 | `circuit_song` | `microzero` | the racing piece. Six channels in A mixolydian over I - bVII - IV; the flat seventh is the whole colour |
+| `far_ridge_song` | `heathaze` | the desert piece. D mixolydian with a flattened SIXTH over a bare D-A fifth drone; a whistled line with more rest than note, three portamento slides, and a lub-dub kick once a bar |
+| `shallow_water_song` | `lakeside` | the afternoon piece. F major at `#Tempo 56`, sevenths and ninths instead of triads, and a dominant that stays suspended so nothing ever resolves hard |
+| `foundry_song` | `smelter` | the industrial piece. Six channels in C minor over an ostinato; its three parts run at 42, 32 and 96 ticks and coincide once every seven bars |
 
-The four screen-effect rails take the ambient piece for the reason the split
-describes from the other end: a kit under a picture is the "prettify the demo"
-move, and `scroller` and `mode7_chamber` decline audio outright on exactly that
-argument — they are MEASUREMENT rails and music changes what they measure.
+**Three of the four screen-effect rails now carry a piece of their own, and
+re-reading each rail is what moved them.** The old argument — a kit under a
+picture is the "prettify the demo" move, which is why `scroller` and
+`mode7_chamber` decline audio outright — holds for MEASUREMENT rails, where
+music changes what is being measured. It does not hold for a rail that has a
+place and a player action in it: `heathaze` has a ridge and a Start, `lakeside`
+a surf cycle whose crest is a moment, `smelter` a machine hall with a B toggle
+and a Start. Each took a song written for it and cues from the existing
+vocabulary. `mode7_flight` is the one that stayed on the ambient piece, and the
+"no discrete event to sound" argument now covers three rails rather than four.
 
 That third column is PROSE and the rail lists in it are hand-maintained; the
 tree is the source of truth. `grep -o 'Song::[A-Za-z_0-9]*' game/*/main.asm
@@ -62,6 +72,31 @@ so the I - bVII - IV turnaround stays bright without ever resolving, which is
 the sound a lap is supposed to have. It is declared with `#KeySignature +fc`
 rather than accidentals, so the mode is stated once instead of being spelled
 out bar by bar.
+
+`far_ridge_song`, `shallow_water_song` and `foundry_song` are the fourth,
+fifth and sixth, and each exists because a rail wanted a character the first
+three cannot be edited into. `slice_b_song`'s loop and its composed rest
+half-bar are calibrated to the room rail's reverb A/B demonstration, so
+borrowing it and retuning it is not available — the demonstration is what
+would break.
+
+* **`far_ridge_song`** is heat and distance. A MAJOR third over a bare fifth is
+  the "wide open"; a FLAT sixth is the ache; Mixolydian b6 is the mode that has
+  both, and the song sits on a D-A drone so the two are always audible against
+  each other. More rest than note, by design — the silence is the space.
+* **`shallow_water_song`** refuses plain triads and refuses to resolve. Every
+  chord carries its seventh and most carry a ninth, and the V is a `C7sus4`
+  whose leading tone is simply absent, so the turn back to F is a lean rather
+  than a snap. Its pad voices the third and the seventh and nothing else: the
+  colour is carried by the interval, not by stacking the chord.
+* **`foundry_song`** is the first in the tree whose subject is RHYTHM rather
+  than harmony. `smelter` draws four steel plates each rising on its own
+  harmonic, never in step; the song is three parts at three lengths — the
+  ostinato at 42 ticks, the metal strikes at 32, the press at 96 — whose least
+  common multiple is 672, so no two of them repeat their alignment inside a
+  seven-bar cycle. C minor with the flat second and the tritone written as
+  accidentals rather than into the key signature, which is what keeps them
+  audible as faults.
 
 **Its echo header is 12/24, and that is not its choice to make.** `drive_song`
 was authored with a 10/20 header and the boss_saucer gate went red on it,
@@ -114,7 +149,7 @@ the `.bin` and a `TAD_IO_VERSION` link-assert against `vendor/tad/`
 
 ## The sound-effect vocabulary
 
-Fourteen effects, shared by every rail that composes `audio`. Sharing is the
+Sixteen effects, shared by every rail that composes `audio`. Sharing is the
 architecture working, not a compromise: there is ONE export blob for the whole
 tree, so an effect authored for one rail is linked into all of them — `laser`
 is the shmup's gun and the saucer arena's, and neither pays for the other's.
@@ -133,19 +168,33 @@ is the shmup's gun and the saucer arena's, and neither pays for the other's.
 | `thud` | a wall, a stomp | `step` |
 | `footstep` | a walked tile | `step` |
 | `skid` | leaving the road | sustained noise |
+| `wave_break` | a crest arriving — three bands slurred under ONE key-on, so it is a break and not three hisses | sustained noise on `saw` |
+| `wind` | WEATHER — a bed, not an event. The only effect here that is scenery: `heathaze` re-triggers it on a cadence so it reads as continuous air | sustained noise on `saw` |
 
 **Export order IS the priority policy.** The ca65 queue holds ONE effect per
 frame and the LOWER id wins (`tad-audio.s:1293`), so the ordering in
 `slice_b.terrificaudio` is a design decision: the four echo-carrying effects
 sort highest (losing one leaves the reverb wrong for the rest of the scene),
 ordinary events next, and `footstep`/`skid` lowest — a footstep must lose to
-an explosion.
+an explosion. `wave_break` sorts with the ordinary events (a crest the rail
+timed should be heard); `wind` is the only entry in
+`low_priority_sound_effects`, because scenery must lose to everything and the
+driver drops a low-priority arrival outright when both channels are busy.
+Appending to either list RENUMBERS everything below it — `wave_break` moved
+`footstep` from 12 to 13 and `skid` from 13 to 14 — so a re-export obliges a
+relink of every audio rail, not only the ones whose content changed.
 
 **Cost, measured:** the eleven added effects and two added instruments took the
-blob from 8,450 to 8,701 B against a 16,384 B claim (halved 2026-09-08). Bytecode is nearly free
+blob from 8,450 to 8,701 B against a 16,384 B claim (halved 2026-09-08); the
+three songs and two effects added on 2026-09-09 took it from 11,864 to
+13,616 B, leaving 2,768 B of headroom. Bytecode is nearly free
 (~15 B an effect); BRR is not (~1 KB per 0.12 s one-shot). That is why the set
 leans on `play_noise` and `portamento_calc` and why the only new instruments
-are single-cycle 64-sample loops at ~36 B each.
+are single-cycle 64-sample loops at ~36 B each. **Songs are now the growth
+term, not effects** — the whole 2026-09-09 pass added no instrument and no
+sample, and still spent 1,752 B, because a six-channel piece is a few hundred
+bytes of bytecode each. The next composition should check the margin before it
+is written, not after.
 
 ### Two things that are silent, not broken-looking
 

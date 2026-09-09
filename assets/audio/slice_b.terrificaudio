@@ -112,11 +112,13 @@
     "pickup",
     "chime",
     "select",
-    "thud"
+    "thud",
+    "wave_break"
   ],
   "low_priority_sound_effects": [
     "footstep",
-    "skid"
+    "skid",
+    "wind"
   ],
   "sound_effect_file": "sound-effects.txt",
   "songs": [
@@ -131,6 +133,18 @@
     {
       "name": "circuit_song",
       "source": "mml/circuit_song.mml"
+    },
+    {
+      "name": "far_ridge_song",
+      "source": "mml/far_ridge_song.mml"
+    },
+    {
+      "name": "foundry_song",
+      "source": "mml/foundry_song.mml"
+    },
+    {
+      "name": "shallow_water_song",
+      "source": "mml/shallow_water_song.mml"
     }
   ]
 }

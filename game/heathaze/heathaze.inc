@@ -52,3 +52,33 @@ HZ_TXT_ATTR = (7 << 10) | (1 << 13)
 ; 8r..8r+7 on BG1 and BG3 at once — and it is why HZ_BAND_TOP = 120 in
 ; hz_art.inc is the first scanline of map row 15 exactly.
 HZ_VOFS = $FFFF
+
+; =============================================================================
+; THE WIND BED'S CADENCE, in SHIMMER PHASES (see scenes/desert.asm)
+; =============================================================================
+; A sound effect is a ONE-SHOT and the SFX ring hands the driver at most one
+; request a frame, so an ambience is something the RAIL has to keep alive. The
+; `wind` effect runs 212 SFX ticks — the driver's sound-effect clock is a fixed
+; 125 Hz (vendor docs/sound-effects.md), so that is 1.696 s — and this is how
+; often the scene asks for it again.
+;
+; 32 PHASES, WHICH IS EXACTLY HALF THE SHIMMER LOOP. The shimmer advances
+; HZ_PHASE_BASE = 0.375 phases a frame through 64 phases, so 32 phases is
+; 85.33 NTSC frames = 1.420 s: the bed is re-queued while the previous one is
+; still sounding, and its restart lands twice per turn of the picture rather
+; than drifting against it. THE OVERLAP IS THE POINT — a period LONGER than the
+; effect leaves a hole every cycle and the ambience reads as a gust, which is
+; the thing the owner asked for it not to be.
+;
+; NOT SHORTER, EITHER, and the reason is the ring rather than the ear. The
+; queue holds four requests and retires ONE a frame; a cadence fast enough to
+; keep it non-empty would push this rail's other cue — the B toggle — behind a
+; gust that is inaudible anyway because the driver restarts the bed onto the
+; channel already playing it. At 32 phases the ring is empty on 84 of every 85
+; frames and a press is delivered on the frame it happens.
+;
+; COUNTED IN PHASES, NOT FRAMES, so the region arm is already paid: US_TSH is
+; the region-corrected advance and accumulating it needs no second TS_STEP.
+; The consequence is stated rather than hidden — on PAL the gust cadence is
+; the same 1.42 SECONDS, not the same 85 frames.
+HZ_WIND_PHASES = 32
