@@ -26,6 +26,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import run_make
+
 SUPERFORGE = Path(__file__).resolve().parent.parent
 ROM = SUPERFORGE / "build" / "microzero.sfc"
 
@@ -75,8 +77,7 @@ def _run_red(tmp_path, body):
 
 @pytest.fixture(scope="module", autouse=True)
 def rom_built():
-    r = subprocess.run(["make", "microzero"], cwd=SUPERFORGE,
-                       capture_output=True, text=True)
+    r = run_make("microzero")
     assert r.returncode == 0, f"make microzero failed:\n{r.stdout}\n{r.stderr}"
 
 

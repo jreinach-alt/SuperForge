@@ -18,6 +18,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import run_make
+
 SUPERFORGE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SUPERFORGE / "vendor"))
 
@@ -28,8 +30,7 @@ WR, VR = MemoryType.SnesWorkRam, MemoryType.SnesVideoRam
 
 @pytest.fixture(scope="module")
 def probe():
-    r = subprocess.run(["make", "build/probe_vblank.sfc"], cwd=SUPERFORGE,
-                       capture_output=True, text=True)
+    r = run_make("build/probe_vblank.sfc")
     assert r.returncode == 0, f"probe build failed:\n{r.stdout}\n{r.stderr}"
     jmap = json.loads(
         (SUPERFORGE / "build" / "probe_map" / "symbol_map.json").read_text())

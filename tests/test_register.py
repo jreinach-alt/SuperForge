@@ -200,14 +200,25 @@ def _serves_row(text, key):
     author rewords the row, which is the very edit §3.1 exists to permit
     (learned the hard way on a landing)."""
     # The key also heads the dir's row in §3's GENERATED census table
-    # ("| `key` | **role** | unused | ..."); the serves row is the match
-    # WITHOUT a scope cell, so filter the census shape out rather than
+    # ("| `key` | **role** | unused | `rom` | ... |"); the serves row is the
+    # match WITHOUT a scope cell, so filter the census shape out rather than
     # taking the first hit (the first hit IS the census, and editing it
     # turns the gate legitimately red -- the wrong-row trap this helper's
     # first draft fell into).
+    #
+    # BY SHAPE, NOT BY SCOPE VALUE. The filter used to read
+    # `"| unused |" not in l and "| scene |" not in l`, which enumerates two
+    # of the census's THREE scope values and misses `global` -- so the moment
+    # the reference game composed `tad_rom`, its census scope flipped
+    # `unused` -> `global`, the census row stopped being filtered, and both
+    # tests below silently planted over the GENERATED table instead of the
+    # hand-owned one. They went red, which is the good half; the bad half is
+    # that they were then testing nothing they claim to. Counting cells is
+    # exact and cannot go stale against a scope vocabulary it does not read:
+    # the census row carries five, the serves row two.
     return next((l for l in text.splitlines()
                  if l.startswith(f"| `{key}` |")
-                 and "| unused |" not in l and "| scene |" not in l), None)
+                 and len(l.split("|")) == 4), None)
 
 
 def test_plant_hand_edit_OUTSIDE_generated_region_stays_green():

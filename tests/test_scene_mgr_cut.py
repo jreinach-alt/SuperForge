@@ -44,6 +44,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import run_make
+
 SUPERFORGE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SUPERFORGE / "vendor"))
 
@@ -62,8 +64,7 @@ WINDOW = 34
 # fixtures
 # =============================================================================
 def _make(target):
-    r = subprocess.run(["make", target], cwd=SUPERFORGE, capture_output=True,
-                       text=True)
+    r = run_make(target)
     assert r.returncode == 0, f"make {target} failed:\n{r.stdout}\n{r.stderr}"
 
 

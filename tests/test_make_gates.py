@@ -47,6 +47,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import run_make
+
 # `test_register_target_goes_RED_on_census_drift` plants into the SAME file
 # tests/test_register.py plants into, and the rest of this module runs whole
 # gates over the live tree. So it takes the same lock that module takes — one
@@ -72,8 +74,7 @@ def make(*args) -> subprocess.CompletedProcess:
     """
     env = {k: v for k, v in os.environ.items()
            if k not in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL")}
-    return subprocess.run(["make", *args], cwd=SUPERFORGE,
-                          capture_output=True, text=True, env=env)
+    return run_make(*args, env=env)
 
 
 @contextmanager
@@ -192,14 +193,12 @@ def test_register_write_target_is_a_different_target():
     """`register` checks, `register-write` rewrites. If a refactor collapsed
     them, the check target would silently repair drift instead of reporting
     it — and `make register` would be green by construction forever."""
-    r = subprocess.run(["make", "-n", "register"], cwd=SUPERFORGE,
-                       capture_output=True, text=True)
+    r = run_make("-n", "register")
     assert r.returncode == 0, r.stderr
     assert "--check" in r.stdout, f"make register does not pass --check: {r.stdout}"
     assert "--write" not in r.stdout, f"make register passes --write: {r.stdout}"
 
-    w = subprocess.run(["make", "-n", "register-write"], cwd=SUPERFORGE,
-                       capture_output=True, text=True)
+    w = run_make("-n", "register-write")
     assert w.returncode == 0, w.stderr
     assert "--write" in w.stdout, f"make register-write: {w.stdout}"
 

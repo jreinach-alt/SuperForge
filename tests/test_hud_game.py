@@ -43,6 +43,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import run_make
+
 SUPERFORGE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SUPERFORGE / "vendor"))
 
@@ -152,8 +154,7 @@ def _press_a(m, hold=2, gap=2):
 
 @pytest.fixture(scope="module", autouse=True)
 def rom_built():
-    r = subprocess.run(["make", "hud_game"], cwd=SUPERFORGE,
-                       capture_output=True, text=True)
+    r = run_make("hud_game")
     assert r.returncode == 0, (
         f"make hud_game failed rc={r.returncode}:\n{r.stdout}\n{r.stderr}")
     yield

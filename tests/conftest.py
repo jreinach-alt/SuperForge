@@ -191,6 +191,9 @@ if not os.environ.get("SF_MESEN_CORE", "").strip() and os.path.exists(_LOCKSTEP_
 # that file reads the live tree outside the lock.
 REPO_TREE_LOCK = SUPERFORGE / "build" / ".repo_tree.lock"
 
+# Depth of THIS process's outstanding `LOCK_EX` holds — see `_repo_tree_flock`.
+_REPO_TREE_EX_DEPTH = 0
+
 
 @contextlib.contextmanager
 def _repo_tree_flock(mode):
@@ -209,13 +212,38 @@ def _repo_tree_flock(mode):
     Deliberately not automated: crash-recovery machinery would have to tell a
     plant from a real edit, and getting that wrong discards the developer's
     work — a far worse failure than the one it fixes.
+
+    RE-ENTRANT WITHIN ONE PROCESS, and it has to be. `flock` locks a FILE
+    DESCRIPTION, not a process: two `open()` calls give two descriptions, so a
+    test already holding `LOCK_EX` here that asks for `LOCK_SH` on a second
+    descriptor waits for itself, forever. That is not hypothetical — it is
+    exactly the shape `test_make_gates.py` and `test_rom_backing_gate.py`
+    took the day `run_make` landed (`usefixtures("repo_tree_lock")` for the
+    whole test, `run_make` inside it), and both hung until SIGTERM.
+
+    So an outermost `LOCK_EX` suppresses every nested acquisition for its
+    duration. That is sound rather than merely convenient: `LOCK_EX` is
+    strictly stronger than `LOCK_SH`, so a nested reader already has more
+    exclusion than it asked for, and a nested `LOCK_EX` already has exactly
+    what it asked for. The counter is per-process and pytest-xdist gives each
+    worker its own process, so workers still exclude each other through the
+    kernel as before. It is NOT thread-safe, and nothing in this suite takes
+    this lock off the main thread.
     """
+    global _REPO_TREE_EX_DEPTH
+    if _REPO_TREE_EX_DEPTH:
+        yield
+        return
     REPO_TREE_LOCK.parent.mkdir(parents=True, exist_ok=True)
     with open(REPO_TREE_LOCK, "w") as fh:
         fcntl.flock(fh, mode)
+        if mode == fcntl.LOCK_EX:
+            _REPO_TREE_EX_DEPTH += 1
         try:
             yield
         finally:
+            if mode == fcntl.LOCK_EX:
+                _REPO_TREE_EX_DEPTH -= 1
             fcntl.flock(fh, fcntl.LOCK_UN)
 
 
@@ -244,6 +272,44 @@ def repo_tree_read_lock():
     that would serialise them against the planters for no reason.
     """
     return lambda: _repo_tree_flock(fcntl.LOCK_SH)
+
+
+def run_make(*args, **kw):
+    """Run `make` against the LIVE tree under the shared repo-tree lock.
+
+    THE THIRD READER CLASS, and the one the note above left open on purpose.
+    Every `make` target here runs `allocate.py` over `engine/features/`, and
+    the Makefile itself globs `engine/features/*/feature.toml` at parse time —
+    so a `make` overlapping a plant reads a tree that is not the shipped one.
+    The note above measured that residual as ACTIVE rather than latent
+    (`make microzero` and `make room` both red under a `fade` DP -> WRAM
+    plant) and declined to close it, on the grounds that holding the lock
+    across the make fixtures "would serialise away the parallel speedup".
+
+    IT DOES NOT, AND THE REASON IS THE MODE. This takes `LOCK_SH`, so these
+    calls do not exclude each other — 46 of them across 38 modules may still
+    overlap freely, exactly as the three copytree readers do. The only thing
+    that blocks is a PLANTER's `LOCK_EX`, and planters run for ~0.3-1 s
+    apiece. What the fix actually costs is the mirror: a planter now waits for
+    in-flight `make` subprocesses to finish. Measured on the full suite before
+    and after, that is <MEASURED> (the landing gate's own elapsed_s either
+    side).
+
+    WHY IT IS NOT OPTIONAL ANY MORE. The race stopped being theoretical: it
+    took two landing-gate runs at ~26 minutes each, on tips whose diffs were
+    unrelated, and it surfaced through two different layers — the allocator
+    raising FileNotFoundError on a probe directory that vanished mid-read, and
+    make's own wildcard capturing that directory at parse time and finding it
+    gone when the rule ran. Both are this call.
+
+    Keyword arguments pass through, so a site needing `timeout=` or a
+    different `cwd` keeps it; the defaults are the shape all 46 sites used.
+    """
+    kw.setdefault("cwd", SUPERFORGE)
+    kw.setdefault("capture_output", True)
+    kw.setdefault("text", True)
+    with _repo_tree_flock(fcntl.LOCK_SH):
+        return subprocess.run(["make", *args], **kw)
 
 
 # --------------------------------------------------------------------------

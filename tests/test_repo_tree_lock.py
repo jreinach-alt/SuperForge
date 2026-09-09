@@ -47,7 +47,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import REPO_TREE_LOCK
+from conftest import REPO_TREE_LOCK, run_make
 
 SUPERFORGE = Path(__file__).resolve().parent.parent
 FEATURES = SUPERFORGE / "engine" / "features"
@@ -262,3 +262,102 @@ def test_readers_do_not_exclude_each_other(tmp_path, repo_tree_read_lock):
         "two shared-lock holders could not be in the lock at the same time — "
         "the readers are excluding each other, which would serialise them "
         "against each other for no reason")
+
+def test_a_make_reader_waits_for_a_clean_tree(planting_probe):
+    """`make` is the THIRD reader class, and it now waits like the other two.
+
+    Every `make` target here runs `allocate.py` over `engine/features/`, and
+    the Makefile globs `engine/features/*/feature.toml` at parse time. The
+    conftest note above measured that exposure as ACTIVE rather than latent
+    and left it open anyway, on the grounds that locking the make fixtures
+    "would serialise away the parallel speedup" — true of `LOCK_EX` and not of
+    the `LOCK_SH` the fix actually takes.
+
+    It stopped being theoretical: it cost two landing-gate runs at ~26 minutes
+    each, on tips whose diffs were unrelated, through two different layers —
+    the allocator raising `FileNotFoundError` on a probe directory that
+    vanished mid-read, and make's own wildcard capturing that directory at
+    parse time and finding it gone when the rule ran.
+
+    Proven the way this module proves everything: the interleave is BUILT.
+    A probe holds `LOCK_EX` with a plant on disk, `conftest.run_make` is
+    called on the SHIPPED path, and it must make no progress until the plant
+    is restored and released. `make -n` is used so the assertion is about the
+    LOCK and not about a build: it parses the Makefile — which is where one of
+    the two observed failures actually happened — and does no work.
+    """
+    done = threading.Event()
+    result = {}
+
+    def reader():
+        result["r"] = run_make("-n", "microzero")
+        done.set()
+
+    t = threading.Thread(target=reader, daemon=True)
+    t.start()
+
+    assert not done.wait(HOLD_S), (
+        "`make` completed while the planter still held LOCK_EX — run_make is "
+        "not taking the shared lock, so a build can still parse or allocate "
+        "over a tree that is mid-plant")
+
+    planting_probe.release()                # restore + release
+    assert done.wait(120), "`make` never completed after the lock released"
+    t.join(timeout=10)
+
+    assert result["r"].returncode == 0, (
+        "`make -n microzero` failed AFTER the plant was restored:\n"
+        f"{result['r'].stdout}\n{result['r'].stderr}")
+    assert planting_probe.name not in result["r"].stdout, (
+        "the plant's name appears in make's output after the restore — it "
+        "read the tree mid-plant despite waiting")
+
+
+# The re-entrancy child. Loads `tests/conftest.py` by path rather than
+# importing it (a conftest is not on `sys.path` for an arbitrary child), takes
+# the EXCLUSIVE lock the two planting modules take, and then calls `run_make`
+# from inside it — the exact nesting `pytestmark = usefixtures("repo_tree_lock")`
+# plus a `run_make` body produces.
+_REENTRANT_CHILD = r"""
+import fcntl, importlib.util, sys
+spec = importlib.util.spec_from_file_location("sf_conftest", sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+with m._repo_tree_flock(fcntl.LOCK_EX):
+    r = m.run_make("-n", "microzero")
+    assert r.returncode == 0, r.stderr
+print("NESTED-OK")
+"""
+
+
+def test_a_planter_may_call_run_make_without_waiting_for_itself():
+    """`LOCK_EX` then `LOCK_SH` in ONE process must not block.
+
+    `flock` locks a FILE DESCRIPTION, not a process. `_repo_tree_flock` opens
+    the lock file fresh on every call, so a test holding `LOCK_EX` through
+    `usefixtures("repo_tree_lock")` that then calls `run_make` — which asks
+    for `LOCK_SH` on a second description — waits for a lock it is itself
+    holding. Forever.
+
+    That is not a hypothetical: `test_make_gates.py` and
+    `test_rom_backing_gate.py` are both exactly that shape, and the day
+    `run_make` landed both hung until SIGTERM killed the run. The suppression
+    in `_repo_tree_flock` is what makes them finish, and this is its
+    falsifier — delete the depth check and this test fails.
+
+    IT FAILS RATHER THAN HANGS, which is the whole reason the nesting runs in
+    a child. A regression here is a deadlock, and a deadlock inside the test
+    process takes the worker with it; `subprocess(timeout=)` turns it into an
+    ordinary red instead. (That keyword is a host-clock construct and is
+    deliberately outside `make time-check` — docs/45 §4 item 5 names this
+    module as one of the two legitimate users.)
+    """
+    proc = subprocess.run(
+        [sys.executable, "-c", _REENTRANT_CHILD,
+         str(SUPERFORGE / "tests" / "conftest.py")],
+        cwd=SUPERFORGE, capture_output=True, text=True, timeout=180,
+    )
+    assert proc.returncode == 0, (
+        "a process holding LOCK_EX could not complete a run_make:\n"
+        f"{proc.stdout}\n{proc.stderr}")
+    assert "NESTED-OK" in proc.stdout, proc.stdout

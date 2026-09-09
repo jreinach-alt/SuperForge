@@ -52,6 +52,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import run_make
+
 SUPERFORGE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SUPERFORGE / "vendor"))
 
@@ -99,9 +101,8 @@ def _ring_deltas(runner, ring_base: int, idx_addr: int, count: int) -> list[int]
 @pytest.fixture(scope="module")
 def runner():
     # the Makefile is the single source of truth for both probe recipes
-    r = subprocess.run(["make", "build/probe_cpu.sfc",
-                        "build/probe_cpu_step.sfc"],
-                       cwd=SUPERFORGE, capture_output=True, text=True)
+    r = run_make("build/probe_cpu.sfc",
+                        "build/probe_cpu_step.sfc")
     assert r.returncode == 0, (
         f"probe build failed:\n{r.stdout}\n{r.stderr}\n"
         "NOTE: this probe is an instrumented build of the Mode 7 scene whose "

@@ -21,6 +21,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import run_make
+
 SUPERFORGE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SUPERFORGE / "allocator"))
 
@@ -257,8 +259,7 @@ def test_claimless_microzero_keeps_a_no_sram_header_and_its_md5(tmp_path):
     you did not deliberately move microzero, the class has leaked into a
     composition that never asked for it."""
     import hashlib
-    r = subprocess.run(["make", "microzero"], cwd=SUPERFORGE,
-                       capture_output=True, text=True)
+    r = run_make("microzero")
     assert r.returncode == 0, f"make microzero failed:\n{r.stderr}"
     img = (SUPERFORGE / "build" / "microzero.sfc").read_bytes()
     assert img[OFF_CART_TYPE] == 0x00 and img[OFF_SRAM_SIZE] == 0x00

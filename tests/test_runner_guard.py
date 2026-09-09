@@ -28,6 +28,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import run_make
+
 SUPERFORGE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SUPERFORGE / "vendor"))
 
@@ -43,8 +45,7 @@ def runner():
     # a recursive make and must not inherit the outer invocation's flags.
     env = {k: v for k, v in os.environ.items()
            if k not in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL")}
-    r = subprocess.run(["make", "toy"], cwd=SUPERFORGE, capture_output=True,
-                       text=True, env=env)
+    r = run_make("toy", env=env)
     assert r.returncode == 0, f"make toy failed:\n{r.stdout}\n{r.stderr}"
 
     # Wall-clock waits are DELIBERATE in this module and stay.

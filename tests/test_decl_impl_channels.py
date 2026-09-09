@@ -80,6 +80,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import run_make
+
 SUPERFORGE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SUPERFORGE / "vendor"))
 sys.path.insert(0, str(SUPERFORGE / "tests"))
@@ -111,8 +113,7 @@ def built():
     stale-artifact class as a corrupted symbol_map.json.
     Every other microzero test module shells out to make for this reason.
     """
-    r = subprocess.run(["make", "microzero"], cwd=SUPERFORGE,
-                       capture_output=True, text=True)
+    r = run_make("microzero")
     assert r.returncode == 0, f"make microzero failed:\n{r.stdout}\n{r.stderr}"
 
 
