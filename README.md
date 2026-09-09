@@ -240,16 +240,6 @@ the conveyor eight pixels right of it runs sideways — two adjacent numbers in
 one 64-byte transfer. The rent: a vertically displaced column cannot carry a
 floor, so the holes in the deck are what the effect costs.
 
-### `mill_direct`
-
-![mill_direct — the same hall with no palette at all](docs/img/gif_mill_direct.gif)
-
-The same ROM with one declaration changed — `direct_color`, which is CGWSEL
-bit 0. BG1 draws with **no palette at all**: the 8bpp pixel is the colour.
-Measured against the fitted build, 64–80% of the picture differs. The fit wins
-nearly everywhere, which is the honest result — what direct colour buys is a
-picture with no palette to run out of.
-
 ### `aurora`
 
 ![aurora — a night sky and a cursive card, drawn without a palette](docs/img/gif_aurora.gif)
