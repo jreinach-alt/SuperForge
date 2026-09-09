@@ -26,6 +26,11 @@ SF_HDR_TITLE_SET = 1
 .include "brawler.inc"              ; the rail's geometry + tuning
 .include "header.inc"
 .include "init.inc"                 ; RESET: native, A16/I16, forced blank
+.include "tad-audio.inc"            ; vendor/tad — the TAD API imports + enums
+.import sf_sfx_reset, sf_sfx_queue_c, sf_audio_tick
+                                    ; engine/features/audio — the request
+                                    ;   queue and the per-frame pump
+.include "tad_audio_enums.inc"      ; GENERATED — Song:: / SFX:: ids
 .include "sf_asm.inc"               ; shared macros: placement assertions + the
                                     ;   data-bank idioms (vendor/rom)
 
@@ -74,6 +79,20 @@ text_dp_init:
 ; bank/addr against the emitted symbols, so a reorder here (or a size change
 ; upstream) refuses the build rather than silently shifting every later blob.
 ; Window 1 = BANK1; this rail has no audio, so nothing reserves it first.
+; THIS RAIL SPANS TWO WINDOWS NOW, and `audio` is why. The composition's rom
+; claims came to 17,682 B before it — one window with room to spare. tad_rom's
+; 16,384 B half-window takes the total to 34,066, so the allocator packs
+; largest-first into window 1 until it is full and spills the SMALLEST blob,
+; the font, into window 2. The link refused the build until the source said so
+; (`font_bin bank drifted from allocator claim`), which is the .incbin asserts
+; doing their job: the allocator's arithmetic and ld65's placement have to
+; agree by name, not by luck.
+.segment "BANK2"
+font_bin:
+    .incbin "font_2bpp.bin"
+.assert ^font_bin = ES_R_FONT_BIN_BANK, error, "font_bin bank drifted from allocator claim"
+.assert .loword(font_bin) = ES_R_FONT_BIN_ADDR, error, "font_bin addr drifted from allocator claim"
+
 .segment "BANK1"
 br_art_chr_bin:
     .incbin "br_art_chr.bin"
@@ -87,10 +106,6 @@ br_bg_chr_bin:
     .incbin "br_bg_chr.bin"
 .assert ^br_bg_chr_bin = ES_R_BR_BG_CHR_BANK, error, "br_bg_chr bank drifted from allocator claim"
 .assert .loword(br_bg_chr_bin) = ES_R_BR_BG_CHR_ADDR, error, "br_bg_chr addr drifted from allocator claim"
-font_bin:
-    .incbin "font_2bpp.bin"
-.assert ^font_bin = ES_R_FONT_BIN_BANK, error, "font_bin bank drifted from allocator claim"
-.assert .loword(font_bin) = ES_R_FONT_BIN_ADDR, error, "font_bin addr drifted from allocator claim"
 br_bg_map_bin:
     .incbin "br_bg_map.bin"
 .assert ^br_bg_map_bin = ES_R_BR_BG_MAP_BANK, error, "br_bg_map bank drifted from allocator claim"
@@ -152,6 +167,25 @@ MAIN:
                                 ;   game-lifetime state: a console does not
                                 ;   change region between scenes.
     jsr oam_park_all            ; whole shadow written before its first DMA
+    ; ---- audio boot (TAD contract, tad-audio.inc): interrupts are DISABLED
+    ; here by construction — init.inc leaves NMI off and $4200 is written only
+    ; below — so the S-SMP is still in the IPL. Tad_Init runs ONCE per
+    ; power-on; the song load is ASYNC and Tad_Process streams it during the
+    ; frame loop.
+    sep #$20
+    .a8
+    jsl Tad_Init
+    jsr sf_sfx_reset                ; the ring holds power-on garbage
+    ; STEREO: the song is PANNED (mid pulse left, arpeggio right) and TAD's
+    ; default is MONO (tad-audio.inc:123), which collapses every channel to
+    ; centre. The mode only takes effect at the next song load
+    ; (tad-audio.inc:525), so it is set between Tad_Init and Tad_LoadSong.
+    lda #TadAudioMode::STEREO
+    sta Tad_audioMode
+    lda #Song::drive_song           ; the action rails' song — assets/audio/README
+    jsr Tad_LoadSong
+    rep #$20
+    .a16
     ; ---- enter the boot scene (id 0 = fight) under forced blank -----------
     ldx #(SCENE_FIGHT * 2)
     jsr (sm_enter_tab, x)
@@ -171,5 +205,12 @@ MAIN:
     jsr input_read
     jsr sm_tick
     jsr fade_tick
+    ; ---- audio pump: once per frame, MAIN THREAD ONLY (the TAD ABI forbids
+    ; ISR calls).
+    sep #$20
+    .a8
+    jsr sf_audio_tick               ; delivers one queued cue, then Tad_Process
+    rep #$20
+    .a16
     jsr sm_frame_sync
     bra @loop

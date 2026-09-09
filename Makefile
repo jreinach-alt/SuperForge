@@ -1800,9 +1800,19 @@ $(BR_MAP)/engine_state_globals.inc $(BR_MAP)/symbol_map.json: \
 	$(PY) allocator/allocate.py --game $(BR) --features-dir engine/features \
 		--out $(BR_MAP)
 
+$(BUILD)/br_tad_wrapper.o: engine/features/audio/tad_wrapper.asm \
+		vendor/tad/tad-audio.s vendor/tad/tad-audio.inc \
+		$(BR_MAP)/engine_state_globals.inc | $(BUILD)
+	$(CA65) -I $(BR_MAP) -I vendor/tad -o $@ $<
+
+$(BUILD)/br_tad_data.o: assets/audio/export/tad_audio_data.asm \
+		assets/audio/export/tad_audio_data.bin | $(BUILD)
+	$(CA65) --bin-include-dir assets/audio/export -o $@ $<
+
 $(BUILD)/brawler.sfc: $(BR_ASM) $(BR)/brawler.inc \
 		$(BR_MAP)/engine_state_globals.inc \
 		$(BUILD)/assets/font_2bpp.bin $(BR_ASSETS) \
+		$(BUILD)/br_tad_wrapper.o $(BUILD)/br_tad_data.o \
 		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
 		$(VROM)/lorom_512k.cfg | $(BUILD)
 	$(PY) allocator/no_literals.py --map $(BR_MAP)/symbol_map.json $(BR_ASM)
@@ -1812,9 +1822,11 @@ $(BUILD)/brawler.sfc: $(BR_ASM) $(BR)/brawler.inc \
 		-I engine/features/oam_sprites \
 		-I engine/features/region -I engine/features/tick_scale \
 		-I engine/features/brawler_bg -I engine/features/brawler_obj \
+		-I vendor/tad -I assets/audio/export \
 		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/brawler.o $(BR)/main.asm
-	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/brawler.o
+	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/brawler.o \
+		$(BUILD)/br_tad_wrapper.o $(BUILD)/br_tad_data.o
 	$(PY) tools/fix_checksum.py $@
 
 brawler: $(BUILD)/brawler.sfc
