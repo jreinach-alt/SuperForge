@@ -319,6 +319,21 @@ either module. It is also intermittent — the immediately preceding run of the
 same gate on the parent commit was green — so a single red here is not
 evidence about the tree.
 
+SECOND SIGHTING (2026-09-09, on the camera_follow tip), with a DIFFERENT
+symptom from the same cause: 2475 passed, 0 failed, 3 errors, all from
+`test_scene_mgr_shadow.py` fixtures shelling out to `make microzero` —
+
+    make[3]: *** No rule to make target
+    'engine/features/zz_lockprobe_16992_0/feature.toml',
+    needed by 'build/mz/engine_state_globals.inc'.  Stop.
+
+The first sighting was the ALLOCATOR raising FileNotFoundError on a probe dir
+that vanished mid-read; this one is MAKE's own `$(wildcard
+engine/features/*/feature.toml)` capturing the probe at parse time and finding
+it gone by the time the rule ran. Two different layers, one race. Cost so far:
+two landing-gate runs, ~26 minutes each, both on tips whose diffs were
+unrelated to it.
+
 Unfixed, and named here rather than papered over. The shape of a fix is
 scheduling, not allocator code: the tree-lock module wants the shared tree to
 itself, so it should not be co-schedulable with any module that shells out to
