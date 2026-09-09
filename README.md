@@ -204,135 +204,61 @@ two of those numbers shared with claims that run in VBlank.
 
 ![lakeside — a lake you can see the bed through](docs/img/gif_lakeside.gif)
 
-A lakeshore where the water is really water. The bed — silt, pebbles,
-sandbars, a shelf dropping into the deep — is drawn once, and the surface is a
-second layer the hardware blends over it as the screen is painted, so you are
-looking *through* the water at the bed rather than at a picture of what that
-would look like. Watch the shoreline: it drifts as a pixel edge rather than a
-row of tiles, and a wave running up the sand shades it wet, then gives it back
-dry as the backwash draws down. Nothing repaints a wet palette — the shading
-is just what the blend already does. The text stays readable because it is
-left out of the math.
-
+A lakeshore where the water is really water. The bed is drawn once and the
+surface is a second layer the hardware blends over it as the screen is
+painted, so you look *through* the water rather than at a picture of it. A
+wave shades the sand wet and the backwash gives it back dry, with no palette
+repainted anywhere.
 
 ### `heathaze`
 
 ![heathaze — a desert road with the air shimmering over it](docs/img/gif_heathaze.gif)
 
-A desert road running to a mesa ridge, with the air shimmering over it. Every
-scanline below the horizon is drawn from a slightly different row of the
-world, so the ground squashes and stretches and the road, its dashes and the
-cacti all boil. The vertical axis is the whole trick: sliding rows sideways
-only shears the picture and never makes it swim. A gentler sideways wobble
-runs on top at its own pace, so the distortion slides across ground that is
-already moving. Watch the sky and the ridge above the band — they do not move
-at all, which is what makes it read as heat rather than as a broken picture.
-
+A desert road with the air shimmering over it. Every scanline below the
+horizon is drawn from a slightly different row of the world, so the ground and
+the road boil. The vertical axis is the whole trick — sliding rows sideways
+only shears the picture. The sky and ridge above the band never move, which is
+what makes it read as heat.
 
 ### `smelter`
 
 ![smelter — steel plates rising over molten metal, column by column](docs/img/gif_smelter.gif)
 
-A foundry floor, and every eight-pixel column of it scrolls on its own. Four
-steel plates hang over a cavern of molten metal and each rises and falls to its
-own beat, so no two are ever in step; between them the melt lifts straight out
-of its own surface in arches — a broad one where the gap is wide, a single
-lifted column where it is narrow, and one lone column of metal standing at the
-right-hand edge. Under the plates the melt is calm. Nothing here is a
-scanline effect and nothing here is animation frames: the whole picture is bent
-by a **third background layer the hardware reads as data instead of drawing**,
-one number per column, refreshed once a frame. Watch two neighbouring columns
-of the melt — one can be forty pixels up while the other has not moved.
-
-The lava churns while it does: the same tilemap with different pixels swapped
-under it every frame, four tiles at a time. Behind it a band of light drifts
-left to right across the cavern wall — and that one is not pixels at all. The
-wall is a single tile with every column set to its own palette entry, so
-rotating eight colours walks a pattern across the whole layer for sixteen bytes
-a frame. Hold B and every column drops to one level; both keep moving, which is
-how you can see that the churn, the drift and the columns are three different
-mechanisms sharing one picture.
-
-And there is a knight standing on one of the plates, going up and down with it.
-That is the part that makes the number a **position** rather than a display
-trick: his collision reads the same word the picture is drawn from, so his feet
-are on the metal by construction and not by tuning. D-pad walks him, A jumps —
-the apex is fifty pixels and the plates span eighty, so the top one is reached
-by waiting for it to come down.
-
+A foundry floor where every eight-pixel column scrolls on its own, bent by a
+**third background layer the hardware reads as data instead of drawing** — one
+number per column, once a frame, no HDMA. Two neighbouring columns of molten
+metal can be forty pixels apart. A knight rides one of the plates, colliding
+against the same word the picture is drawn from.
 
 ### `mill`
 
 ![mill — a machine hall where each column moves on the axis its own word names](docs/img/gif_mill.gif)
 
-The same third layer read as data, one mode over, and mode 4 changes what a
-column can be told. Mode 2 fetches a word for each axis, so a column is
-displaced on both or neither; **mode 4 fetches ONE word per column and bit 15
-of it picks that column's axis**. So a single 32-word row — 64 bytes, uploaded
-once a frame, no HDMA channel — has a drop hammer pumping vertically in its
-frame while the conveyor eight pixels to its right runs sideways, out of two
-adjacent numbers in the same transfer.
-
-The lift is the same word doing a third job. Its car is a BG1 column like any
-other, and the man riding it is an OBJ drawn at priority 0 — so BG1's own
-pixels beat him wherever the car is opaque and lose to him through the hole cut
-for the door, and he is *inside* the car for no mask register and no
-per-scanline work. He rides it from the lobby up the shaft and the camera goes
-with him, which is why every vertical word carries the camera: an offset word
-REPLACES a layer's scroll rather than adding to it.
-
-The floor is where the mechanism charges rent. A vertically displaced column
-cannot carry a horizontal course, so **a shaft cannot have a floor** — the
-holes in the deck are not level design, they are what the effect costs, and
-whether the lift's own columns are floor is read from the car's live
-displacement rather than from a tile flag. Under the deck the molten channel is
-the same 32-word row read again through a *different* row of the table, one
-HDMA write of `BG3VOFS` per band, so one frame carries the machines, a still
-deck and a rippling surface from three rows at once.
+The same layer as data, one mode over. **Mode 4 fetches one word per column
+and bit 15 picks that column's axis**, so a drop hammer pumps vertically while
+the conveyor eight pixels right of it runs sideways — two adjacent numbers in
+one 64-byte transfer. The rent: a vertically displaced column cannot carry a
+floor, so the holes in the deck are what the effect costs.
 
 ### `mill_direct`
 
 ![mill_direct — the same hall with no palette at all](docs/img/gif_mill_direct.gif)
 
-The same ROM with one declaration different: `direct_color` on
-`[[claims.video]]`, which is CGWSEL bit 0. The shipped rail draws BG1 out of 96
-CGRAM entries fitted to this exact picture; this one draws it with **no palette
-at all** — the 8bpp pixel IS the colour, three bits of red, three of green, two
-of blue, each extended one bit by the tilemap entry's palette field. Nothing is
-uploaded to CGRAM for BG1 and nothing is fitted.
-
-Measured between the two clips: 64–80% of the picture differs, by a median of
-9–16 units of 255 on its worst channel. The fit wins nearly everywhere, which
-is the honest result — what direct colour buys is not fidelity, it is that a
-picture can be built with no palette to run out of.
+The same ROM with one declaration changed — `direct_color`, which is CGWSEL
+bit 0. BG1 draws with **no palette at all**: the 8bpp pixel is the colour.
+Measured against the fitted build, 64–80% of the picture differs. The fit wins
+nearly everywhere, which is the honest result — what direct colour buys is a
+picture with no palette to run out of.
 
 ### `aurora`
 
 ![aurora — a night sky and a cursive card, drawn without a palette](docs/img/gif_aurora.gif)
 
-`mill_direct` showed the bit set on a picture built for a palette. This is a
-picture built for the **absence** of one: an end-credits card in mode 3, whose
-sky is drawn from 2048 colours on a palette budget of **zero**, leaving all 256
-CGRAM words to the hills, the figures and the lettering. Measured on the
-finished card, **161 of the sky band's 166 distinct colours are not in CGRAM at
-all** — on an indexed BG1 that number is zero by construction, because a
-palette is the only place a colour could have come from.
-
-The other half of the trade is paid in the open: there is no palette to
-*cycle*, so colour animation is CHR traffic — sixteen copies of every tile the
-aurora tints, 311,296 B, for what an indexed layer buys with two bytes a frame.
-What that buys is a drift slow enough to be weather rather than animation: four
-8×8 cells of the sky change in a hundred and twenty frames, and the curtains
-travel from cyan-teal to violet over 51 seconds without anything ever appearing
-to move.
-
-The card plays itself and plays again — black, the scene, the pen writing the
-word, the card held, black — and **the loop puts back the ink and nothing
-else**. The hue cursor runs underneath every beat and no beat touches it, so
-each pass opens on whatever colour the drift has reached. A loop that also
-restored the colour would open every pass on the same teal and make fifteen of
-the sixteen phases unreachable; that version was built and thrown away. This
-clip is one pass, so it is one colour band and not the tour.
+An end-credits card in mode 3, built for the **absence** of a palette: its sky
+is drawn from 2048 colours on a budget of zero, leaving all 256 CGRAM words to
+the hills, figures and lettering. **161 of the sky's 166 distinct colours are
+not in CGRAM at all.** The trade is paid in the open — nothing to *cycle*, so
+colour animation is 311,296 B of CHR traffic.
 
 ---
 
