@@ -118,7 +118,7 @@ def saturating():
 
 
 def test_a_swallowed_shot_makes_no_sound(saturating):
-    """The gun cue sits BELOW the pool-full bail, so it cannot outrun the pool.
+    """The gun cue sits BELOW the pool-full bail, so it cannot get ahead of the pool.
 
     `do_fire` claims a bolt slot and bails on `bmi` when the pool is full. A
     cue above that bail sounds on every press regardless of whether a bolt

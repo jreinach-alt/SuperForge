@@ -496,3 +496,24 @@ that provokes the refusal.** Bounds-check cases need the bound reached,
 pool-full cases need the pool full, clamp cases need the clamp hit. Plant it,
 and if the plant passes, the drive is not reaching the branch — that is a
 finding about the test, and the md5 moving says nothing about it either way.
+
+### "outrun" is a retail title, and the tripwire caught it in a test docstring — **surprise, LOW**
+
+`make cleanroom`'s multiword denylist joins its terms with `[-_\s]*`, so
+`('out', 'run')` matches **outrun** as one word. A docstring saying the gun cue
+"cannot outrun the pool" tripped it, twice — once on the line pass and once on
+the comment-wrap pass.
+
+The tripwire was right and the wording was mine; reworded to "cannot get ahead
+of the pool". Worth recording for two reasons. First, the collision class is
+ordinary English: `out run`, `top gear`, `after burner`, `street racer` and
+`mega man` are all phrases someone writes by accident, so a red here is much
+more likely to be prose than provenance. Second, the ordering paid for itself —
+`cleanroom` runs FIRST in the gate block, so this cost 116 seconds instead of
+the 25 minutes a failure after the ROM builds and the suite would have. The
+`test` entry in that artifact reads "skipped", not "FAILED": one real failure,
+not two.
+
+**The habit: run `cleanroom` on any commit that adds prose, which is nearly all
+of them.** It is in `make gates` but it is cheap enough to run alone, and it is
+the one gate whose findings live in comments rather than code.
