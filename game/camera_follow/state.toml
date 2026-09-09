@@ -46,6 +46,21 @@ ts_step = "u16@dp"       # this frame's whole-unit step in world px, published
 # block holds it, so a reason written above cannot reach past this break onto
 # the word below. The heartbeat below is a real frame-unit declaration with no
 # override of its own, and it must keep being counted.)
+cell = "u16@dp"          # the 16 px STRIDE the player last occupied, packed
+                         # (row << 8) | col — the edge a footstep fires on.
+                         # This rail walks freely in world pixels, so there is
+                         # no step COMMIT to hang a cue on and "is moving" is
+                         # true on every held-input frame. maze carries the
+                         # same latch for the same reason, at the same
+                         # CF_SPEED = 2 px/frame, and 16 px is the stride the
+                         # EAR wanted there: 8 px put the step voice on 63% of
+                         # walking frames, which is no cadence anyone walks at.
+                         # TICK: ok — a POSITION, not a count of anything. The
+                         # frame-assumption lint reads the word for "previous
+                         # update" as a declared frame unit, but nothing here
+                         # scales with the frame rate: the same stride is the
+                         # same stride on both machines, and the walk that
+                         # crosses it is already region-scaled by ts_step.
 frames = "u16@dp"        # frames since enter. Drives nothing — the
                          # free-running heartbeat a test reads to tell "the
                          # tick is running" from "the tick is stuck" (the

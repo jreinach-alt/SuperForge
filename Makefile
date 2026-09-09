@@ -1212,14 +1212,26 @@ CF_INC := -I $(CF_MAP) -I $(VROM) -I $(CF) \
           -I engine/features/region -I engine/features/tick_scale \
           -I engine/features/cf_bg -I engine/features/cf_obj
 
+$(BUILD)/cf_tad_wrapper.o: engine/features/audio/tad_wrapper.asm \
+		vendor/tad/tad-audio.s vendor/tad/tad-audio.inc \
+		$(CF_MAP)/engine_state_globals.inc | $(BUILD)
+	$(CA65) -I $(CF_MAP) -I vendor/tad -o $@ $<
+
+$(BUILD)/cf_tad_data.o: assets/audio/export/tad_audio_data.asm \
+		assets/audio/export/tad_audio_data.bin | $(BUILD)
+	$(CA65) --bin-include-dir assets/audio/export -o $@ $<
+
 $(BUILD)/camera_follow.sfc: $(CF_ASM) $(CF)/cf.inc \
 		$(CF_MAP)/engine_state_globals.inc $(CF_ASSETS) \
+		$(BUILD)/cf_tad_wrapper.o $(BUILD)/cf_tad_data.o \
 		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
 		$(VROM)/lorom_512k.cfg | $(BUILD)
 	$(PY) allocator/no_literals.py --map $(CF_MAP)/symbol_map.json $(CF_ASM)
-	$(CA65) $(CF_INC) --bin-include-dir $(BUILD)/assets \
+	$(CA65) $(CF_INC) -I vendor/tad -I assets/audio/export \
+		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/camera_follow.o $(CF)/main.asm
-	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/camera_follow.o
+	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/camera_follow.o \
+		$(BUILD)/cf_tad_wrapper.o $(BUILD)/cf_tad_data.o
 	$(PY) tools/fix_checksum.py $@
 
 camera_follow: $(BUILD)/camera_follow.sfc
