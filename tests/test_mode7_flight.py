@@ -174,6 +174,21 @@ JOIN_MC_CEILING = 200_000
 
 BOOT = 120          # frames of settle before anything is asserted
 
+# TAD_BOOT: `Tad_Init` hands the driver to the S-SMP a byte at a time through
+# the IPL handshake, and that costs FOUR hardware frames before `MAIN` reaches
+# the scene enter. Every case in this module that settles for BOOT frames is
+# unaffected — four frames inside a hundred and twenty is noise — but the ONE
+# case that asserts on a specific EARLY frame is not, because the frame it
+# names is a SCENE frame and the clock it reads has not been armed yet at
+# hardware frame 2.
+#
+# Applied at that one site rather than to every `Machine(str(ROM))` in the
+# file, deliberately: a blanket shift would move 116 passing cases to prove
+# one, and the other early advances here are RELATIVE steps taken after a
+# settle rather than absolutes counted from power-on. Same constant and the
+# same value as `test_stomper.py`'s and `test_railshooter.py`'s BOOT_SKEW.
+TAD_BOOT = 4
+
 
 # ===========================================================================
 # helpers — every one reads an OUTPUT region
@@ -1513,7 +1528,9 @@ def test_the_backdrop_word_boots_on_the_day_snapshots_zenith():
     frames before the first step landed.
     """
     with Machine(str(ROM)) as m:
-        m.advance(2)                                # before the clock has moved
+        # 2 + TAD_BOOT: frame 2 is a SCENE frame and Tad_Init costs four
+        # hardware frames ahead of the scene enter — see the constant's note.
+        m.advance(2 + TAD_BOOT)                     # before the clock has moved
         got, (_, step, _) = _cgram_5bit(m, 0), _tod(m)
     want = GRAD.SNAPSHOTS[GRAD.DAY_INDEX][1]
     assert got == want, (

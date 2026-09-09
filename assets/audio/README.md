@@ -31,9 +31,14 @@ Rowe) — see `vendor/tad/README.md` for the pin.
 
 | song | rails | what it is |
 |---|---|---|
-| `slice_b_song` | `room`, `rpg` | the ambient piece. Three channels, a whole-bar rest at the end of its 768-tick loop, and echo settings that ARE room A's acoustics |
-| `drive_song` | the other 16: `boss_saucer`, `brawler`, `breaker`, `camera_follow`, `jumper`, `m7_oshoot`, `maze`, `patrol`, `platformer`, `platformer_stream`, `racer`, `scroll_run`, `shmup`, `split_v_fight`, `sprite_game`, `stomper` | the action piece. Six channels, a drum kit, a sixteenth-note bass |
+| `slice_b_song` | `room`, `rpg`, `heathaze`, `lakeside`, `smelter`, `mode7_flight` | the ambient piece. Three channels, a whole-bar rest at the end of its 768-tick loop, and echo settings that ARE room A's acoustics |
+| `drive_song` | the other 21: `boss_saucer`, `brawler`, `breaker`, `camera_follow`, `hud_game`, `jumper`, `m7_dungeon`, `m7_oshoot`, `maze`, `mill`, `mode7_explore`, `patrol`, `platformer`, `platformer_stream`, `racer`, `railshooter`, `scroll_run`, `shmup`, `split_v_fight`, `sprite_game`, `stomper` | the action piece. Six channels, a drum kit, a sixteenth-note bass |
 | `circuit_song` | `microzero` | the racing piece. Six channels in A mixolydian over I - bVII - IV; the flat seventh is the whole colour |
+
+The four screen-effect rails take the ambient piece for the reason the split
+describes from the other end: a kit under a picture is the "prettify the demo"
+move, and `scroller` and `mode7_chamber` decline audio outright on exactly that
+argument — they are MEASUREMENT rails and music changes what they measure.
 
 That third column is PROSE and the rail lists in it are hand-maintained; the
 tree is the source of truth. `grep -o 'Song::[A-Za-z_0-9]*' game/*/main.asm

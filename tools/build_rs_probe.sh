@@ -42,6 +42,7 @@ INC="-I $MAP -I $VROM -I game/railshooter
      -I engine/features/mode7_persp -I engine/features/rs_floor
      -I engine/features/sky_band -I engine/features/rs_obj
      -I engine/features/rs_logic
+     -I vendor/tad -I assets/audio/export
      -I engine/features/region -I engine/features/tick_scale"
 
 if [ ! -f "$MAP/symbol_map.json" ]; then
@@ -54,7 +55,15 @@ build_variant() {
     # shellcheck disable=SC2086
     ca65 --cpu 65816 $INC --bin-include-dir "$BUILD/assets" "$@" \
         -o "$BUILD/$name.o" "$SRC"
-    ld65 -C "$VROM/lorom_512k.cfg" -o "$BUILD/$name.sfc" "$BUILD/$name.o"
+    # The TAD objects the shipping recipe links, since `audio` was composed
+    # onto this rail. `make rs-probe` depends on them, so they are present and
+    # current by the time this runs — this is not a second build of the audio
+    # blob, only the same two objects on a second link. `build_mill_direct.sh`
+    # carries the identical two lines for the identical reason; a variant
+    # script is a SECOND LINK PATH and every one of them has to learn about a
+    # new object, which is what the landing gate caught here.
+    ld65 -C "$VROM/lorom_512k.cfg" -o "$BUILD/$name.sfc" "$BUILD/$name.o" \
+        "$BUILD/rs_tad_wrapper.o" "$BUILD/rs_tad_data.o"
     python3 tools/fix_checksum.py "$BUILD/$name.sfc" >/dev/null
     echo "built $BUILD/$name.sfc"
 }

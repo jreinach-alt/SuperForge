@@ -92,8 +92,22 @@
 #
 # A second layer does not just cost VRAM and a channel. It costs the ability
 # to make an exact statement about the first one.
-globals = ["scene_mgr", "fade", "input", "text_dp", "font_rom", "bg_text",
+globals = ["audio", "tad_rom",
+           "scene_mgr", "fade", "input", "text_dp", "font_rom", "bg_text",
            "hz_bg", "hz_rom", "region", "tick_scale"]
+
+# AUDIO, composed 2026-09-09. MUSIC ONLY, and the absence of cues is the
+# declaration: this rail is a SCREEN EFFECT and has no discrete event to
+# sound. There is no landing, no kill, no arrival — nothing whose 0 -> 1 edge
+# is a moment — so `sf_sfx_queue_c` is not even imported and there is no
+# `prev` word in state.toml. What it composes is `Tad_Init`, one
+# `Tad_LoadSong` and the per-frame pump.
+#
+# `slice_b_song`, the tree's ambient piece, and not `drive_song`: a drum kit
+# under a screen effect would be the "prettify the demo" move that `scroller`
+# and `mode7_chamber` decline for themselves, and those two stay silent for
+# exactly that reason — they are MEASUREMENT rails and music changes what they
+# measure. This one is a picture, and a picture may have a room tone.
 
 # The title: the same world, undistorted, with both the blender and the scroll
 # register carrying their own off states.

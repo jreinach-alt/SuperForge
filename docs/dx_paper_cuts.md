@@ -775,3 +775,97 @@ window: budget a build-refuse-fix loop per rail, and read the new claims out of
 `m7_dungeon` needed a blob SPLIT rather than a shift — its 16 KB tilemap now
 shares window 1 with the export because both are exactly half of one, and the
 allocator packs by (-bytes, name).
+
+### A VARIANT SCRIPT IS A SECOND LINK PATH, AND EVERY ONE HAS TO LEARN ABOUT A NEW OBJECT — surprise, MEDIUM
+
+Composing `audio` onto a rail adds two objects to its link. The Makefile recipe
+is the obvious place to add them and the easy one to remember; what is easy to
+MISS is that some rails are linked twice, by a `tools/build_*.sh` that
+re-assembles the same `main.asm` with a `-D` and links it again. `mill-direct`
+was spotted while editing mill; `rs-probe` — railshooter's MEASUREMENT ROM,
+same shape, different rail — was not, and the landing gate is what found it:
+
+  bare-check: RED — 6330bf31be13: gates, rom-census, rs-probe (119s)
+    EXPECTED IMAGE ABSENT — build/rs_probe.sfc was not built by the gate block
+
+Note the SECOND arm of that red. The gate did not merely report a failed step:
+its rom-census derived that 59 images were demanded and measured 61, and named
+`rs_probe` as the one absent. Two independent readings of one defect, and the
+census arm is the one that would still have caught it if the script had failed
+quietly.
+
+**The sweep that answers it in one line**, and it is worth running whenever a
+composition adds an object to any rail:
+
+    for f in tools/build_*.sh; do
+      src=$(grep -oE "^SRC=game/[a-z_0-9]+" $f | sed 's|^SRC=game/||')
+      grep -q '"audio"' game/$src/game.toml && \
+        { grep -q tad_wrapper $f && echo "OK $f" || echo "NEEDS $f"; }
+    done
+
+Ten variant scripts exist; four belong to rails that now have audio, and all
+four are correct. Grepping for the RAIL NAME inside the script is the wrong
+key — `build_shp_autodemo.sh` mentions `game/split_v_fight` in a comment and
+builds `game/split_h_persp_demo`, which reads as a false positive. `SRC=` is
+the key that means it.
+
+## The four screen-effect rails (2026-09-09)
+
+### THE ABSENCE OF CUES IS A DECLARATION, NOT AN OMISSION — easy, LOW
+
+`heathaze`, `lakeside`, `smelter` and `mode7_flight` compose `audio` for MUSIC
+ONLY. None imports `sf_sfx_queue_c`; none declares a `prev` word; none has a
+state.toml change at all. A screen effect has no discrete event whose 0 -> 1
+edge is a moment, so there is nothing to latch and nothing to sound.
+
+That turns out to make the tests SHARPER rather than thinner, which was not
+obvious going in. Because these four queue nothing, the two tree-wide hardware
+rules can be asserted as EQUALITIES: there is no window in which voices 6/7
+are legitimately busy, so any sounding there is a part of the song scored
+where a future cue would erase it — a claim the cue-carrying rails can only
+make on their title screens. One parameterised module covers all four, because
+they make one claim four times and four copies of a fixture is not four tests.
+
+### WHICH RAILS STAY SILENT, AND WHY EACH REASON IS STILL LIVE
+
+Thirteen of the seventeen remaining are silent on purpose and say so:
+
+  * `scroller`, `mode7_chamber` — MEASUREMENT rails. Their own headers call
+    music "the prettify the demo move" and say "a demo that prettifies stops
+    measuring what it was built to measure". Composing audio here would be
+    reversing a live reason, not an expired one.
+  * `boss`, `meteor_event` — their audio half exists as a SEPARATE RAIL
+    (`boss_saucer`). The pair is the demonstration; composing here destroys it.
+  * the nine `split_*` / `seam_*` demos — no game events at all.
+
+The four that were wired had either NO stated reason (`heathaze`, `lakeside`,
+`smelter` — the deferral the previous pass filed) or an EXPIRED one
+(`mode7_flight`: "adding a soundtrack would be content it does not have",
+the same sentence `m7_oshoot` and `railshooter` carried, false since the songs
+exist). **Reading the stated reason before touching a rail is the whole of the
+work here**; four of the seventeen were candidates and thirteen were not, and
+nothing but the prose distinguishes them.
+
+### THE ALLOCATOR ANSWERS "DOES IT FIT" WITHOUT A BUILD — easy, LOW
+
+Before wiring anything, all four were test-fitted by copying the game dir to
+`/tmp`, adding `"audio", "tad_rom"` to its globals, and running
+`allocator/allocate.py --game <copy>`. Four for four in under a minute, no ROM
+built and no tree touched. Worth doing first on any composition that might not
+fit: the allocator is the authority on feasibility and it is CHEAP, where the
+build that would tell you the same thing is minutes and leaves artifacts.
+
+### RE-SEGMENTING IS DERIVABLE; THE ORDER WITHIN A WINDOW IS NOT — clunky, LOW
+
+The bank drift these four hit is the same class the previous five did, but at
+this scale it was worth scripting: walk the `<name>_bin:` labels in file order,
+read `ES_R_<NAME>_BANK` out of the emitted `.inc`, and insert a `.segment
+"BANKn"` wherever the claimed bank changes. Three of four fell out of that.
+
+`mode7_flight` did not, and the reason is the part a script cannot derive from
+banks alone: `tad_export` re-sorted the PACKING ORDER inside window 1. The
+allocator packs by (-bytes, name), so the three 32 B palettes now group and
+`m7f_todpal` sorts BEFORE `grad_tabs` instead of into a window of its own. Its
+BANK was right and its ADDR was wrong — and only the second `.assert` of each
+pair can see that. A blob in the right bank at the wrong offset reads its
+neighbour's bytes, which is exactly what the addr assert exists for.

@@ -41,6 +41,12 @@ SF_HDR_TITLE_SET = 1
                                     ;   table and its walker cannot disagree
 .include "header.inc"
 .include "init.inc"                 ; RESET: native, A16/I16, forced blank
+.include "tad-audio.inc"            ; vendor/tad — the TAD API imports + enums
+.import sf_sfx_reset, sf_audio_tick  ; engine/features/audio — the request
+                                    ;   queue's reset and the per-frame pump.
+                                    ;   sf_sfx_queue_c is NOT imported: this
+                                    ;   rail has no cue to queue.
+.include "tad_audio_enums.inc"      ; GENERATED — Song:: / SFX:: ids
 .include "sf_asm.inc"               ; shared macros: placement assertions + the
                                     ;   data-bank idioms (vendor/rom)
 
@@ -71,11 +77,12 @@ NMI:
 ; PRESENCE side is `make rom-unbacked` (docs/37): a claim with no .incbin here
 ; would reserve the window and let whatever the linker left there be read as
 ; art.
-.segment "BANK1"
+.segment "BANK2"
 hz_hwarp_bin:
     .incbin "hz_hwarp.bin"
 .assert ^hz_hwarp_bin = ES_R_HZ_HWARP_BANK, error, "hz_hwarp bank drifted from allocator claim"
 .assert .loword(hz_hwarp_bin) = ES_R_HZ_HWARP_ADDR, error, "hz_hwarp addr drifted from allocator claim"
+.segment "BANK1"
 hz_map_bin:
     .incbin "hz_map.bin"
 .assert ^hz_map_bin = ES_R_HZ_MAP_BANK, error, "hz_map bank drifted from allocator claim"
@@ -104,7 +111,7 @@ hz_pal_bin:
 ; HDMA increments A1T inside a bank and does not carry into A1B, so a blob set
 ; straddling a boundary would walk into whatever follows it. haze.asm asserts
 ; that separately, per table.
-.segment "BANK2"
+.segment "BANK3"
 hz_warp_bin:
     .incbin "hz_warp.bin"
 .assert ^hz_warp_bin = ES_R_HZ_WARP_BANK, error, "hz_warp bank drifted from allocator claim"
@@ -307,6 +314,32 @@ MAIN:
     jsr region_init                 ; the console's own region line, once. It
                                     ;   is game-lifetime state: a console does
                                     ;   not change region between scenes.
+    ; ---- audio boot (TAD contract, tad-audio.inc): interrupts are DISABLED
+    ; here by construction — init.inc leaves NMI off and $4200 is written only
+    ; below — so the S-SMP is still in the IPL. Tad_Init runs ONCE per
+    ; power-on; the song load is ASYNC and Tad_Process streams it during the
+    ; frame loop.
+    ;
+    ; MUSIC ONLY. This rail is a SCREEN EFFECT and has no discrete event to
+    ; sound — no landing, no kill, no arrival — so it queues nothing and the
+    ; sfx ring is reset purely so the pump reads a defined head rather than
+    ; power-on garbage (rule 5). `slice_b_song` is the tree's ambient piece
+    ; (assets/audio/README, "Three songs"); a kit under a screen effect would
+    ; be the "prettify the demo" move the measurement rails decline.
+    sep #$20
+    .a8
+    jsl Tad_Init
+    jsr sf_sfx_reset                ; the ring holds power-on garbage
+    ; STEREO: the song is PANNED and TAD's default is MONO
+    ; (tad-audio.inc:123), which collapses every channel to centre. The mode
+    ; takes effect at the next song load (tad-audio.inc:525), so it is set
+    ; between Tad_Init and Tad_LoadSong.
+    lda #TadAudioMode::STEREO
+    sta Tad_audioMode
+    lda #Song::slice_b_song         ; the ambient piece — assets/audio/README
+    jsr Tad_LoadSong
+    rep #$20
+    .a16
     ; ---- enter the boot scene (id 0 = title) under forced blank ----------
     ldx #0
     jsr (sm_enter_tab, x)
@@ -335,5 +368,13 @@ MAIN:
     jsr input_read
     jsr sm_tick
     jsr fade_tick
+    ; ---- audio pump: once per frame, MAIN THREAD ONLY (the TAD ABI forbids
+    ; ISR calls). Nothing on this rail queues a cue, so this is Tad_Process
+    ; with the (always empty) ring drained ahead of it.
+    sep #$20
+    .a8
+    jsr sf_audio_tick
+    rep #$20
+    .a16
     jsr sm_frame_sync
     bra @loop

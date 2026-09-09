@@ -1335,15 +1335,26 @@ LKS_INC := -I $(LKS_MAP) -I $(VROM) -I $(LKS) -I $(BUILD)/assets \
            -I engine/features/region -I engine/features/tick_scale \
            -I engine/features/lake_bg -I engine/features/water
 
+$(BUILD)/lks_tad_wrapper.o: engine/features/audio/tad_wrapper.asm \
+		vendor/tad/tad-audio.s vendor/tad/tad-audio.inc \
+		$(LKS_MAP)/engine_state_globals.inc | $(BUILD)
+	$(CA65) -I $(LKS_MAP) -I vendor/tad -o $@ $<
+
+$(BUILD)/lks_tad_data.o: assets/audio/export/tad_audio_data.asm \
+		assets/audio/export/tad_audio_data.bin | $(BUILD)
+	$(CA65) --bin-include-dir assets/audio/export -o $@ $<
+
 $(BUILD)/lakeside.sfc: $(LKS_ASM) $(LKS)/lakeside.inc \
 		$(LKS_MAP)/engine_state_globals.inc $(LKS_ASSETS) \
 		$(BUILD)/assets/font_2bpp.bin \
 		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
-		$(VROM)/lorom_512k.cfg | $(BUILD)
+		$(VROM)/lorom_512k.cfg \
+		$(BUILD)/lks_tad_wrapper.o $(BUILD)/lks_tad_data.o | $(BUILD)
 	$(PY) allocator/no_literals.py --map $(LKS_MAP)/symbol_map.json $(LKS_ASM)
-	$(CA65) $(LKS_INC) --bin-include-dir $(BUILD)/assets \
+	$(CA65) $(LKS_INC) -I vendor/tad -I assets/audio/export --bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/lakeside.o $(LKS)/main.asm
-	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/lakeside.o
+	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/lakeside.o \
+		$(BUILD)/lks_tad_wrapper.o $(BUILD)/lks_tad_data.o
 	$(PY) tools/fix_checksum.py $@
 
 lakeside: $(BUILD)/lakeside.sfc
@@ -1393,15 +1404,26 @@ HZS_INC := -I $(HZS_MAP) -I $(VROM) -I $(HZS) -I $(BUILD)/assets \
            -I engine/features/region -I engine/features/tick_scale \
            -I engine/features/hz_bg -I engine/features/haze
 
+$(BUILD)/hzs_tad_wrapper.o: engine/features/audio/tad_wrapper.asm \
+		vendor/tad/tad-audio.s vendor/tad/tad-audio.inc \
+		$(HZS_MAP)/engine_state_globals.inc | $(BUILD)
+	$(CA65) -I $(HZS_MAP) -I vendor/tad -o $@ $<
+
+$(BUILD)/hzs_tad_data.o: assets/audio/export/tad_audio_data.asm \
+		assets/audio/export/tad_audio_data.bin | $(BUILD)
+	$(CA65) --bin-include-dir assets/audio/export -o $@ $<
+
 $(BUILD)/heathaze.sfc: $(HZS_ASM) $(HZS)/heathaze.inc \
 		$(HZS_MAP)/engine_state_globals.inc $(HZS_ASSETS) \
 		$(BUILD)/assets/font_2bpp.bin \
 		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
-		$(VROM)/lorom_512k.cfg | $(BUILD)
+		$(VROM)/lorom_512k.cfg \
+		$(BUILD)/hzs_tad_wrapper.o $(BUILD)/hzs_tad_data.o | $(BUILD)
 	$(PY) allocator/no_literals.py --map $(HZS_MAP)/symbol_map.json $(HZS_ASM)
-	$(CA65) $(HZS_INC) --bin-include-dir $(BUILD)/assets \
+	$(CA65) $(HZS_INC) -I vendor/tad -I assets/audio/export --bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/heathaze.o $(HZS)/main.asm
-	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/heathaze.o
+	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/heathaze.o \
+		$(BUILD)/hzs_tad_wrapper.o $(BUILD)/hzs_tad_data.o
 	$(PY) tools/fix_checksum.py $@
 
 heathaze: $(BUILD)/heathaze.sfc
@@ -1454,15 +1476,26 @@ SMT_INC := -I $(SMT_MAP) -I $(VROM) -I $(SMT) -I $(BUILD)/assets \
            -I engine/features/smt_obj -I engine/features/oam_sprites \
            -I engine/features/mosaic
 
+$(BUILD)/smt_tad_wrapper.o: engine/features/audio/tad_wrapper.asm \
+		vendor/tad/tad-audio.s vendor/tad/tad-audio.inc \
+		$(SMT_MAP)/engine_state_globals.inc | $(BUILD)
+	$(CA65) -I $(SMT_MAP) -I vendor/tad -o $@ $<
+
+$(BUILD)/smt_tad_data.o: assets/audio/export/tad_audio_data.asm \
+		assets/audio/export/tad_audio_data.bin | $(BUILD)
+	$(CA65) --bin-include-dir assets/audio/export -o $@ $<
+
 $(BUILD)/smelter.sfc: $(SMT_ASM) $(SMT)/smelter.inc \
 		$(SMT_MAP)/engine_state_globals.inc $(SMT_ASSETS) \
 		$(BUILD)/assets/font_2bpp.bin \
 		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
-		$(VROM)/lorom_512k.cfg | $(BUILD)
+		$(VROM)/lorom_512k.cfg \
+		$(BUILD)/smt_tad_wrapper.o $(BUILD)/smt_tad_data.o | $(BUILD)
 	$(PY) allocator/no_literals.py --map $(SMT_MAP)/symbol_map.json $(SMT_ASM)
-	$(CA65) $(SMT_INC) --bin-include-dir $(BUILD)/assets \
+	$(CA65) $(SMT_INC) -I vendor/tad -I assets/audio/export --bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/smelter.o $(SMT)/main.asm
-	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/smelter.o
+	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/smelter.o \
+		$(BUILD)/smt_tad_wrapper.o $(BUILD)/smt_tad_data.o
 	$(PY) tools/fix_checksum.py $@
 
 smelter: $(BUILD)/smelter.sfc
@@ -2410,15 +2443,26 @@ M7F_INC := -I $(M7F_MAP) -I $(VROM) -I $(M7F) -I $(BUILD)/assets \
            -I engine/features/rgb_gradient \
            -I engine/features/region -I engine/features/tick_scale
 
+$(BUILD)/m7f_tad_wrapper.o: engine/features/audio/tad_wrapper.asm \
+		vendor/tad/tad-audio.s vendor/tad/tad-audio.inc \
+		$(M7F_MAP)/engine_state_globals.inc | $(BUILD)
+	$(CA65) -I $(M7F_MAP) -I vendor/tad -o $@ $<
+
+$(BUILD)/m7f_tad_data.o: assets/audio/export/tad_audio_data.asm \
+		assets/audio/export/tad_audio_data.bin | $(BUILD)
+	$(CA65) --bin-include-dir assets/audio/export -o $@ $<
+
 $(BUILD)/mode7_flight.sfc: $(M7F_ASM) $(M7F)/mode7_flight.inc \
 		$(M7F_MAP)/engine_state_globals.inc $(M7F_MAP)/m7f_join.inc \
 		$(M7F_ASSETS) $(M7F_FACTORS) $(M7F_GRAD) \
 		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
-		$(VROM)/lorom_512k.cfg | $(BUILD)
+		$(VROM)/lorom_512k.cfg \
+		$(BUILD)/m7f_tad_wrapper.o $(BUILD)/m7f_tad_data.o | $(BUILD)
 	$(PY) allocator/no_literals.py --map $(M7F_MAP)/symbol_map.json $(M7F_ASM)
-	$(CA65) $(M7F_INC) --bin-include-dir $(BUILD)/assets \
+	$(CA65) $(M7F_INC) -I vendor/tad -I assets/audio/export --bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/mode7_flight.o $(M7F)/main.asm
-	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/mode7_flight.o
+	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/mode7_flight.o \
+		$(BUILD)/m7f_tad_wrapper.o $(BUILD)/m7f_tad_data.o
 	$(PY) tools/fix_checksum.py $@
 
 mode7_flight: $(BUILD)/mode7_flight.sfc
