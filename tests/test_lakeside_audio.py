@@ -436,7 +436,10 @@ def test_a_stilled_lake_never_breaks(sea):
         f"the noise generator is taken on {len(noisy)} of {len(tail)} stilled "
         f"frames (first at +{noisy[0] + STILL_SETTLE}, NON="
         f"{tail[noisy[0]][1]:#04x}) — nothing on a frozen lake should be "
-        f"reaching for it")
+        f"reaching for it. Read the NON bits before the gate: 0x40/0x80 is an "
+        f"effect on voice 6/7 and means the cue slipped past US_STILLED; "
+        f"anything in 0x3F is a MUSIC channel and the defect is in the song's "
+        f"kit, not in this rail")
 
 
 # ---------------------------------------------------------------------------

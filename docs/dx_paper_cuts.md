@@ -907,3 +907,77 @@ The sibling lesson from the same three: the gate's suite runs everything, so
 ONE red aborts nothing else — 1 failed / 2527 passed each time. That is what
 made the class visible as a class rather than as three unrelated flakes, and
 it is worth reading a red that way: the count of what PASSED is evidence too.
+
+---
+
+## lakeside — a sea, gated on the picture (2026-09-09)
+
+### `ES_SM_CTL` names the next scene 16 frames before that scene's `tick` runs — **surprise, MEDIUM**
+
+Driving a rail from the title into its play scene wants a "the scene is live"
+signal, and the obvious one is the scene manager's own control byte: step until
+`ES_SM_CTL` reads the destination id, then start pressing. Measured on
+`lakeside`, that byte flips **16 frames early** — scene_mgr names the
+destination when a FADED transition begins and holds the switch under `fade`'s
+ramp, so `lake::tick` has not run once when the byte already says `lake`.
+
+What made it cost time is how it PRESENTS. A press train of eleven presses
+landed ten toggles: the first press vanished and every other one worked. That
+reads as an off-by-one in the harness — I went looking at `frame_step`'s input
+latch timing and its docstring's "visible in the SAME step's readback" before
+suspecting the ROM side at all. The give-away, once measured, was that the ten
+that worked were exactly the ten that fell after the ramp.
+
+**The fix is to wait on the SCENE'S OWN OUTPUT, not on the manager's byte.**
+`tests/test_lakeside_audio.py::_enter_lake` steps until `ES_WAT_SCROLL` has
+actually advanced, which is `lake::tick` having called `wat_advance` — a signal
+that cannot be true before the scene runs. Frame-counted throughout, so
+`make time-check` stays clean. Any rail with a `style = "fade"` edge has this
+shape; a drive keyed to `ES_SM_CTL` alone spends its first ~16 frames of input
+on a scene that is not listening.
+
+### `play_noise`'s length is the INSTRUMENT's, and copying the nearest example truncates a long effect — **clunky, MEDIUM**
+
+`play_noise` plays the noise generator, but the BRR sample still ends the
+voice: a non-looping instrument plays noise only for the length of its own data
+(`/tmp/tad/docs/bytecode-assembly-syntax.md`, under `play_noise`). Both noise
+effects already in `sound-effects.txt` — `skid` and `explosion` — open with
+`step`, which is a 0.1 s one-shot, and both are short enough that it never
+shows. So the house pattern for "a noise effect" is a pattern that silently
+caps at a fifth of a second, and the obvious move (copy the nearest existing
+noise effect) is the wrong one for anything longer.
+
+A 0.8 s wave authored that way is cut off inside its own swell. The fix is one
+token — a LOOPING instrument (`saw`), whose noise runs until key-off — but
+nothing at the call site says so, and the effect that needs it is exactly the
+kind you would not think to check. The reason is now written into
+`sound-effects.txt`'s own block, beside the GAIN trap that block already
+records.
+
+### Decrease-mode GAIN rates are much slower than they read, and only the DSP will tell you — **surprise, LOW**
+
+`sound-effects.txt`'s header already warns that `E<rate>` at key-on decays from
+silence and is never audible. The sibling it does not warn about: a mid-effect
+`E<rate>` is far slower than the number suggests. `E11` from a level of 118
+reached only **81 after 27 frames** — so a "long fade away" authored by eye
+ends with an audible key-off chop at a third of full volume, which is the
+opposite of the shape a draining wave has. `E17` then `E24` reaches ENVX 1 by
+the key-off.
+
+There is no way to know but to read `VxENVX` per frame off the DSP and print
+the trace. That took one build-and-measure cycle, and the trace is worth
+keeping as the way to author any shaped effect:
+
+    envx: 0 2 6 10 14 ... 46 | 118 x9 | 114 108 ... 56 | 45 35 27 20 15 11 8 5 1
+          the gather          the break   the drain       ...to silence
+
+**Lesson, and it is CLAUDE.md rule 1 in its audio dialect:** an envelope is a
+rendered output. Do not author one from the rate table — plant the effect,
+sample `VxENVX` every frame, and read the shape.
+
+### No paper cut from the pre-existing module
+
+`tests/test_lakeside.py` (29 cases) stayed green with no change: this rail
+already composed `audio`, so the `Tad_Init` boot cost the last three rails paid
+for was already in its frame arithmetic. Running it before the push anyway —
+the one line the previous section asks for.
