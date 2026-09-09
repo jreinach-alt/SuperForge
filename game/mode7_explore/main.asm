@@ -21,9 +21,12 @@
 ; writes into ES_SM_CTL so `sm_tick` dispatches the right tick. The phase byte
 ; stays 0 for the ROM's life.
 ;
-; NO AUDIO. `tad_rom` is not in this game's globals, so there is no Tad_Init, no
-; Tad_Process pump and no TAD object in the link — the rail's subject is the
-; streamed picture. Adding audio is a claim in game.toml plus the two calls.
+; AUDIO, composed 2026-09-09. This block used to say "NO AUDIO ... adding audio
+; is a claim in game.toml plus the two calls", which is exactly what happened:
+; the claim, `Tad_Init` + `Tad_LoadSong` in the boot block below, and
+; `sf_audio_tick` in the loop. TWO CUES, both in overworld.asm and NEITHER
+; needing a latch — this rail slides cell to cell and `m7x_logic` already
+; publishes US_LANDED, which is one frame wide.
 
 .p816
 .smart
@@ -35,6 +38,11 @@ SF_HDR_TITLE_SET = 1
 .assert SF_INC_FORMAT = 1, error, "this rail was written against allocator include format 1 — allocate.py now emits a different symbol shape; re-read the emitted engine_state_globals.inc before bumping this"
 .include "header.inc"
 .include "init.inc"                 ; RESET: native, A16/I16, forced blank
+.include "tad-audio.inc"            ; vendor/tad — the TAD API imports + enums
+.import sf_sfx_reset, sf_sfx_queue_c, sf_audio_tick
+                                    ; engine/features/audio — the request
+                                    ;   queue and the per-frame pump
+.include "tad_audio_enums.inc"      ; GENERATED — Song:: / SFX:: ids
 .include "sf_asm.inc"               ; shared macros: placement assertions + the
                                     ;   data-bank idioms (vendor/rom)
 
@@ -83,7 +91,7 @@ NMI:
 ; off build/m7x/allocation_report.txt rather than chosen — and the two .asserts
 ; below are what make that agreement checkable instead of assumed.
 .repeat ES_R_M7X_MAP_CHUNKS, WI
-.segment .sprintf("BANK%d", WI + 1)
+.segment .sprintf("BANK%d", WI + 2)
 .ident(.sprintf("m7x_map_t%d", WI)):
     .incbin "m7x_map.bin", WI * 32768, 32768
 .assert ^.ident(.sprintf("m7x_map_t%d", WI)) = .ident(.sprintf("ES_R_M7X_MAP_T%d_BANK", WI)), error, "m7x_map chunk bank drifted from allocator claim"
@@ -116,7 +124,7 @@ NMI:
 ; So it gets a window to itself and the single DMA that uploads it cannot cross
 ; a bank boundary (a DMA's A-bus address wraps within its bank rather than
 ; carrying).
-.segment "BANK9"
+.segment "BANK10"
 m7x_seed_bin:
     .incbin "m7x_seed.bin"
 .assert ^m7x_seed_bin = ES_R_M7X_SEED_BANK, error, "m7x_seed bank drifted from allocator claim"
@@ -128,7 +136,7 @@ m7x_seed_bin:
 ; then the 256 B terrain LUT, then the two 128/32 B town blobs and the three
 ; palettes alphabetically. A re-sort moves an address and the build stops with
 ; the claim named.
-.segment "BANK10"
+.segment "BANK1"
 m7_lut_bin:
     .incbin "m7_affine_lut.bin"
 .assert ^m7_lut_bin = ES_R_M7_LUT_BANK, error, "m7_lut bank drifted from allocator claim"
@@ -445,6 +453,25 @@ MAIN:
     stz z:US_SWAP_REQ           ; no wipe pending — the write-before-read
                                 ;   contract for the one global mxx_swap_service
                                 ;   reads on the very first loop iteration
+    ; ---- audio boot (TAD contract, tad-audio.inc): interrupts are DISABLED
+    ; here by construction — init.inc leaves NMI off and $4200 is written only
+    ; below — so the S-SMP is still in the IPL. Tad_Init runs ONCE per
+    ; power-on; the song load is ASYNC and Tad_Process streams it during the
+    ; frame loop.
+    sep #$20
+    .a8
+    jsl Tad_Init
+    jsr sf_sfx_reset                ; the ring holds power-on garbage
+    ; STEREO: the song is PANNED and TAD's default is MONO
+    ; (tad-audio.inc:123), which collapses every channel to centre. The mode
+    ; takes effect at the next song load (tad-audio.inc:525), so it is set
+    ; between Tad_Init and Tad_LoadSong.
+    lda #TadAudioMode::STEREO
+    sta Tad_audioMode
+    lda #Song::drive_song           ; the action rails' song — assets/audio/README
+    jsr Tad_LoadSong
+    rep #$20
+    .a16
     ; ---- enter the boot scene (id 0 = overworld) under forced blank -------
     ldx #(SCENE_OVERWORLD * 2)
     jsr (sm_enter_tab, x)
@@ -476,5 +503,13 @@ MAIN:
     jsr mosaic_tick             ; advance any wipe (fires the swap at peak black)
     jsr sm_tick                 ; the current scene's frame
     jsr mxx_fade_tick           ; the boot dawn-in, gated on mosaic_active
+    ; ---- audio pump: once per frame, MAIN THREAD ONLY (the TAD ABI forbids
+    ; ISR calls). AFTER sm_tick, so a cue the scene queued this frame is the
+    ; one delivered rather than waiting for the next.
+    sep #$20
+    .a8
+    jsr sf_audio_tick           ; delivers one queued cue, then Tad_Process
+    rep #$20
+    .a16
     jsr sm_frame_sync
     bra @loop

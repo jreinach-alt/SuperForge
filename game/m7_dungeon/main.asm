@@ -14,10 +14,16 @@
 ; carries the reasoning, including the four features deliberately NOT composed
 ; and which allocator check would have refused each of them anyway).
 ;
-; NO AUDIO. `tad_rom` is not in this game's globals, so there is no Tad_Init,
-; no Tad_Process pump and no TAD object in the link — the rail's subject is the
-; picture. Adding audio is a claim in game.toml plus the two calls, not a
-; rework.
+; AUDIO, composed 2026-09-09, by the route this block used to describe: it read
+; "NO AUDIO ... adding audio is a claim in game.toml plus the two calls, not a
+; rework", which was an invitation rather than a refusal. TWO CUES, both in
+; dungeon.asm, and they are the two shapes this tree keeps meeting:
+;   thud   -- the knockback, which is one-shot WITHOUT a latch because the
+;             GRACE window already turns a contact (a state: the hero and a
+;             slime overlap for as long as the touch lasts) into an event.
+;   chime  -- the goal, which DOES need one. do_win_card's window test runs
+;             every frame and the hero may stand still on the tile, so the
+;             card is a state and only its 0 -> 1 edge is an arrival.
 
 .p816
 .smart
@@ -28,6 +34,11 @@ SF_HDR_TITLE_SET = 1
 .include "engine_state_globals.inc" ; GENERATED — system + game-lifetime map
 .include "header.inc"
 .include "init.inc"                 ; RESET: native, A16/I16, forced blank
+.include "tad-audio.inc"            ; vendor/tad — the TAD API imports + enums
+.import sf_sfx_reset, sf_sfx_queue_c, sf_audio_tick
+                                    ; engine/features/audio — the request
+                                    ;   queue and the per-frame pump
+.include "tad_audio_enums.inc"      ; GENERATED — Song:: / SFX:: ids
 .include "sf_asm.inc"               ; shared macros: placement assertions + the
                                     ;   data-bank idioms (vendor/rom)
 
@@ -63,15 +74,18 @@ NMI:
 ; would reserve the window and let whatever the linker left there be read as
 ; art.
 ;
-; m7dg_map is 32,768 B — one WHOLE LoROM window — so it gets bank 1 to itself
-; and the single DMA that uploads it cannot cross a bank boundary.
-.segment "BANK1"
+; m7dg_map is 32,768 B — one WHOLE LoROM window — so it gets a window to itself
+; and the single DMA that uploads it cannot cross a bank boundary. It was bank
+; 1 until `audio` was composed; `tad_export`'s 16,384 B half-window now takes
+; the top of window 1 (m7dg_tilemap fits beside it in what is left), so the
+; whole-window claim moved to 2 and everything after it to 3. ld65 refused the
+; build BY NAME until these matched.
+.segment "BANK2"
 m7dg_map_bin:
     .incbin "m7dg_map.bin"
 .assert ^m7dg_map_bin = ES_R_M7DG_MAP_BANK, error, "m7dg_map bank drifted from allocator claim"
 .assert .loword(m7dg_map_bin) = ES_R_M7DG_MAP_ADDR, error, "m7dg_map addr drifted from allocator claim"
 
-.segment "BANK2"
 ; The PACKED tile-id map col_map reads, and the tile-id -> flag table it
 ; indexes with what it finds. TWO blobs, because they are two different
 ; lookups: the map answers "which tile is at this world pixel", the table
@@ -79,13 +93,18 @@ m7dg_map_bin:
 ; probe's `ty * W + tx` cannot index (m7dg_rom's feature.toml carries the full
 ; correction, including what the separate map costs in bytes).
 ;
-; The map leads BANK2 because the allocator packs ROM by (-bytes, name) and at
-; 16,384 B it is the largest claim in this window. The .asserts are what make
-; that agreement checkable rather than assumed.
+; THE MAP SHARES WINDOW 1 WITH THE AUDIO EXPORT. Both are 16,384 B, which is
+; exactly the window, and the allocator packs ROM by (-bytes, name) — so the
+; two largest claims in the composition land here together and nothing else
+; fits. Before `audio` was composed this blob led the window the rest of the
+; small claims are in; the split is what moved every later bank up one.
+.segment "BANK1"
 m7dg_tilemap_bin:
     .incbin "m7dg_tilemap.bin"
 .assert ^m7dg_tilemap_bin = ES_R_M7DG_TILEMAP_BANK, error, "m7dg_tilemap bank drifted from allocator claim"
 .assert .loword(m7dg_tilemap_bin) = ES_R_M7DG_TILEMAP_ADDR, error, "m7dg_tilemap addr drifted from allocator claim"
+
+.segment "BANK3"
 m7_lut_bin:
     .incbin "m7_affine_lut.bin"
 .assert ^m7_lut_bin = ES_R_M7_LUT_BANK, error, "m7_lut bank drifted from allocator claim"
@@ -178,6 +197,25 @@ MAIN:
                                 ;   change region between scenes.
     jsr fade_init
     jsr oam_park_all            ; whole shadow written before its first DMA
+    ; ---- audio boot (TAD contract, tad-audio.inc): interrupts are DISABLED
+    ; here by construction — init.inc leaves NMI off and $4200 is written only
+    ; below — so the S-SMP is still in the IPL. Tad_Init runs ONCE per
+    ; power-on; the song load is ASYNC and Tad_Process streams it during the
+    ; frame loop.
+    sep #$20
+    .a8
+    jsl Tad_Init
+    jsr sf_sfx_reset                ; the ring holds power-on garbage
+    ; STEREO: the song is PANNED and TAD's default is MONO
+    ; (tad-audio.inc:123), which collapses every channel to centre. The mode
+    ; takes effect at the next song load (tad-audio.inc:525), so it is set
+    ; between Tad_Init and Tad_LoadSong.
+    lda #TadAudioMode::STEREO
+    sta Tad_audioMode
+    lda #Song::drive_song           ; the action rails' song — assets/audio/README
+    jsr Tad_LoadSong
+    rep #$20
+    .a16
     ; ---- enter the boot scene (id 0 = dungeon) under forced blank --------
     ldx #0
     jsr (sm_enter_tab, x)
@@ -194,5 +232,12 @@ MAIN:
     jsr input_read
     jsr sm_tick
     jsr fade_tick
+    ; ---- audio pump: once per frame, MAIN THREAD ONLY (the TAD ABI forbids
+    ; ISR calls).
+    sep #$20
+    .a8
+    jsr sf_audio_tick           ; delivers one queued cue, then Tad_Process
+    rep #$20
+    .a16
     jsr sm_frame_sync
     bra @loop

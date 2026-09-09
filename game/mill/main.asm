@@ -58,6 +58,11 @@ SF_HDR_TITLE_SET = 1
                                     ;   tests cannot disagree
 .include "header.inc"
 .include "init.inc"                 ; RESET: native, A16/I16, forced blank
+.include "tad-audio.inc"            ; vendor/tad — the TAD API imports + enums
+.import sf_sfx_reset, sf_sfx_queue_c, sf_audio_tick
+                                    ; engine/features/audio — the request
+                                    ;   queue and the per-frame pump
+.include "tad_audio_enums.inc"      ; GENERATED — Song:: / SFX:: ids
 .include "sf_asm.inc"               ; shared macros: placement assertions + the
                                     ;   data-bank idioms (vendor/rom)
 
@@ -115,7 +120,7 @@ NMI:
 .define MIL_ART ""
 .endif
 
-.segment "BANK1"
+.segment "BANK2"
 mil_chr1_bin:
     .incbin .sprintf("mil_chr1%s.bin", MIL_ART)
 .assert ^mil_chr1_bin = ES_R_MIL_CHR1_BANK, error, "mil_chr1 bank drifted from allocator claim"
@@ -132,7 +137,12 @@ mil_obj_bin:
 ; splitting them — and the `.assert`s are what turn a repack into a build
 ; failure instead of art read from the wrong bank. This is the third time they
 ; have done that on this rail, which is the argument for writing them.
-.segment "BANK2"
+; THESE SIX SHARE WINDOW 1 WITH THE AUDIO EXPORT. `tad_export`'s 16,384 B
+; half-window takes the top of it and the allocator packs the rest in behind:
+; row at $C000, then lobby, ripple, chr2 and the two palettes. That split is
+; what moved chr1/obj up to window 2 and the two tilemaps out to window 3 — the
+; asserts refused the link by name until each matched.
+.segment "BANK1"
 mil_row_bin:
     .incbin "mil_row.bin"
 .assert ^mil_row_bin = ES_R_MIL_ROW_BANK, error, "mil_row bank drifted from allocator claim"
@@ -141,14 +151,6 @@ mil_lobby_bin:
     .incbin .sprintf("mil_lobby%s.bin", MIL_ART)
 .assert ^mil_lobby_bin = ES_R_MIL_LOBBY_BANK, error, "mil_lobby bank drifted from allocator claim"
 .assert .loword(mil_lobby_bin) = ES_R_MIL_LOBBY_ADDR, error, "mil_lobby addr drifted from allocator claim"
-mil_map1_bin:
-    .incbin .sprintf("mil_map1%s.bin", MIL_ART)
-.assert ^mil_map1_bin = ES_R_MIL_MAP1_BANK, error, "mil_map1 bank drifted from allocator claim"
-.assert .loword(mil_map1_bin) = ES_R_MIL_MAP1_ADDR, error, "mil_map1 addr drifted from allocator claim"
-mil_map2_bin:
-    .incbin "mil_map2.bin"
-.assert ^mil_map2_bin = ES_R_MIL_MAP2_BANK, error, "mil_map2 bank drifted from allocator claim"
-.assert .loword(mil_map2_bin) = ES_R_MIL_MAP2_ADDR, error, "mil_map2 addr drifted from allocator claim"
 mil_ripple_bin:
     .incbin "mil_ripple.bin"
 .assert ^mil_ripple_bin = ES_R_MIL_RIPPLE_BANK, error, "mil_ripple bank drifted from allocator claim"
@@ -165,6 +167,17 @@ mil_obj_pal_bin:
     .incbin "mil_obj_pal.bin"
 .assert ^mil_obj_pal_bin = ES_R_MIL_OBJ_PAL_BANK, error, "mil_obj_pal bank drifted from allocator claim"
 .assert .loword(mil_obj_pal_bin) = ES_R_MIL_OBJ_PAL_ADDR, error, "mil_obj_pal addr drifted from allocator claim"
+; The two tilemaps are 4,096 B each and land in a window of their own.
+.segment "BANK3"
+mil_map1_bin:
+    .incbin .sprintf("mil_map1%s.bin", MIL_ART)
+.assert ^mil_map1_bin = ES_R_MIL_MAP1_BANK, error, "mil_map1 bank drifted from allocator claim"
+.assert .loword(mil_map1_bin) = ES_R_MIL_MAP1_ADDR, error, "mil_map1 addr drifted from allocator claim"
+mil_map2_bin:
+    .incbin "mil_map2.bin"
+.assert ^mil_map2_bin = ES_R_MIL_MAP2_BANK, error, "mil_map2 bank drifted from allocator claim"
+.assert .loword(mil_map2_bin) = ES_R_MIL_MAP2_ADDR, error, "mil_map2 addr drifted from allocator claim"
+
 .segment "CODE"
 
 ; --- the global feature runtime (after the blobs its uploads read) ---------
@@ -232,6 +245,25 @@ MAIN:
     jsr input_init
     jsr fade_init
     jsr oam_park_all                ; every sprite off-screen before anything
+    ; ---- audio boot (TAD contract, tad-audio.inc): interrupts are DISABLED
+    ; here by construction — init.inc leaves NMI off and $4200 is written only
+    ; below — so the S-SMP is still in the IPL. Tad_Init runs ONCE per
+    ; power-on; the song load is ASYNC and Tad_Process streams it during the
+    ; frame loop.
+    sep #$20
+    .a8
+    jsl Tad_Init
+    jsr sf_sfx_reset                ; the ring holds power-on garbage
+    ; STEREO: the song is PANNED and TAD's default is MONO
+    ; (tad-audio.inc:123), which collapses every channel to centre. The mode
+    ; takes effect at the next song load (tad-audio.inc:525), so it is set
+    ; between Tad_Init and Tad_LoadSong.
+    lda #TadAudioMode::STEREO
+    sta Tad_audioMode
+    lda #Song::drive_song           ; the action rails' song — assets/audio/README
+    jsr Tad_LoadSong
+    rep #$20
+    .a16
                                     ;   draws — power-on OAM is random (rule 5)
     jsr region_init                 ; the console's own region line, once. It
                                     ;   is game-lifetime state: a console does
@@ -270,5 +302,12 @@ MAIN:
     jsr input_read
     jsr sm_tick
     jsr fade_tick
+    ; ---- audio pump: once per frame, MAIN THREAD ONLY (the TAD ABI forbids
+    ; ISR calls).
+    sep #$20
+    .a8
+    jsr sf_audio_tick               ; delivers one queued cue, then Tad_Process
+    rep #$20
+    .a16
     jsr sm_frame_sync
     bra @loop

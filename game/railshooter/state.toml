@@ -79,6 +79,25 @@ burst_f    = "u16"       # which of the two burst frames is showing
 
 # --- what the pilot is told about themselves ---------------------------------
 score      = "u16"       # kills, 0..9999, rendered as four OBJ digits
+scoreprev  = "u16"       # the score as of last frame — what makes the KILL
+                         # cue an edge rather than a state.
+                         #
+                         # `score` above is this rail's word and `rs_logic`
+                         # fills it: the feature owns the hitscan, the game
+                         # owns the counter and what it sounds like, so the
+                         # cue costs the feature nothing. Same shape as
+                         # microzero's `lapprev`, and a milder case than
+                         # platformer_stream's, where the word being read was
+                         # the feature's own dp claim.
+                         #
+                         # The comparison is an EQUALITY and the fall is
+                         # ignored on purpose: `rs_fail_step` re-arms the demo
+                         # by resetting the score to zero, and a decrease is
+                         # not a kill.
+                         # TICK: ok — a copy of a KILL COUNT, not a count of
+                         # frames. It advances when a hazard dies, which is an
+                         # event, and the flight that carries the hazard there
+                         # is already region-scaled by the rail's state step.
 lives      = "u16"       # 5..0, rendered as five OBJ segments
 fail_t     = "u16"       # fail-state countdown, 0 = playing. At zero lives the
                          # rail freezes for RS_FAIL_FRAMES with the bar empty,

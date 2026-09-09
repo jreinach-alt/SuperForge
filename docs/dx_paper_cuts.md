@@ -708,3 +708,70 @@ Worth doing anyway, and the restore is its own small proof: the re-export
 comes back byte-identical every time, which is the compiler's determinism
 observed rather than assumed. If a third song lands, these two cases are the
 ones to copy first; they belong to the chip and every song owes them.
+
+## Phase 2 close, second half — five more rails (2026-09-09)
+
+### A MOVED md5 SAYS THE ROM CHANGED, NEVER THAT THE DRIVE REACHED THE CHANGE — surprise, MEDIUM
+
+Third instance of one rule in one session, and the three together finally give
+its general form. The `m7_oshoot` pass filed it as *a case about a REFUSAL is
+only meaningful under a drive that provokes the refusal*; `scroll_run`'s goal
+guard extended it to *a plant that leaves every case green means the guard is
+dead OR the drive never reached it*; `mill` supplied the third corner.
+
+Mill's plant put a `chime` inside the `bne` that guards `mil_lift_call` — an
+arm reached only while `ES_MIL_BOARD` is 0. The ROM's md5 moved, the build was
+clean, and all three cases stayed green. Read carelessly: the silence case is
+weak. Read correctly: the drive is in the LOBBY for most of that window and
+steps onto the car almost at once, so the planted line barely ran. Re-planted
+at the scene tick's own top — a site nothing can skip — the same case reds at
+169 of 335 frames against a bar of zero. The test was never the problem.
+
+**The check that settles it in one step: before believing a green plant, ask
+what fraction of the drive's frames actually execute the planted line.** An
+md5 diff cannot answer that and neither can a build log; the four plants that
+DID fire this pass all sat on paths their drive walks every frame.
+
+### THE FIVE PLANTS, and what each one is worth
+
+One per rail, each aimed at that rail's own edge claim, each restoring to the
+byte:
+
+| rail | plant | what red | what stayed green |
+|---|---|---|---|
+| `hud_game` | `ES_INP_PRESS` -> `ES_INP_CUR` | cadence AND the score case | audibility |
+| `railshooter` | same swap in `rs_shot_cue` | cadence only | audibility, both kill cases |
+| `mode7_explore` | `US_LANDED` -> `US_STEP_ACTIVE` | footstep cadence only | audibility, idle silence, both doorway cases |
+| `m7_dungeon` | `onwin`'s `bne` -> nop | goal re-chime only | five others |
+| `mill` | cue on the per-frame tick | pre-arrival silence | audibility |
+
+The right-hand column is the argument for the cadence cases existing at all:
+in four of five, EVERY other case in the module passes on the plant. An
+audibility case cannot see a cadence defect, because the defect makes the
+sound MORE audible, not less.
+
+`hud_game` is the one that reds twice, and it is a nicer shape than the rest:
+reading the held state makes `bump_score` score once a FRAME instead of once a
+press, so the same defect is visible from the game state and from the chip
+independently. Where a rail offers that, the counter case is worth writing
+even though the cue case would catch it.
+
+### THE 16 KB CLAIM MOVES EVERY BANK NUMBER BELOW IT — clunky, LOW
+
+Four of the five rails failed to link on the first build, all the same way:
+`tad_export`'s half-window takes the top of window 1, the small blobs that used
+to own a window now fit BESIDE it, and every later blob shifts. ld65 named the
+casualty each time (`poses_ab chunk bank drifted`, `m7dg_tilemap bank
+drifted`, `mil_chr1 bank drifted`), which is the `.assert`s doing exactly their
+job — the failure is a build refusal naming a symbol rather than a ROM reading
+its neighbour's bytes.
+
+Not a defect, and not automatable either: the hand-written `.segment "BANKn"`
+directives are the one place the allocator's arithmetic is written down, and
+`no_literals` bans the templated form that would let a feature compute them.
+Worth knowing before composing `audio` onto a rail with more than one blob
+window: budget a build-refuse-fix loop per rail, and read the new claims out of
+`build/<rail>/engine_state_globals.inc` rather than guessing the shift.
+`m7_dungeon` needed a blob SPLIT rather than a shift — its 16 KB tilemap now
+shares window 1 with the export because both are exactly half of one, and the
+allocator packs by (-bytes, name).
