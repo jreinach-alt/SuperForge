@@ -1051,7 +1051,8 @@ PFS_ASM  := $(PFS)/main.asm $(wildcard $(PFS)/scenes/*.asm) \
 
 $(PFS_MAP)/engine_state_globals.inc $(PFS_MAP)/symbol_map.json: \
 		allocator/substrate.toml allocator/allocate.py allocator/schemas.py \
-		$(wildcard engine/features/*/feature.toml) $(PFS)/game.toml | $(BUILD)
+		$(wildcard engine/features/*/feature.toml) $(PFS)/game.toml \
+		$(PFS)/state.toml | $(BUILD)
 	$(PY) allocator/allocate.py --game $(PFS) --features-dir engine/features \
 		--out $(PFS_MAP)
 
@@ -1067,14 +1068,26 @@ PFS_INC := -I $(PFS_MAP) -I $(VROM) -I $(PFS) -I $(BUILD)/assets \
            -I engine/features/col_map -I engine/features/rgb_gradient \
            -I engine/features/region -I engine/features/tick_scale
 
+$(BUILD)/pfs_tad_wrapper.o: engine/features/audio/tad_wrapper.asm \
+		vendor/tad/tad-audio.s vendor/tad/tad-audio.inc \
+		$(PFS_MAP)/engine_state_globals.inc | $(BUILD)
+	$(CA65) -I $(PFS_MAP) -I vendor/tad -o $@ $<
+
+$(BUILD)/pfs_tad_data.o: assets/audio/export/tad_audio_data.asm \
+		assets/audio/export/tad_audio_data.bin | $(BUILD)
+	$(CA65) --bin-include-dir assets/audio/export -o $@ $<
+
 $(BUILD)/platformer_stream.sfc: $(PFS_ASM) \
 		$(PFS_MAP)/engine_state_globals.inc $(PFS_ASSETS) \
+		$(BUILD)/pfs_tad_wrapper.o $(BUILD)/pfs_tad_data.o \
 		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
 		$(VROM)/lorom_512k.cfg | $(BUILD)
 	$(PY) allocator/no_literals.py --map $(PFS_MAP)/symbol_map.json $(PFS_ASM)
-	$(CA65) $(PFS_INC) --bin-include-dir $(BUILD)/assets \
+	$(CA65) $(PFS_INC) -I vendor/tad -I assets/audio/export \
+		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/platformer_stream.o $(PFS)/main.asm
-	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/platformer_stream.o
+	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/platformer_stream.o \
+		$(BUILD)/pfs_tad_wrapper.o $(BUILD)/pfs_tad_data.o
 	$(PY) tools/fix_checksum.py $@
 
 platformer_stream: $(BUILD)/platformer_stream.sfc

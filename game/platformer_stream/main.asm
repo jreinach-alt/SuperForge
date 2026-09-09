@@ -43,6 +43,11 @@ SF_HDR_TITLE_SET = 1
                                     ;   bytes cannot disagree about the world
 .include "header.inc"
 .include "init.inc"                 ; RESET: native, A16/I16, forced blank
+.include "tad-audio.inc"            ; vendor/tad — the TAD API imports + enums
+.import sf_sfx_reset, sf_sfx_queue_c, sf_audio_tick
+                                    ; engine/features/audio — the request
+                                    ;   queue and the per-frame pump
+.include "tad_audio_enums.inc"      ; GENERATED — Song:: / SFX:: ids
 .include "sf_asm.inc"               ; shared macros: placement assertions + the
                                     ;   data-bank idioms (vendor/rom)
 
@@ -92,7 +97,18 @@ NMI:
 ; The layout a streamed COLUMN reads contiguously. Exactly one window, which is
 ; what keeps a producer's source pointer from ever crossing a LoROM bank seam
 ; (on LoROM that is not a carry but a discontinuity: $01:FFFF -> $02:8000).
+; --- the collision plane, sharing window 1 with the audio export ------------
+; At 16,384 B each, tad_export and pfs_col exactly fill it. This blob moved
+; here when `audio` was composed: before that it packed with the small art in
+; the last window, and ld65 refused the link by name (`pfs_flat bank drifted
+; from allocator claim`) until every segment below was renumbered to match.
 .segment "BANK1"
+pfs_col_bin:
+    .incbin "pfs_col.bin"
+.assert ^pfs_col_bin = ES_R_PFS_COL_BANK, error, "pfs_col bank drifted from allocator claim"
+.assert .loword(pfs_col_bin) = ES_R_PFS_COL_ADDR, error, "pfs_col addr drifted from allocator claim"
+
+.segment "BANK2"
 pfs_flat_bin:
     .incbin "pfs_flat.bin"
 .assert ^pfs_flat_bin = ES_R_PFS_FLAT_BANK, error, "pfs_flat bank drifted from allocator claim"
@@ -101,18 +117,14 @@ pfs_flat_bin:
 ; --- the same level, ROW-major: row M's 128 words at M*256 ------------------
 ; The layout a streamed ROW reads contiguously — and the one the boot ring fill
 ; below uses, because the fill is 64 rows of 64 columns.
-.segment "BANK2"
+.segment "BANK3"
 pfs_flat_row_bin:
     .incbin "pfs_flat_row.bin"
 .assert ^pfs_flat_row_bin = ES_R_PFS_FLAT_ROW_BANK, error, "pfs_flat_row bank drifted from allocator claim"
 .assert .loword(pfs_flat_row_bin) = ES_R_PFS_FLAT_ROW_ADDR, error, "pfs_flat_row addr drifted from allocator claim"
 
 ; --- everything else, in the window the packer put it in --------------------
-.segment "BANK3"
-pfs_col_bin:
-    .incbin "pfs_col.bin"
-.assert ^pfs_col_bin = ES_R_PFS_COL_BANK, error, "pfs_col bank drifted from allocator claim"
-.assert .loword(pfs_col_bin) = ES_R_PFS_COL_ADDR, error, "pfs_col addr drifted from allocator claim"
+.segment "BANK4"
 pfs_hero_chr_bin:
     .incbin "pfs_hero_chr.bin"
 .assert ^pfs_hero_chr_bin = ES_R_PFS_HERO_CHR_BANK, error, "pfs_hero_chr bank drifted from allocator claim"
@@ -208,6 +220,25 @@ MAIN:
                                 ;   game-lifetime state: a console does not
                                 ;   change region between scenes.
     jsr oam_park_all            ; the whole shadow written before its first DMA
+    ; ---- audio boot (TAD contract, tad-audio.inc): interrupts are DISABLED
+    ; here by construction — init.inc leaves NMI off and $4200 is written only
+    ; below — so the S-SMP is still in the IPL. Tad_Init runs ONCE per
+    ; power-on; the song load is ASYNC and Tad_Process streams it during the
+    ; frame loop.
+    sep #$20
+    .a8
+    jsl Tad_Init
+    jsr sf_sfx_reset                ; the ring holds power-on garbage
+    ; STEREO: the song is PANNED (mid pulse left, arpeggio right) and TAD's
+    ; default is MONO (tad-audio.inc:123), which collapses every channel to
+    ; centre. The mode only takes effect at the next song load
+    ; (tad-audio.inc:525), so it is set between Tad_Init and Tad_LoadSong.
+    lda #TadAudioMode::STEREO
+    sta Tad_audioMode
+    lda #Song::drive_song           ; the action rails' song — assets/audio/README
+    jsr Tad_LoadSong
+    rep #$20
+    .a16
                                 ;   — power-on WRAM is random, and this is the
                                 ;   write-before-read contract for it, not a
                                 ;   to-be-safe fill (rule 5)
@@ -245,5 +276,12 @@ MAIN:
     jsr input_read
     jsr sm_tick
     jsr fade_tick
+    ; ---- audio pump: once per frame, MAIN THREAD ONLY (the TAD ABI forbids
+    ; ISR calls).
+    sep #$20
+    .a8
+    jsr sf_audio_tick               ; delivers one queued cue, then Tad_Process
+    rep #$20
+    .a16
     jsr sm_frame_sync
     bra @loop
