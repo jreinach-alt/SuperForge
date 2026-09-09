@@ -869,3 +869,41 @@ allocator packs by (-bytes, name), so the three 32 B palettes now group and
 BANK was right and its ADDR was wrong — and only the second `.assert` of each
 pair can see that. A blob in the right bank at the wrong offset reads its
 neighbour's bytes, which is exactly what the addr assert exists for.
+
+### COMPOSING `audio` MOVES EVERY ABSOLUTE FRAME BY FOUR — surprise, HIGH (three sightings, one session)
+
+`Tad_Init` hands the driver to the S-SMP a byte at a time through the IPL
+handshake and that costs FOUR HARDWARE FRAMES before `MAIN` reaches the scene
+enter. Any test that counts absolute frames from power-on and means SCENE
+frames is off by four the moment its rail composes `audio`.
+
+Three sightings this session, each found by the landing gate rather than by
+me, and each after a push:
+
+  * `test_stomper.py` — the recipes are keyed to absolute ticks; the fixture
+    now advances `BOOT + BOOT_SKEW`. This one paid for the constant.
+  * `test_railshooter.py` — the roll-in's first five frames and the fail-state
+    return. Fixed in the FACTORY (`rail(n)` advances `n + BOOT_SKEW`), because
+    every absolute in that module is a scene frame.
+  * `test_mode7_flight.py` and `test_mode7_explore.py` — one case each. Fixed
+    at the SITE, not the factory: a blanket shift would have moved 116 and 30
+    passing cases respectively to prove one, and the other early advances in
+    those files are relative steps after a settle rather than absolutes.
+
+**Whether to fix the factory or the site is the only real decision**, and it
+turns on one question: does every absolute in this module mean a scene frame,
+or just this one? railshooter's did; the other two files' did not.
+
+**THE CHECK THAT WOULD HAVE CAUGHT ALL THREE BEFORE THE PUSH, and it is one
+line**: after composing `audio` onto a rail, run that rail's PRE-EXISTING test
+module, not only the new audio one. I ran the new modules every time and the
+old ones only when the gate named them — which is how the same defect class
+cost three separate ~30-minute landing-gate runs. The new module cannot see
+this: it is written against the rail as it now is.
+
+    python3 -m pytest tests/test_<rail>.py -q      # BEFORE the push, always
+
+The sibling lesson from the same three: the gate's suite runs everything, so
+ONE red aborts nothing else — 1 failed / 2527 passed each time. That is what
+made the class visible as a class rather than as three unrelated flakes, and
+it is worth reading a red that way: the count of what PASSED is evidence too.

@@ -50,6 +50,13 @@ from mesen_runner import MesenRunner, MemoryType  # noqa: E402
 
 BUILD = SUPERFORGE / "build"
 ROM = BUILD / "mode7_explore.sfc"
+
+# `Tad_Init` costs FOUR hardware frames handshaking the driver into the S-SMP
+# before `MAIN` reaches the scene enter. Only the ramp case below counts
+# absolute frames from power-on; everything else here waits on a CONDITION
+# (a camera tile, a scene id) and is unaffected, which is why this is applied
+# at that one site rather than to every boot in the file.
+TAD_BOOT = 4
 ASSETS = BUILD / "assets"
 # One expression on purpose: conftest resolves the map a module reads at
 # COLLECTION time from exactly this shape, and refuses a module whose map it
@@ -350,12 +357,24 @@ def test_the_overworld_dawns_in_from_black(runner, tmp_path):
 
     ABSOLUTE frames, because the claim is about WHEN: a boot bounded at ">= N"
     lands two frames apart under load and this is a ramp.
+
+    THE FRAMES NAMED ARE SCENE FRAMES, AND + TAD_BOOT IS WHAT MAKES THEM THAT.
+    `Tad_Init` hands the driver to the S-SMP a byte at a time through the IPL
+    handshake, and that costs FOUR hardware frames before `MAIN` reaches the
+    scene enter — so composing `audio` onto this rail moved the whole ramp
+    four frames later while the numbers here still mean "the fourth frame the
+    scene has drawn". Shifting the SAMPLE rather than re-deriving the ramp
+    keeps this an absolute, deterministic landing (CLAUDE.md rule 2) and keeps
+    the frames counted in the units the claim is about. Same constant, same
+    value and the same reasoning as `test_stomper.py`'s BOOT_SKEW, which paid
+    for it first, and `test_mode7_flight.py`'s TAD_BOOT.
     """
     seen = []
-    for frame in (2, 5, 9, 13, 21, 40):
+    for scene_frame in (2, 5, 9, 13, 21, 40):
+        frame = scene_frame + TAD_BOOT
         runner.boot_to_frame(str(ROM), frame, margin=min(20, frame - 1))
         img = _shot(runner, tmp_path, f"dawn{frame}")
-        seen.append((frame, max(max(px) for px in img.getdata())))
+        seen.append((scene_frame, max(max(px) for px in img.getdata())))
     levels = [v for _, v in seen]
     assert levels[0] < 24, f"frame 2 is not near-black: {seen}"
     assert levels[0] < levels[1] < levels[2] < levels[3], (
