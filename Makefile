@@ -1540,16 +1540,28 @@ JR_INC := -I $(JR_MAP) -I $(VROM) -I $(JR) \
           -I engine/features/oam_sprites -I engine/features/fade \
           -I engine/features/jumper_bg -I engine/features/jumper_obj \
           -I engine/features/col_map \
-          -I engine/features/region -I engine/features/tick_scale
+          -I engine/features/region -I engine/features/tick_scale \
+          -I vendor/tad -I assets/audio/export
+
+$(BUILD)/jr_tad_wrapper.o: engine/features/audio/tad_wrapper.asm \
+		vendor/tad/tad-audio.s vendor/tad/tad-audio.inc \
+		$(JR_MAP)/engine_state_globals.inc | $(BUILD)
+	$(CA65) -I $(JR_MAP) -I vendor/tad -o $@ $<
+
+$(BUILD)/jr_tad_data.o: assets/audio/export/tad_audio_data.asm \
+		assets/audio/export/tad_audio_data.bin | $(BUILD)
+	$(CA65) --bin-include-dir assets/audio/export -o $@ $<
 
 $(BUILD)/jumper.sfc: $(JR_ASM) $(JR)/jumper.inc \
 		$(JR_MAP)/engine_state_globals.inc $(JR_ASSETS) \
+		$(BUILD)/jr_tad_wrapper.o $(BUILD)/jr_tad_data.o \
 		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
 		$(VROM)/lorom_512k.cfg | $(BUILD)
 	$(PY) allocator/no_literals.py --map $(JR_MAP)/symbol_map.json $(JR_ASM)
 	$(CA65) $(JR_INC) --bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/jumper.o $(JR)/main.asm
-	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/jumper.o
+	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/jumper.o \
+		$(BUILD)/jr_tad_wrapper.o $(BUILD)/jr_tad_data.o
 	$(PY) tools/fix_checksum.py $@
 
 jumper: $(BUILD)/jumper.sfc
