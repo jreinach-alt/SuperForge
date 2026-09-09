@@ -6,8 +6,8 @@
 ;;
 
 
-LAST_SONG_ID = 3
-N_SOUND_EFFECTS = 14
+LAST_SONG_ID = 4
+N_SOUND_EFFECTS = 15
 
 ;; Song enum.
 ;; Input argument for `Tad_LoadSong`
@@ -16,6 +16,7 @@ N_SOUND_EFFECTS = 14
   slice_b_song = 1
   drive_song = 2
   circuit_song = 3
+  far_ridge_song = 4
 .endenum
 
 
@@ -39,4 +40,5 @@ N_SOUND_EFFECTS = 14
   ; low-priority sound effects
   footstep = 12
   skid = 13
+  wind = 14
 .endenum

@@ -1,0 +1,143 @@
+#Title far ridge
+#Composer SuperForge (procedural)
+#Tempo 44
+
+; heathaze's own song, and the FOURTH in the tree. The other three are spoken
+; for and none of them is this: `slice_b_song` is the room rail's ambient
+; piece, whose composed rest half-bar is the window its reverb A/B is measured
+; in; `drive_song` is the action rails' D minor; `circuit_song` is a racing
+; piece with a kit under it. This rail is a picture of HEAT AND DISTANCE, and
+; what a picture of distance wants is a tune with very little in it.
+;
+; -----------------------------------------------------------------------------
+; THE HARMONY, AND WHY THIS ONE
+; -----------------------------------------------------------------------------
+; D MIXOLYDIAN WITH A FLATTENED SIXTH: D E F+ G A B- C. The brief offered two
+; colours and this takes both, which is the whole reason for choosing it over
+; a plain minor.
+;
+;   * The MAJOR THIRD (f+) sitting over a bare D-A fifth is the "wide open"
+;     sound — no minor third to close the interval down, and the drone under
+;     it is a fifth rather than a triad so nothing fills the middle in.
+;   * The FLAT SIXTH (b-) is the ache. It is where the tune goes at bar 7 and
+;     it is where the DRONE ITSELF goes with it — the pedal drops from D-A to
+;     B--F for two bars, which is the cheapest way to make a scale degree
+;     audible as a colour instead of as a passing note.
+;   * The FLAT SEVENTH (c) is what stops it resolving. There is no leading
+;     tone anywhere in the piece, so the melody never arrives; it just stops.
+;     That is what a horizon sounds like.
+;
+; Written as `#KeySignature +f, -b` so the mode is stated ONCE rather than
+; spelled out with an accidental on every bar — circuit_song's argument for
+; its own signature, applied to a scale that needs both a sharp and a flat.
+;
+; -----------------------------------------------------------------------------
+; THE ECHO HEADER IS NOT ENTIRELY THIS SONG'S TO CHOOSE
+; -----------------------------------------------------------------------------
+; EVOL 12 / EFB 24 is a TREE-WIDE CONSTANT. `room_a_ambience` and `beam_end`
+; write those two values back as LITERALS as the dry rest state, so a song
+; whose header disagrees leaves any rail using those effects in a state it was
+; never in, permanently, after the first use. drive_song was authored at 10/20
+; and a red landing gate is how that was found. The BUFFER and the FIR are
+; this song's own, because nothing writes them back: 128 ms is the longest
+; delay the driver has, and the FIR is heavily low-passed, so the tail is a
+; dull far-off return rather than a bright room. Taps sum to 127 — the
+; compiler refuses an absolute sum over 128.
+#EchoLength 128
+#EchoVolume 12
+#EchoFeedback 24
+#FirFilter 56 40 20 8 3 0 0 0
+
+#KeySignature +f, -b
+
+@1 square_lead
+@2 tri_bass
+@3 pluck
+@4 kick
+
+; ---------------------------------------------------------------------------
+; NOTHING IS SCORED ON G OR H. Those are the two channels the audio driver
+; DUCKS for the duration of any sound effect, and this rail now makes two
+; kinds of noise — a wind bed on a cadence and a toggle cue on B — so a part
+; written there would be gone for most of the drive rather than occasionally.
+; A-F only, and F is left silent on purpose: see the arrangement note below.
+;
+; THE PERCUSSION IS A SAMPLE, NOT `N<0-31>`. There is exactly one noise
+; generator and the driver zeroes the volume of every music channel sharing it
+; the moment an effect wants it (audio-driver.asm, the `SfxNoise` branch) —
+; and the `wind` effect wants it roughly every eighty frames. A noise part
+; here would drop out under its own rail's weather.
+; ---------------------------------------------------------------------------
+
+; The heartbeat: a lub-dub on the downbeat and then three beats of nothing.
+; K0 disables key-off — `kick` is a one-shot that decays to zero on its own
+; and a key-off would choke its tail — so the gap is a `w` wait and never an
+; `r` rest, which still keys off under K0.
+!hb v9 o3 c%8 v6 c%8 w%80
+
+; The punctuation: an open fifth, plucked, at the end of a phrase. Two notes
+; a fifth apart rather than a chord, for the reason the whole piece is built
+; that way — a third in the middle would close the interval.
+!pl o3 d4 a4
+
+; ---- A: the tune. One line, long notes, wide leaps, and more rest than note.
+; WHISTLED, WHICH IS AN ENVELOPE AND A VIBRATO RATHER THAN A SAMPLE. MP's
+; DELAY is the whole trick: 12 ticks pass before the vibrato starts, so a
+; short note is a plain tone and a held one blooms into it — which is what a
+; whistle does and what a plucked or bowed instrument does not.
+;
+; THE SLIDES ARE `{ }` PORTAMENTO with a delay, so the note SITS before it
+; bends: `{d c}2,4` is d for a quarter and then a slide to c across the rest
+; of the half. Three of them, all downward, all at the end of a phrase.
+;
+; EVERY BAR CARRIES ITS OWN OCTAVE, so a `>` inside one cannot leak into the
+; next — the class of bug that is silent in MML and obvious on the chip.
+A  L @1 v10 E1 Q8 MP18,l16,l8
+A  r1                              | r2 o4 d4 e4
+A  o4 f+2. a4                      | o5 d2 ^4 r4
+A  r1                              | o5 {d c}2,4 o4 a4 r4
+A  o4 b-1                          | o4 a2 r2
+A  r1                              | r2 o4 a4 >c4
+A  o5 d2. o4 b-4                   | o5 {c a}1,4
+A  o4 g2 f+2                       | o4 e1
+A  o4 {e d}2,4 r2                  | r1
+
+; ---- B and C: the drone, as a BARE FIFTH held on two channels.
+; One channel cannot hold two notes, and a broken chord flutters — so the
+; open fifth this piece sits on costs two voices and that is what they are
+; for. B is the root, C the fifth above it. Both dry: an echoed pedal smears
+; into the melody's own tail and the two stop being separable.
+;
+; The pedal MOVES three times in sixteen bars and that is the entire form:
+; D-A for six, B--F for the two the tune spends on the flat sixth, D-A for
+; four, G-D for two, D-A to close. A drone that never moves is a texture; one
+; that moves four times is a piece.
+B  L @2 v9  E0 A15,0,7,0 p52
+B  o2 d1 | o2 d1 | o2 d1 | o2 d1 | o2 d1 | o2 d1
+B  o2 b-1 | o2 b-1
+B  o2 d1 | o2 d1 | o2 d1 | o2 d1
+B  o2 g1 | o2 g1
+B  o2 d1 | o2 d1
+
+C  L @2 v7  E0 A15,0,7,0 p76
+C  o2 a1 | o2 a1 | o2 a1 | o2 a1 | o2 a1 | o2 a1
+C  o3 f1 | o3 f1
+C  o2 a1 | o2 a1 | o2 a1 | o2 a1
+C  o3 d1 | o3 d1
+C  o2 a1 | o2 a1
+
+; ---- D: the plucked fifth, four times in the loop and nowhere else.
+; It lands in the second half of every fourth bar, which is where the tune is
+; already resting — so it fills a silence rather than competing with a line.
+D  L @3 v6 E1 p96
+D  r1 | r1 | r1 | r2 !pl
+D  r1 | r1 | r1 | r2 !pl
+D  r1 | r1 | r1 | r2 !pl
+D  r1 | r1 | r1 | r2 !pl
+
+; ---- E: the heartbeat.   ---- F: deliberately silent.
+; F is empty because the arrangement is finished at five voices and a sixth
+; would be filling. The two SFX channels are G and H, so an idle F costs
+; nothing and buys the option of a part later without re-scoring anything.
+E  L @4 K0 E0
+E  [!hb ]16

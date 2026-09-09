@@ -141,3 +141,55 @@
     set_echo_volume     12
     set_instrument_and_adsr tri_bass 15 4 0 31
     play_note c2 6
+
+; --- weather ---------------------------------------------------------------
+; A BED, NOT AN EVENT, and it is the only effect here that is. Everything
+; above sounds a MOMENT — a hit, a shot, a confirm — and ends. This one is
+; scenery: `heathaze` re-triggers it on a cadence hung off its own
+; region-scaled timebase, because a one-shot ambience is a gust and the owner
+; asked for wind.
+;
+; WHY THE INSTRUMENT IS `saw` AND NOT `step`. `play_noise` replaces the
+; voice's output with the noise generator but the BRR decoder keeps running
+; underneath, so the instrument's LOOP FLAG decides how long the noise lasts:
+; "if the instrument does not loop, the noise is played for the length of the
+; instrument's sample" (docs/bytecode-assembly-syntax.md). `step` and `kick`
+; do not loop — which is why `skid` gets 12 ticks out of `step` and no more —
+; and a bed needs seconds. `saw` is a 64-sample single-cycle loop, so the
+; voice never reaches its END flag and the noise runs until key-off.
+;
+; WHY THE ENVELOPE IS FIXED AND THE SWELL IS A TREMOLO. A gust shaped with
+; GAIN would put the swell in ENVX, and ENVX is also the thing that says the
+; voice is SOUNDING — so a bed whose envelope breathes to zero is a bed with
+; holes in it, and the holes are exactly what a continuity test cannot tell
+; from a dead cue. `F44` holds the envelope flat and `tremolo` modulates the
+; CHANNEL VOLUME instead: same audible swell, and "is the wind up" stays a
+; question with one answer. The quarter-wavelength is 40 ticks, so one breath
+; is 160 ticks = 1.28 s at the SFX clock's fixed 125 Hz.
+;
+; QUIET IS A VOLUME, NOT AN ENVELOPE, for the same reason. `set_volume 40` of
+; 255 puts it under the music where scenery belongs.
+;
+; THE NOISE BAND IS 20 -> 24 -> 18, AND IT MOVES ON PURPOSE. `play_noise`'s
+; argument is the S-DSP's noise clock (FLG bits 0-4), 0 slowest and 31
+; fastest, and the generator is an LFSR clocked at that rate — so its spectrum
+; is broadband rolled off above about half the clock. Index 18 is ~800 Hz and
+; index 24 is ~3.2 kHz, which puts this gust's energy where moving air has it;
+; the low teens start to sound like separate crackles rather than a rush, and
+; the high twenties are the bright hiss `explosion` decays into. The band
+; RISING at the peak and falling back is what separates wind from tape hiss —
+; a static band reads as a fault in the recording, not as air.
+;
+; LOW PRIORITY, and that is the whole of its dropout policy: scenery must
+; lose to an event. With both SFX channels busy the driver drops a
+; low-priority arrival outright (docs/sound-effects.md), so a gust that
+; collides with the toggle cue is simply not heard — and the next one is
+; along in eighty frames.
+=== wind ===
+    set_instrument_and_gain saw F48
+    set_pan_and_volume 64 52
+    tremolo 22 40
+    play_noise 20 sn 80
+    play_noise 24 sn 56
+    play_noise 18 sn 64
+    set_temp_gain_and_rest E16 12

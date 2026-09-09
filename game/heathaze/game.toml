@@ -96,18 +96,37 @@ globals = ["audio", "tad_rom",
            "scene_mgr", "fade", "input", "text_dp", "font_rom", "bg_text",
            "hz_bg", "hz_rom", "region", "tick_scale"]
 
-# AUDIO, composed 2026-09-09. MUSIC ONLY, and the absence of cues is the
-# declaration: this rail is a SCREEN EFFECT and has no discrete event to
-# sound. There is no landing, no kill, no arrival — nothing whose 0 -> 1 edge
-# is a moment — so `sf_sfx_queue_c` is not even imported and there is no
-# `prev` word in state.toml. What it composes is `Tad_Init`, one
-# `Tad_LoadSong` and the per-frame pump.
+# AUDIO. Composed 2026-09-09 for music only; the content landed the same day.
 #
-# `slice_b_song`, the tree's ambient piece, and not `drive_song`: a drum kit
-# under a screen effect would be the "prettify the demo" move that `scroller`
-# and `mode7_chamber` decline for themselves, and those two stay silent for
-# exactly that reason — they are MEASUREMENT rails and music changes what they
-# measure. This one is a picture, and a picture may have a room tone.
+# THE SONG IS THIS RAIL'S OWN. `far_ridge_song` — D mixolydian with a
+# flattened sixth over a bare fifth drone, a single whistled line with more
+# rest than note. It replaced `slice_b_song`, the tree's generic ambient piece,
+# which this rail borrowed while it had no sound of its own. The mml file's
+# header carries the argument for the mode; what belongs here is only that a
+# picture of heat and distance wanted a tune with very little in it, and that
+# `drive_song`'s kit was never a candidate — a drum kit under a screen effect
+# is the "prettify the demo" move that `scroller` and `mode7_chamber` decline
+# outright, being MEASUREMENT rails whose subject music would change.
+#
+# AND IT HAS TWO SOUNDS, WHICH THE FIRST PASS SAID IT COULD NOT HAVE. That
+# pass reasoned "a screen effect has no discrete event to sound", and half of
+# that is still true — there is no landing, no kill, no arrival. What it
+# missed is both of the other two ways a rail makes noise:
+#
+#   * WEATHER, which is not an event at all. A desert is a place with air
+#     moving through it, and the `wind` effect is scenery rather than a cue.
+#     Because a sound effect is a ONE-SHOT and the SFX ring hands the driver
+#     at most one request a frame, an ambience has to be re-triggered by the
+#     rail: `hz_weather` in scenes/desert.asm does it on a cadence counted in
+#     SHIMMER PHASES off the timebase the scene already runs, so PAL and NTSC
+#     hear the same wind.
+#   * THE CONTROL ITSELF. B toggling the shimmer flat IS a discrete player
+#     action — the rail's only one — and `select` is the vocabulary's word for
+#     a control being operated rather than a thing happening in a world.
+#
+# So `sf_sfx_queue_c` IS imported, and `state.toml` gains one word: the
+# cadence counter. There is still no `prev` word, because ES_INP_PRESS is
+# already the rising edge and a cue hung off it needs no latch.
 
 # The title: the same world, undistorted, with both the blender and the scroll
 # register carrying their own off states.
