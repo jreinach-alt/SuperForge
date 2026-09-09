@@ -127,6 +127,10 @@
     {
       "name": "drive_song",
       "source": "mml/drive_song.mml"
+    },
+    {
+      "name": "circuit_song",
+      "source": "mml/circuit_song.mml"
     }
   ]
 }

@@ -44,3 +44,27 @@ sub_px = "u16[2]@dp"     # sub-pixel accumulators [x, y], 0..255 each — the
 lap = "u8"               # completed laps (rendered in the HUD)
 sector = "u8"            # last ring quadrant: 0 NE, 1 NW, 2 SW, 3 SE
 ckpt = "u8"              # sectors visited since the last lap (bit per sector)
+lapprev = "u16@dp"       # the lap count as of last tick — what makes the
+                         # CHIME an edge rather than a state.
+                         #
+                         # `lap` above is this rail's word, and `race_logic`
+                         # fills it: the feature owns the sector machine, the
+                         # GAME owns the counter and, here, what it sounds
+                         # like. So the cue needs no change to the feature at
+                         # all — a milder version of the boundary
+                         # `platformer_stream/state.toml` had to argue,
+                         # because there the state being read was the
+                         # feature's own dp claim and here it was already
+                         # ours.
+                         #
+                         # It is still a LEVEL, read fresh every tick, so a
+                         # cue on the value rather than on its change would
+                         # ring on every frame of the lap it counts. Masked to
+                         # a byte at both the seed and the compare, since
+                         # `lap` is a u8 and the high half of this word would
+                         # otherwise be undefined (rule 5).
+                         # TICK: ok — a copy of a LAP COUNT, not a count of
+                         # frames. It advances when the car crosses the
+                         # start/finish spoke, which is a distance, and the
+                         # velocity carrying it there is already region-scaled
+                         # inside race_logic.

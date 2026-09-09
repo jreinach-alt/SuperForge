@@ -120,6 +120,15 @@ $(BUILD)/assets/sky_pal.bin: tools/gen_sky.py | $(BUILD)
 $(MZ_MAP)/move_lut.inc: tools/gen_move_lut.py | $(BUILD)
 	$(PY) tools/gen_move_lut.py $(MZ_MAP)
 
+$(BUILD)/mz_tad_wrapper.o: engine/features/audio/tad_wrapper.asm \
+		vendor/tad/tad-audio.s vendor/tad/tad-audio.inc \
+		$(MZ_MAP)/engine_state_globals.inc | $(BUILD)
+	$(CA65) -I $(MZ_MAP) -I vendor/tad -o $@ $<
+
+$(BUILD)/mz_tad_data.o: assets/audio/export/tad_audio_data.asm \
+		assets/audio/export/tad_audio_data.bin | $(BUILD)
+	$(CA65) --bin-include-dir assets/audio/export -o $@ $<
+
 $(BUILD)/microzero.sfc: $(MZ_ASM) $(MZ)/world.inc \
 		$(MZ_MAP)/engine_state_globals.inc \
 		$(BUILD)/assets/font_2bpp.bin $(BUILD)/assets/world_map.bin \
@@ -128,6 +137,7 @@ $(BUILD)/microzero.sfc: $(MZ_ASM) $(MZ)/world.inc \
 		$(BUILD)/assets/vwf_glyphs.bin $(BUILD)/assets/vwf_widths.bin \
 		$(BUILD)/assets/col_flags.bin \
 		$(MZ_MAP)/move_lut.inc \
+		$(BUILD)/mz_tad_wrapper.o $(BUILD)/mz_tad_data.o \
 		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
 		$(VROM)/lorom_512k.cfg | $(BUILD)
 	$(PY) allocator/no_literals.py --map $(MZ_MAP)/symbol_map.json $(MZ_ASM)
@@ -140,9 +150,11 @@ $(BUILD)/microzero.sfc: $(MZ_ASM) $(MZ)/world.inc \
 		-I engine/features/race_logic -I engine/features/sky_band \
 		-I engine/features/vwf -I engine/features/col_map \
 		-I engine/features/region -I engine/features/tick_scale \
+		-I vendor/tad -I assets/audio/export \
 		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/microzero.o $(MZ)/main.asm
-	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/microzero.o
+	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/microzero.o \
+		$(BUILD)/mz_tad_wrapper.o $(BUILD)/mz_tad_data.o
 	$(PY) tools/fix_checksum.py $@
 
 microzero: $(BUILD)/microzero.sfc
@@ -1774,15 +1786,27 @@ SR_INC := -I $(SR_MAP) -I $(VROM) -I $(SR) \
           -I engine/features/sr_bg -I engine/features/sr_obj \
           -I engine/features/region -I engine/features/tick_scale
 
+$(BUILD)/sr_tad_wrapper.o: engine/features/audio/tad_wrapper.asm \
+		vendor/tad/tad-audio.s vendor/tad/tad-audio.inc \
+		$(SR_MAP)/engine_state_globals.inc | $(BUILD)
+	$(CA65) -I $(SR_MAP) -I vendor/tad -o $@ $<
+
+$(BUILD)/sr_tad_data.o: assets/audio/export/tad_audio_data.asm \
+		assets/audio/export/tad_audio_data.bin | $(BUILD)
+	$(CA65) --bin-include-dir assets/audio/export -o $@ $<
+
 $(BUILD)/scroll_run.sfc: $(SR_ASM) $(SR)/scroll_run.inc \
 		$(SR_MAP)/engine_state_globals.inc $(SR_ASSETS) \
 		$(BUILD)/assets/font_2bpp.bin \
+		$(BUILD)/sr_tad_wrapper.o $(BUILD)/sr_tad_data.o \
 		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
 		$(VROM)/lorom_512k.cfg | $(BUILD)
 	$(PY) allocator/no_literals.py --map $(SR_MAP)/symbol_map.json $(SR_ASM)
-	$(CA65) $(SR_INC) --bin-include-dir $(BUILD)/assets \
+	$(CA65) $(SR_INC) -I vendor/tad -I assets/audio/export \
+		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/scroll_run.o $(SR)/main.asm
-	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/scroll_run.o
+	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/scroll_run.o \
+		$(BUILD)/sr_tad_wrapper.o $(BUILD)/sr_tad_data.o
 	$(PY) tools/fix_checksum.py $@
 
 scroll_run: $(BUILD)/scroll_run.sfc

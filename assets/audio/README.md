@@ -19,19 +19,26 @@ byte-for-byte:
 python3 tools/gen_audio_samples.py assets/audio/samples
 ```
 
-The songs (`mml/slice_b_song.mml`, `mml/drive_song.mml`) and the SFX
+The songs (`mml/slice_b_song.mml`, `mml/drive_song.mml`,
+`mml/circuit_song.mml`) and the SFX
 (`sound-effects.txt`) are authored in this repo. Licence: this directory is SuperForge project content;
 the *generated* `export/tad_audio_data.asm` carries tad-compiler's own
 Unlicense header, and the loader/driver binaries embedded in
 `export/tad_audio_data.bin` are Terrific Audio Driver code (Zlib, © Marcus
 Rowe) — see `vendor/tad/README.md` for the pin.
 
-## Two songs, because the rails want different things
+## Three songs, because the rails want different things
 
 | song | rails | what it is |
 |---|---|---|
 | `slice_b_song` | `room`, `rpg` | the ambient piece. Three channels, a whole-bar rest at the end of its 768-tick loop, and echo settings that ARE room A's acoustics |
-| `drive_song` | `shmup`, `racer`, `boss_saucer`, `breaker`, `split_v_fight`, `platformer` | the action piece. Six channels, a drum kit, a sixteenth-note bass |
+| `drive_song` | the other 16: `boss_saucer`, `brawler`, `breaker`, `camera_follow`, `jumper`, `m7_oshoot`, `maze`, `patrol`, `platformer`, `platformer_stream`, `racer`, `scroll_run`, `shmup`, `split_v_fight`, `sprite_game`, `stomper` | the action piece. Six channels, a drum kit, a sixteenth-note bass |
+| `circuit_song` | `microzero` | the racing piece. Six channels in A mixolydian over I - bVII - IV; the flat seventh is the whole colour |
+
+That third column is PROSE and the rail lists in it are hand-maintained; the
+tree is the source of truth. `grep -o 'Song::[A-Za-z_0-9]*' game/*/main.asm
+game/*/scenes/*.asm` derives them in one line, which is what the list above
+was rebuilt from after it went stale across the Phase 2 pass.
 
 The split is not decoration. `slice_b_song`'s rest half-bar is the window
 `tests/test_slice_b_audio.py` uses to hear room B's echo tail ring where room
@@ -42,6 +49,22 @@ those EVOL/EFB values, so they are not free to change.
 
 `drive_song` therefore carries its own header — 64 ms of echo buffer (8 KiB of
 ARAM rather than 16) behind a low-passed FIR, a slap instead of a cavern.
+
+`circuit_song` is the third, and it exists because a racing game wants neither
+of the other two: the room's ambience has no pulse and `drive_song` is D minor
+written for a shooter. A mixolydian keeps a major third with a flat seventh,
+so the I - bVII - IV turnaround stays bright without ever resolving, which is
+the sound a lap is supposed to have. It is declared with `#KeySignature +fc`
+rather than accidentals, so the mode is stated once instead of being spelled
+out bar by bar.
+
+**Its echo header is 12/24, and that is not its choice to make.** `drive_song`
+was authored with a 10/20 header and the boss_saucer gate went red on it,
+because `room_a_ambience` and `beam_end` write `set_echo_volume 12` /
+`set_echo_feedback 24` as LITERALS: those two values are a tree-wide constant
+that lives in the sound-effect definitions, not in any song. A grep for a
+song's NAME cannot find a coupling expressed as its VALUE. Buffer length and
+FIR remain per-song and both new songs set their own.
 
 Two arrangement rules in it are hardware, not taste, and
 `tests/test_drive_song.py` asserts both off the S-DSP:

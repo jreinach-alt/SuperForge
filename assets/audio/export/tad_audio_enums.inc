@@ -6,7 +6,7 @@
 ;;
 
 
-LAST_SONG_ID = 2
+LAST_SONG_ID = 3
 N_SOUND_EFFECTS = 14
 
 ;; Song enum.
@@ -15,6 +15,7 @@ N_SOUND_EFFECTS = 14
   BLANK = 0 ; blank (silent) song
   slice_b_song = 1
   drive_song = 2
+  circuit_song = 3
 .endenum
 
 

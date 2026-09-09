@@ -123,6 +123,17 @@ enter:
     .a16
     ; ---- race logic: the HUD below renders its lap counter ----------------
     jsr rl_arm
+    ; ---- seed the lap-chime latch from the value rl_arm just wrote --------
+    ; rl_arm stores 0 to US_LAP_LONG two instructions ago, so this compares
+    ; against a REAL value on tick 1 rather than against power-on garbage
+    ; (rule 5). Masked to a byte because the counter is one.
+    sep #$20
+    .a8
+    lda f:US_LAP_LONG
+    rep #$20
+    .a16
+    and #$00FF
+    sta z:US_LAPPREV
     ; ---- CGRAM: the 17-color floor palette (pinned at index 0) ------------
     ldx #.loword(floor_pal_bin)
     lda #^floor_pal_bin
@@ -339,6 +350,45 @@ cm_tick:
     .a16                        ;   A16 the race tick's next statement expects
     rts
 
+; --- mz_lap_edge: US_LAP_LONG's increment, and the one cue it earns ---------
+; In/out: A16/I16, DB=0. Clobbers A.
+;
+; WHY THE CUE IS HERE AND NOT IN THE FEATURE. The increment happens inside
+; `race_logic`'s `rl_lap`, but the word it increments is THIS RAIL'S -- `lap`
+; is declared in state.toml and the feature fills it. So the split is already
+; the one platformer_stream had to argue for: the feature owns the sector
+; machine, the game owns the counter and what it sounds like. Queueing the
+; chime in `rl_lap` would make every rail composing the lap machine compose
+; `audio` too, and would make the choice of sound the feature's when only "a
+; lap completed" is mechanism.
+;
+; THE LATCH IS WHAT MAKES IT AN INSTANT. US_LAP_LONG is a LEVEL, read fresh
+; every tick; a cue on the value rather than on its change would ring on every
+; frame of the lap it counts, which on this rail is several seconds of chime.
+mz_lap_edge:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda f:US_LAP_LONG
+    rep #$20
+    .a16
+    and #$00FF                      ; `lap` is a u8 -- mask so the high half of
+                                    ;   the latch word is defined, not garbage
+    cmp z:US_LAPPREV
+    beq @same                       ; no lap closed this tick
+    sta z:US_LAPPREV
+    sep #$20
+    .a8
+    lda #SFX::chime                 ; bell -- a lap is a reward, not a thump
+    jsr sf_sfx_queue_c              ; WIDTH-RISK: declares `entry: A8 I16 DB=0`
+    rep #$20
+    .a16
+@same:
+    .a16
+    .i16
+    rts
+
 tick:
     .a16
     .i16
@@ -346,6 +396,7 @@ tick:
     ; The pose retarget a heading change implies happens in the NMI hook
     ; (VBlank — the spec); the tick only moves state.
     jsr rl_tick
+    jsr mz_lap_edge                 ; a lap completed? chime, once
     ; scroll shadows follow the origin (NMI hook commits all four)
     lda z:ES_M7ORG + 0
     sec
@@ -437,7 +488,7 @@ s_vwf2: .byte "....", 0
 s_vwf3: .byte "End. Next: go", 0
 vwf_msg_tab:
     .word .loword(s_vwf0), .loword(s_vwf1), .loword(s_vwf2), .loword(s_vwf3)
-.segment "BANK13"
+.segment "BANK1"
 sky_map_bin:
     .incbin "sky_map.bin"
 .assert ^sky_map_bin = ES_R_SKY_MAP_ROM_BANK, error, "sky_map bank drifted from allocator claim"

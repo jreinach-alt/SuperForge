@@ -301,6 +301,12 @@ def test_the_tree_agrees_with_the_rule():
         # `make rail-registered`, so this guard and that gate agree about the
         # same fact from two directions.
         "test_scroll_run.py": ["build/sr/symbol_map.json"],
+        # The audio module reads the SAME map, and for the same reason —
+        # the DP addresses its closed-loop drive steers from (US_PX,
+        # US_STATE) come from the allocator, never from a literal. Reviewed
+        # separately because the guard's scanner keys on the MODULE, not on
+        # the rail.
+        "test_scroll_run_audio.py": ["build/sr/symbol_map.json"],
         # A later sweep, same shape ("split_h_demo" / "shd").
         "test_split_h_demo.py": ["build/shd/symbol_map.json"],
         "test_brawler.py": ["build/br/symbol_map.json"],

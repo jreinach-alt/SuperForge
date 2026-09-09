@@ -542,3 +542,169 @@ Three things worth keeping:
 * **Run it LAST, or run it again.** Both misses were the same shape: the gate
   was run and then more prose was written before committing. It is cheap enough
   to run immediately before `git add`.
+
+### The lock that closed the race had the answer in it, and had declined to use it — **surprise, MEDIUM**
+
+`tests/conftest.py` already carried a readers-writer lock over the live
+`engine/features/` tree: planters take `LOCK_EX`, and three modules that
+`copytree` the tree take `LOCK_SH`. The `make` fixtures were excluded on
+purpose, and the file says why:
+
+> closing it completely would mean holding this lock across the `make`
+> fixtures, which is most of the suite, and that would serialise away the
+> parallel speedup the lock exists to make safe.
+
+That is true of the EXCLUSIVE lock and not of the shared one, and the
+distinction is the whole fix. `LOCK_SH` holders do not exclude each other, so
+46 `make` calls across 38 modules may still overlap exactly as the three
+copytree readers already do. The only thing that blocks is a planter's
+`LOCK_EX`, and planters run ~0.3-1 s apiece. What the fix actually costs is
+the mirror — a planter now waits for in-flight `make` subprocesses — which is
+a real cost and a much smaller one than the sentence feared.
+
+The same note had already MEASURED the exposure as active rather than latent
+(`make microzero` and `make room` both red under a planted `fade` DP -> WRAM
+change) and still left it open. So this was not an unknown race; it was a
+known one whose price had not yet been paid. It then cost two landing-gate
+runs at ~26 minutes each, on tips whose diffs were unrelated to it, surfacing
+through two different layers — the allocator raising on a probe directory that
+vanished mid-read, and `make`'s own wildcard capturing that directory at parse
+time and finding it gone when the rule ran.
+
+**The general shape worth keeping: when a note explains why a known hole is
+left open, the reason has a shelf life.** This one was written when the hole
+had cost nothing. Re-read it the first time the hole bills you, because the
+trade-off it describes may not be the trade-off you are now making — here the
+stated cost was for a lock mode the fix does not use.
+
+`test_bare_check.py`'s five `make` calls are deliberately NOT converted: they
+run against a clone in `tmp_path`, so they never read the live tree.
+
+
+## Phase 2 close — scroll_run, microzero, and the tree-lock fix (2026-09-09)
+
+### A GUARD THAT CANNOT FIRE READS AS LOAD-BEARING — surprise, HIGH
+
+`scroll_run`'s goal chime was written with the edge test every other cue on
+this rail needs:
+
+```asm
+    lda z:US_STATE
+    bne @already_won            ; goal_check re-probes the pillar EVERY frame
+    lda #SFX::chime
+```
+
+and the test module's docstring said so at length. Both were wrong. `tick`
+gates on `US_STATE` at its very top and jumps straight to `@draw` once won, so
+`goal_check` is only ever REACHED with `US_STATE == 0`. The branch could not
+be taken. The guard was dead the moment it was typed.
+
+**What found it was the plant, and nothing else could have.** Deleting the
+guard, rebuilding (md5 moved) and re-running left all five cases GREEN. Read
+carelessly that says "the cadence test is weak"; read correctly it says "the
+thing you planted was not doing anything". Those are opposite conclusions from
+the same green, and the only way to tell them apart is to ask what ELSE would
+have to be true for the guard to matter — here, that `goal_check` runs after
+the win, which one look at `tick` refutes.
+
+This is the same family as the rule the `m7_oshoot` pass filed —
+
+> a case about a REFUSAL is only meaningful under a drive that provokes the
+> refusal, and a moved md5 says nothing about whether the drive reached the
+> branch
+
+— and it extends it to the other direction. There the DRIVE never reached the
+branch; here NO drive can. **When a plant leaves every case green, decide
+which of the two it is before touching the test.** The test that survived
+here needed no weakening at all: the invariant it asserts (a won game goes and
+stays silent) is real however it is delivered, and it is falsifiable by the
+mistake an author would actually make — the cue on the always-run `@draw`
+path, which reads 180 of a 200-frame tail against a bar of zero.
+
+The prose cost is worth naming separately: the docstring asserted a control-flow
+fact ("goal_check re-probes every frame") that I had written into a comment
+myself and then read back as evidence. CLAUDE.md's rule is exactly this — *if
+you are about to state what a tool does, open the tool* — and it applies to
+one's own ASM from ten minutes ago as much as to somebody else's.
+
+### `flock` LOCKS A FILE DESCRIPTION, NOT A PROCESS — surprise, HIGH
+
+The tree-lock race fix (previous section) added `conftest.run_make`, which
+takes `LOCK_SH` on a freshly-opened descriptor. Two modules —
+`test_make_gates.py` and `test_rom_backing_gate.py` — hold `LOCK_EX` for the
+whole test via `pytestmark = usefixtures("repo_tree_lock")` AND call
+`run_make` inside it. `fcntl.flock` is per-file-description, so the second
+`open()` gives a lock the process has no relationship to and the test waits
+for itself. Forever.
+
+It cost two background runs killed at their timeout, and the first reading was
+wrong: two exit-143s look exactly like a slow suite under load, and I spent a
+round treating them as one. What identified it was asking the narrow question
+"who holds this lock" (`fuser -v build/.repo_tree.lock`) rather than the broad
+one "why is this slow" — and one of the two answers was a worker from the
+run I had already killed, still parked in the deadlock with the pre-fix
+conftest.
+
+`_repo_tree_flock` now suppresses nested acquisition while this process holds
+`LOCK_EX`: strictly sound, because `LOCK_EX` is stronger than either mode a
+nested caller can ask for. The falsifier
+(`test_a_planter_may_call_run_make_without_waiting_for_itself`) runs the
+nesting in a CHILD with a `subprocess(timeout=)`, so a regression is a red and
+not a hung worker.
+
+### A FILTER THAT ENUMERATES VALUES GOES STALE; ONE THAT COUNTS CELLS DOES NOT — surprise, MEDIUM
+
+`test_register.py::_serves_row` finds a hand-owned §3.1 row by key and had to
+exclude the GENERATED census row with the same key. It did that by testing
+`"| unused |" not in l and "| scene |" not in l` — two of the census's three
+scope values. Composing `audio` onto `microzero` flipped `tad_rom`'s scope to
+the third, `global`; the filter stopped excluding the census row; and both
+tests that use the helper began planting over the generated table instead of
+the hand-owned one. They went red, which is the good half. The bad half is
+that a green there would have been a plant into the wrong row.
+
+The helper's own comment already described this trap ("the wrong-row trap this
+helper's first draft fell into") — and the fix it shipped was an enumeration,
+which is the same trap with a longer fuse. Counting cells (census 5, serves 2)
+cannot go stale against a vocabulary it does not read.
+
+Worth noting for anyone reading the census: `scope` is computed against ONE
+manifest, `game/microzero/game.toml`. `audio` read `unused` there for the
+whole Phase 2 pass while seventeen rails composed it, because the reference
+game did not. That is not a bug in the census, but it is easy to misread as a
+claim about the tree.
+
+### READ THE TARGET BEFORE OVERWRITING IT — clunky, LOW
+
+I wrote `game/microzero/state.toml` with a `cat >` heredoc to add one word,
+having decided from `git status` that the file did not exist. It did — with
+four scene sections and thirty lines of reasoning in it. The build named the
+casualty within a minute (`Symbol 'US_T_FRAMES_LONG' is undefined`) and
+`git checkout --` put it back, so the cost was small, but only because the
+file was tracked and the tool that consumes it is strict. The habit that would
+have avoided it entirely is a one-line `cat` before the write, and the reason
+`git status` was not evidence is that it says nothing about files you have
+not yet touched.
+
+### A new song must re-prove the tree's two hardware rules — easy, LOW
+
+`test_drive_song.py` asserts two things off the S-DSP that are properties of
+the CHIP, not of that song: nothing scored on channels G/H (voices 6/7, which
+the driver ducks for the duration of any effect), and no music voice in NON
+(there is one noise generator, and the driver zeroes the volume of any music
+channel sharing it). `circuit_song` shipped without either, and the gap was
+easy to miss because the module that has them is named after the other song.
+
+Both are now asserted for the new song too, on the TITLE screen where nothing
+can queue an effect so both are equalities rather than thresholds, with a
+third case (`test_the_title_is_not_silent`) keeping them from passing on a
+silent chip. Planted: a `G` part reads 235 of 240 title frames, and a hat
+rewritten as `N16,%12` puts a music voice in the mask on 177 of 240.
+
+**Both plants go through the shared audio blob** — one `.terrificaudio`
+project exports one `tad_audio_data.bin` for every rail — so each plant is
+`edit MML -> tad-compiler ca65-export -> make -> pytest -> restore -> export`.
+Worth doing anyway, and the restore is its own small proof: the re-export
+comes back byte-identical every time, which is the compiler's determinism
+observed rather than assumed. If a third song lands, these two cases are the
+ones to copy first; they belong to the chip and every song owes them.
