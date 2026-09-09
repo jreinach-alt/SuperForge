@@ -112,7 +112,8 @@
     "pickup",
     "chime",
     "select",
-    "thud"
+    "thud",
+    "wave_break"
   ],
   "low_priority_sound_effects": [
     "footstep",
@@ -131,6 +132,10 @@
     {
       "name": "circuit_song",
       "source": "mml/circuit_song.mml"
+    },
+    {
+      "name": "shallow_water_song",
+      "source": "mml/shallow_water_song.mml"
     }
   ]
 }

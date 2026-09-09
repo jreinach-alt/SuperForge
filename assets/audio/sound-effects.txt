@@ -141,3 +141,45 @@
     set_echo_volume     12
     set_instrument_and_adsr tri_bass 15 4 0 31
     play_note c2 6
+
+; --- the shoreline ---------------------------------------------------------
+; A WAVE IS NOT A HIT, and that is the whole difference between this and
+; `explosion` above. An impact is loudest at the instant it happens and decays
+; from there — explosion's own header records why its bands had to be reordered
+; low -> high to get that shape. A breaking wave has three legs in the other
+; order: it GATHERS (quiet, mid band, rising), it BREAKS (loud, low band,
+; broad), and then it DRAINS (long, thinning, high band, falling away). The
+; envelope and the noise index move TOGETHER across all three, which is what
+; separates water from a burst of static.
+;
+; ONE KEY-ON FOR THE WHOLE EVENT. Every band after the first is slurred (`sn`),
+; so the driver never re-keys the voice and the GAIN envelope runs continuously
+; underneath the band changes. Keyed per band instead, the swell restarts its
+; envelope three times and reads as three separate noise hits.
+;
+; THE INSTRUMENT IS CHOSEN FOR ITS LOOP, NOT ITS TIMBRE. With noise enabled the
+; voice outputs the noise generator and the BRR sample is inaudible — but the
+; sample still ENDS the voice: a non-looping instrument plays noise only for
+; the length of its own data (bytecode-assembly-syntax.md, play_noise).
+; `step`, which `skid` and `explosion` both use, is a 0.1 s one-shot; at the
+; 0.8 s this effect needs it cuts off inside the swell. `saw` is a 64-sample
+; LOOP, so the noise runs until the key-off on the last band.
+;
+; DEFAULT FLAGS, deliberately: one-channel (a wave must not stack on itself —
+; the rail's cadence is one break per surf cycle and a second instance would
+; mean the clock had run twice) and interruptible (it is ambience; a cue the
+; player actually asked for may have its channel).
+=== wave_break ===
+    set_instrument_and_gain saw I8
+    play_noise 24 sn 12
+    play_noise 20 sn 12
+    play_noise 16 sn 12
+    set_temp_gain_and_wait F118 1
+    play_noise 9 sn 10
+    play_noise 13 sn 8
+    set_temp_gain_and_wait E17 1
+    play_noise 18 sn 14
+    play_noise 24 sn 18
+    set_temp_gain_and_wait E24 1
+    play_noise 28 sn 16
+    play_noise 30 12
