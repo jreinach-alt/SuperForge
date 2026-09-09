@@ -907,3 +907,49 @@ The sibling lesson from the same three: the gate's suite runs everything, so
 ONE red aborts nothing else — 1 failed / 2527 passed each time. That is what
 made the class visible as a class rather than as three unrelated flakes, and
 it is worth reading a red that way: the count of what PASSED is evidence too.
+
+## smelter — its own song and two cues (2026-09-09)
+
+### THE PARALLEL AGENTS' SCRATCHPAD IS ONE DIRECTORY — surprise, MEDIUM
+
+Three agents were dispatched at once, each into its own worktree, and each was
+handed the SAME scratchpad path in its system prompt. Worktree isolation says
+nothing about `/tmp`. I wrote a plant harness to `scratchpad/plant.py`, ran two
+plants from it, and the third run died on a `KeyError` inside a *different*
+script with a different data structure at the same path — another agent's
+harness, which had landed on top of mine between my second and third
+invocation. Nothing was corrupted in the tree (each harness computes its paths
+from its own worktree root), and the cost was five minutes of "why does my file
+not look like my file". It would not have been five minutes if the collision had
+been in a `.orig` backup rather than in a script: a restore step reading another
+rail's saved file would have written it into MY tree.
+
+**The fix is one line in the dispatch brief** — tell each agent to work in a
+subdirectory of the scratchpad named for its rail — and it costs nothing.
+The general shape: *worktree isolation isolates the REPO, not the machine.*
+Anything an agent writes outside its worktree is shared with its siblings.
+
+### `make rail-registered` FOUND THE MISSING SITE IN SECONDS — easy, LOW
+
+A new test module that reads a rail's `symbol_map.json` needs an entry in
+`test_map_freshness_guard.py`'s reviewed dict, and I did not know that. The
+gate named the file, the missing key, the value, and what the red would have
+looked like if I had pushed without it ("`test_the_tree_agrees_with_the_rule`
+goes red minutes into a full suite, in a module the port never touched").
+Following the printed line was the whole of the fix. Recording it as an EASY
+because it is the gate working exactly as AGENTS.md says the gates work — run
+it and read what it prints rather than memorising its rules — and because the
+alternative is a landing-gate run to find the same thing.
+
+### RE-READING A RAIL BEAT INHERITING ITS PREDECESSOR'S ARGUMENT — surprise, LOW
+
+`smelter` landed a day earlier as one of "the four screen-effect rails", on the
+argument that a screen effect has no discrete event whose 0 -> 1 edge is a
+moment, so it gets music and no cues. That argument is right about `heathaze`,
+`lakeside` and `mode7_flight`, and it was wrong about this one: `works` has a B
+toggle and a Start, both already gated on `ES_INP_PRESS`, i.e. two edges that
+were sitting there the whole time. The grouping was doing the reasoning. Worth
+recording because the same shape will recur every time a rail is handled as a
+member of a set: **the set's argument has to be re-checked against each member,
+and the cheapest place to check it is the scene's own tick — grep it for
+`ES_INP_PRESS` before believing "no discrete event".**

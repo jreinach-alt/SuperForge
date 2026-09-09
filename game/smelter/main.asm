@@ -38,10 +38,12 @@ SF_HDR_TITLE_SET = 1
 .include "header.inc"
 .include "init.inc"                 ; RESET: native, A16/I16, forced blank
 .include "tad-audio.inc"            ; vendor/tad — the TAD API imports + enums
-.import sf_sfx_reset, sf_audio_tick  ; engine/features/audio — the request
-                                    ;   queue's reset and the per-frame pump.
-                                    ;   sf_sfx_queue_c is NOT imported: this
-                                    ;   rail has no cue to queue.
+.import sf_sfx_reset, sf_sfx_queue_c, sf_audio_tick
+                                    ; engine/features/audio — the request
+                                    ;   queue's reset, the centred enqueue and
+                                    ;   the per-frame pump. `works` queues two
+                                    ;   cues; see smt_sfx there for the width
+                                    ;   contract the enqueue declares.
 .include "tad_audio_enums.inc"      ; GENERATED — Song:: / SFX:: ids
 .include "sf_asm.inc"               ; shared macros: placement assertions + the
                                     ;   data-bank idioms (vendor/rom)
@@ -273,12 +275,21 @@ MAIN:
     ; power-on; the song load is ASYNC and Tad_Process streams it during the
     ; frame loop.
     ;
-    ; MUSIC ONLY. This rail is a SCREEN EFFECT and has no discrete event to
-    ; sound — no landing, no kill, no arrival — so it queues nothing and the
-    ; sfx ring is reset purely so the pump reads a defined head rather than
-    ; power-on garbage (rule 5). `slice_b_song` is the tree's ambient piece
-    ; (assets/audio/README, "Three songs"); a kit under a screen effect would
-    ; be the "prettify the demo" move the measurement rails decline.
+    ; ITS OWN SONG, AND TWO CUES. `foundry_song` is written for this rail and
+    ; for nothing else (assets/audio/mml/foundry_song.mml states the three
+    ; periods it is built from): a machine hall under load, whose ostinato and
+    ; whose two percussion parts run at 42, 32 and 96 ticks and therefore
+    ; never repeat their alignment inside a seven-bar cycle. That drift is the
+    ; four plates never being in step — the same thing the picture is doing,
+    ; written as rhythm. It replaced `slice_b_song`, the tree's generic
+    ; ambient piece, which this rail took only because nothing else existed.
+    ;
+    ; The rail was music-only until 2026-09-09 and is not any more: `works`
+    ; has two discrete player actions whose 0 -> 1 edge is a moment — the B
+    ; flat/offset toggle and the Start that leaves the hall — and both are
+    ; cued there through `smt_sfx`. So the ring is now load-bearing rather
+    ; than merely reset out of power-on garbage (rule 5), and
+    ; `sf_sfx_queue_c` is imported above.
     sep #$20
     .a8
     jsl Tad_Init
@@ -286,11 +297,13 @@ MAIN:
     ; STEREO: the song is PANNED and TAD's default is MONO
     ; (tad-audio.inc:123), which collapses every channel to centre. The mode
     ; takes effect at the next song load (tad-audio.inc:525), so it is set
-    ; between Tad_Init and Tad_LoadSong.
+    ; between Tad_Init and Tad_LoadSong. foundry_song's strikes alternate hard
+    ; right and hard left every 32 ticks, so mono would cost this rail an
+    ; audible part of its arrangement rather than merely a nicety.
     lda #TadAudioMode::STEREO
     sta Tad_audioMode
-    lda #Song::slice_b_song         ; the ambient piece — assets/audio/README
-    jsr Tad_LoadSong
+    lda #Song::foundry_song         ; this rail's own piece — the MML header
+    jsr Tad_LoadSong                ;   is where its construction is written
     rep #$20
     .a16
     ; ---- enter the boot scene (id 0 = title) under forced blank ----------
@@ -322,8 +335,9 @@ MAIN:
     jsr sm_tick
     jsr fade_tick
     ; ---- audio pump: once per frame, MAIN THREAD ONLY (the TAD ABI forbids
-    ; ISR calls). Nothing on this rail queues a cue, so this is Tad_Process
-    ; with the (always empty) ring drained ahead of it.
+    ; ISR calls). It runs AFTER sm_tick, which is where the two cues are
+    ; queued, so a cue pressed this frame reaches the driver on this frame
+    ; rather than the next.
     sep #$20
     .a8
     jsr sf_audio_tick

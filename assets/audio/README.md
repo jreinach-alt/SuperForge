@@ -20,25 +20,32 @@ python3 tools/gen_audio_samples.py assets/audio/samples
 ```
 
 The songs (`mml/slice_b_song.mml`, `mml/drive_song.mml`,
-`mml/circuit_song.mml`) and the SFX
+`mml/circuit_song.mml`, `mml/foundry_song.mml`) and the SFX
 (`sound-effects.txt`) are authored in this repo. Licence: this directory is SuperForge project content;
 the *generated* `export/tad_audio_data.asm` carries tad-compiler's own
 Unlicense header, and the loader/driver binaries embedded in
 `export/tad_audio_data.bin` are Terrific Audio Driver code (Zlib, © Marcus
 Rowe) — see `vendor/tad/README.md` for the pin.
 
-## Three songs, because the rails want different things
+## Four songs, because the rails want different things
 
 | song | rails | what it is |
 |---|---|---|
-| `slice_b_song` | `room`, `rpg`, `heathaze`, `lakeside`, `smelter`, `mode7_flight` | the ambient piece. Three channels, a whole-bar rest at the end of its 768-tick loop, and echo settings that ARE room A's acoustics |
+| `slice_b_song` | `room`, `rpg`, `heathaze`, `lakeside`, `mode7_flight` | the ambient piece. Three channels, a whole-bar rest at the end of its 768-tick loop, and echo settings that ARE room A's acoustics |
 | `drive_song` | the other 21: `boss_saucer`, `brawler`, `breaker`, `camera_follow`, `hud_game`, `jumper`, `m7_dungeon`, `m7_oshoot`, `maze`, `mill`, `mode7_explore`, `patrol`, `platformer`, `platformer_stream`, `racer`, `railshooter`, `scroll_run`, `shmup`, `split_v_fight`, `sprite_game`, `stomper` | the action piece. Six channels, a drum kit, a sixteenth-note bass |
 | `circuit_song` | `microzero` | the racing piece. Six channels in A mixolydian over I - bVII - IV; the flat seventh is the whole colour |
+| `foundry_song` | `smelter` | the industrial piece. Six channels in C minor over an ostinato; its three parts run at 42, 32 and 96 ticks and coincide once every seven bars |
 
-The four screen-effect rails take the ambient piece for the reason the split
-describes from the other end: a kit under a picture is the "prettify the demo"
-move, and `scroller` and `mode7_chamber` decline audio outright on exactly that
-argument — they are MEASUREMENT rails and music changes what they measure.
+Three of the four screen-effect rails take the ambient piece for the reason
+the split describes from the other end: a kit under a picture is the "prettify
+the demo" move, and `scroller` and `mode7_chamber` decline audio outright on
+exactly that argument — they are MEASUREMENT rails and music changes what they
+measure. **`smelter` is the one that left, and re-reading the rail is what
+moved it**: a machine hall is not a room, it has a mechanism in it, and it has
+two player actions (`ES_SMT_FLATSEL`'s B toggle, the Start that leaves) whose
+0 -> 1 edge is a moment. So it took a song written for it and two cues from
+the existing vocabulary — `select` and `chime` — and the "no discrete event to
+sound" argument now covers three rails rather than four.
 
 That third column is PROSE and the rail lists in it are hand-maintained; the
 tree is the source of truth. `grep -o 'Song::[A-Za-z_0-9]*' game/*/main.asm
@@ -62,6 +69,16 @@ so the I - bVII - IV turnaround stays bright without ever resolving, which is
 the sound a lap is supposed to have. It is declared with `#KeySignature +fc`
 rather than accidentals, so the mode is stated once instead of being spelled
 out bar by bar.
+
+`foundry_song` is the fourth, and it is the first in the tree whose subject is
+RHYTHM rather than harmony. `smelter` draws four steel plates each rising on
+its own harmonic, never in step; the song is three parts at three lengths —
+the ostinato at 42 ticks, the metal strikes at 32, the press at 96 — whose
+least common multiple is 672, so no two of them repeat their alignment inside
+a seven-bar cycle. C minor with the flat second and the tritone written as
+accidentals rather than into the key signature, which is what keeps them
+audible as faults. It costs 300 B of blob (11,864 -> 12,164 B on the tree it
+landed on) and needs no new instrument or sample.
 
 **Its echo header is 12/24, and that is not its choice to make.** `drive_song`
 was authored with a 10/20 header and the boss_saucer gate went red on it,

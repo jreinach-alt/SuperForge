@@ -254,12 +254,43 @@ tick:
     lda z:ES_SMT_FLATSEL
     eor #1
     sta z:ES_SMT_FLATSEL
+    ; THE CONTROL YOU HEAR, and it needs no latch. This arm is reached only on
+    ; ES_INP_PRESS's B bit — the `input` feature publishes the RISING edge,
+    ; `cur & ~prev` — so it runs at most once per press however long B is
+    ; held, exactly like the `eor` above it. That is the by-construction shape
+    ; `hud_game`'s score and `racer`'s pause cue have, and the opposite of a
+    ; cue read off ES_INP_CUR one token away, which would sound on every held
+    ; frame and would ALSO toggle the picture back and forth every frame. The
+    ; two defects are the same defect, which is why the test that bounds the
+    ; cue's duty cycle and the test that reads ES_SMT_FLATSEL are both aimed
+    ; here.
+    ;
+    ; `select` because that is what this is: a control being accepted.
+    ; `racer` uses it for its pause toggle and the vocabulary's own note says
+    ; "a confirm, a gate accepting" (assets/audio/sound-effects.txt).
+    lda #SFX::select
+    jsr smt_sfx
 @no_toggle:
     .a16
     .i16
     lda z:ES_INP_PRESS
     and #JOY_START
     beq @done
+    ; LEAVING THE HALL. A second cue rather than a second `select`, and the
+    ; difference is the point twice over: a toggle and a departure are not the
+    ; same event to a player, and `chime` is voiced by `bell` where `select`
+    ; is voiced by `pluck`, so the two are separable on the chip by VxSRCN and
+    ; each can be attributed to its own press. `mill` fires `chime` on exactly
+    ; this shape — the tick that reaches it is the last one this scene gets.
+    ; The queue is a RING, not a slot (engine/features/audio/tad_wrapper.asm),
+    ; so a frame carrying both presses holds both and delivers them on
+    ; successive frames rather than dropping one.
+    ;
+    ; QUEUED BEFORE THE SWITCH. sf_audio_tick runs later in the same frame's
+    ; main loop, so the request is already in the ring when the scene edge is
+    ; taken; nothing in the switch clears it (sf_sfx_reset runs once, at boot).
+    lda #SFX::chime
+    jsr smt_sfx
     sep #$20
     .a8
     SM_SWITCH "WORKS", "TITLE"
@@ -268,6 +299,32 @@ tick:
 @done:
     .a16
     .i16
+    rts
+
+; --- smt_sfx: queue the sound effect named in A ----------------------------
+; CONTRACT works::smt_sfx
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       A = the SFX:: id, in the low byte
+;   out:      the request held in the audio feature's ring
+;   clobbers: A, N, Z, C
+;   tail:     rts
+;
+; WIDTH-RISK: sf_sfx_queue_c declares `entry: A8 I16 DB=0` and this scene's
+; tick runs in A16, so the sep/rep pair is load-bearing and lives HERE rather
+; than at either call site — one place to be wrong instead of two. X survives
+; the callee (it takes the pan in X and gives it back), which is why this uses
+; the centred entry point rather than loading a pan itself. Copied in shape
+; from game/hud_game/scenes/play.asm's `hud_sfx`.
+smt_sfx:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "smt_sfx"
+    sep #$20
+    .a8
+    jsr sf_sfx_queue_c
+    rep #$20
+    .a16
     rts
 
 ; --- exit: nothing to tear down --------------------------------------------

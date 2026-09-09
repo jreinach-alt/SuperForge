@@ -69,18 +69,33 @@ globals = ["audio", "tad_rom",
            "smt_bg", "smt_rom", "oam_sprites", "region", "tick_scale",
            "mosaic"]
 
-# AUDIO, composed 2026-09-09. MUSIC ONLY, and the absence of cues is the
-# declaration: this rail is a SCREEN EFFECT and has no discrete event to
-# sound. There is no landing, no kill, no arrival — nothing whose 0 -> 1 edge
-# is a moment — so `sf_sfx_queue_c` is not even imported and there is no
-# `prev` word in state.toml. What it composes is `Tad_Init`, one
-# `Tad_LoadSong` and the per-frame pump.
+# AUDIO, composed 2026-09-09, MUSIC FIRST AND THEN CONTENT. It landed as
+# music-only alongside the three other screen-effect rails, on the argument
+# that a screen effect has no discrete event whose 0 -> 1 edge is a moment.
+# That argument was right about `heathaze`, `lakeside` and `mode7_flight` and
+# WRONG here, and re-reading the scene is what found it: `works` has two
+# player actions and both are already edges. B flips `ES_SMT_FLATSEL`, the
+# flat/offset control; Start leaves the hall. Each is cued, and neither needs
+# a `prev` word — `ES_INP_PRESS` is the rising edge the `input` feature
+# publishes, so both sites run at most once per press however long the button
+# is held. `state.toml` is therefore untouched by the audio work.
 #
-# `slice_b_song`, the tree's ambient piece, and not `drive_song`: a drum kit
-# under a screen effect would be the "prettify the demo" move that `scroller`
-# and `mode7_chamber` decline for themselves, and those two stay silent for
-# exactly that reason — they are MEASUREMENT rails and music changes what they
-# measure. This one is a picture, and a picture may have a room tone.
+# `select` for the toggle (`racer` uses it for its pause control, and the
+# vocabulary's own note is "a confirm, a gate accepting") and `chime` for the
+# departure. Two DIFFERENT samples on purpose — pluck and bell — so a test
+# reading VxSRCN can attribute each cue to its own press, and so can a
+# listener. Nothing was added to the shared sound-effect vocabulary for this
+# rail.
+#
+# `foundry_song`, and it is this rail's own. It replaced `slice_b_song`, the
+# tree's generic ambient piece, which this rail only ever had because nothing
+# better existed: a machine hall wants a machine, not a room tone. The song's
+# three parts run at 42, 32 and 96 ticks and coincide once every seven bars,
+# which is the four plates never being in step written as rhythm —
+# assets/audio/mml/foundry_song.mml is where that construction is stated.
+# `scroller` and `mode7_chamber` still decline audio outright and their reason
+# is still live: they are MEASUREMENT rails and music changes what they
+# measure. This one is a picture with a mechanism in it.
 
 # The title: the same world, flat, in mode 1 with a line of text over it.
 [[scene]]

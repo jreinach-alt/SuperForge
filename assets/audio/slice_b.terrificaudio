@@ -131,6 +131,10 @@
     {
       "name": "circuit_song",
       "source": "mml/circuit_song.mml"
+    },
+    {
+      "name": "foundry_song",
+      "source": "mml/foundry_song.mml"
     }
   ]
 }

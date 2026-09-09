@@ -6,7 +6,7 @@
 ;;
 
 
-LAST_SONG_ID = 3
+LAST_SONG_ID = 4
 N_SOUND_EFFECTS = 14
 
 ;; Song enum.
@@ -16,6 +16,7 @@ N_SOUND_EFFECTS = 14
   slice_b_song = 1
   drive_song = 2
   circuit_song = 3
+  foundry_song = 4
 .endenum
 
 
