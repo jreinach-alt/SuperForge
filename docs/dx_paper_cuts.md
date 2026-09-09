@@ -497,23 +497,33 @@ pool-full cases need the pool full, clamp cases need the clamp hit. Plant it,
 and if the plant passes, the drive is not reaching the branch — that is a
 finding about the test, and the md5 moving says nothing about it either way.
 
-### "outrun" is a retail title, and the tripwire caught it in a test docstring — **surprise, LOW**
+### A denylisted title can be an ordinary English word, and this entry cannot spell it — **surprise, LOW**
 
-`make cleanroom`'s multiword denylist joins its terms with `[-_\s]*`, so
-`('out', 'run')` matches **outrun** as one word. A docstring saying the gun cue
-"cannot outrun the pool" tripped it, twice — once on the line pass and once on
-the comment-wrap pass.
+`make cleanroom`'s multiword denylist joins each entry's words with a separator
+class that also matches the EMPTY string, so a two-word title is matched when
+it is written as one word. A test docstring described a cue as not being able
+to overtake a resource pool, using a single verb that happens to be a 1980s
+driving title with the space removed. The tripwire fired twice — once on the
+line pass, once on the comment-wrap pass — and it was right.
 
-The tripwire was right and the wording was mine; reworded to "cannot get ahead
-of the pool". Worth recording for two reasons. First, the collision class is
-ordinary English: `out run`, `top gear`, `after burner`, `street racer` and
-`mega man` are all phrases someone writes by accident, so a red here is much
-more likely to be prose than provenance. Second, the ordering paid for itself —
-`cleanroom` runs FIRST in the gate block, so this cost 116 seconds instead of
-the 25 minutes a failure after the ROM builds and the suite would have. The
-`test` entry in that artifact reads "skipped", not "FAILED": one real failure,
-not two.
+THEN THIS ENTRY FIRED IT AGAIN. The first draft quoted the offending verb and
+listed four more multiword entries to show how ordinary they are, which put
+five denylisted titles into a committed file. `cleanroom` had been run BEFORE
+the entry was appended, so it went green, and the landing gate caught it on the
+next tip. The fix is not an allowlist: the existing exemptions are for
+mechanism language (`run_to_break` is a harness method), and five entries so a
+paper cut can be concrete would weaken the floor for nothing. So this entry
+describes the class without spelling any member of it.
 
-**The habit: run `cleanroom` on any commit that adds prose, which is nearly all
-of them.** It is in `make gates` but it is cheap enough to run alone, and it is
-the one gate whose findings live in comments rather than code.
+Three things worth keeping:
+
+* **The collision class is ordinary English.** Several multiword entries are
+  phrases a person writes by accident once the separator is dropped, so a red
+  here is far more likely to be prose than provenance.
+* **The gate block's ORDER paid for itself.** `cleanroom` runs first, so both
+  reds cost ~116 seconds each instead of the 25 minutes a failure after the ROM
+  builds and the suite would have. The artifact's `test` entry reads "skipped",
+  not "FAILED" — one real failure, not two.
+* **Run it LAST, or run it again.** Both misses were the same shape: the gate
+  was run and then more prose was written before committing. It is cheap enough
+  to run immediately before `git add`.
