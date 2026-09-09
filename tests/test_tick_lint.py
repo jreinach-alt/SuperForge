@@ -31,6 +31,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from conftest import run_make
+
 SUPERFORGE = Path(__file__).resolve().parent.parent
 FIX = SUPERFORGE / "tests" / "fixtures" / "tick_lint"
 sys.path.insert(0, str(SUPERFORGE / "tools"))
