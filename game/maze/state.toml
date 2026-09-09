@@ -14,8 +14,17 @@ px = "u16@dp"            # player box top-left, world px (= screen px = OAM x:
 py = "u16@dp"            #   the room is one screen and scroll is pinned)
 cand_x = "u16@dp"        # the tentative position under probe, before the
 cand_y = "u16@dp"        #   move-check's verdict commits or drops it
-cell = "u16@dp"          # the 8px CELL the player was in last tick,
-                         # packed (row << 8) | col. This rail moves
+cell = "u16@dp"          # the 16 px STRIDE the player last occupied, packed
+                         # (row << 8) | col.
+                         # TICK: ok — a POSITION, not a count of anything. The
+                         # frame-assumption lint reads the word below as a
+                         # declared frame unit, but nothing here scales with
+                         # the frame rate: the same stride is the same stride
+                         # on both machines, and the walk that crosses it is
+                         # already region-scaled by ts_step. What this word
+                         # holds is where the player was on the previous
+                         # update, so the footstep can fire on the CHANGE.
+                         # This rail moves
                          # freely in pixels, so unlike the rpg's grid
                          # walk there is no step COMMIT to hang a
                          # footstep on -- a cue on "is moving" would

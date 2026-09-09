@@ -449,3 +449,26 @@ end: 7.5x headroom, and identical across three trials.
 budget has no margin — measure WHERE it lands, not just that it did. And a
 self-diagnosing fixture earns its keep at exactly this moment: the failure
 named the drive instead of sending me back into the audio path.
+
+### `make tick-check` is not in `make gates`, but a test in the suite runs it — so skipping it defers the red by 25 minutes — **clunky, MEDIUM**
+
+The maze commit went through width-check, time-check, register, rail-registered
+and rom-unbacked, all clean, and the landing gate then failed on
+`test_tick_lint.py::test_make_tick_check_is_clean`. `tick-check` is
+deliberately outside `gates` and `bare-check` (CLAUDE.md says so: a finding is
+not a defect, and its baseline of 350 has not been driven down) — but the
+pytest suite asserts it is clean, and the suite IS in the landing gate. So the
+lint is enforced; it just is not enforced anywhere fast.
+
+The finding was fair, and it was in PROSE rather than code: the new `cell` word
+was described as "the cell the player was in last tick", and the lint reads a
+state declaration whose comment names a frame unit as a frame coupling. The
+word holds a POSITION. Two rewrites failed because the explanation itself
+needed to say "tick" — the lint scans the comment, so a comment about the lint
+trips it — and the right answer was the documented `TICK: ok — <reason>`
+override, which is exactly what it exists for.
+
+**The habit worth forming: run `tick-check` beside the other lints on any
+commit that adds a state declaration**, since it is the one gate that is
+enforced by the suite rather than by `gates` and therefore the one that a
+25-minute landing gate is the first to tell you about.
