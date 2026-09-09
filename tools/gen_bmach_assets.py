@@ -189,12 +189,19 @@ def pack_chr(blocks):
 # the ruins warm and deep down cold if it is entered twice. It is not, today —
 # every block is entered once, and the zone is a property of the sheet it came
 # from.
+# NO CAPS. These were 22/20/16/12/14 and that left 352 of the 436 supplied
+# assets — 81% of the art — unread, while the whole design conversation was
+# being had against a vocabulary a quarter the size of the one on disk. The
+# cap was self-imposed and was never the hardware's: the tilemap index is 10
+# bits, so 1024 slots at four per block is 256 blocks RESIDENT, and a room's
+# terrain measures 7-11 distinct blocks. The library lives in ROM and the
+# resident page is per room.
 SHEETS = (
-    ("sandstone_ruins.png",     PAL_SAND,  22),
-    ("machine_structure.png",   PAL_STEEL, 20),
-    ("platforms.png",           PAL_STEEL, 16),
-    ("pipes.png",               PAL_STEEL, 12),
-    ("hazards_transitions.png", PAL_HOT,   14),
+    ("sandstone_ruins.png",     PAL_SAND,  None),
+    ("machine_structure.png",   PAL_STEEL, None),
+    ("platforms.png",           PAL_STEEL, None),
+    ("pipes.png",               PAL_STEEL, None),
+    ("hazards_transitions.png", PAL_HOT,   None),
 )
 
 
@@ -214,8 +221,9 @@ def build_kit(budget=128):
     runs = []
     for fname, zone, take in SHEETS:
         im, cs = components(str(KIT / fname))
-        step = max(1, len(cs) // take)
-        for c in cs[::step][:take]:
+        if take is not None:
+            cs = cs[::max(1, len(cs) // take)][:take]
+        for c in cs:
             bw, bh, grid = block_run(im, c, zone)
             ids = []
             for blk in grid:
@@ -225,10 +233,6 @@ def build_kit(budget=128):
                     kit.append(blk)
                 ids.append(blocks[key])
             runs.append((fname, zone, bw, bh, ids))
-            if len(kit) >= budget:
-                break
-        if len(kit) >= budget:
-            break
     return kit, runs
 
 
@@ -994,3 +998,95 @@ def dress_border(kit, plain, pool, r, c, side):
 
     legal.sort(key=lambda c: (-difference(c), c))
     return legal[(r * 3 + c) % min(4, len(legal))]
+
+
+# --- flips: vocabulary, not compression -------------------------------------
+# THE FLIP BITS WERE WRITTEN AND NEVER EMITTED. `entry` has taken hflip/vflip
+# since the first commit and the only reference to them in this file was that
+# definition. What they buy here is NOT compression — measured, the sheets
+# contain no near-mirror pairs at all, because the artist drew each piece once
+# — it is COVERAGE. The sheet does not have to contain a right-hand bracket
+# for the world to have one, and an arch is one half plus its mirror rather
+# than two authored halves that may not agree.
+#
+# Under tiles16 a flip mirrors the WHOLE 16x16 block: hMirror swaps which half
+# the PPU draws as well as flipping each tile (SnesPpu.cpp:238-244), and
+# vMirror swaps the +16 row select the same way. So a mirrored block needs no
+# CHR of its own — only the bit.
+def flip_cells(cells, w, h, hflip=False, vflip=False):
+    """Mirror a fixture's cell layout. The BLOCKS are unchanged — only where
+    they sit, and the bits the tilemap will carry."""
+    out = []
+    for dr, dc, b in cells:
+        r = (h - 1 - dr) if vflip else dr
+        c = (w - 1 - dc) if hflip else dc
+        out.append((r, c, b))
+    return sorted(out)
+
+
+class Placement:
+    """One block on the map: which block, and how it is mirrored."""
+    __slots__ = ("block", "hflip", "vflip")
+
+    def __init__(self, block, hflip=False, vflip=False):
+        self.block, self.hflip, self.vflip = block, hflip, vflip
+
+    def word(self, base, pal):
+        return entry(base[self.block], pal, self.hflip, self.vflip)
+
+
+def mirrored(fx, hflip=False, vflip=False):
+    """A fixture placed mirrored — an arch from one half, a right bracket from
+    a left one. Costs a bit, not a block."""
+    w, h, cells = fx.footprint()
+    return w, h, [(r, c, Placement(b, hflip, vflip))
+                  for r, c, b in flip_cells(cells, w, h, hflip, vflip)]
+
+
+# --- per-room CHR residency --------------------------------------------------
+# THE LIBRARY NO LONGER FITS, AND THAT IS THE POINT. All 436 assets come to 557
+# blocks = 2,240 slots = 71,680 B, past both the 1024-slot tilemap index and
+# the console's whole 65,536 B of VRAM. So the library lives in ROM and a page
+# is uploaded per ROOM, which a screen-sized room makes natural: the room IS
+# the streaming unit, the transition between rooms is when the upload happens,
+# and a room's terrain measures 7-11 distinct blocks against a page that holds
+# far more.
+#
+# This is what removes the budget from the design conversation. The question
+# stops being "does the world fit in 128 blocks" and becomes "does any single
+# ROOM fit in a page", which is a much easier thing to satisfy and a much
+# easier thing to check.
+PAGE_BLOCKS = 128               # 512 slots, 16,384 B — half the index space,
+                                # leaving the other half for the second page a
+                                # transition needs while both rooms are visible
+
+
+def room_blocks(cells):
+    """The distinct blocks one room needs resident, in first-use order.
+
+    Order matters: the room's local block ids are indices into ITS page, so
+    the tilemap is written against the page rather than against the library.
+    """
+    order, seen = [], set()
+    for b in cells:
+        if b not in seen:
+            seen.add(b)
+            order.append(b)
+    return order
+
+
+def check_pages(rooms):
+    """No room may need more blocks than a page holds.
+
+    The gate that replaces the global budget. A room that overflows is a room
+    that has to be simplified or split — a build-time answer, not a runtime
+    surprise.
+    """
+    over = [(name, len(bs)) for name, bs in rooms if len(bs) > PAGE_BLOCKS]
+    assert not over, (
+        f"{len(over)} room(s) need more than a {PAGE_BLOCKS}-block page: "
+        f"{over[:4]}")
+    return {"rooms": len(rooms),
+            "max": max(len(bs) for _, bs in rooms) if rooms else 0,
+            "median": sorted(len(bs) for _, bs in rooms)[len(rooms) // 2]
+            if rooms else 0}
