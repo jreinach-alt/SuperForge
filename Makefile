@@ -2217,15 +2217,27 @@ MO_INC := -I $(MO_MAP) -I $(VROM) -I $(MO) \
           -I engine/features/mo_obj -I engine/features/col_map \
           -I engine/features/region -I engine/features/tick_scale
 
+$(BUILD)/mo_tad_wrapper.o: engine/features/audio/tad_wrapper.asm \
+		vendor/tad/tad-audio.s vendor/tad/tad-audio.inc \
+		$(MO_MAP)/engine_state_globals.inc | $(BUILD)
+	$(CA65) -I $(MO_MAP) -I vendor/tad -o $@ $<
+
+$(BUILD)/mo_tad_data.o: assets/audio/export/tad_audio_data.asm \
+		assets/audio/export/tad_audio_data.bin | $(BUILD)
+	$(CA65) --bin-include-dir assets/audio/export -o $@ $<
+
 $(BUILD)/m7_oshoot.sfc: $(MO_ASM) $(MO)/m7_oshoot.inc \
 		$(MO_MAP)/engine_state_globals.inc $(MO_ASSETS) \
 		$(BUILD)/assets/m7_affine_lut.bin \
+		$(BUILD)/mo_tad_wrapper.o $(BUILD)/mo_tad_data.o \
 		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
 		$(VROM)/lorom_512k.cfg | $(BUILD)
 	$(PY) allocator/no_literals.py --map $(MO_MAP)/symbol_map.json $(MO_ASM)
-	$(CA65) $(MO_INC) --bin-include-dir $(BUILD)/assets \
+	$(CA65) $(MO_INC) -I vendor/tad -I assets/audio/export \
+		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/m7_oshoot.o $(MO)/main.asm
-	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/m7_oshoot.o
+	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/m7_oshoot.o \
+		$(BUILD)/mo_tad_wrapper.o $(BUILD)/mo_tad_data.o
 	$(PY) tools/fix_checksum.py $@
 
 m7_oshoot: $(BUILD)/m7_oshoot.sfc

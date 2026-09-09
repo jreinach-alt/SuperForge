@@ -28,6 +28,11 @@ SF_HDR_TITLE_SET = 1
 .include "engine_state_globals.inc" ; GENERATED — system + game-lifetime map
 .include "header.inc"
 .include "init.inc"                 ; RESET: native, A16/I16, forced blank
+.include "tad-audio.inc"            ; vendor/tad — the TAD API imports + enums
+.import sf_sfx_reset, sf_sfx_queue_c, sf_audio_tick
+                                    ; engine/features/audio — the request
+                                    ;   queue and the per-frame pump
+.include "tad_audio_enums.inc"      ; GENERATED — Song:: / SFX:: ids
 .include "sf_asm.inc"               ; shared macros: placement assertions + the
                                     ;   data-bank idioms (vendor/rom)
 .include "m7_oshoot.inc"            ; the rail's own vocabulary
@@ -63,28 +68,30 @@ NMI:
 ; side is `make rom-unbacked` (docs/37): a claim with no .incbin here would
 ; reserve the window and let whatever the linker left there be read as art.
 ;
-; mo_map is 32,768 B — one WHOLE LoROM window — so it gets bank 1 to itself and
-; the single DMA that uploads it cannot cross a bank boundary.
-.segment "BANK1"
-mo_map_bin:
-    .incbin "mo_map.bin"
-.assert ^mo_map_bin = ES_R_MO_MAP_BANK, error, "mo_map bank drifted from allocator claim"
-.assert .loword(mo_map_bin) = ES_R_MO_MAP_ADDR, error, "mo_map addr drifted from allocator claim"
-
-.segment "BANK2"
-; The PACKED tile-id map col_map reads, and the tile-id -> flag table it indexes
-; with what it finds. TWO blobs, because they are two different lookups: the map
-; answers "which tile is at this world pixel", the table answers "is that tile
-; solid". Neither is the interleaved plane above — that one carries the same ids
-; with CHR bytes between them, a layout the probe's `ty * W + tx` cannot index.
+; THREE WINDOWS, AND `audio` IS WHY IT IS NOT TWO. tad_export's 16,384 B
+; half-window takes the top of window 1, and the allocator packs by
+; (-bytes, name): mo_tilemap (16,384) is the only other claim that fits beside
+; it, mo_map at 32,768 needs a WHOLE window and takes window 2, and everything
+; else follows into window 3. ld65 refused this build by name (`mo_map bank
+; drifted from allocator claim`) until the segments said so, which is the
+; placement asserts doing exactly what they exist for.
 ;
-; The map leads BANK2 because the allocator packs ROM by (-bytes, name) and at
-; 16,384 B it is the largest claim in this window. The .asserts are what make
-; that agreement checkable rather than assumed.
+; Window 1: the PACKED tile-id map col_map reads, beside the audio export —
+; at 16,384 B each, the two exactly fill it.
+.segment "BANK1"
 mo_tilemap_bin:
     .incbin "mo_tilemap.bin"
 .assert ^mo_tilemap_bin = ES_R_MO_TILEMAP_BANK, error, "mo_tilemap bank drifted from allocator claim"
 .assert .loword(mo_tilemap_bin) = ES_R_MO_TILEMAP_ADDR, error, "mo_tilemap addr drifted from allocator claim"
+
+.segment "BANK2"
+; Window 2: mo_map, 32,768 B, a WHOLE window to itself — which is what keeps
+; the single DMA that uploads it from crossing a bank boundary.
+mo_map_bin:
+    .incbin "mo_map.bin"
+.assert ^mo_map_bin = ES_R_MO_MAP_BANK, error, "mo_map bank drifted from allocator claim"
+.assert .loword(mo_map_bin) = ES_R_MO_MAP_ADDR, error, "mo_map addr drifted from allocator claim"
+.segment "BANK3"
 m7_lut_bin:
     .incbin "m7_affine_lut.bin"
 .assert ^m7_lut_bin = ES_R_M7_LUT_BANK, error, "m7_lut bank drifted from allocator claim"
@@ -183,6 +190,25 @@ MAIN:
                                 ;   change region between scenes.
     jsr fade_init
     jsr oam_park_all            ; whole shadow written before its first DMA
+    ; ---- audio boot (TAD contract, tad-audio.inc): interrupts are DISABLED
+    ; here by construction — init.inc leaves NMI off and $4200 is written only
+    ; below — so the S-SMP is still in the IPL. Tad_Init runs ONCE per
+    ; power-on; the song load is ASYNC and Tad_Process streams it during the
+    ; frame loop.
+    sep #$20
+    .a8
+    jsl Tad_Init
+    jsr sf_sfx_reset                ; the ring holds power-on garbage
+    ; STEREO: the song is PANNED (mid pulse left, arpeggio right) and TAD's
+    ; default is MONO (tad-audio.inc:123), which collapses every channel to
+    ; centre. The mode only takes effect at the next song load
+    ; (tad-audio.inc:525), so it is set between Tad_Init and Tad_LoadSong.
+    lda #TadAudioMode::STEREO
+    sta Tad_audioMode
+    lda #Song::drive_song           ; the action rails' song — assets/audio/README
+    jsr Tad_LoadSong
+    rep #$20
+    .a16
     ; ---- enter the boot scene (id 0 = arena) under forced blank ----------
     ldx #0
     jsr (sm_enter_tab, x)
@@ -199,5 +225,12 @@ MAIN:
     jsr input_read
     jsr sm_tick
     jsr fade_tick
+    ; ---- audio pump: once per frame, MAIN THREAD ONLY (the TAD ABI forbids
+    ; ISR calls).
+    sep #$20
+    .a8
+    jsr sf_audio_tick               ; delivers one queued cue, then Tad_Process
+    rep #$20
+    .a16
     jsr sm_frame_sync
     bra @loop

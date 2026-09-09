@@ -188,6 +188,17 @@ CLEAN = 40      # past the fade-in, BEFORE the first wave beat (MO_SPAWN_PERIOD
                 #   is 50, counted from enter) — the only window with no chaser
 BOOT = 120      # settled, with chasers in the field
 
+# THE AUDIO BOOT COST, in hardware frames, and BOOT/CLEAN are TICK counts.
+#
+# Tad_Init uploads the loader to the S-SMP through the IPL's byte-at-a-time
+# handshake before the game loop starts, so advance(N) leaves the scene on tick
+# N - BOOT_SKEW. The absolute frames above were chosen against the scene's
+# state -- "past the fade, before the first wave beat", "settled, with chasers
+# in the field" -- so they are tick counts, and reaching them now takes four
+# more hardware frames. Measured the same on patrol and stomper: it is the
+# handshake, not anything about this rail.
+BOOT_SKEW = 4
+
 PAD_L = {"left": True}
 PAD_R = {"right": True}
 PAD_U = {"up": True}
@@ -603,7 +614,7 @@ def test_the_arena_renders_a_textured_mode7_floor(tmp_path):
     four colours the generator authored rather than four the PPU invented out of
     an upload that never landed."""
     with Machine(str(ROM)) as m:
-        m.advance(CLEAN)
+        m.advance(CLEAN + BOOT_SKEW)
         img = _shot(m, tmp_path, "floor.png")
         cg = m.read_bytes(C, 0, 512)
     assert len(set(img.get_flattened_data())) >= 4
@@ -628,7 +639,7 @@ def test_the_hero_renders_screen_centred_and_upright():
     reads a 4x4 tile block whose lower-left quadrant is the chaser CHR, and a
     phantom diamond bleeds into him (main.asm:106-123)."""
     with Machine(str(ROM)) as m:
-        m.advance(BOOT)
+        m.advance(BOOT + BOOT_SKEW)
         x, y, tile, attr, x9, size = _entry(_oam(m), HERO_SLOT)
     assert (x, y, tile, attr) == (HERO_X, HERO_Y, T_HERO, ATTR_HERO)
     assert (x9, size) == (0, 1)
@@ -644,7 +655,7 @@ def test_the_hero_stays_pinned_while_the_floor_moves_under_him(pad, name, tmp_pa
     floor pixels are not — so "he is pinned" cannot pass by the floor being
     frozen too, and "the floor moved" cannot pass by the hero having moved."""
     with Machine(str(ROM)) as m:
-        m.advance(CLEAN)
+        m.advance(CLEAN + BOOT_SKEW)
         before_img = _shot(m, tmp_path, f"pin_{name}_a.png")
         before_oam = _oam(m)
         m.advance(24, pad1=pad)
@@ -674,7 +685,7 @@ def test_the_hero_stays_pinned_while_the_floor_moves_under_him(pad, name, tmp_pa
 ])
 def test_the_floor_turns_to_the_held_heading_in_both_directions(pad, name, tmp_path):
     with Machine(str(ROM)) as m:
-        m.advance(CLEAN)
+        m.advance(CLEAN + BOOT_SKEW)
         a_img = _shot(m, tmp_path, f"turn_{name}_a.png")
         m.advance(8, pad1=pad)
         b_img = _shot(m, tmp_path, f"turn_{name}_b.png")
@@ -695,7 +706,7 @@ def test_the_facing_persists_and_the_floor_holds_still_when_the_pad_is_released(
     Sprites are masked out of both frames: the chasers keep walking while the
     floor holds, and a whole-frame diff would call that a moving floor."""
     with Machine(str(ROM)) as m:
-        m.advance(CLEAN)
+        m.advance(CLEAN + BOOT_SKEW)
         m.advance(16, pad1={"up": True, "left": True})   # turn to 45 degrees
         m.advance(4)                                     # release, settle
         a_img = _shot(m, tmp_path, "idle_a.png")
@@ -728,7 +739,9 @@ def test_the_cast_matches_an_independent_transpose_projection_oracle():
     (main.asm:125-134, -DBULLET_PROJ_FORWARD).
     """
     with Machine(str(ROM)) as m:
-        m.advance(180)                       # a populated field
+        m.advance(180 + BOOT_SKEW)           # a populated field — 180 TICKS,
+                                             #   so the audio boot's four
+                                             #   frames are added on top
         _turn_to(m, 192)                     # ...and WALKED clear of (PAD_R
         m.advance(20, pad1=PAD_U)            #   turns now), so a bolt
                                              #   survives long enough to check:
@@ -815,7 +828,7 @@ def test_a_bolt_travels_up_the_screen_whatever_the_heading(heading, name):
     being held). Releasing pins the facing — stand-and-shoot survived this change
     — and leaves the bolt's own track as the only thing moving."""
     with Machine(str(ROM)) as m:
-        m.advance(CLEAN)
+        m.advance(CLEAN + BOOT_SKEW)
         _turn_to(m, heading)                 # ...and RELEASE: the facing persists
         m.advance(2, pad1={"a": True})
         m.advance(2)
@@ -893,7 +906,7 @@ def test_up_moves_the_player_toward_screen_up_at_every_heading(heading, tmp_path
     strafe term of do_integrate, or a swapped sin/cos, shows up here as dx
     growing with the heading while dy stays healthy."""
     with Machine(str(ROM)) as m:
-        m.advance(CLEAN)
+        m.advance(CLEAN + BOOT_SKEW)
         reached = _turn_to(m, heading)
         before = _shot(m, tmp_path, f"up_{heading}_a.png")
         m.advance(8, pad1=PAD_U)
@@ -940,7 +953,7 @@ def test_a_full_turn_rotates_the_floor_smoothly_with_no_forty_five_degree_jump(t
     SAMPLES, PER = 44, 2
     deltas = []
     with Machine(str(ROM)) as m:
-        m.advance(CLEAN)
+        m.advance(CLEAN + BOOT_SKEW)
         prev = _ring(_shot(m, tmp_path, "rot_0.png"))
         for i in range(SAMPLES):
             m.advance(PER, pad1=PAD_L)
@@ -977,7 +990,7 @@ def test_forward_and_back_move_opposite_ways_at_a_non_cardinal_heading(tmp_path)
     "did the floor move" check and fails here."""
     HEAD = 69
     with Machine(str(ROM)) as m:
-        m.advance(CLEAN)
+        m.advance(CLEAN + BOOT_SKEW)
         _turn_to(m, HEAD)
         a = _shot(m, tmp_path, "fb_a.png")
         m.advance(8, pad1=PAD_U)
@@ -1022,7 +1035,7 @@ def test_the_shoulders_strafe_sideways_with_the_heading_unchanged(HEAD, tmp_path
     three — so 'sideways' is a genuine composition of both world axes at two of
     them rather than a single axis at one."""
     with Machine(str(ROM)) as m:
-        m.advance(CLEAN)
+        m.advance(CLEAN + BOOT_SKEW)
         _turn_to(m, HEAD)
         a = _shot(m, tmp_path, f"str_{HEAD}_a.png")
         ring_a = _ring(a)
@@ -1089,7 +1102,7 @@ def test_a_pillar_blocks_the_walk_and_the_floor_stops_moving(tmp_path):
     the only thing that could move the floor is translation, which is the claim.
     """
     with Machine(str(ROM)) as m:
-        m.advance(CLEAN)
+        m.advance(CLEAN + BOOT_SKEW)
         # TURN, THEN WALK. This drive used to hold RIGHT, which WAS the east
         # heading under the deleted table; RIGHT now TURNS, so holding it walks
         # nowhere and rotates forever. 192 is that table's own value for RIGHT,
@@ -1293,7 +1306,7 @@ def test_a_bolt_that_reaches_a_chaser_takes_it_off_the_floor_with_it():
     scene-wide fault all move both; only a hit moves one.
     """
     with Machine(str(ROM)) as m:
-        m.advance(CLEAN)
+        m.advance(CLEAN + BOOT_SKEW)
         m.advance(142)                         # the first chaser is 54 px up the
                                                #   hero's own column. It was 76
                                                #   until the chase went to half
@@ -1397,7 +1410,7 @@ def test_a_bolt_that_reaches_a_chaser_takes_it_off_the_floor_with_it():
     # returns to the pool looks, frame by frame, exactly like a working kill.
     # Asserted on the render: the target must STOP carrying the score band.
     with Machine(str(ROM)) as m:
-        m.advance(CLEAN)
+        m.advance(CLEAN + BOOT_SKEW)
         m.advance(76)                          # the same geometry as above
         m.advance(2, pad1={"a": True})
         band = []
@@ -1456,7 +1469,7 @@ def test_a_chaser_reaching_the_hero_knocks_the_world_out_from_under_him(tmp_path
     # The 40-frame sample from CLEAN+180 brackets the first and only the first.
     frames = []
     with Machine(str(ROM)) as m:
-        m.advance(CLEAN)
+        m.advance(CLEAN + BOOT_SKEW)
         # TURN, THEN WALK. This drive used to hold RIGHT, which WAS the east
         # heading under the deleted table; RIGHT now TURNS, so holding it walks
         # nowhere and rotates forever. 192 is that table's own value for RIGHT,
@@ -1534,7 +1547,7 @@ def test_the_screen_never_strobes_to_black_during_a_sustained_walk(tmp_path):
     """
     lum, hero = [], []
     with Machine(str(ROM)) as m:
-        m.advance(BOOT)                       # past the enter fade, chasers up
+        m.advance(BOOT + BOOT_SKEW)                       # past the enter fade, chasers up
         _turn_to(m, 192)                      # east, then WALK it. PAD_R turns
                                               #   now, so holding it here would
                                               #   spin in place and the case's
@@ -1586,7 +1599,7 @@ def test_the_hit_cue_is_the_hero_blinking_not_the_whole_screen(tmp_path):
     frames' mean luminance."""
     rows = []
     with Machine(str(ROM)) as m:
-        m.advance(CLEAN)
+        m.advance(CLEAN + BOOT_SKEW)
         _turn_to(m, 192)                      # east — the deleted table's own
         m.advance(110, pad1=PAD_U)            #   value for RIGHT — then walk it
                                               #   hard against the pillar face,
@@ -1637,7 +1650,7 @@ def test_the_hero_does_not_blink_when_he_has_not_been_hit(tmp_path):
     gated on US_GRACE, so before the first wave beat can possibly reach the hero
     he must be solid on every single frame."""
     with Machine(str(ROM)) as m:
-        m.advance(BOOT)
+        m.advance(BOOT + BOOT_SKEW)
         counts = []
         for i in range(24):                   # no chaser is near him yet
             counts.append(_hero_px(_shot(m, tmp_path, f"solid_{i:02d}.png")))
@@ -1675,7 +1688,7 @@ def test_grace_gates_repeat_contact_and_the_chase_leaves_room_to_play(tmp_path):
     """
     seq = []
     with Machine(str(ROM)) as m:
-        m.advance(BOOT)
+        m.advance(BOOT + BOOT_SKEW)
         for f in range(900):                  # 15 s of kiting, pad held EVERY
             m.advance(1, pad1=_kite(f))       #   frame — no screenshot in here,
             seq.append(_chaser_centres(       #   so nothing releases the pad
@@ -1710,7 +1723,7 @@ def _first_chaser_ahead(m):
     which at the boot heading is straight up the SCREEN, i.e. already in the
     hero's line of fire. That is the rail's own ring order, not a contrivance,
     and it is what lets a kill be driven without steering."""
-    m.advance(CLEAN)
+    m.advance(CLEAN + BOOT_SKEW)
     m.advance(60)
     live = _emitted(_oam(m), ENE_SLOT0, ENE_N, T_ENEMY)
     assert live, "no chaser on screen at the first wave beat"
@@ -1785,7 +1798,7 @@ def test_a_kill_is_distinguishable_from_a_despawn(tmp_path):
     exactly that the two looked identical."""
     # ---- the despawn: fire into empty space, away from the first chaser ----
     with Machine(str(ROM)) as m:
-        m.advance(CLEAN)
+        m.advance(CLEAN + BOOT_SKEW)
         _turn_to(m, 128)                    # about-face: nothing to hit behind us
         m.advance(2, pad1={"a": True})
         bolt = _emitted(_oam(m), BUL_SLOT0, BUL_N, T_BULLET)
@@ -1915,7 +1928,7 @@ def test_the_hero_outruns_a_chaser_at_headings_across_the_whole_turn(heading):
     heading rather than at the eight a table happened to list."""
     MEASURE = 12
     with Machine(str(ROM)) as m:
-        m.advance(BOOT)
+        m.advance(BOOT + BOOT_SKEW)
         _turn_to(m, heading)
         # ---- the chaser term: pure world motion, the pivot held still -------
         first = _chaser_centres(_oam(m))
@@ -1928,7 +1941,7 @@ def test_the_hero_outruns_a_chaser_at_headings_across_the_whole_turn(heading):
             for s in both) / 20.0
 
     with Machine(str(ROM)) as m:
-        m.advance(BOOT)
+        m.advance(BOOT + BOOT_SKEW)
         _turn_to(m, heading)
         import tempfile
         with tempfile.TemporaryDirectory() as td:
@@ -1970,7 +1983,7 @@ def test_the_wave_beat_puts_chasers_on_the_floor_and_they_close_in():
 
     slots = range(ENE_SLOT0, ENE_SLOT0 + ENE_N)
     with Machine(str(ROM)) as m:
-        m.advance(CLEAN)
+        m.advance(CLEAN + BOOT_SKEW)
         assert not radius(_oam(m), slots), \
             "a chaser is on screen before the first wave beat"
         m.advance(70)                          # past MO_SPAWN_PERIOD
@@ -1999,7 +2012,7 @@ def test_an_obj_palette_blob_lands_in_cgram_byte_for_byte(blob, at):
     claim's own base rather than inferring them from a rendered colour."""
     want = (ASSETS / blob).read_bytes()
     with Machine(str(ROM)) as m:
-        m.advance(CLEAN)
+        m.advance(CLEAN + BOOT_SKEW)
         got = m.read_bytes(C, at * 2, len(want))
     assert bytes(got) == want
 
@@ -2017,7 +2030,7 @@ def test_bolts_read_yellow_and_chasers_read_red_and_neither_shows_without_them(t
     a bolt; a pixel count alone would hold on a palette where the floor was
     yellow too."""
     with Machine(str(ROM)) as m:
-        m.advance(CLEAN)                       # before the first wave beat
+        m.advance(CLEAN + BOOT_SKEW)                       # before the first wave beat
         empty = _shot(m, tmp_path, "colours_empty.png")
         assert not _emitted(_oam(m), BUL_SLOT0, BUL_N, T_BULLET)
         assert not _emitted(_oam(m), ENE_SLOT0, ENE_N, T_ENEMY)

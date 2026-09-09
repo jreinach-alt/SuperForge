@@ -472,3 +472,27 @@ override, which is exactly what it exists for.
 commit that adds a state declaration**, since it is the one gate that is
 enforced by the suite rather than by `gates` and therefore the one that a
 25-minute landing gate is the first to tell you about.
+
+### A plant that moves the md5 and changes nothing still proves nothing — **surprise, MEDIUM**
+
+Two entries above, the rule was "a hand-run plant proves nothing until the
+artifact's md5 has moved". m7_oshoot showed that is necessary and not
+sufficient.
+
+The gun cue sits BELOW `do_fire`'s pool-full bail, so a press that spawns no
+bolt makes no sound. Planting it ABOVE the bail moved the md5 — checked — and
+all four cases still passed. The plant was real and the test was vacuous: the
+drive pressed on a rising edge every six frames, and at MO_BUL_N = 8 slots with
+MO_BUL_LIFE = 90 frames the pool never fills at that rate, so above and below
+the bail are the same program.
+
+The fix was a drive that SATURATES the resource the branch guards: pressing
+every second frame fills the pool, and then the two separate cleanly — 30% of
+frames with the cue below the bail, 88% with it above, against a bar at 55%.
+It needed its own fixture, because the other cases want the slower drive.
+
+**The general shape: a case about a REFUSAL is only meaningful under a drive
+that provokes the refusal.** Bounds-check cases need the bound reached,
+pool-full cases need the pool full, clamp cases need the clamp hit. Plant it,
+and if the plant passes, the drive is not reaching the branch — that is a
+finding about the test, and the md5 moving says nothing about it either way.
