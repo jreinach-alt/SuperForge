@@ -162,13 +162,16 @@
 ; GAIN would put the swell in ENVX, and ENVX is also the thing that says the
 ; voice is SOUNDING — so a bed whose envelope breathes to zero is a bed with
 ; holes in it, and the holes are exactly what a continuity test cannot tell
-; from a dead cue. `F44` holds the envelope flat and `tremolo` modulates the
+; from a dead cue. `F48` holds the envelope flat and `tremolo` modulates the
 ; CHANNEL VOLUME instead: same audible swell, and "is the wind up" stays a
 ; question with one answer. The quarter-wavelength is 40 ticks, so one breath
 ; is 160 ticks = 1.28 s at the SFX clock's fixed 125 Hz.
 ;
-; QUIET IS A VOLUME, NOT AN ENVELOPE, for the same reason. `set_volume 40` of
-; 255 puts it under the music where scenery belongs.
+; QUIET IS A VOLUME, NOT AN ENVELOPE, for the same reason. A volume of 52 out
+; of 255 puts it under the music where scenery belongs. MEASURED on the
+; S-DSP against the song it sits beneath: this voice reads ENVX 48 with VOL_L
+; walking 7..18, where the melody reads ENVX up to 126 at VOL_L 40 — about a
+; fifth of the music's peak, which is a bed rather than a competitor.
 ;
 ; THE NOISE BAND IS 20 -> 24 -> 18, AND IT MOVES ON PURPOSE. `play_noise`'s
 ; argument is the S-DSP's noise clock (FLG bits 0-4), 0 slowest and 31
