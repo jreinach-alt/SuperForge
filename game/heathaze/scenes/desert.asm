@@ -39,12 +39,6 @@ enter:
     stz z:US_FLAT                   ; shimmering on entry
     stz z:US_TSH_ACC                ; the timebase's carried fraction
     stz z:US_TSH
-    ; SEEDED AT THE THRESHOLD, not at zero: the first tick then queues the
-    ; wind bed immediately instead of opening the scene on 1.4 s of still air
-    ; while the counter fills. One initial value rather than a second queue
-    ; site that would have to say the same thing.
-    lda #HZ_WIND_PHASES
-    sta z:US_WIND
     sep #$20
     .a8
     lda #ES_V_HZ_CHR_NBA
@@ -100,7 +94,6 @@ tick:
     ; restarts.
     lda z:US_TSH
     jsr hz_advance
-    jsr hz_weather                  ; ...and the bed the same advance paces
     ; ---- B: latch the flat control ----------------------------------------
     lda z:ES_INP_PRESS
     and #JOY_B
@@ -164,52 +157,17 @@ hz_sfx:
     .a16
     rts
 
-; --- hz_weather: keep the wind bed alive -----------------------------------
-; CONTRACT desert::hz_weather
-;   entry:    A16 I16 DB=0
-;   exit:     A16 I16
-;   in:       US_TSH — this frame's region-corrected phase advance, already
-;             computed by the tick's one TS_STEP
-;   out:      US_WIND advanced; on the frame it crosses HZ_WIND_PHASES, that
-;             many phases taken back off it and a `wind` request queued
-;   clobbers: A, N, Z, C
-;   tail:     rts
-;
-; A SOUND EFFECT IS A ONE-SHOT. `wind` is 212 SFX ticks of noise — 1.696 s at
-; the driver's fixed 125 Hz sound-effect clock — and then it is over, so an
-; AMBIENCE is something this routine makes out of it by asking again before
-; the last one has finished. HZ_WIND_PHASES carries the arithmetic and the
-; argument for the number.
-;
-; THE UNIT IS PHASES, WHICH IS WHY THERE IS NO SECOND TS_STEP HERE. US_TSH is
-; already the scaled advance; accumulating it gives a counter that reaches the
-; threshold in the same WALL-CLOCK time on PAL as on NTSC, for one add. A raw
-; frame count would need its own accumulator and its own base and would then
-; have to be kept in step with the one above it.
-;
-; SUBTRACT, DO NOT ZERO. The advance is 0 or 1 phase a frame at this rate so
-; the two spellings agree today — but zeroing throws away the remainder, and a
-; rail that later raised HZ_PHASE_BASE past one phase a frame would start
-; losing a fraction of a gust every cycle with nothing to show for it.
-hz_weather:
-    .a16
-    .i16
-    SF_ASSERT_WIDTH 16, 16, "hz_weather"
-    clc
-    lda z:US_WIND
-    adc z:US_TSH
-    cmp #HZ_WIND_PHASES
-    bcc @hold
-    sbc #HZ_WIND_PHASES             ; carry is SET on this arm — cmp left it so
-    sta z:US_WIND
-    lda #SFX::wind
-    jsr hz_sfx
-    rts
-@hold:
-    .a16
-    .i16
-    sta z:US_WIND
-    rts
+; THE WIND IS NOT HERE ANY MORE, and where it went is the point.
+; It was a low-priority sound effect re-queued on a cadence by an
+; `hz_weather` routine at this spot. Measured on the chip it ran at about 7%
+; of a music voice's amplitude -- VOL 18 and ENVX 48 against the drone's VOL
+; 42 and ENVX 127 -- and could not be heard under the song. Weather is now a
+; NOISE CHANNEL IN THE SONG (far_ridge_song.mml, channel F), which is where
+; the hardware wants it: a music channel cannot be ducked by an effect or
+; dropped for priority, `w` waits sustain the noise with no re-trigger seam,
+; it mixes in the same units as the rest of the score, and it reaches the
+; echo -- which is what makes a band of noise read as moving air rather than
+; as tape hiss. The rail keeps no wind state at all as a result.
 
 ; --- exit: nothing to tear down --------------------------------------------
 ; In/out: A16/I16, DB=0, forced blank + NMI masked.

@@ -36,19 +36,3 @@ tsh = "u16@dp"           # ...and this frame's answer, in whole phases
                          # TICK: ok -- the OUTPUT of the scaler; already
                          # expressed against the declared tick.
 
-# --- the wind bed's cadence counter (see scenes/desert.asm, hz_weather) -----
-# A SOUND EFFECT IS ONE-SHOT and the SFX ring delivers at most one request a
-# frame, so an AMBIENCE has to be re-triggered by the rail. This word is what
-# decides when.
-#
-# ITS UNIT IS SHIMMER PHASES, NOT FRAMES, and that is the whole reason it is
-# here rather than being a frame counter. `tsh` above is already this frame's
-# region-corrected phase advance; accumulating THAT is a clock that ticks at
-# the same wall-clock rate on both machines for free, so PAL and NTSC hear the
-# same wind without a second TS_STEP, a second accumulator, or a second rate
-# to keep in step with the first.
-wind = "u16@dp"          # phases accumulated since the last gust was queued
-                         # TICK: ok -- a COUNT of phases, not of frames. The
-                         # phase is the output of tsh's scaler, so this word
-                         # is already expressed against the declared tick and
-                         # a x5/6 applied here would scale it twice.

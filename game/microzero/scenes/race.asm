@@ -134,6 +134,14 @@ enter:
     .a16
     and #$00FF
     sta z:US_LAPPREV
+    ; ...and the checkpoint latch from the sector rl_arm seeded, same reason
+    sep #$20
+    .a8
+    lda f:US_SECTOR_LONG
+    rep #$20
+    .a16
+    and #$00FF
+    sta z:US_SECTPREV
     ; ---- CGRAM: the 17-color floor palette (pinned at index 0) ------------
     ldx #.loword(floor_pal_bin)
     lda #^floor_pal_bin
@@ -350,7 +358,7 @@ cm_tick:
     .a16                        ;   A16 the race tick's next statement expects
     rts
 
-; --- mz_lap_edge: US_LAP_LONG's increment, and the one cue it earns ---------
+; --- mz_lap_edge: the two crossings this rail earns a sound for -------------
 ; In/out: A16/I16, DB=0. Clobbers A.
 ;
 ; WHY THE CUE IS HERE AND NOT IN THE FEATURE. The increment happens inside
@@ -376,13 +384,47 @@ mz_lap_edge:
     and #$00FF                      ; `lap` is a u8 -- mask so the high half of
                                     ;   the latch word is defined, not garbage
     cmp z:US_LAPPREV
-    beq @same                       ; no lap closed this tick
+    beq @sector                     ; no lap closed this tick
     sta z:US_LAPPREV
+    ; A LAP CROSSING IS ALSO A SECTOR CROSSING -- the start/finish spoke IS the
+    ; 3->0 edge (race_logic's header). Consume the sector here so the
+    ; checkpoint blip does not trail the chime by a frame: the ring holds one
+    ; request per frame and would deliver the second on the next one, which
+    ; reads as a stutter on the one moment that should be clean.
+    sep #$20
+    .a8
+    lda f:US_SECTOR_LONG
+    rep #$20
+    .a16
+    and #$00FF
+    sta z:US_SECTPREV
     sep #$20
     .a8
     lda #SFX::chime                 ; bell -- a lap is a reward, not a thump
     jsr sf_sfx_queue_c              ; WIDTH-RISK: declares `entry: A8 I16 DB=0`
     rep #$20
+    .a16
+    rts
+@sector:
+    .a16
+    .i16
+    ; THE QUADRANT, four to a lap. Same latch shape as the lap above and for
+    ; the same reason: US_SECTOR_LONG is a LEVEL, so a cue on the value would
+    ; sound on every frame of the quadrant it names.
+    sep #$20
+    .a8
+    lda f:US_SECTOR_LONG
+    rep #$20
+    .a16
+    and #$00FF
+    cmp z:US_SECTPREV
+    beq @same
+    sta z:US_SECTPREV
+    sep #$20
+    .a8
+    lda #SFX::select                ; pluck -- a gate accepting, and a
+    jsr sf_sfx_queue_c              ;   DIFFERENT sample from the lap's bell,
+    rep #$20                        ;   so the two separate on the chip
     .a16
 @same:
     .a16

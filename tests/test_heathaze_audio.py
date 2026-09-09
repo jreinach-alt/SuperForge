@@ -174,7 +174,11 @@ def driven():
             r.frame_step(1, b=(i % PERIOD < HOLD))
             d = r.read_bytes(DSP, 0, 128)
             rows.append((
-                [(d[v * 0x10 + 4], d[v * 0x10 + 8]) for v in range(8)],
+                # (SRCN, ENVX, VOL_L) — the VOLUME is here because loudness
+                # is the product of the envelope and the channel volume, and
+                # a row without it can only answer "is this sounding".
+                [(d[v * 0x10 + 4], d[v * 0x10 + 8], d[v * 0x10 + 0])
+                 for v in range(8)],
                 d[NON],
             ))
             seen.add(int.from_bytes(r.read_bytes(W, DP_FLAT, 2), "little"))
@@ -190,7 +194,20 @@ def driven():
 def _sfx_live(rows, srcn):
     """Frames on which `srcn` is keyed AND sounding on an SFX voice."""
     return [i for i, (voices, _) in enumerate(rows)
-            if any(s == srcn and e for s, e in (voices[v] for v in SFX_VOICES))]
+            if any(voices[v][0] == srcn and voices[v][1] for v in SFX_VOICES)]
+
+
+def _amp(rows, voice):
+    """Peak VOL x ENVX for `voice` — what the S-DSP actually contributes.
+
+    The chip multiplies a voice's envelope by its channel volume, so neither
+    byte alone is loudness: the effect-based wind sat at ENVX 48 with VOL 18
+    and read as "sounding" on every frame it was inaudible. VOL is signed
+    (a negative value inverts the phase), so magnitude is what counts.
+    """
+    def mag(vol):
+        return abs(vol - 256 if vol > 127 else vol)
+    return max(mag(row[voice][2]) * row[voice][1] for row, _ in rows)
 
 
 def _longest_gap(hits, total):
@@ -284,7 +301,7 @@ def test_no_music_part_is_scored_where_an_effect_would_erase_it(driven):
     rows, _, _, _ = driven
     bad = [(i, v, s) for i, (voices, _) in enumerate(rows)
            for v in SFX_VOICES
-           for s, e in [voices[v]] if e and s in MUSIC_ONLY]
+           for s, e in [voices[v][:2]] if e and s in MUSIC_ONLY]
     assert not bad, (
         f"a music-only instrument is keyed on an SFX voice on {len(bad)} "
         f"frames (first: frame {bad[0][0]}, voice {bad[0][1]}, SRCN "
@@ -292,100 +309,171 @@ def test_no_music_part_is_scored_where_an_effect_would_erase_it(driven):
         f"ducks it for the duration of every effect this rail queues")
 
 
-def test_the_kit_never_takes_the_noise_generator(driven):
-    """There is ONE noise generator, and a music channel sharing it is muted
-    the moment an effect wants it (`audio-driver.asm`, the `SfxNoise` branch).
+def test_exactly_one_music_voice_takes_the_noise_generator(driven):
+    """There is ONE noise generator, and the wind is now the part that holds it.
 
-    `wind` wants it roughly every eighty-five frames and holds it for most of
-    the gap, so on this rail a noise part in the song would be gone almost all
-    of the time rather than occasionally. The kit is samples: `kick` is a
-    one-shot and there is no `N<0-31>` anywhere in the piece.
+    THIS CASE USED TO FORBID WHAT IT NOW REQUIRES, and the reversal is the
+    design change rather than a weakening. The wind was a low-priority SOUND
+    EFFECT re-queued on a cadence; it was measured on the chip at roughly 7%
+    of a music voice's amplitude (VOL 18 / ENVX 48 against the drone's 42 /
+    127) and could not be heard under the song. It is now a NOISE CHANNEL IN
+    THE SONG (`far_ridge_song.mml`, channel F), which is where the hardware
+    wants weather: a music channel cannot be ducked for an effect or dropped
+    for priority, `w`/`&` sustain the noise with no re-trigger seam, it mixes
+    in the score's own units, and it reaches the echo -- which is what makes a
+    band of noise read as moving air rather than as tape hiss.
 
-    THE SECOND HALF IS THE NON-VACUITY. Asserting only "no music voice is in
-    NON" would pass just as green on a rail where the noise generator is
-    untouched — including one whose wind stopped using it and went silent. So
-    the mask must also be NON-ZERO: something is taking the generator, and it
-    is on the SFX side of the split.
+    So the claim inverts, and what replaces it is SHARPER, not looser. The
+    hazard the old case existed for is real and unchanged: a song channel
+    sharing the generator is muted the moment an effect wants it. What makes
+    that safe here is that NO EFFECT ON THIS RAIL PLAYS NOISE -- the only cue
+    is `select`, voiced by pluck. The three assertions are that whole
+    argument:
 
-    THE NON-VACUITY BAR IS DELIBERATELY LOOSE, AND THAT IS A CORRECTION. The
-    driver CLEARS NON when an effect ends — measured, not assumed: with the
-    cadence planted one gust too slow the generator is claimed on 470 of 600
-    frames rather than all 600, and at a 90% bar this case went red alongside
-    the continuity case, saying the same thing twice and worse. Half the drive
-    is enough to say the generator is genuinely in use; "is the bed
-    continuous" belongs to the case that asks it directly. Planted with the
-    weather removed altogether this reads 0/600 and reds.
-
-    Planted the other way — an `N14` noise part put on the song's own D
-    channel — the first assertion reds with NON = 0x88: voice 3 and voice 7
-    sharing the generator, which is the mute this case exists to forbid.
+      * EXACTLY ONE music voice is in the mask, never two. A second noise part
+        would fight the first for one generator.
+      * It is the WIND's voice -- the one keyed to `saw`. Any other channel in
+        the mask means a part was scored into the generator by accident.
+      * NO SFX VOICE is ever in the mask. That is the condition under which a
+        song noise channel is legal at all; the day this rail gains a noisy
+        cue, the wind goes silent under it and this case says so first.
     """
     rows, _, _, _ = driven
-    bad = [(i, non) for i, (_, non) in enumerate(rows) if non & MUSIC_MASK]
-    assert not bad, (
-        f"a music voice is in the noise mask on {len(bad)} frames (first "
-        f"{bad[0][0]}, NON={bad[0][1]:#04x}) — that voice is silenced whenever "
-        f"an effect plays noise, which on this rail is nearly every frame")
-    used = sum(1 for _, non in rows if non)
-    assert used / len(rows) > 0.50, (
-        f"the noise generator is claimed on only {used}/{len(rows)} frames — "
-        f"nothing is playing noise, so the mask above is vacuously clean; the "
-        f"wind bed is not reaching the chip")
+    music_bits = [(i, non & MUSIC_MASK) for i, (_, non) in enumerate(rows)]
+    multi = [(i, m) for i, m in music_bits if m and (m & (m - 1))]
+    assert not multi, (
+        f"two music voices share the noise generator on {len(multi)} frames "
+        f"(first {multi[0][0]}, mask={multi[0][1]:#04x}) — there is only one, "
+        f"so one of those parts is silent whenever the other sounds")
+    wrong = [(i, m, [v for v in MUSIC_VOICES if m >> v & 1])
+             for i, (row, non) in enumerate(rows)
+             for m in [non & MUSIC_MASK]
+             if m and not all(row[v][0] == SAW for v in MUSIC_VOICES if m >> v & 1)]
+    assert not wrong, (
+        f"a music voice that is NOT the wind is in the noise mask on "
+        f"{len(wrong)} frames (first {wrong[0][0]}, voices {wrong[0][2]}) — "
+        f"the wind is the one part scored with N<0-31>, so anything else "
+        f"there was put on the generator by accident")
+    sfx_noise = [(i, non) for i, (_, non) in enumerate(rows)
+                 if non & ~MUSIC_MASK & 0xFF]
+    assert not sfx_noise, (
+        f"a SOUND EFFECT takes the noise generator on {len(sfx_noise)} frames "
+        f"(first {sfx_noise[0][0]}, NON={sfx_noise[0][1]:#04x}) — the song's "
+        f"wind channel is muted for every one of them, which is the whole "
+        f"reason this rail's only cue is a pluck")
 
 
 # =============================================================================
 # the weather
 # =============================================================================
 
-def test_the_wind_is_audible(driven):
-    """`wind` is voiced by `saw` (assets/audio/sound-effects.txt).
+def _wind_voice(rows):
+    """The music voice keyed to `saw`, which on this rail is the wind alone."""
+    for row, _ in rows:
+        for v in MUSIC_VOICES:
+            if row[v][0] == SAW and row[v][1]:
+                return v
+    return None
 
-    `saw` is the ONE instrument in the project that this rail's song does not
-    use, so seeing it keyed on an SFX voice is the bed and nothing else.
+
+def test_the_wind_is_audible(driven):
+    """The wind is voiced by `saw` on a MUSIC channel (far_ridge_song.mml, F).
+
+    `saw` is the one instrument in the project the rest of this song does not
+    use, so a music voice keyed to it is the wind and nothing else.
     """
     rows, _, _, _ = driven
-    assert _sfx_live(rows, SAW), (
-        "no saw voice ever sounded on an SFX channel — the wind bed never "
-        "reached the chip; check that hz_weather is called from the tick and "
-        "that SFX::wind is in the export")
+    v = _wind_voice(rows)
+    assert v is not None, (
+        "no music voice was ever keyed to saw and sounding — the wind channel "
+        "never reached the chip; check that far_ridge_song's channel F is "
+        "scored and that the export was regenerated")
+    assert any(non & (1 << v) for _, non in rows), (
+        f"the wind is on voice {v} but that voice is never in the noise mask "
+        f"— it is playing saw's WAVEFORM rather than the noise generator, so "
+        f"the part is a buzz and not weather; check the N<0-31> commands")
+
+
+def test_the_wind_is_loud_enough_to_be_heard_under_the_song(driven):
+    """THE CASE THE ORIGINAL BUG WOULD HAVE FAILED, and the reason it exists.
+
+    The wind's first implementation SOUNDED on 99.8% of frames and swept its
+    noise band exactly as scored — and was reported as inaudible, correctly.
+    Every assertion in this module passed on it, because they all asked
+    WHETHER the voice was sounding and none asked HOW LOUD. `ENVX > 0` is true
+    at an amplitude nobody can hear, which makes presence-only audibility an
+    indirect-evidence test in the sense CLAUDE.md rule 2 forbids: green while
+    the feature is silently broken.
+
+    So the claim here is a RATIO, measured against this song's own drone
+    rather than against an absolute the mix could drift away from. A voice's
+    contribution is VOL x ENVX (the S-DSP multiplies the envelope by the
+    channel volume), and the bar is that the wind reaches a quarter of the
+    loudest music voice's peak product.
+
+    MEASURED on the shipped binary: the wind peaks at VOL 36 x ENVX 127 =
+    4572 against the loudest music voice's 5334, a ratio of 0.86. The original
+    effect-based bed peaked at VOL 18 x ENVX 48 = 864 against the same
+    denominator — 0.16.
+
+    THE BAR WAS SET BY A PLANT, NOT BY EYE, and the first attempt at it was
+    too loose to be worth having. Scoring the channel at `v3` instead of `v9`
+    drops the wind to VOL 12 (1524, ratio 0.29) — plainly too quiet to hear,
+    and it PASSED a 0.25 bar chosen by guessing. At 0.50 the shipped reading
+    keeps a wide margin while both the `v3` plant and the original effect-based
+    bed red. A bar for an audibility claim has to be checked against a
+    deliberately-too-quiet build; a threshold nothing was ever measured
+    against is the same indirect evidence this case exists to replace.
+    """
+    rows, _, _, _ = driven
+    v = _wind_voice(rows)
+    assert v is not None, "no wind voice — see test_the_wind_is_audible"
+    wind_amp = _amp(rows, v)
+    music_amp = max(_amp(rows, m) for m in MUSIC_VOICES if m != v)
+    ratio = wind_amp / music_amp
+    assert ratio > 0.50, (
+        f"the wind peaks at {wind_amp} against the loudest music voice's "
+        f"{music_amp} — a ratio of {ratio:.2f}. It is sounding, and it is too "
+        f"quiet to hear under the song; that is exactly the state the "
+        f"effect-based bed shipped in")
 
 
 def test_the_wind_is_a_bed_and_not_a_single_gust(driven):
-    """CONTINUITY, which is the whole design problem this effect posed.
+    """CONTINUITY, which is the whole design problem weather poses.
 
-    A sound effect is a one-shot: `wind` runs 212 ticks of the driver's fixed
-    125 Hz clock — 1.696 s, ~102 NTSC frames — and then it is over. Played
-    once it is a gust. `hz_weather` re-queues it every HZ_WIND_PHASES = 32
-    shimmer phases, and at HZ_PHASE_BASE = 0.375 phases a frame that is 85.3
-    frames — SHORTER than the effect, so each re-queue lands while the
-    previous is still sounding and the driver restarts it on the channel
-    already playing it (`one_channel` + `interruptible`, vendor
-    docs/sound-effects.md).
+    A SOUND EFFECT could not be continuous without help: it is a one-shot, so
+    the first implementation re-queued it every 85 frames to overlap its own
+    1.70 s length, and the seam was permanent maintenance — the cadence and
+    the effect length had to stay in step or the bed lapsed.
 
-    TWO ASSERTIONS, BECAUSE A FRACTION ALONE IS NOT CONTINUITY. A bed that
-    played for eight seconds and then stopped would still score 80%. So the
-    fraction is joined by the longest run of frames with no wind at all.
+    A SONG CHANNEL IS CONTINUOUS BY CONSTRUCTION, and that is most of why the
+    part moved. `saw` LOOPS, so `play_noise` runs until a key-off; every band
+    carries its own length and every join is a `&` slur, so no key-off is ever
+    sent and the noise clock changes inside one held breath. There is no
+    cadence left to drift.
 
-    MEASURED on the shipped binary across this 600-frame drive: sounding on
-    599 frames (99.8%), longest silent run ONE frame — the key-on itself. The
-    bars are 90% and eight frames: far below the measurement, and far above
-    what the defect they exist for produces. Planted with HZ_WIND_PHASES
-    raised to 48 (128 frames, a gust every 2.13 s against a 1.70 s effect) the
-    reading falls to 471/600 = 78.5% with a 26-FRAME hole, which is the gap
-    the arithmetic predicts, and both halves red.
+    The bars stay because the mechanism can still fail, and its failure mode
+    is now a SCORING error rather than an arithmetic one. Planted with the
+    slurs removed and the lengths dropped -- `N17 w1` rather than `N17,1 &`,
+    which is how this part was first written -- the default note length takes
+    over and the voice sounds on 112 of 600 frames with silent bars between:
+    both halves red. MEASURED on the shipped binary: 600/600 frames, longest
+    silent run zero.
     """
     rows, _, _, _ = driven
-    live = _sfx_live(rows, SAW)
+    v = _wind_voice(rows)
+    assert v is not None, "no wind voice — see test_the_wind_is_audible"
+    live = [i for i, (row, non) in enumerate(rows)
+            if row[v][1] and non & (1 << v)]
     frac = len(live) / len(rows)
     gap = _longest_gap(live, len(rows))
     assert frac > 0.90, (
         f"the wind sounds on {frac:.1%} of {len(rows)} frames — that is a "
-        f"gust, not a bed; the re-queue cadence ({WIND_PERIOD:.1f} frames) has "
-        f"grown past the {WIND_TICKS}-tick effect it is keeping alive")
+        f"gust, not a bed; a song noise channel should hold across its slurs, "
+        f"so check that every band carries a length and every join a `&`")
     assert gap <= MAX_SILENT_RUN, (
         f"the wind is inaudible for {gap} consecutive frames — the bed lapses "
-        f"between gusts even though it sounds on {frac:.1%} of the drive "
-        f"overall; the cadence and the effect length have come apart")
+        f"even though it sounds on {frac:.1%} of the drive overall")
 
 
 # =============================================================================

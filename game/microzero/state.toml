@@ -44,6 +44,23 @@ sub_px = "u16[2]@dp"     # sub-pixel accumulators [x, y], 0..255 each — the
 lap = "u8"               # completed laps (rendered in the HUD)
 sector = "u8"            # last ring quadrant: 0 NE, 1 NW, 2 SW, 3 SE
 ckpt = "u8"              # sectors visited since the last lap (bit per sector)
+sectprev = "u16@dp"      # the sector as of last tick — what makes the
+                         # CHECKPOINT an edge rather than a state. `sector`
+                         # is this rail's word and `race_logic` fills it, the
+                         # same boundary `lapprev` argues below: the feature
+                         # owns the ring's quadrant machine, the game owns
+                         # what crossing a quadrant sounds like.
+                         #
+                         # WHY A SECOND CUE AT ALL. A lap is several seconds
+                         # of driving, so a rail whose only cue is the lap
+                         # chime is silent for almost all of its runtime and
+                         # reads as having no sound effects — which is how it
+                         # was first reported. The quadrant crossing is the
+                         # event this rail already had and was not sounding:
+                         # four to a lap, on state race_logic was already
+                         # writing, needing no new mechanism.
+                         # TICK: ok — a copy of a QUADRANT ID, not a count of
+                         # frames. It changes on a distance travelled.
 lapprev = "u16@dp"       # the lap count as of last tick — what makes the
                          # CHIME an edge rather than a state.
                          #

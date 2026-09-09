@@ -35,7 +35,7 @@ Rowe) — see `vendor/tad/README.md` for the pin.
 | `slice_b_song` | `room`, `rpg`, `mode7_flight` | the ambient piece. Three channels, a whole-bar rest at the end of its 768-tick loop, and echo settings that ARE room A's acoustics |
 | `drive_song` | the other 21: `boss_saucer`, `brawler`, `breaker`, `camera_follow`, `hud_game`, `jumper`, `m7_dungeon`, `m7_oshoot`, `maze`, `mill`, `mode7_explore`, `patrol`, `platformer`, `platformer_stream`, `racer`, `railshooter`, `scroll_run`, `shmup`, `split_v_fight`, `sprite_game`, `stomper` | the action piece. Six channels, a drum kit, a sixteenth-note bass |
 | `circuit_song` | `microzero` | the racing piece. Six channels in A mixolydian over I - bVII - IV; the flat seventh is the whole colour |
-| `far_ridge_song` | `heathaze` | the desert piece. D mixolydian with a flattened SIXTH over a bare D-A fifth drone; a whistled line with more rest than note, three portamento slides, and a lub-dub kick once a bar |
+| `far_ridge_song` | `heathaze` | the desert piece. D mixolydian with a flattened SIXTH over a bare D-A fifth drone; a whistled line with more rest than note, three portamento slides, a lub-dub kick once a bar — and **the wind, scored as a NOISE CHANNEL** rather than as an effect (channel F) |
 | `shallow_water_song` | `lakeside` | the afternoon piece. F major at `#Tempo 56`, sevenths and ninths instead of triads, and a dominant that stays suspended so nothing ever resolves hard |
 | `foundry_song` | `smelter` | the industrial piece. Six channels in C minor over an ostinato; its three parts run at 42, 32 and 96 ticks and coincide once every seven bars |
 
@@ -149,7 +149,7 @@ the `.bin` and a `TAD_IO_VERSION` link-assert against `vendor/tad/`
 
 ## The sound-effect vocabulary
 
-Sixteen effects, shared by every rail that composes `audio`. Sharing is the
+Fifteen effects, shared by every rail that composes `audio`. Sharing is the
 architecture working, not a compromise: there is ONE export blob for the whole
 tree, so an effect authored for one rail is linked into all of them — `laser`
 is the shmup's gun and the saucer arena's, and neither pays for the other's.
@@ -169,25 +169,60 @@ is the shmup's gun and the saucer arena's, and neither pays for the other's.
 | `footstep` | a walked tile | `step` |
 | `skid` | leaving the road | sustained noise |
 | `wave_break` | a crest arriving — three bands slurred under ONE key-on, so it is a break and not three hisses | sustained noise on `saw` |
-| `wind` | WEATHER — a bed, not an event. The only effect here that is scenery: `heathaze` re-triggers it on a cadence so it reads as continuous air | sustained noise on `saw` |
 
 **Export order IS the priority policy.** The ca65 queue holds ONE effect per
 frame and the LOWER id wins (`tad-audio.s:1293`), so the ordering in
 `slice_b.terrificaudio` is a design decision: the four echo-carrying effects
 sort highest (losing one leaves the reverb wrong for the rest of the scene),
 ordinary events next, and `footstep`/`skid` lowest — a footstep must lose to
-an explosion. `wave_break` sorts with the ordinary events (a crest the rail
-timed should be heard); `wind` is the only entry in
-`low_priority_sound_effects`, because scenery must lose to everything and the
-driver drops a low-priority arrival outright when both channels are busy.
-Appending to either list RENUMBERS everything below it — `wave_break` moved
+an explosion. `wave_break` sorts with the ordinary events: a crest the rail
+timed should be heard.
+Appending to a list RENUMBERS everything below it — `wave_break` moved
 `footstep` from 12 to 13 and `skid` from 13 to 14 — so a re-export obliges a
-relink of every audio rail, not only the ones whose content changed.
+relink of every audio rail, not only the ones whose content changed. Removing
+the LAST entry of the last list renumbers nothing, which is what made
+retiring `wind` free (below).
+
+### WEATHER IS NOT AN EFFECT — the one that was tried and withdrawn
+
+There WAS a sixteenth, `wind`, and it is worth recording why it is gone
+rather than quietly dropping it. It was a low-priority effect re-queued by
+`heathaze` on a cadence, and on the chip it measured **VOL 18 with ENVX 48
+against the drone's VOL 42 and ENVX 127 — about 7% of a music voice's
+amplitude.** It sounded on 99.8% of frames and swept its noise band exactly
+as scored, and it could not be heard.
+
+Volume alone would not have rescued it, and the three reasons are the general
+rule for any AMBIENCE on this chip:
+
+* **An effect can be ducked and dropped.** G and H are the SFX channels, the
+  driver ducks them for any effect, and a low-priority arrival is dropped
+  outright when both are busy. Air does not stop because a button was pressed.
+* **An effect is a one-shot.** Continuity had to be manufactured by re-queuing
+  it faster than its own length, so the cadence and the effect duration were a
+  pair that had to be kept in step forever. A song channel with `&` slurs
+  sends no key-off at all.
+* **An effect did not reach the echo.** This is the big one. The 128 ms buffer
+  is what smears the LFSR's edges into a rush; dry, the identical band is tape
+  hiss. `E1` on a music channel is the difference between "noise is playing"
+  and "wind is blowing".
+
+So weather belongs in the SONG, as a noise channel — `far_ridge_song`'s
+channel F is the worked example, and it holds the generator continuously at a
+level that sits under the drone rather than beneath the floor. The effect was
+removed rather than left unused precisely because leaving it is leaving a
+trap: the next author wanting wind on another rail would reach for
+`SFX::wind` and land back on the 7% bed. **One generator is the constraint
+that makes this a rule and not a preference** — a song noise channel is muted
+whenever an effect plays noise, so the technique is available exactly to a
+rail whose cues are not noisy, which the composition has to check. `heathaze`
+qualifies: its only cue is `select`, a pluck.
 
 **Cost, measured:** the eleven added effects and two added instruments took the
 blob from 8,450 to 8,701 B against a 16,384 B claim (halved 2026-09-08); the
 three songs and two effects added on 2026-09-09 took it from 11,864 to
-13,616 B, leaving 2,768 B of headroom. Bytecode is nearly free
+13,616 B, and moving heathaze's wind out of the effect list and into
+`far_ridge_song` as a noise channel left it at 13,651 B — 2,733 B spare. Bytecode is nearly free
 (~15 B an effect); BRR is not (~1 KB per 0.12 s one-shot). That is why the set
 leans on `play_noise` and `portamento_calc` and why the only new instruments
 are single-cycle 64-sample loops at ~36 B each. **Songs are now the growth

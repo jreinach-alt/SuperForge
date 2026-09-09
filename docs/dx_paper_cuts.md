@@ -1132,3 +1132,114 @@ whole-tree rebuild, and it is cheapest to batch all the content for a pass and
 export ONCE.** Doing it three times, once per agent branch, would have cost
 three full rebuilds and three sets of md5 pins. The README's export section now
 says so at the point where someone would be about to append.
+
+---
+
+## Two reported defects: a rail that sounded once a lap, and a wind nobody could hear (2026-09-09)
+
+Both were reported by the project owner playing the ROMs, and neither was
+caught by a test. That is the interesting part: in both cases the tests were
+correct about what they asserted and the assertions were the wrong ones.
+
+### A CUE THAT FIRES CORRECTLY AND ALMOST NEVER READS AS NO CUE AT ALL — surprise, MEDIUM
+
+`microzero` was reported as "entirely missing sfx". It was not missing
+anything: the lap chime worked exactly as scored, `test_microzero_audio.py`
+proved it against a steering oracle that laps the ring, and the cue fired on
+the right edge with a latch. But a lap is upwards of a hundred frames of
+driving, the chime was the rail's ONLY cue, and from the couch a rail that is
+silent for four seconds at a time is a rail with no sound effects.
+
+**A cue's CADENCE is part of whether it exists.** Nothing in the module was
+false; there was simply no case asking "how often does this rail make a
+sound", and the answer — once per lap — was one nobody had looked at. The fix
+needed no new mechanism: `race_logic` already writes `sector`, the ring's
+quadrant, four times a lap, and it is the rail's own state word, so sounding
+it is the same latch shape the chime already had. Measured after: a cue about
+every 54 frames.
+
+The general shape, and it is the sibling of the set-argument entry above:
+**when a rail has exactly one cue, ask what fraction of the runtime it covers
+before calling the rail sounded.** The events are usually already there — grep
+the tick for the state the feature publishes, not just for `ES_INP_PRESS`.
+
+### `ENVX > 0` IS AUDIBILITY IN THE SAME SENSE A PROXY VARIABLE IS EVIDENCE — surprise, HIGH
+
+`heathaze`'s wind was reported as inaudible. Measured on the chip it was
+sounding on 99.8% of frames and sweeping its noise band exactly as scored —
+and it was running at **VOL 18 with ENVX 48 against the drone's VOL 42 and
+ENVX 127, about 7% of a music voice's amplitude.**
+
+Every case in the module passed on it, because every case asked WHETHER the
+voice was sounding and none asked HOW LOUD. That is CLAUDE.md rule 2's
+failure mode wearing a costume: the assertion reads the rendered output, off
+the S-DSP, exactly as the rule demands — and `ENVX > 0` is still true at an
+amplitude nobody can hear. **Reading the right register is not the same as
+asking the right question of it.** The replacement asserts a RATIO of
+`VOL x ENVX` against the song's own loudest voice, which is the product the
+chip actually mixes.
+
+Two follow-on lessons, both from plants:
+
+* **A threshold nothing was measured against is not a bar.** The first ratio
+  bar was 0.25, chosen by eye. Scoring the channel at `v3` instead of `v9`
+  drops it to a plainly-inaudible 0.29 and PASSED. The bar is 0.50 now,
+  checked against a deliberately-too-quiet build. An audibility claim needs a
+  too-quiet plant the same way a cadence claim needs a per-frame plant.
+* **The plant found a bug in the test, not just a loose bar.** The fixture
+  recorded `(SRCN, ENVX)` per voice and the new helper multiplied
+  `row[0] * row[1]` — the SAMPLE NUMBER by the envelope. It produced numbers
+  that looked plausible and ranked voices almost right. Nothing but a plant
+  that should have failed and didn't would have surfaced it.
+
+### WEATHER IS NOT A SOUND EFFECT, AND ONE GENERATOR IS WHY — clunky, MEDIUM
+
+Raising the volume would not have fixed the wind, and working out why is the
+transferable part. An effect on this driver is ducked for any other effect,
+dropped outright at low priority when both channels are busy, one-shot (so
+continuity has to be manufactured by re-queuing it faster than its own
+length, forever keeping a cadence and a duration in step), and — the one that
+actually decided it — **it does not reach the echo.** The 128 ms buffer is
+what smears the LFSR's edges into a rush; dry, the identical noise band is
+tape hiss. `E1` on a music channel is the difference between "noise is
+playing" and "wind is blowing".
+
+So the wind is now a NOISE CHANNEL IN THE SONG (`far_ridge_song.mml`, channel
+F) and the `wind` effect was withdrawn from the vocabulary rather than left
+unused — leaving it is leaving the trap, since the next author wanting wind
+would reach for `SFX::wind` and land back on the 7% bed. It was the last id
+in the last list, so removing it renumbered nothing; had it been anywhere
+else it would have obliged another whole-tree relink.
+
+**The constraint that makes this a rule rather than a preference: there is
+ONE noise generator, and a song channel holding it is muted whenever an
+effect plays noise.** So the technique is available exactly to a rail whose
+cues are not noisy — which the composition has to check, and `heathaze`
+passes because its only cue is a pluck.
+
+### `N<0-31>` TAKES THE DEFAULT NOTE LENGTH, WHICH IS NOT WHAT A BED WANTS — surprise, LOW
+
+The first scoring of the wind channel was `N17 w1 | N19 w1 | ...` — read as
+"set the band, hold a bar". It is not: `N` with no length argument takes the
+DEFAULT note length, so each band played a short gust and then held a silent
+bar. Measured, the voice sounded on 112 of 600 frames while looking
+continuous in the score. Every band needs its own length (`N17,1`) and every
+join needs a `&` slur, so that no key-off is sent and the clock changes
+inside one held breath — with an instant attack a re-key would be a click at
+full level once a bar.
+
+### ORCHESTRATOR: I HAND-ROLLED A DRIVE AND BLAMED THE ROM FOR IT — surprise, LOW
+
+Twice while diagnosing, an ad-hoc probe reported a defect that was the
+probe's. `set_input(0, b=True)` before `frame_step(1)` does not press the
+button — `frame_step(1, b=True)` does — so the toggle "did not work"; and a
+probe that kept pressing Start for 240 frames bounced the rail back to its
+title, so the scene "was not reached". Both times the rail's own test module
+answered correctly in one run.
+
+**Reach for the rail's existing drive before writing a new one.** The test
+modules carry `enter_race`, `_enter_lake`, the steering oracle — drives that
+are already known to work, already frame-counted, and already the thing the
+gate runs. A fresh probe is worth writing when you need a measurement the
+module does not take; it is not worth writing to answer "does this button
+work".

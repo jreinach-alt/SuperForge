@@ -47,7 +47,28 @@ import mz_drive as D  # noqa: E402
 DSP = MemoryType.SpcDspRegisters
 MUSIC_VOICES = tuple(range(6))      # TAD channels A-F
 SFX_VOICES = (6, 7)                 # G/H, ducked while an SFX plays
-BELL = 4                            # instrument order in slice_b.terrificaudio
+def _srcn():
+    """name -> VxSRCN, read from the project the export was built from.
+
+    This module used to carry `BELL = 4  # instrument order in
+    slice_b.terrificaudio`. A literal copy of a table someone else owns goes
+    stale silently — it would have shifted nothing the day it was written and
+    everything the first time an instrument is INSERTED rather than appended,
+    and the module would have stayed green while measuring the wrong sample.
+    `samples` is asserted empty because that is the assumption the mapping
+    rests on: TAD numbers instruments first and samples after.
+    """
+    proj = json.loads(
+        (SUPERFORGE / "assets" / "audio" / "slice_b.terrificaudio").read_text())
+    assert not proj["samples"], (
+        "the project has samples as well as instruments — SRCN is no longer "
+        "just the instrument index and this mapping is wrong")
+    return {inst["name"]: i for i, inst in enumerate(proj["instruments"])}
+
+
+_SRCN = _srcn()
+BELL = _SRCN["bell"]                # the lap chime
+PLUCK = _SRCN["pluck"]              # the checkpoint blip and the START confirm
 RACE_LAPS = 3
 LIMIT = 900
 TITLE_FRAMES = 240
@@ -120,6 +141,18 @@ def raced():
         f"the drive scored {len(lap_frames)} laps in {LIMIT} frames, not "
         f"{RACE_LAPS} — the chime cases have nothing to count")
     return rows, lap_frames, title
+
+
+def _onsets(rows, srcn):
+    """Frame indices where `srcn` STARTS sounding on an SFX voice.
+
+    A cue is an event, so what a count of cues wants is the leading edge of
+    each run, not the frames it occupies — an effect that happens to be two
+    frames longer would otherwise change every count in this module.
+    """
+    live = [i for i, row in enumerate(rows)
+            if any(row[v][0] == srcn and row[v][1] for v in SFX_VOICES)]
+    return [f for j, f in enumerate(live) if j == 0 or live[j - 1] != f - 1]
 
 
 def _live(rows, voices, srcn=None):
@@ -195,6 +228,82 @@ def test_the_chime_is_an_instant_not_the_whole_lap(raced):
         f"US_LAP_LONG against US_LAPPREV precisely so it cannot")
 
 
+def test_every_quadrant_crossing_blips(raced):
+    """`select` is voiced by pluck, and it is what makes this rail AUDIBLE.
+
+    THE BUG THIS CASE EXISTS FOR was reported as "microzero is entirely
+    missing sfx". It was not: the lap chime worked exactly as scored and this
+    module proved it. But a lap is upwards of a hundred frames of driving and
+    the chime was the rail's ONLY cue, so a player heard nothing at all for
+    seconds at a time and reasonably concluded there were no effects. A cue
+    that fires correctly and almost never is indistinguishable, from the
+    couch, from a cue that does not fire.
+
+    The event was already there and was not being sounded: `race_logic` writes
+    `sector` — the ring's quadrant — four times a lap, and it is this rail's
+    own state word, so sounding it needed no new mechanism and no change to
+    the feature. Measured on the shipped binary: a cue every ~54 frames,
+    which is about one a second.
+    """
+    rows, lap_frames, _ = raced
+    blips = _onsets(rows, PLUCK)
+    assert blips, (
+        f"no pluck voice ever sounded on an SFX channel across "
+        f"{len(lap_frames)} laps — the checkpoint cue never reached the chip; "
+        f"check that `mz_lap_edge`'s @sector arm is reached and that "
+        f"US_SECTPREV is seeded in `enter`")
+
+
+def test_a_lap_is_three_blips_and_a_chime(raced):
+    """THE ARITHMETIC OF THE TWO CUES, and it is the sharpest case here.
+
+    The ring has four quadrants and the start/finish spoke IS the 3->0 edge
+    (`race_logic`'s header), so a lap crosses four sector boundaries — one of
+    which is the lap itself. `mz_lap_edge` consumes that crossing on the lap
+    arm, so a completed lap sounds as THREE blips and one chime, and the
+    chime is clean rather than trailing a blip a frame later (the SFX ring
+    holds one request per frame and would deliver the second on the next).
+
+    Counted BETWEEN consecutive lap frames, which sidesteps the entry cue: the
+    START press that enters the race queues its own `select`, and it lands in
+    the opening frames rather than inside a lap.
+
+    Two defects this bounds and the audibility case above does not: dropping
+    the consume makes it four blips and a chime, and moving the blip to the
+    sector VALUE rather than its change floods the interval.
+    """
+    rows, lap_frames, _ = raced
+    assert len(lap_frames) >= 2, "need two lap frames to bound an interval"
+    blips = _onsets(rows, PLUCK)
+    chimes = _onsets(rows, BELL)
+    for a, b in zip(lap_frames, lap_frames[1:]):
+        inside = [f for f in blips if a < f < b]
+        assert len(inside) == 3, (
+            f"the lap between frames {a} and {b} sounded {len(inside)} "
+            f"checkpoint blips, not 3 — four means the lap's own crossing was "
+            f"not consumed on the chime's arm, and more means the cue is "
+            f"reading the sector's VALUE rather than its change")
+    # THE LAST LAP IS NOT COUNTED, and the reason is the fixture's: the drive
+    # stops ON the frame the third lap closes, because the race tick requests
+    # the results scene there and `race::tick` runs no more. That lap's chime
+    # would key one frame later, after the recording ends — so the laps this
+    # case can speak for are the ones with room after them.
+    audible = [f for f in lap_frames if f + 3 < len(rows)]
+    assert len(chimes) == len(audible), (
+        f"{len(chimes)} bells for {len(audible)} laps that had room to sound "
+        f"(of {len(lap_frames)} driven) — a lap chimes exactly once")
+    for lap, chime in zip(audible, chimes):
+        # DELIVERY IS NOT INSTANT and the slack is measured, not assumed: the
+        # cue is queued inside the scene's tick and `sf_audio_tick` hands one
+        # request to the driver later in the same frame's main loop, so the
+        # voice keys on the NEXT frame. Measured at exactly 1 on this rail;
+        # the bar is 3 so that a main-loop reorder is not a red, while a chime
+        # that had drifted into the middle of a lap still is.
+        assert lap <= chime <= lap + 3, (
+            f"the bell for the lap at frame {lap} sounded at {chime} — the "
+            f"chime has come loose from the boundary it names")
+
+
 def test_the_song_reserves_the_sound_effect_voices(raced):
     """Nothing of `circuit_song` is scored where an effect would erase it.
 
@@ -203,11 +312,21 @@ def test_the_song_reserves_the_sound_effect_voices(raced):
     `musicSfxChannelMask`). A part written there vanishes every time the game
     makes a noise — on this rail, once a lap.
 
-    Asserted as an EQUALITY, on the title, because nothing on the title can
-    queue an effect: the only cue this rail has is `mz_lap_edge`, which runs
-    in the race scene's tick. So a part on G or H shows up as a voice
-    sounding at all, and the bar is zero. (The race drive cannot make this
-    claim — the chime is exactly what sounds there.)
+    Asserted as an EQUALITY, on the title, and the reason has NARROWED and is
+    now worth stating precisely. It used to be "nothing on the title can queue
+    an effect" — true when the rail's only cue was the lap chime, and FALSE
+    since the title's START press gained a `select`. What still holds is that
+    this window is the frames BEFORE any input: the fixture drives no buttons
+    until `enter_race`, so no press has happened and no cue can have been
+    queued. The bar is zero because of what the drive does, not because of
+    what the scene cannot do.
+
+    That distinction is the one this session paid for elsewhere — a
+    no-input drive keeps an equality green through exactly the change that
+    should have retired it (`tests/test_screen_effect_audio.py`, and the
+    dx_paper_cuts entry beside it). Recorded here so the next person to add a
+    title cue reads why this bar is still allowed to be zero, and checks that
+    it is.
 
     Planted — four bars added to a `G` channel in circuit_song.mml, the whole
     audio blob re-exported — voices 6/7 sound on 235 of 240 title frames.

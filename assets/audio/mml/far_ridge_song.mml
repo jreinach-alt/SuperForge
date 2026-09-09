@@ -54,6 +54,9 @@
 @2 tri_bass
 @3 pluck
 @4 kick
+; the wind's carrier -- see channel F. Its WAVEFORM is never heard: it is
+; here for its LOOP flag, which is what lets the noise outlast a sample.
+@5 saw
 
 ; ---------------------------------------------------------------------------
 ; NOTHING IS SCORED ON G OR H. Those are the two channels the audio driver
@@ -135,9 +138,67 @@ D  r1 | r1 | r1 | r2 !pl
 D  r1 | r1 | r1 | r2 !pl
 D  r1 | r1 | r1 | r2 !pl
 
-; ---- E: the heartbeat.   ---- F: deliberately silent.
-; F is empty because the arrangement is finished at five voices and a sixth
-; would be filling. The two SFX channels are G and H, so an idle F costs
-; nothing and buys the option of a part later without re-scoring anything.
+; ---- E: the heartbeat.
 E  L @4 K0 E0
 E  [!hb ]16
+
+; =============================================================================
+; F: THE WIND, AND IT IS A MUSIC CHANNEL RATHER THAN A SOUND EFFECT
+; =============================================================================
+; This part was a low-priority SFX re-triggered on a cadence, and it was
+; MEASURED at roughly 7% of a music voice's amplitude on the chip -- VOL 18
+; and ENVX 48 against the drone's VOL 42 and ENVX 127. It was continuous and
+; its noise band did sweep; it simply could not be heard under the song. What
+; follows is the same sound moved to where the hardware wants it.
+;
+; WHY A SONG CHANNEL IS THE RIGHT PLACE FOR WEATHER. Four things follow from
+; it and none is available to an effect:
+;
+;   * IT CANNOT BE DUCKED OR DROPPED. G and H are the SFX channels and the
+;     driver ducks them for the duration of any effect; a low-priority effect
+;     is also dropped outright when both channels are busy. Air does not stop
+;     because the player pressed a button.
+;   * IT IS CONTINUOUS BY CONSTRUCTION. `w` waits carry no key-off, so the
+;     noise sustains across them and the clock can be changed mid-breath.
+;     There is no re-trigger and therefore no seam to hide.
+;   * IT IS MIXED AS MUSIC. `v` sits it against the drone in the same units
+;     the rest of the score uses, instead of a fixed gain chosen blind.
+;   * IT REACHES THE ECHO. `E1` is what turns a band of noise into moving air:
+;     the 128 ms buffer smears the LFSR's edges into a rush. Dry, the same
+;     part is tape hiss -- this is the single biggest difference between
+;     "noise is playing" and "wind is blowing", and it is why the effect
+;     version could not be rescued by volume alone.
+;
+; THE INSTRUMENT IS CHOSEN FOR ITS LOOP FLAG, NOT ITS TIMBRE. With noise
+; enabled the voice outputs the generator and the BRR sample is inaudible --
+; but the sample still ENDS the voice: a non-looping instrument plays noise
+; only for the length of its own data (bytecode-assembly-syntax.md,
+; play_noise). `saw` is a 64-sample loop, so the noise runs until a key-off
+; this part never sends.
+;
+; THE BAND IS THE SOUND. `N<0-31>` sets the S-DSP noise clock (FLG bits 0-4),
+; an LFSR rate: 0 slowest, 31 fastest. Index 17 is around 700 Hz and 24 around
+; 3.2 kHz, which brackets where moving air has its energy. The low teens break
+; into separate crackles and the high twenties are the bright hiss an
+; explosion decays into. A STATIC band reads as a fault in the recording; it
+; is the band RISING and falling that reads as air, so the clock walks and
+; never sits still. The four gusts are deliberately different lengths so the
+; part does not tick.
+;
+; ONE GENERATOR, and nothing here contends for it: this rail's only effect is
+; `select` (pluck), so no sound effect on heathaze plays noise and the song's
+; noise is never muted by one.
+; EVERY BAND CARRIES ITS OWN LENGTH AND EVERY JOIN IS A SLUR, and both halves
+; are load-bearing. `N<clock>` with no length takes the DEFAULT note length,
+; so the first spelling of this part -- `N17 w1` -- played a short gust and
+; then held a silent bar: measured, the voice sounded on 112 of 600 frames
+; while reading as continuous in the score. `,1` gives each band a whole bar.
+; The `&` slurs mean no key-off between them, so the clock changes INSIDE one
+; held breath instead of restarting it; with an instant attack a re-key would
+; be a click at full level once a bar, which is a windscreen thump rather than
+; wind.
+F  L @5 v9 E1 A15,0,7,0 p64
+F  N17,1 & N19,1 & N21,1 & N18,1 &
+F  N16,1 & N20,1 & N23,1 & N21,1 &
+F  N18,1 & N17,1 & N19,1 & N22,1 &
+F  N20,1 & N17,1 & N16,1 & N18,1 &
