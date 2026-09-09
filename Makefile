@@ -1504,14 +1504,26 @@ MZE_INC := -I $(MZE_MAP) -I $(VROM) -I $(MZE) \
            -I engine/features/maze_bg -I engine/features/maze_obj \
            -I engine/features/col_map
 
+$(BUILD)/mze_tad_wrapper.o: engine/features/audio/tad_wrapper.asm \
+		vendor/tad/tad-audio.s vendor/tad/tad-audio.inc \
+		$(MZE_MAP)/engine_state_globals.inc | $(BUILD)
+	$(CA65) -I $(MZE_MAP) -I vendor/tad -o $@ $<
+
+$(BUILD)/mze_tad_data.o: assets/audio/export/tad_audio_data.asm \
+		assets/audio/export/tad_audio_data.bin | $(BUILD)
+	$(CA65) --bin-include-dir assets/audio/export -o $@ $<
+
 $(BUILD)/maze.sfc: $(MZE_ASM) $(MZE)/maze.inc \
 		$(MZE_MAP)/engine_state_globals.inc $(MZE_ASSETS) \
+		$(BUILD)/mze_tad_wrapper.o $(BUILD)/mze_tad_data.o \
 		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
 		$(VROM)/lorom_512k.cfg | $(BUILD)
 	$(PY) allocator/no_literals.py --map $(MZE_MAP)/symbol_map.json $(MZE_ASM)
-	$(CA65) $(MZE_INC) --bin-include-dir $(BUILD)/assets \
+	$(CA65) $(MZE_INC) -I vendor/tad -I assets/audio/export \
+		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/maze.o $(MZE)/main.asm
-	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/maze.o
+	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/maze.o \
+		$(BUILD)/mze_tad_wrapper.o $(BUILD)/mze_tad_data.o
 	$(PY) tools/fix_checksum.py $@
 
 maze: $(BUILD)/maze.sfc

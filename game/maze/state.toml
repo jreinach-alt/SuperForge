@@ -14,6 +14,18 @@ px = "u16@dp"            # player box top-left, world px (= screen px = OAM x:
 py = "u16@dp"            #   the room is one screen and scroll is pinned)
 cand_x = "u16@dp"        # the tentative position under probe, before the
 cand_y = "u16@dp"        #   move-check's verdict commits or drops it
+cell = "u16@dp"          # the 8px CELL the player was in last tick,
+                         # packed (row << 8) | col. This rail moves
+                         # freely in pixels, so unlike the rpg's grid
+                         # walk there is no step COMMIT to hang a
+                         # footstep on -- a cue on "is moving" would
+                         # fire at 60 Hz. This word is the edge:
+                         # overworld.asm says giving a cue an edge
+                         # "needs an edge latch, and this rail has no
+                         # state for one". This rail now does.
+                         # Written at enter from the spawn position, so
+                         # the first tick compares against a real cell
+                         # rather than power-on garbage (rule 5).
 # --- the TIMEBASE's per-consumer state (engine/features/tick_scale) ---------
 #
 # ONE RATE, ONE PAIR. MZ_SPEED is the only velocity here: both
