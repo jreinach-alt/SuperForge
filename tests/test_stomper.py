@@ -258,8 +258,33 @@ def run_oracle(script):
 # THE SCRIPTS — found in the oracle, asserted on the emulator
 # =============================================================================
 # Every S_* script INCLUDES the boot segment; the emulator side boots with
-# the fixture's advance(BOOT) and then drives script[1:].
+# the fixture's advance(BOOT + BOOT_SKEW) — which lands the SCENE on tick
+# BOOT — and then drives script[1:].
 BOOT = 90                                # the absolute boot frame
+
+# BOOT IS A TICK, AND IT IS NOT A HARDWARE FRAME NUMBER ANY MORE.
+#
+# The scripts below are recipes found in the oracle at absolute ticks ("stomp
+# at tick 285", "E2 stomp at tick 411"): the player's motion follows the
+# script, but the ENEMIES' positions are a function of the tick, so a script
+# that lands on a patroller's head only does so if the machine and the oracle
+# agree on what tick it is.
+#
+# They agreed for free until this rail composed `audio`. Tad_Init uploads the
+# loader to the S-SMP through the IPL's byte-at-a-time handshake before the
+# game loop starts, and that costs FOUR FRAMES, once, before the fade is even
+# done — so advance(90) now leaves the scene on tick 86 and every recipe misses
+# by four ticks of enemy walk. Seven cases failed and all seven blamed the
+# beats.
+#
+# The fix is to advance to the TICK rather than re-derive the recipes: the
+# fixture runs BOOT + BOOT_SKEW hardware frames so the scene reaches tick BOOT.
+# That is still an absolute, deterministic landing (CLAUDE.md rule 2) — the
+# lockstep Machine makes rom + seed + script a pure function — it is just
+# counted in the units the oracle actually models.
+BOOT_SKEW = 4
+
+US_BLINK = _sym("US_BLINK", "play")["start"]
 
 # Mount the col-20 low wall from spawn: 16 left to the wall face (px 168),
 # hop (A+left 6), coast to the wall top (px 164, y 184).
@@ -296,6 +321,14 @@ S_THROUGH = S_E1_STOMP + [(40, LEFT), (20, 0)]
 # frames of both enemies' cycles (and re-measured by every trajectory case).
 OAM_LAG = 1
 
+# The skew between a HARDWARE frame number and an ORACLE TICK index. `_drive`
+# counts hardware frames from BOOT while the oracle's snaps are indexed by
+# tick, and the two are offset by exactly the rail's boot cost — the frames
+# Tad_Init spends on the S-SMP handshake before the scene's first tick. Zero
+# before this rail composed `audio`, which is why the mapping used to need no
+# term for it.
+
+
 # --- the picture -------------------------------------------------------------
 # Mesen hands back 256x239; the active 224 scanlines start at PNG row 7
 # (the sibling rails' measured constant, re-verified here by the boot test:
@@ -317,7 +350,7 @@ def boot():
     if not ROM.exists():
         pytest.fail(f"{ROM} missing — run `make stomper` first")
 
-    def _boot(frames=BOOT):
+    def _boot(frames=BOOT + BOOT_SKEW):
         return Machine(str(ROM)).advance(frames)
 
     yield _boot
@@ -349,7 +382,7 @@ def _actors(m):
 
 def _assert_frame(m, frame, snaps, where):
     """One frame's whole actor set against the oracle (lag applied)."""
-    w = snaps[frame - 1 - OAM_LAG]
+    w = snaps[frame - 1 - OAM_LAG - BOOT_SKEW]
     p, e1, e2 = _actors(m)
     exp_p = (w[0] & 0xFF, w[1])
     assert p == exp_p, (
@@ -368,7 +401,7 @@ def _assert_frame(m, frame, snaps, where):
             f"{where} frame {frame}: enemy2 dead but not parked ({e2})")
 
 
-def _drive(m, script, snaps, where, start=BOOT):
+def _drive(m, script, snaps, where, start=BOOT + BOOT_SKEW):
     """Advance through `script` (which INCLUDES the boot segment), asserting
     every frame's actor OAM against the oracle. Returns the final frame."""
     frame = start
@@ -472,6 +505,27 @@ def test_tilemap_is_the_arena_from_the_world_blob(fresh):
 # 2. THE BOOT PICTURE — the composited frame, census-exact
 # =============================================================================
 
+def test_the_boot_cost_is_what_the_scripts_assume(boot):
+    """BOOT_TICKS is a measurement, so measure it.
+
+    Every script here opens with a boot segment the oracle runs as ticks while
+    the fixture advances BOOT hardware frames. If the rail's boot cost moves --
+    a feature added or dropped, TAD's handshake changed -- those two stop
+    corresponding and the actors appear to be walking wrong beats. That is what
+    composing `audio` did: seven cases failed at once and all seven blamed the
+    beats. This one names the cause instead.
+    """
+    m = boot()
+    t = int.from_bytes(m.read_bytes(MemoryType.SnesWorkRam, US_BLINK, 2),
+                       "little")
+    assert t == BOOT, (
+        f"the scene has run {t} ticks after advance({BOOT} + {BOOT_SKEW}), "
+        f"not {BOOT} — the rail's boot cost changed. Re-measure it and update "
+        f"BOOT_SKEW; every recipe below is keyed to an absolute TICK, so a "
+        f"machine that is on the wrong one misses by that many ticks of "
+        f"enemy walk")
+
+
 def test_boot_frame_shows_the_arena_actors_and_hud(fresh):
     """The whole boot frame accounted for, pixel by pixel: 93 solid cells x
     64 grey px, exactly 64 red (the player at spawn), exactly 128 magenta
@@ -531,7 +585,7 @@ def test_both_enemies_pace_their_exact_beats(boot):
     _, snaps = run_oracle([(BOOT + 140, 0)])
     m = boot()
     seen1, seen2 = set(), set()
-    frame = BOOT
+    frame = BOOT + BOOT_SKEW
     for _ in range(140):
         m.advance(1)
         frame += 1
@@ -606,7 +660,7 @@ def test_stomp_kills_culls_bounces_and_counts(boot):
     # the cull + the count, on the final committed state
     p, e1, e2 = _actors(m)
     assert e1[1] == PARK_Y, "enemy 1 not parked after the stomp"
-    assert e2 == (snaps[frame - 1 - OAM_LAG][5][0], E2_Y), (
+    assert e2 == (snaps[frame - 1 - OAM_LAG - BOOT_SKEW][5][0], E2_Y), (
         "enemy 2 was perturbed by enemy 1's death")
     assert _vword(m, UNITS_CELL) == _glyph("1"), "FOES did not reprint to 1"
     assert m.writes(V, UNITS_CELL * 2) == w0 + 1, (
@@ -636,10 +690,10 @@ def test_side_contact_knocks_back_without_killing(boot):
     m = boot()
     w0 = m.writes(V, UNITS_CELL * 2)
     frame = _drive(m, script[1:], snaps, "hurt")
-    assert snaps[frame - 1][7] == 1, "oracle says the hurt never happened"
+    assert snaps[frame - 1 - BOOT_SKEW][7] == 1, "oracle says the hurt never happened"
     p, e1, e2 = _actors(m)
     assert p == SPAWN, f"no knockback: player OAM {p}"
-    assert e1 == (snaps[frame - 1 - OAM_LAG][4][0], E1_Y), (
+    assert e1 == (snaps[frame - 1 - OAM_LAG - BOOT_SKEW][4][0], E1_Y), (
         "enemy 1 did not survive the side contact")
     assert _vword(m, UNITS_CELL) == _glyph("2"), "FOES changed on a hurt"
     assert m.writes(V, UNITS_CELL * 2) == w0, (
@@ -708,7 +762,7 @@ def test_arc_top_stomp_wins_and_clear_prints(boot):
     base_w = [m.writes(V, c * 2) for c in CLEAR_CELLS]
     # drive, checking the negative just BEFORE the closing stomp commits
     pre = []
-    frame = BOOT
+    frame = BOOT + BOOT_SKEW
     for frames, cur in script[1:]:
         pad = _pad(cur)
         for _ in range(frames):

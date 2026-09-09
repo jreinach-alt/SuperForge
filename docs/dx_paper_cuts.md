@@ -380,3 +380,47 @@ stale. But `make register` checks the census (179 dirs), not that list, and
 still hand-maintained prose; only its provenance changed. Adding four rails
 meant editing it by hand, which is fine — the trap is the phrase, which reads
 as a guarantee that no gate provides.
+
+### Composing `audio` costs FOUR FRAMES of boot, and two oracle modules were keyed to the identity it broke — **surprise, HIGH**
+
+The landing gate went red with twelve failures across `test_patrol.py` and
+`test_stomper.py` — the two rails that had just gained audio — and every one
+of them accused the actors of walking wrong beats:
+
+    AssertionError: beats frame 91: enemy1 OAM (99, 200), oracle x 95
+
+Nothing was wrong with the beats. `Tad_Init` uploads the loader to the S-SMP
+through the IPL's byte-at-a-time handshake before the game loop starts, and
+that costs **four hardware frames, once**, before the fade is even done — a
+cost every audio rail pays and always has. Measured: `advance(90)` leaves the
+scene on tick **86**. Both modules were built on the identity *hardware frame
+N ⟺ tick N−1*, which had been free until something took time at boot.
+
+The two modules needed opposite fixes, and the difference is the useful part.
+
+**patrol** compares OAM against a closed-form triangle wave, so the oracle can
+simply be evaluated at the tick the scene reports: `US_FRAMES` is read out of
+WRAM and the wave is asked about *that*. The identity is gone rather than
+re-tuned, so the next rail to gain or lose a boot cost cannot re-break it.
+(One subtlety, measured rather than reasoned: hardware OAM lags the counter by
+exactly one, because the counter bumps at the top of the tick and the OAM the
+PPU shows was DMA'd in the preceding NMI. That is now named `_beat`.)
+
+**stomper** could not do that. Its scripts are recipes *found in the oracle at
+absolute ticks* — "stomp at tick 285", "E2 stomp at tick 411" — where the
+player follows the script but the enemies' positions are a function of the
+tick, so a recipe that lands on a patroller's head only does so if machine and
+oracle agree on the tick. Re-deriving three recipes was the wrong trade
+against advancing the machine four frames further so the scene reaches the tick
+they assume. That is still an absolute, deterministic landing under the
+lockstep Machine; it is just counted in the units the oracle models. The skew
+then has to appear at every frame→snap index, of which there were four.
+
+**What made this cost an hour rather than five minutes**: twelve failures all
+pointing at the actors, and none at boot. So `test_stomper.py` now carries
+`test_the_boot_cost_is_what_the_scripts_assume`, which asserts the scene's own
+counter against `BOOT_SKEW` and fails with "the rail's boot cost changed" —
+one case, by name. Planted at `BOOT_SKEW = 3` it fires alone and says exactly
+that. **The general shape: when a module depends on a timing identity, assert
+the identity — otherwise every case that rests on it fails together and all of
+them blame the physics.**
