@@ -9,15 +9,22 @@ Instrument -> SRCN is the project file's instrument ORDER
 (assets/audio/slice_b.terrificaudio): tri_bass 0, square_lead 1, pluck 2,
 step 3, bell 4, saw 5, kick 6.
 
-THE FIXTURE DIAGNOSES ITSELF. The drive has to actually land a stomp for the
-kill cue to mean anything, and a stomp needs the player falling onto an enemy
-that is patrolling a lane 80 px left of spawn. Three earlier drive geometries
-produced zero kills — two swept symmetrically around spawn and never reached
-the lane, and one held left and pinned the player against the wall at x=8
-while the enemy patrolled 94..152 out of reach. All three would have passed a
-bare "is the bell audible" test by never testing it. So the fixture reads the
-game's own US_FOES counter and the assertion is that it FELL: a drive that
-stops landing stomps fails loudly instead of going quiet.
+THE FIXTURE DIAGNOSES ITSELF, AND THAT IS HOW THIS DRIVE GOT FIXED. A stomp
+needs the player falling onto an enemy patrolling a lane 80 px left of spawn.
+Three authored geometries produced zero kills — two swept symmetrically around
+spawn and never reached the lane, one held left and pinned the player against
+the wall at x=8 while the enemy patrolled 94..152 out of reach. A fourth landed
+exactly one kill, passed locally, and then FAILED IN THE LANDING GATE'S CLONE:
+an authored geometry that only just works is a coin-flip against a harness that
+re-seeds power-on RAM per load. Every one of them would have passed a bare "is
+the bell audible" test by never testing it.
+
+`test_the_drive_actually_stomps_something` is what caught that, by name, and it
+is why the drive is now CLOSED-LOOP: it reads the live enemy's position every
+frame, walks at it, and jumps when grounded and within the arc's reach, so
+landing a stomp is a consequence of the geometry rather than a coincidence of
+it. When both are dead it falls back to jumping in place, which keeps the
+landing cadence the last case measures meaningful.
 
 STATED LIMIT: the `hurt` cue is not asserted. `hit` and `thud` are both voiced
 by `step` (sound-effects.txt), so on this surface they are indistinguishable,
@@ -43,41 +50,50 @@ SQUARE_LEAD, STEP, BELL = 1, 3, 4
 FRAMES = 1200
 
 
-def _foes_addr():
-    """US_FOES from the emitted scene map — never hardcoded.
+def _syms(*names):
+    """Scene addresses from the emitted map — never hardcoded.
 
     A probe earlier in this sprint hardcoded a scene address, measured zero
     events for a whole run, and reported the rail as broken. The map is the
-    only thing that knows where the counter is.
+    only thing that knows where these live.
     """
     import re
     inc = (SUPERFORGE / "build" / "st" / "engine_state_play.inc").read_text()
-    m = re.search(r"^US_FOES\s*=\s*\$([0-9A-Fa-f]+)", inc, re.M)
-    assert m, "US_FOES is not in build/st/engine_state_play.inc"
-    return int(m.group(1), 16)
+    out = []
+    for n in names:
+        m = re.search(rf"^{n}\s*=\s*\$([0-9A-Fa-f]+)", inc, re.M)
+        assert m, f"{n} is not in build/st/engine_state_play.inc"
+        out.append(int(m.group(1), 16))
+    return out
 
 
 @pytest.fixture(scope="module")
 def stomper():
     rom = SUPERFORGE / "build" / "stomper.sfc"
     assert rom.exists(), "build/stomper.sfc not built — run `make stomper` first"
-    foes = _foes_addr()
+    foes, px, e1x, e1a, e2x, e2a, gr = _syms(
+        "US_FOES", "US_PX", "US_E1X", "US_E1ALIVE", "US_E2X", "US_E2ALIVE",
+        "US_GROUNDED")
     r = MesenRunner(enable_audio=True)
     r.boot_rom(str(rom), frames=300)
     r.frame_step(3, start=True)                      # title -> play
     r.frame_step(3)
     r.frame_step(120)                                # fade + enter, settle
-    u16 = lambda a: int.from_bytes(r.read_bytes(WRAM, a, 2), "little")  # noqa: E731
-    before = u16(foes)
+    u = lambda a: int.from_bytes(r.read_bytes(WRAM, a, 2), "little")  # noqa: E731
+    before = u(foes)
     rows = []
     for i in range(FRAMES):
-        # walk into the patrol lane, then hover inside it, jumping steadily.
-        left = i < 90 or (i >= 90 and i % 48 < 24)
-        right = i >= 90 and i % 48 >= 24
-        r.frame_step(1, a=(i % 30 < 3), left=left, right=right)
+        here, grounded = u(px), u(gr)
+        target = u(e1x) if u(e1a) else (u(e2x) if u(e2a) else None)
+        if target is None:                           # both down: keep hopping
+            r.frame_step(1, a=(i % 30 < 3), left=(i % 60 < 30),
+                         right=(i % 60 >= 30))
+        else:
+            r.frame_step(1, right=here < target - 1, left=here > target + 1,
+                         a=(grounded != 0 and abs(here - target) < 20))
         d = r.read_bytes(DSP, 0, 128)
         rows.append([(d[v * 0x10 + 4], d[v * 0x10 + 8]) for v in SFX_VOICES])
-    after = u16(foes)
+    after = u(foes)
     r.stop()
     return {"rows": rows, "foes_before": before, "foes_after": after}
 

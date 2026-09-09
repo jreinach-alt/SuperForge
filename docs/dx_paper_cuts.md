@@ -424,3 +424,28 @@ one case, by name. Planted at `BOOT_SKEW = 3` it fires alone and says exactly
 that. **The general shape: when a module depends on a timing identity, assert
 the identity — otherwise every case that rests on it fails together and all of
 them blame the physics.**
+
+### An authored drive that only just works is a coin flip, and it passed locally before failing in the clone — **surprise, MEDIUM**
+
+The stomper audio module's drive landed exactly one stomp, late in a 1200-frame
+run. It passed here, three times, and in a combined 49-case run. The landing
+gate's clone then failed it — and failed it on the RIGHT case, the one that
+reads US_FOES and says "the drive never landed a stomp, so the cue case is
+asserting nothing. The drive has rotted, not the audio."
+
+Nothing about the ROM changed between those runs. `MesenRunner` re-seeds
+power-on RAM per `LoadRom` (the deliberate hardware-faithful regime, CLAUDE.md
+rule 5), and a marginal geometry is a coin flip against that. Passing three
+times locally was not evidence; it was three heads.
+
+The fix was the one already written down in this very file two entries above
+and applied to sprite_game and patrol — **steer closed-loop** — and skipped
+here only because the authored drive happened to work. It now reads the live
+enemy's position each frame, walks at it, and jumps when grounded and within
+the arc's reach. Kill lands at frame 159 of 1200 instead of somewhere near the
+end: 7.5x headroom, and identical across three trials.
+
+**Two things worth keeping.** A drive whose event lands near the end of its
+budget has no margin — measure WHERE it lands, not just that it did. And a
+self-diagnosing fixture earns its keep at exactly this moment: the failure
+named the drive instead of sending me back into the audio path.
