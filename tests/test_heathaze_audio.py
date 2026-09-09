@@ -26,8 +26,7 @@ THE FOUR CLAIMS, and each has a plant recorded beside it:
   * NO MUSIC PART IS SCORED WHERE AN EFFECT WOULD ERASE IT — the equality's
     replacement, and it is not a fraction.
   * NO MUSIC VOICE TAKES THE NOISE GENERATOR, with its own non-vacuity: the
-    generator is in use every frame, by an SFX voice, and never by a music
-    one.
+    generator is genuinely in use, by an SFX voice, and never by a music one.
   * THE WEATHER IS A BED AND THE CUE IS AN EVENT. The wind must be CONTINUOUS,
     which a one-shot is not; the toggle must be the PRESS EDGE, which a level
     read is not. Both are fractions and both bars were set against a planted
@@ -134,11 +133,12 @@ HOLD = 24           # ...of which this many hold B down
 FRAMES = PRESSES * PERIOD                       # 600 = 7 full wind cadences
 
 # The longest run of frames the wind may be inaudible for. The design overlaps
-# each re-queue with the bed still playing by ~16 frames, so a correct rail
+# each re-queue with the bed still playing by ~17 frames, so a correct rail
 # shows a gap of at most the one frame the key-on itself costs; MEASURED on
 # the shipped binary the whole 600-frame drive has exactly one such frame.
 # Eight is that measurement with room for a key-on landing either side of a
-# sample, and far below the ~17-frame hole a cadence one gust too slow opens.
+# sample, and far below the 26-frame hole a cadence one gust too slow opens
+# (measured with HZ_WIND_PHASES planted at 48).
 MAX_SILENT_RUN = 8
 
 
@@ -306,6 +306,19 @@ def test_the_kit_never_takes_the_noise_generator(driven):
     untouched — including one whose wind stopped using it and went silent. So
     the mask must also be NON-ZERO: something is taking the generator, and it
     is on the SFX side of the split.
+
+    THE NON-VACUITY BAR IS DELIBERATELY LOOSE, AND THAT IS A CORRECTION. The
+    driver CLEARS NON when an effect ends — measured, not assumed: with the
+    cadence planted one gust too slow the generator is claimed on 470 of 600
+    frames rather than all 600, and at a 90% bar this case went red alongside
+    the continuity case, saying the same thing twice and worse. Half the drive
+    is enough to say the generator is genuinely in use; "is the bed
+    continuous" belongs to the case that asks it directly. Planted with the
+    weather removed altogether this reads 0/600 and reds.
+
+    Planted the other way — an `N14` noise part put on the song's own D
+    channel — the first assertion reds with NON = 0x88: voice 3 and voice 7
+    sharing the generator, which is the mute this case exists to forbid.
     """
     rows, _, _, _ = driven
     bad = [(i, non) for i, (_, non) in enumerate(rows) if non & MUSIC_MASK]
@@ -314,7 +327,7 @@ def test_the_kit_never_takes_the_noise_generator(driven):
         f"{bad[0][0]}, NON={bad[0][1]:#04x}) — that voice is silenced whenever "
         f"an effect plays noise, which on this rail is nearly every frame")
     used = sum(1 for _, non in rows if non)
-    assert used / len(rows) > 0.90, (
+    assert used / len(rows) > 0.50, (
         f"the noise generator is claimed on only {used}/{len(rows)} frames — "
         f"nothing is playing noise, so the mask above is vacuously clean; the "
         f"wind bed is not reaching the chip")
@@ -356,9 +369,10 @@ def test_the_wind_is_a_bed_and_not_a_single_gust(driven):
     MEASURED on the shipped binary across this 600-frame drive: sounding on
     599 frames (99.8%), longest silent run ONE frame — the key-on itself. The
     bars are 90% and eight frames: far below the measurement, and far above
-    what the defect they exist for produces. Planted with the cadence raised
-    to 48 phases (128 frames, a gust every 2.1 s against a 1.7 s effect) the
-    reading falls to 79.7% with a 26-frame hole, and both halves red.
+    what the defect they exist for produces. Planted with HZ_WIND_PHASES
+    raised to 48 (128 frames, a gust every 2.13 s against a 1.70 s effect) the
+    reading falls to 471/600 = 78.5% with a 26-FRAME hole, which is the gap
+    the arithmetic predicts, and both halves red.
     """
     rows, _, _, _ = driven
     live = _sfx_live(rows, SAW)
@@ -367,7 +381,7 @@ def test_the_wind_is_a_bed_and_not_a_single_gust(driven):
     assert frac > 0.90, (
         f"the wind sounds on {frac:.1%} of {len(rows)} frames — that is a "
         f"gust, not a bed; the re-queue cadence ({WIND_PERIOD:.1f} frames) has "
-        f"out-run the {WIND_TICKS}-tick effect it is keeping alive")
+        f"grown past the {WIND_TICKS}-tick effect it is keeping alive")
     assert gap <= MAX_SILENT_RUN, (
         f"the wind is inaudible for {gap} consecutive frames — the bed lapses "
         f"between gusts even though it sounds on {frac:.1%} of the drive "

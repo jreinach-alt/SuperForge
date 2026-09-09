@@ -284,6 +284,10 @@ def test_the_tree_agrees_with_the_rule():
         "test_scroller.py": ["build/scr/symbol_map.json"],
         "test_lakeside.py": ["build/lks/symbol_map.json"],
         "test_heathaze.py": ["build/hz/symbol_map.json"],
+        # Its audio module reads the same map: `US_FLAT` — the flat
+        # control whose move is that module's non-vacuity check — is the
+        # allocator's dp placement, never a literal.
+        "test_heathaze_audio.py": ["build/hz/symbol_map.json"],
         "test_smelter.py": ["build/smt/symbol_map.json"],
         "test_mill.py": ["build/mil/symbol_map.json"],
         # Its audio module reads the same map: the lift words its ride

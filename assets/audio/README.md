@@ -27,18 +27,28 @@ Unlicense header, and the loader/driver binaries embedded in
 `export/tad_audio_data.bin` are Terrific Audio Driver code (Zlib, © Marcus
 Rowe) — see `vendor/tad/README.md` for the pin.
 
-## Three songs, because the rails want different things
+## Four songs, because the rails want different things
 
 | song | rails | what it is |
 |---|---|---|
-| `slice_b_song` | `room`, `rpg`, `heathaze`, `lakeside`, `smelter`, `mode7_flight` | the ambient piece. Three channels, a whole-bar rest at the end of its 768-tick loop, and echo settings that ARE room A's acoustics |
+| `slice_b_song` | `room`, `rpg`, `lakeside`, `smelter`, `mode7_flight` | the ambient piece. Three channels, a whole-bar rest at the end of its 768-tick loop, and echo settings that ARE room A's acoustics |
+| `far_ridge_song` | `heathaze` | the desert piece. D mixolydian with a flattened SIXTH over a bare D-A fifth drone; a single whistled line with more rest than note, three portamento slides, and a lub-dub kick once a bar. Five channels, F deliberately empty |
 | `drive_song` | the other 21: `boss_saucer`, `brawler`, `breaker`, `camera_follow`, `hud_game`, `jumper`, `m7_dungeon`, `m7_oshoot`, `maze`, `mill`, `mode7_explore`, `patrol`, `platformer`, `platformer_stream`, `racer`, `railshooter`, `scroll_run`, `shmup`, `split_v_fight`, `sprite_game`, `stomper` | the action piece. Six channels, a drum kit, a sixteenth-note bass |
 | `circuit_song` | `microzero` | the racing piece. Six channels in A mixolydian over I - bVII - IV; the flat seventh is the whole colour |
 
-The four screen-effect rails take the ambient piece for the reason the split
+The screen-effect rails take an ambient piece for the reason the split
 describes from the other end: a kit under a picture is the "prettify the demo"
 move, and `scroller` and `mode7_chamber` decline audio outright on exactly that
 argument — they are MEASUREMENT rails and music changes what they measure.
+
+`far_ridge_song` is the first of those to get a piece of its OWN rather than
+borrowing `slice_b_song`, and the argument for it is the same one the split
+above makes: `slice_b_song`'s loop and its composed rest half-bar are
+calibrated to the room rail's reverb A/B demonstration, so a rail that wants a
+different character cannot get it by editing that song. Its harmony is
+documented in its own header — the short version is that a MAJOR third over a
+bare fifth is the "wide open" and a FLAT sixth is the ache, and Mixolydian b6
+is the mode that has both.
 
 That third column is PROSE and the rail lists in it are hand-maintained; the
 tree is the source of truth. `grep -o 'Song::[A-Za-z_0-9]*' game/*/main.asm
@@ -114,7 +124,7 @@ the `.bin` and a `TAD_IO_VERSION` link-assert against `vendor/tad/`
 
 ## The sound-effect vocabulary
 
-Fourteen effects, shared by every rail that composes `audio`. Sharing is the
+Fifteen effects, shared by every rail that composes `audio`. Sharing is the
 architecture working, not a compromise: there is ONE export blob for the whole
 tree, so an effect authored for one rail is linked into all of them — `laser`
 is the shmup's gun and the saucer arena's, and neither pays for the other's.
@@ -133,6 +143,7 @@ is the shmup's gun and the saucer arena's, and neither pays for the other's.
 | `thud` | a wall, a stomp | `step` |
 | `footstep` | a walked tile | `step` |
 | `skid` | leaving the road | sustained noise |
+| `wind` | WEATHER — a bed, not an event. The only effect here that is scenery: `heathaze` re-triggers it on a cadence so it reads as continuous air | sustained noise on `saw`, whose LOOP is what lets the noise last seconds |
 
 **Export order IS the priority policy.** The ca65 queue holds ONE effect per
 frame and the LOWER id wins (`tad-audio.s:1293`), so the ordering in
