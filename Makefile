@@ -1645,9 +1645,19 @@ $(ST_MAP)/engine_state_globals.inc $(ST_MAP)/symbol_map.json: \
 	$(PY) allocator/allocate.py --game $(ST) --features-dir engine/features \
 		--out $(ST_MAP)
 
+$(BUILD)/st_tad_wrapper.o: engine/features/audio/tad_wrapper.asm \
+		vendor/tad/tad-audio.s vendor/tad/tad-audio.inc \
+		$(ST_MAP)/engine_state_globals.inc | $(BUILD)
+	$(CA65) -I $(ST_MAP) -I vendor/tad -o $@ $<
+
+$(BUILD)/st_tad_data.o: assets/audio/export/tad_audio_data.asm \
+		assets/audio/export/tad_audio_data.bin | $(BUILD)
+	$(CA65) --bin-include-dir assets/audio/export -o $@ $<
+
 $(BUILD)/stomper.sfc: $(ST_ASM) $(ST)/stomper.inc \
 		$(ST_MAP)/engine_state_globals.inc \
 		$(BUILD)/assets/font_2bpp.bin $(ST_ASSETS) \
+		$(BUILD)/st_tad_wrapper.o $(BUILD)/st_tad_data.o \
 		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
 		$(VROM)/lorom_512k.cfg | $(BUILD)
 	$(PY) allocator/no_literals.py --map $(ST_MAP)/symbol_map.json $(ST_ASM)
@@ -1657,9 +1667,11 @@ $(BUILD)/stomper.sfc: $(ST_ASM) $(ST)/stomper.inc \
 		-I engine/features/oam_sprites -I engine/features/col_map \
 		-I engine/features/stomper_bg -I engine/features/stomper_obj \
 		-I engine/features/region -I engine/features/tick_scale \
+		-I vendor/tad -I assets/audio/export \
 		--bin-include-dir $(BUILD)/assets \
 		-o $(BUILD)/stomper.o $(ST)/main.asm
-	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/stomper.o
+	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/stomper.o \
+		$(BUILD)/st_tad_wrapper.o $(BUILD)/st_tad_data.o
 	$(PY) tools/fix_checksum.py $@
 
 stomper: $(BUILD)/stomper.sfc

@@ -29,7 +29,16 @@
 #   input       COMPOSES as written (btn = ES_INP_CUR, btnp = ES_INP_PRESS).
 #
 # NOT COMPOSED:
-#   audio       this rail is silent; nothing here is timed to sound.
+#
+# AUDIO IS COMPOSED NOW. The old line here read "this rail is silent;
+# nothing here is timed to sound", which was never true of the rail --
+# every one of its four events is a discrete instant the game already
+# funnels through a single site. Take-off and the landing edge come from
+# the jumper physics this rail forks; `scored` and `hurt_respawn` are the
+# two arms of the stomp classifier, and each is reached once per
+# resolution by construction.
+#   audio       the CPU-side request queue + the per-frame driver pump.
+#   tad_rom     the export blob's half-window ROM claim, beside it.
 #   backdrop    stomper_bg's palette group 0 claim owns CGRAM word 0 (the
 #               backdrop slot), and that slot has exactly one owner.
 #
@@ -50,7 +59,8 @@
 # `blink` is the free-running heartbeat a test reads to tell a running tick
 # from a stuck one, which is what it is FOR.
 globals = ["scene_mgr", "input", "fade", "text_dp", "font_rom", "enter_scr",
-           "oam_sprites", "stomper_rom", "region", "tick_scale"]
+           "oam_sprites", "stomper_rom", "audio", "tad_rom",
+           "region", "tick_scale"]
 
 [[scene]]
 id = "play"
