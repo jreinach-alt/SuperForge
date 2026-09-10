@@ -176,6 +176,22 @@ def raced():
 # would file a kerb clip as a checkpoint. See `_cue_runs`.
 BLIP_ENVX, CHIME_ENVX, SPLIT = 110, 127, 120
 
+# A SILENT FRAME INSIDE ONE CUE IS NOT THE END OF IT. Both effects are TWO
+# notes -- `pickup` is e5 for 3 ticks then b5 for 7, `chime` is e5 then a5 --
+# and the key-off between them can read ENVX 0 on a sampled frame. Whether it
+# does depends on where the 125 Hz effect clock falls against the 60 Hz frame
+# the harness samples on, and that VARIES BETWEEN RUNS of the same drive:
+# measured, one run held ENVX 110 continuously from frame 511 to 515 while
+# another read 0 at 512, so the same single cue counted once here and twice
+# there. It cost a landing-gate red that this module passed standalone, and
+# it was misdiagnosed once as the surface cue leaking in before the frames
+# were actually dumped.
+#
+# So a run is closed by a REAL silence, not by one sampled zero. Six frames is
+# far longer than the ~5-frame effects and far shorter than the ~50 frames
+# between consecutive cues, so it cannot merge two genuine blips.
+CUE_GAP = 6
+
 
 def _cue_runs(rows):
     """(start frame, peak ENVX) for each run of a BELL-voiced SFX.
@@ -189,14 +205,17 @@ def _cue_runs(rows):
     non-drivable tile is marginal. Keying on the SAMPLE first makes the count
     mean what its name says.
     """
-    runs, cur = [], None
+    runs, cur, gap = [], None, 0
     for i, row in enumerate(rows):
         env = max((row[v][1] for v in SFX_VOICES if row[v][0] == BELL),
                   default=0)
         if env:
             cur = [i, env] if cur is None else [cur[0], max(cur[1], env)]
+            gap = 0
         elif cur:
-            runs.append(tuple(cur)); cur = None
+            gap += 1
+            if gap > CUE_GAP:
+                runs.append(tuple(cur)); cur = None
     if cur:
         runs.append(tuple(cur))
     return runs
@@ -368,9 +387,12 @@ def test_a_lap_is_three_blips_and_a_chime(raced):
     START press that enters the race queues its own `select`, and it lands in
     the opening frames rather than inside a lap.
 
-    Two defects this bounds and the audibility case above does not: dropping
-    the consume makes it four blips and a chime, and moving the blip to the
-    sector VALUE rather than its change floods the interval.
+    Two defects this bounds and the audibility case above does not, and their
+    signatures differ: dropping the consume makes it FOUR blips and a chime,
+    while moving the blip to the sector VALUE rather than its change reads as
+    ZERO — a cue re-triggered every frame never stops sounding, so it is one
+    unbroken run with no onset inside the interval at all. Both measured
+    against plants; the second is why the message below names both directions.
     """
     rows, lap_frames, _ = raced
     assert len(lap_frames) >= 2, "need two lap frames to bound an interval"
@@ -380,9 +402,11 @@ def test_a_lap_is_three_blips_and_a_chime(raced):
         inside = [f for f in blips if a < f < b]
         assert len(inside) == 3, (
             f"the lap between frames {a} and {b} sounded {len(inside)} "
-            f"checkpoint blips, not 3 — four means the lap's own crossing was "
-            f"not consumed on the chime's arm, and more means the cue is "
-            f"reading the sector's VALUE rather than its change")
+            f"checkpoint blips, not 3. FOUR means the lap's own crossing was "
+            f"not consumed on the chime's arm. FEWER means the cue is firing "
+            f"off the sector's VALUE rather than its change — a per-frame "
+            f"re-trigger reads as ONE unbroken run rather than as many, so "
+            f"the defect shows up here as too few onsets, not too many")
     # THE LAST LAP IS NOT COUNTED, and the reason is the fixture's: the drive
     # stops ON the frame the third lap closes, because the race tick requests
     # the results scene there and `race::tick` runs no more. That lap's chime
