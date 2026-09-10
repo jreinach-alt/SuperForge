@@ -170,14 +170,29 @@ def raced():
 # SRCN split: if the two cues were swapped at their call sites, the counts
 # below would still hold. The structure claim (three between laps, one at the
 # boundary) is what carries this case now.
+#
+# The THIRD cue is excluded by sample rather than by envelope: `skid` is
+# `step` at gain F80, which is under this split, so counting every SFX run
+# would file a kerb clip as a checkpoint. See `_cue_runs`.
 BLIP_ENVX, CHIME_ENVX, SPLIT = 110, 127, 120
 
 
 def _cue_runs(rows):
-    """(start frame, peak ENVX) for each run of SFX-voice sounding."""
+    """(start frame, peak ENVX) for each run of a BELL-voiced SFX.
+
+    RESTRICTED TO BELL, and that restriction is a bug fix. This counted every
+    run on an SFX voice and split blip from chime on the envelope alone —
+    which silently swept in the third cue: `skid` is voiced by `step` at gain
+    F80, under the 120 split, so a kerb clipped during the oracle drive was
+    counted as a checkpoint blip. It cost a red in the landing gate that the
+    module passed standalone, because whether that drive touches a
+    non-drivable tile is marginal. Keying on the SAMPLE first makes the count
+    mean what its name says.
+    """
     runs, cur = [], None
     for i, row in enumerate(rows):
-        env = max((row[v][1] for v in SFX_VOICES), default=0)
+        env = max((row[v][1] for v in SFX_VOICES if row[v][0] == BELL),
+                  default=0)
         if env:
             cur = [i, env] if cur is None else [cur[0], max(cur[1], env)]
         elif cur:
