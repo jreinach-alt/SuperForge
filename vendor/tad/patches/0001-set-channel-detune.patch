@@ -1,0 +1,164 @@
+# SuperForge patch 0001 — add the SET_CHANNEL_DETUNE IO command
+#
+# THIS PATCH PRODUCES AN ALTERED VERSION OF TERRIFIC AUDIO DRIVER.
+# Terrific Audio Driver is © Marcus Rowe, Zlib licence. Clause 2 of that
+# licence requires altered source versions to be plainly marked as such and
+# not misrepresented as the original software. A build carrying this patch is
+# NOT upstream TAD; do not report its behaviour to upstream as if it were.
+#
+# Applies to upstream commit 822164b (v0.3.0-48-g822164b).
+#   git -C /tmp/tad apply vendor/tad/patches/0001-set-channel-detune.patch
+#
+# WHAT IT ADDS, and what it deliberately does not. Upstream has no way to
+# change a sound attribute from the S-CPU while it plays: all eleven of its IO
+# commands are global or per-song. But the driver ALREADY stores a per-channel
+# i16 VxPITCH offset (`channelSoA_detune_l/h`) and already applies it to every
+# play_note and portamento — it was simply unreachable except from song
+# bytecode. This adds the doorway, not the room: one command in a free
+# protocol slot (22 of 16 four-bit slots; 11 were used), packing a channel
+# index and a 13-bit signed detune into the two parameter bytes the protocol
+# already carries.
+#
+# TAD_IO_VERSION is bumped 20 -> 21 so a patched driver and an unpatched ca65
+# API refuse to link rather than producing a subtly wrong ROM. The Rust
+# compiler crate carries its own assertion on that version, patched to match,
+# so the mismatch is caught at the Rust build too.
+#
+# Verified on the emulator, not by reading: with the command issued once a
+# frame from a scene's tick, a drone voice's VxPITCH moved 1203 -> 1803 for a
+# requested +600 (exactly), and swept 1203 -> 4275 -> 2227 when driven from
+# the scene's own accumulator. See docs/101.
+
+diff --git a/audio-driver/src/audio-driver.asm b/audio-driver/src/audio-driver.asm
+index 911af63..0d096b6 100644
+--- a/audio-driver/src/audio-driver.asm
++++ b/audio-driver/src/audio-driver.asm
+@@ -1130,6 +1130,54 @@ Valid:
+ 
+ 
+ ; IN Y: global music volume
++; Set a channel's detune — an i16 VxPITCH offset applied to every play_note
++; and portamento on that channel.
++;
++; IN: Y = DriverIO__PARAMETER_0_PORT = cccccnnn
++;         nnn   = channel index
++;         ccccc = detune bits 8..12
++; IN: DriverIO__PARAMETER_1_PORT = detune bits 0..7
++;
++; The detune is 13-bit two's complement (-4096 .. +4095) and is sign-extended
++; into the i16 the channel already stores. Packed this way because the IO
++; protocol carries exactly two parameter bytes and a channel index must travel
++; with the value: one command, one driver tick, no latched selection state.
++;
++; This is the only command that writes per-channel state. `channelSoA_detune_*`
++; lives in the first page, so the writes are bracketed by setp/clrp — every
++; other command here touches globals in page 0 and needs no such bracket.
++.proc cmd__set_channel_detune
++    ; X = channel index, from the low 3 bits of parameter 0
++    mov A, Y
++    and A, #$07
++    mov X, A
++
++    ; A = detune high 5 bits, sign-extended from bit 4 to a full byte
++    mov A, Y
++    lsr A
++    lsr A
++    lsr A
++    ; bit 4 of the 5-bit field is the sign; set the top 3 bits when it is 1.
++    ; `bbc` is direct-page only on the SPC700 and cannot test a bit of A, so
++    ; the test is a compare against the sign bit's weight.
++    cmp A, #$10
++    bcc Positive
++        or A, #$e0
++    Positive:
++
++    setp
++.p1
++    mov channelSoA_detune_h + X, A
++
++    mov A, DriverIO__PARAMETER_1_PORT
++    mov channelSoA_detune_l + X, A
++    clrp
++.p0
++
++    ret
++.endproc
++
++
+ .proc cmd__set_global_volumes
+     call cmd__set_global_music_volume
+ 
+diff --git a/audio-driver/src/io-commands.inc b/audio-driver/src/io-commands.inc
+index 05e1f91..767e739 100644
+--- a/audio-driver/src/io-commands.inc
++++ b/audio-driver/src/io-commands.inc
+@@ -25,7 +25,7 @@
+ 
+ 
+ ; This constant MUST be increased if `LOADER_ADDR` or the IO Communication protocol changes.
+-TAD_IO_VERSION = 20
++TAD_IO_VERSION = 21    ; +cmd__set_channel_detune (SuperForge fork)
+ 
+ 
+ ; Loader Commands
+@@ -171,7 +171,7 @@ TAD_IO_VERSION = 20
+     ;    has been acknowledged.
+     DriverIO__COMMAND_PORT = CPUIO0
+ 
+-    DriverIO__N_COMMANDS = 11
++    DriverIO__N_COMMANDS = 12
+     DriverIO__COMMAND_MASK   = %00011110
+     DriverIO__COMMAND_I_MASK = %11100001
+ 
+@@ -297,5 +297,27 @@ IoCommands__PAUSE = 0
+     ;
+     ; NOTE: Global volumes persist after a new song or common-audio-data is loaded.
+     cmd__set_global_volumes ; CMD 20
++
++    ; Set a channel's DETUNE — an i16 VxPITCH offset added to every play_note
++    ; and portamento on that channel.
++    ;
++    ;  * parameter0: cccccnnn
++    ;        nnn   = channel index (0 .. N_CHANNELS-1)
++    ;        ccccc = detune bits 8..12
++    ;  * parameter1: detune bits 0..7
++    ;
++    ; The detune is a 13-bit two's-complement value, so the range is
++    ; -4096 .. +4095 in VxPITCH units. It is sign-extended to the i16 the
++    ; channel already stores.
++    ;
++    ; This is the ONLY way to change a sound attribute from the S-CPU while it
++    ; is playing: every other command here is global or per-song. The channel
++    ; state it writes (`channelSoA_detune_l/h`) already existed and was
++    ; reachable only from song bytecode (`set_detune`, MML `D`).
++    ;
++    ; NOTE: detune does not affect `play_pitch` instructions, matching the
++    ; bytecode instruction's documented behaviour.
++    ; NOTE: detune persists until changed; loading a song resets it.
++    cmd__set_channel_detune ; CMD 22
+ .endftdef
+ 
+diff --git a/crates/compiler/src/driver_constants.rs b/crates/compiler/src/driver_constants.rs
+index fd6a3ec..da09d19 100644
+--- a/crates/compiler/src/driver_constants.rs
++++ b/crates/compiler/src/driver_constants.rs
+@@ -209,7 +209,8 @@ pub struct LoaderDataType {
+ 
+ impl LoaderDataType {
+     pub fn driver_value(&self) -> u8 {
+-        const _: () = assert!(TAD_IO_VERSION == 20);
++        // SuperForge fork: 21 adds cmd__set_channel_detune (IO command 22).
++        const _: () = assert!(TAD_IO_VERSION == 21);
+ 
+         // LoaderDataType.SONG_DATA_BIT
+         let mut o = 1 << 7;
+@@ -263,7 +264,8 @@ pub const STARTING_VOLUME: u8 = 96;
+ // Sound effect constants
+ pub const SFX_TICK_CLOCK: u8 = 64;
+ 
+-const _: () = assert!(TAD_IO_VERSION == 20);
++// SuperForge fork: 21 adds cmd__set_channel_detune (IO command 22).
++const _: () = assert!(TAD_IO_VERSION == 21);
+ 
+ // IO Commands
+ pub mod io_commands {

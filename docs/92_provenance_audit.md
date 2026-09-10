@@ -63,8 +63,8 @@ case, and this audit keeps the two apart.
 | `docs/img/*.png`, `*.gif` | **first-party captures** | the stills are exactly 256×239 — Mesen2's SNES capture geometry — and the animated clips are built by `tools/record_gallery_clip.py` and its siblings from frames of that shape. Note the capture/subject split `LICENSE` states: the captures are ours, but any shot of a rail built on a vendored pack pictures that pack's pixels (§5.1) |
 | `assets/audio/samples/*.wav` (7) | **first-party, PROVEN** | `python3 tools/gen_audio_samples.py <dir>` reproduces all seven **byte-for-byte** (sha256 equal). No external sample material. The two added for the SFX vocabulary (`bell`, `saw`) are single-cycle 64-sample loops computed from a fixed harmonic series with no RNG at all; `kick`, added for the action rails' song, is a pitch-dropping sine with a fixed-seed noise transient. Each addition left every earlier wav byte-identical, checked by md5 before and after |
 | `assets/audio/mml/`, `sound-effects.txt`, `slice_b.terrificaudio` (3) | **first-party** | authored here |
-| `assets/audio/export/*` (3) | **third-party embedded** | the `.asm` wrapper carries `SPDX-License-Identifier: Unlicense`; the `.bin` embeds TAD's SPC700 loader (116 B) + driver (3,218 B), zlib — the offsets are declared by the wrapper's own `.export` lines |
-| `vendor/tad/` (2) | **third-party, zlib** | both files sha256-**identical to upstream fetched live** at the pinned commit `822164b`; `audio-driver/LICENSE` at that commit fetched and read |
+| `assets/audio/export/*` (3) | **third-party embedded, MODIFIED** | the `.asm` wrapper carries `SPDX-License-Identifier: Unlicense`; the `.bin` embeds TAD's SPC700 loader (116 B) + driver (**3,244 B — an ALTERED TAD driver**, see the row below), zlib — the offsets are declared by the wrapper's own `.export` lines |
+| `vendor/tad/` (2) + `vendor/tad/patches/` (1) | **third-party, zlib, ALTERED BY US** | **NO LONGER byte-identical to upstream, deliberately.** Both files were sha256-identical to upstream fetched live at the pinned commit `822164b` when vendored on 2026-07-30 (`audio-driver/LICENSE` at that commit fetched and read), and both have since been modified to declare one added IO command — see §5.5 |
 | `vendor/fonts/unscii-8.hex` (1) | **third-party, public domain** | §5.3 |
 | `vendor/art/` original pack PNGs + text (21) | **third-party** | every one sha256-matched against the upstream pack zip; digests recorded in §5.1 |
 | `vendor/art/*/ref_*` and `split_v/sv_*` conversions and oracles (34) | **mixed** | first-party where the conversion's source is procedural, third-party-derived where it traces to a pack; §5.2 |
@@ -434,6 +434,47 @@ reproduced.
   licensing matter and not fixed here.
 
 ---
+
+## 5.5 The TAD fork — an altered third-party source, marked as the licence requires
+
+**SuperForge ships a MODIFIED Terrific Audio Driver.** This section exists
+because the Zlib licence obliges it. Clause 2: *"Altered source versions must
+be plainly marked as such, and must not be misrepresented as being the
+original software."* Clause 1 also forbids misrepresenting the origin, and we
+do not: TAD is © Marcus Rowe and everything the driver does apart from the
+change below is his work.
+
+**What changed.** One IO command, `SET_CHANNEL_DETUNE` (command 22), added by
+`vendor/tad/patches/0001-set-channel-detune.patch`. It touches three upstream
+files — `audio-driver/src/audio-driver.asm` (the handler),
+`audio-driver/src/io-commands.inc` (the protocol declaration and the version
+bump), and `crates/compiler/src/driver_constants.rs` (two compile-time
+assertions on that version) — plus the two vendored ca65 files here, which
+gained the matching constant and version.
+
+**Why.** Upstream exposes no way to change a sound attribute from the S-CPU
+while it is playing: all eleven of its commands are global or per-song, and
+there is no per-voice pitch control, so nothing driven by game state can be
+expressed. The driver ALREADY stores and applies a per-channel i16 VxPITCH
+offset; it was reachable only from song bytecode. The patch adds the doorway,
+not the room. Upstream at v0.4.2 — 96 commits past our pin — still has the
+same eleven commands, so this is a design boundary there rather than a
+version lag, and bumping the pin would not have bought it.
+
+**How a reader checks this claim.** The patch applies cleanly to a pristine
+`822164b` (verified by `git apply --check` against a freshly reverted
+checkout, not asserted), the driver's SPC700 assembler is a crate inside
+upstream's own repo so no external toolchain is involved, and
+`vendor/tad/README.md` records both the upstream sha256s and the current
+ones so the difference is visible rather than implied.
+
+**What keeps the fork from going quietly wrong.** `TAD_IO_VERSION` is bumped
+20 → 21, and three independent places assert on it: the generated
+`tad_audio_data.asm` link-asserts against `tad-audio.s` (observed refusing to
+link during the port), and the Rust compiler crate has two `assert!`s that
+fail its build. A patched driver with an unpatched API cannot silently
+produce a ROM.
+
 
 ## 8. What a downstream consumer actually has to do
 

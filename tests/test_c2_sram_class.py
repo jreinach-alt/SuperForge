@@ -272,6 +272,11 @@ def test_claimless_microzero_keeps_a_no_sram_header_and_its_md5(tmp_path):
     when those cues were made AUDIBLE: a surface cue joined them, both
     existing cues moved to an instrument this rail's song does not use, and
     two effects in the shared vocabulary gained an explicit `set_volume`.
+    A FIFTH (-> ccb4dbd7adda19fb46384fcd5813b9cb) for a reason none of the
+    others share: the AUDIO DRIVER ITSELF changed. SuperForge now ships a
+    forked TAD carrying one added IO command, so the driver binary embedded
+    in every audio rail's export is different and every one of those ROMs
+    moved — this one included, on a capability it does not use.
     Expect this pin to move whenever
     `assets/audio/` does OR microzero's own code does — which is to say
     often, and the header assertion either side of it is the part that
@@ -287,7 +292,7 @@ def test_claimless_microzero_keeps_a_no_sram_header_and_its_md5(tmp_path):
     assert r.returncode == 0, f"make microzero failed:\n{r.stderr}"
     img = (SUPERFORGE / "build" / "microzero.sfc").read_bytes()
     assert img[OFF_CART_TYPE] == 0x00 and img[OFF_SRAM_SIZE] == 0x00
-    assert hashlib.md5(img).hexdigest() == "eac1ffbc7317116648705205820b604c", \
+    assert hashlib.md5(img).hexdigest() == "ccb4dbd7adda19fb46384fcd5813b9cb", \
         "microzero.sfc moved — the measurement reference is a pinned md5"
 
 

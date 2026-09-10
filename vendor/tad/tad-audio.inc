@@ -225,6 +225,26 @@ TAD_MIN_TICK_CLOCK = 64
     ;;
     ;; CAUTION: This command does not change the echo volume.
     SET_GLOBAL_VOLUMES = 20
+
+    ;; Set a channel's DETUNE — an i16 VxPITCH offset added to every
+    ;; play_note and portamento on that channel.
+    ;;
+    ;;  * parameter0: cccccnnn — nnn = channel index, ccccc = detune bits 8..12
+    ;;  * parameter1: detune bits 0..7
+    ;;
+    ;; The detune is 13-bit two's complement, so -4096 .. +4095 in VxPITCH
+    ;; units, sign-extended into the i16 the channel already stores.
+    ;;
+    ;; SUPERFORGE FORK — NOT UPSTREAM TAD. This command does not exist in
+    ;; terrific-audio-driver at any released version; it was added here
+    ;; because it is the only way to change a sound attribute from the S-CPU
+    ;; while it is playing. The channel state it writes already existed and
+    ;; was reachable only from song bytecode (`set_detune`, MML `D`).
+    ;; See docs/101 and vendor/tad/README.md.
+    ;;
+    ;; CAUTION: does not affect `play_pitch`, matching the bytecode
+    ;; instruction. Loading a song resets detune.
+    SET_CHANNEL_DETUNE = 22
 .endenum
 
 

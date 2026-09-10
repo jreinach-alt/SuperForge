@@ -35,18 +35,18 @@
 .export Tad_Loader_Bin := __Tad_AudioData_0 + 0
 .export Tad_Loader_SIZE = 116
 .export Tad_AudioDriver_Bin := __Tad_AudioData_0 + 116
-.export Tad_AudioDriver_SIZE = 3218
+.export Tad_AudioDriver_SIZE = 3244
 
 ;; [u24 ; N_DATA_ITEMS] - table of PRG ROM offsets (from the start of the first Audio Data segment)
 ;; u16 footer - 16 bit clipped `bin_data_offset + bin_file.len()` (used to determine the size of the last item)
-Tad_DataTable := __Tad_AudioData_0 + 3334
+Tad_DataTable := __Tad_AudioData_0 + 3360
 Tad_DataTable_SIZE = 23
 
 N_DATA_ITEMS = 7
 AUDIO_DATA_BANK = .bankbyte(__Tad_AudioData_0)
 
 .import TAD_IO_VERSION
-.assert TAD_IO_VERSION = 20, lderror, "TAD_IO_VERSION in audio driver does not match TAD_IO_VERSION in tad-audio.s"
+.assert TAD_IO_VERSION = 21, lderror, "TAD_IO_VERSION in audio driver does not match TAD_IO_VERSION in tad-audio.s"
 
 
 .segment "AUDIO_DATA0"
@@ -117,7 +117,7 @@ AUDIO_DATA_BANK = .bankbyte(__Tad_AudioData_0)
 .assert .sizeof(LoadAudioData) = 51, error
 
   __Tad_AudioData_0: .incbin "tad_audio_data.bin", $0
-  .assert .sizeof(__Tad_AudioData_0) = $3557, error, "tad_audio_data.bin file size does not match binary size in the assembly file"
+  .assert .sizeof(__Tad_AudioData_0) = $3571, error, "tad_audio_data.bin file size does not match binary size in the assembly file"
 
 .assert .bankbyte(Tad_DataTable) = .bankbyte(Tad_DataTable + Tad_DataTable_SIZE), lderror, "Tad_DataTable does not fit in a single bank"
 

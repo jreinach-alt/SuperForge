@@ -124,11 +124,21 @@ Two arrangement rules in it are hardware, not taste, and
 ## Regenerating the export
 
 Required whenever the project, a sample, the song, or the SFX change.
-Build `tad-compiler` once from the vendored pin (`822164b`; ~2 min):
+
+**THE DRIVER IS FORKED — apply the patch before building, or the export will
+not link.** SuperForge adds one IO command to TAD
+(`SET_CHANNEL_DETUNE`, the only way to change a sound attribute from the
+S-CPU while it is playing); see `vendor/tad/README.md` and
+`docs/92_provenance_audit.md` §5.5 for what and why, and `docs/101` for how
+to use it. Building from the bare pin gives a driver at `TAD_IO_VERSION 20`
+against a ca65 API at 21, and ld65 refuses the link by name — a loud failure
+rather than a wrong ROM, but a failure.
 
 ```bash
 git clone https://github.com/undisbeliever/terrific-audio-driver.git /tmp/tad
 git -C /tmp/tad checkout 822164b
+git -C /tmp/tad apply "$PWD/../../vendor/tad/patches/0001-set-channel-detune.patch"
+make -C /tmp/tad/audio-driver          # SPC700 assembler is a crate in that repo
 cargo build --release --manifest-path /tmp/tad/Cargo.toml -p tad-compiler
 ```
 

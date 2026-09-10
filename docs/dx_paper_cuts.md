@@ -1273,3 +1273,93 @@ Three things worth carrying:
 The dead cadence constants and the now-unused `_rail_const` helper went with
 the fix, so the module no longer reads a file for numbers the mechanism it
 described no longer has.
+
+---
+
+## Forking the audio driver to reach state it already had (2026-09-10)
+
+### THE CAPABILITY WAS ALREADY IN THE DRIVER, BEHIND NO DOOR — surprise, MEDIUM
+
+The vendored driver has no way to change a sound attribute from the S-CPU
+while it plays: all eleven IO commands are global or per-song, and sound
+effects are queued by id and pan only. The obvious reading is "the driver
+cannot do per-voice pitch", and the obvious fix is a large one — write the
+mechanism.
+
+Reading the driver's own source rather than its ca65 header says otherwise:
+
+    ; i16 VxPITCH offset added to every play_note or portamento instruction
+    channelSoA_detune_l : [u8 : N_CHANNELS]
+    channelSoA_detune_h : [u8 : N_CHANNELS]
+
+Per-channel pitch offset, applied on every note, persisting across notes —
+all of it there, reachable only from song bytecode. **The work was a doorway,
+not a room**: one command in a free protocol slot writing two bytes that
+already existed. Fifty lines of SPC700, most of it comment.
+
+The general lesson is the repo's own rule with a sharper edge: the ca65 API
+is a *view* of the driver, and a capability absent from the view is not
+necessarily absent from the thing. When a vendored dependency seems to lack
+something fundamental, read its implementation before designing around it.
+
+### CHECK UPSTREAM BEFORE FORKING, AND CHECK IT PROPERLY — easy, LOW
+
+Before committing to a fork, fetch and diff: upstream at v0.4.2, **96 commits
+past our pin**, still has `TAD_IO_VERSION = 20`, `N_COMMANDS = 11` and the
+identical eleven commands. That converts "we may be behind" into "this is a
+design boundary there", which is the difference between a pin bump and a
+fork. Two minutes, and it is the fact the whole decision rests on.
+
+### A LOUD VERSION ASSERT IS WHAT MAKES A FORK CARRYABLE — easy, LOW
+
+`TAD_IO_VERSION` is bumped 20 -> 21 by the patch, and three independent
+places assert on it: the generated export link-asserts against `tad-audio.s`,
+and the Rust compiler crate has two compile-time assertions. All three fired
+during the port — the Rust build refused first, then ld65 refused **by name**
+("TAD_IO_VERSION in audio driver does not match TAD_IO_VERSION in
+tad-audio.s") when the export was rebuilt against an unpatched API.
+
+That is the property that makes a forked dependency safe to carry rather than
+a slow leak: the failure mode of a half-applied fork is a build that stops,
+not a ROM that is subtly wrong. **When forking anything with a protocol
+version, bump it first and make sure something asserts on it** — before
+writing the feature, not after.
+
+### `bbc` IS DIRECT-PAGE ONLY, AND MY SPIKE'S PACKING WAS THE BUG — clunky, LOW
+
+Two self-inflicted stops worth recording because both cost a build cycle.
+SPC700's `bbc` tests a bit of a direct-page byte, not of A, so sign-extending
+a 5-bit field in the accumulator needs a `cmp`/`bcc` rather than a bit test.
+
+And the first end-to-end spike measured NO pitch change — which read as "the
+command does not work" and was actually my parameter packing being nonsense
+(`xba` then `ora` then a mask that cleared the channel bits). Replacing it
+with a hand-computed constant (channel 1, +600 -> param0 $11, param1 $58)
+moved the drone 1203 -> 1803 immediately. **When a new mechanism measures
+zero, test it with a hand-computed constant before doubting the mechanism** —
+it separates delivery from arithmetic in one build.
+
+### THE FORK LANDED WITHOUT A CONSUMER, AND THEREFORE WITHOUT A REGRESSION TEST — clunky, MEDIUM
+
+Recorded as an open gap rather than resolved. Every subsystem here ships with
+a test that boots a ROM, and this one does not: the command is proven by
+measurement (a fixed +600 landing exactly, and a sweep driven from a scene's
+accumulator) but that evidence lived in a throwaway spike, and nothing in the
+tree exercises it.
+
+The reason is that its natural consumer — an engine note — needs a spare
+MUSIC channel, and it turns out no rail has one. `circuit_song` scores all
+six of A-F; G and H are the pair every song avoids because sound effects duck
+them. Channel B rests for eight bars of sixteen, but by an arrangement
+decision its own comment defends. So giving the capability a consumer means
+re-scoring somebody's song, which is a content decision and not the
+orchestrator's to make unilaterally.
+
+The alternative considered and rejected was a probe ROM: the pattern exists
+(`vendor/probes/probe_objview.asm`) but a probe carries its own allocator
+run, symbol map and assets, which is more scaffolding than a one-command
+regression needs and duplicates what a real consumer gives for free.
+
+**The rule this is filed under: infrastructure whose test depends on a
+content decision should land WITH the content decision, or with an explicit
+note saying it did not.** This is the note.
