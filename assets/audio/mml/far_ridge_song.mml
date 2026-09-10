@@ -163,11 +163,29 @@ E  [!hb ]16
 ;     There is no re-trigger and therefore no seam to hide.
 ;   * IT IS MIXED AS MUSIC. `v` sits it against the drone in the same units
 ;     the rest of the score uses, instead of a fixed gain chosen blind.
-;   * IT REACHES THE ECHO. `E1` is what turns a band of noise into moving air:
-;     the 128 ms buffer smears the LFSR's edges into a rush. Dry, the same
-;     part is tape hiss -- this is the single biggest difference between
-;     "noise is playing" and "wind is blowing", and it is why the effect
-;     version could not be rescued by volume alone.
+;   * IT IS MIXED AS MUSIC, WHICH IS ALSO HOW IT GETS ITS LEVEL WRONG. See
+;     the level note below -- this channel shipped once at `v9` and had to be
+;     cut to `v3`, and the mixing units are what made that a one-token fix
+;     rather than a re-authored effect.
+;
+; LEVEL: `v3`, AND IT IS MEASURED AGAINST THE WHOLE MIX RATHER THAN AGAINST
+; ONE VOICE. This part shipped at `v9` and was reported as far too much
+; static. Recorded off the chip and compared with a music-only build of the
+; same song, `v9` adds 46.6% to the total RMS of the mix; `v3` adds 6.2%.
+; A bed that is half the record is not weather. The mistake behind `v9` was
+; reading an AUDIBILITY FLOOR as a target: the test's bar is a per-voice ratio
+; that says "not inaudible", and shipping at three times it is not better, it
+; is a different defect. The test now bounds a BAND, not a floor.
+;
+; DRY (`E0`), AND THAT REVERSES WHAT THIS COMMENT USED TO CLAIM. It argued
+; that echo is what turns a band of noise into moving air and that a dry part
+; is tape hiss. Two things retire that: the echo bus is SHARED -- channels A
+; and D are `E1`, so a continuous broadband source routed into a buffer with
+; `#EchoFeedback 24` comes back on top of every echoed part, which is exactly
+; the cross-channel contamination that was reported; and measured, echo
+; changes the level not at all (v4 `E1` 5471 RMS against v4 `E0` 5472), so
+; there is nothing to weigh against that. The original claim was written from
+; reasoning and never tested, which is what made it costly.
 ;
 ; THE INSTRUMENT IS CHOSEN FOR ITS LOOP FLAG, NOT ITS TIMBRE. With noise
 ; enabled the voice outputs the generator and the BRR sample is inaudible --
@@ -197,7 +215,7 @@ E  [!hb ]16
 ; held breath instead of restarting it; with an instant attack a re-key would
 ; be a click at full level once a bar, which is a windscreen thump rather than
 ; wind.
-F  L @5 v9 E1 A15,0,7,0 p64
+F  L @5 v3 E0 A15,0,7,0 p64
 F  N17,1 & N19,1 & N21,1 & N18,1 &
 F  N16,1 & N20,1 & N23,1 & N21,1 &
 F  N18,1 & N17,1 & N19,1 & N22,1 &

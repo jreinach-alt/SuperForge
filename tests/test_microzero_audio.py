@@ -45,6 +45,7 @@ from mesen_runner import MemoryType, MesenRunner  # noqa: E402
 import mz_drive as D  # noqa: E402
 
 DSP = MemoryType.SpcDspRegisters
+W = MemoryType.SnesWorkRam
 MUSIC_VOICES = tuple(range(6))      # TAD channels A-F
 SFX_VOICES = (6, 7)                 # G/H, ducked while an SFX plays
 def _srcn():
@@ -67,10 +68,12 @@ def _srcn():
 
 
 _SRCN = _srcn()
-BELL = _SRCN["bell"]                # the lap chime
+BELL = _SRCN["bell"]                # the lap chime and the checkpoint blip
+STEP = _SRCN["step"]                # `skid` — the only noise cue on this rail
 PLUCK = _SRCN["pluck"]              # the checkpoint blip and the START confirm
 RACE_LAPS = 3
 LIMIT = 900
+FRAMES_OFFROAD = 600
 TITLE_FRAMES = 240
 MUSIC_MASK = 0x3F   # NON bits for voices 0-5
 
@@ -120,7 +123,12 @@ def raced():
             prev = sim.lap
             D.drive_sim(runner, sim, 1, **D.track_buttons(sim, lut))
             d = runner.read_bytes(DSP, 0, 128)
-            rows.append([(d[v * 0x10 + 4], d[v * 0x10 + 8]) for v in range(8)])
+            # (SRCN, ENVX, VOL_L) — the VOLUME is here because loudness is
+            # the product of the envelope and the channel volume, and a row
+            # without it can only answer "is this sounding", which is the
+            # question that passed while the rail was reported silent.
+            rows.append([(d[v * 0x10 + 4], d[v * 0x10 + 8], d[v * 0x10 + 0])
+                         for v in range(8)])
             assert D.lap(runner, syms) == sim.lap, (
                 f"frame {f}: ROM lap {D.lap(runner, syms)} vs oracle "
                 f"{sim.lap} — the drive rotted, so the audio cases below "
@@ -143,16 +151,51 @@ def raced():
     return rows, lap_frames, title
 
 
-def _onsets(rows, srcn):
-    """Frame indices where `srcn` STARTS sounding on an SFX voice.
+# BOTH CUES ARE BELL, AND THAT IS THE FIX RATHER THAN AN OVERSIGHT.
+# `circuit_song` scores square_lead, saw, tri_bass, step, kick and pluck —
+# every instrument in the project except bell. The checkpoint blip used to be
+# `select`, which is voiced by PLUCK, so it was the same instrument as the
+# song's own channel D and did not read as a cue at all; it was reported as
+# the rail having no sound effects. bell is the only timbre here that can cut
+# through this soundtrack, so both cues use it and SRCN can no longer tell
+# them apart.
+#
+# What separates them instead is their ENVELOPE, which is the effects' own
+# and not a coincidence: `pickup` opens `set_instrument_and_gain bell F110`
+# and `chime` opens with F127, so a run peaking at ENVX 110 is a blip and one
+# peaking at 127 is a chime. The split at 120 sits between two fixed gains
+# rather than near either.
+#
+# WHAT THIS CANNOT SEE, stated because it is a real loss against the old
+# SRCN split: if the two cues were swapped at their call sites, the counts
+# below would still hold. The structure claim (three between laps, one at the
+# boundary) is what carries this case now.
+BLIP_ENVX, CHIME_ENVX, SPLIT = 110, 127, 120
+
+
+def _cue_runs(rows):
+    """(start frame, peak ENVX) for each run of SFX-voice sounding."""
+    runs, cur = [], None
+    for i, row in enumerate(rows):
+        env = max((row[v][1] for v in SFX_VOICES), default=0)
+        if env:
+            cur = [i, env] if cur is None else [cur[0], max(cur[1], env)]
+        elif cur:
+            runs.append(tuple(cur)); cur = None
+    if cur:
+        runs.append(tuple(cur))
+    return runs
+
+
+def _onsets(rows, kind):
+    """Frame indices where a cue of `kind` ("blip" or "chime") starts.
 
     A cue is an event, so what a count of cues wants is the leading edge of
     each run, not the frames it occupies — an effect that happens to be two
     frames longer would otherwise change every count in this module.
     """
-    live = [i for i, row in enumerate(rows)
-            if any(row[v][0] == srcn and row[v][1] for v in SFX_VOICES)]
-    return [f for j, f in enumerate(live) if j == 0 or live[j - 1] != f - 1]
+    return [f for f, env in _cue_runs(rows)
+            if (env >= SPLIT) == (kind == "chime")]
 
 
 def _live(rows, voices, srcn=None):
@@ -246,12 +289,54 @@ def test_every_quadrant_crossing_blips(raced):
     which is about one a second.
     """
     rows, lap_frames, _ = raced
-    blips = _onsets(rows, PLUCK)
+    blips = _onsets(rows, "blip")
     assert blips, (
         f"no pluck voice ever sounded on an SFX channel across "
         f"{len(lap_frames)} laps — the checkpoint cue never reached the chip; "
         f"check that `mz_lap_edge`'s @sector arm is reached and that "
         f"US_SECTPREV is seeded in `enter`")
+
+
+def test_the_cues_are_loud_enough_to_be_heard_over_this_song(raced):
+    """THE CASE THIS MODULE DID NOT HAVE, AND ITS ABSENCE IS WHY THE RAIL WAS
+    REPORTED AS SILENT.
+
+    Every audibility case here asked WHETHER a cue voice was sounding. All of
+    them passed on a build a player described as having no sound effects at
+    all, because a bell keyed at 38% of the loudest music voice — under a
+    six-voice mix scored v12/v13/v16 — is not something an ear picks out.
+    `ENVX > 0` is true at a level nobody can hear; it is the same defect the
+    wind on `heathaze` shipped with, and this module inherited it because the
+    fix there was not carried across.
+
+    So the claim is a RATIO against the loudest music voice, measured at the
+    moment the cue sounds. Two things had to change for it to hold, and only
+    the second is about level: the checkpoint was voiced by PLUCK, which this
+    song scores on channel D, so it was camouflaged as well as quiet.
+
+    MEASURED on the shipped binary: the blip peaks at ENVX 110 x VOL 48 =
+    5280 and the chime at 127 x 63 = 8001, against a loudest music voice of
+    8001 — so 0.66 and 1.00. Before `set_volume` was added to the two effects
+    both sat at VOL 24, giving 0.38 and 0.38, which is the state that was
+    reported. The bar is 0.55: clear of the ship, clear above the defect, and
+    it does not pin the exact hierarchy between the two cues.
+    """
+    rows, _, _ = raced
+
+    def mag(vol):
+        return abs(vol - 256 if vol > 127 else vol)
+
+    def amp(v):
+        return max(mag(row[v][2]) * row[v][1] for row in rows)
+
+    music = max(amp(v) for v in MUSIC_VOICES)
+    cue = max(amp(v) for v in SFX_VOICES)
+    assert cue / music > 0.55, (
+        f"the loudest cue peaks at {cue} against the loudest music voice's "
+        f"{music} — a ratio of {cue/music:.2f}. It is sounding and it is too "
+        f"quiet to pick out of this mix, which is the state that was reported "
+        f"as the rail having no sound effects. An effect that does not call "
+        f"`set_volume` plays at the driver default of VOL 24")
 
 
 def test_a_lap_is_three_blips_and_a_chime(raced):
@@ -274,8 +359,8 @@ def test_a_lap_is_three_blips_and_a_chime(raced):
     """
     rows, lap_frames, _ = raced
     assert len(lap_frames) >= 2, "need two lap frames to bound an interval"
-    blips = _onsets(rows, PLUCK)
-    chimes = _onsets(rows, BELL)
+    blips = _onsets(rows, "blip")
+    chimes = _onsets(rows, "chime")
     for a, b in zip(lap_frames, lap_frames[1:]):
         inside = [f for f in blips if a < f < b]
         assert len(inside) == 3, (
@@ -302,6 +387,84 @@ def test_a_lap_is_three_blips_and_a_chime(raced):
         assert lap <= chime <= lap + 3, (
             f"the bell for the lap at frame {lap} sounded at {chime} — the "
             f"chime has come loose from the boundary it names")
+
+
+@pytest.fixture(scope="module")
+def offroad():
+    """A drive that LEAVES THE ROAD, which the oracle drive never does.
+
+    `raced` steers to the track heading every frame precisely so the lap
+    arithmetic is exact, so it is the wrong drive for a surface cue: it is
+    never off the road to be cued about. A held hard turn puts the car onto
+    the grass repeatedly.
+
+    Returns `(rows, edges)` — the DSP per frame, and the number of 1 -> 0
+    surface transitions the ROM's own latch recorded, so the cue count below
+    is checked against the events the game actually had rather than against a
+    number typed here.
+    """
+    jmap = json.loads((SUPERFORGE / "build" / "mz" / "symbol_map.json").read_text())
+    syms = {p["sym"]: p for p in jmap["scenes"]["race"]["placements"]}
+    off = syms["US_OFFPREV"]["start"]
+    r = MesenRunner(enable_audio=True)
+    r.boot_rom(str(SUPERFORGE / "build" / "microzero.sfc"), frames=300)
+    rows, edges, prev = [], 0, None
+    try:
+        D.enter_race(r, {**syms, **{p["sym"]: p for p in jmap["globals"]}})
+        r.frame_step(60)
+        for _ in range(FRAMES_OFFROAD):
+            r.frame_step(1, b=True, left=True)
+            cur = r.read_bytes(W, off, 1)[0]
+            if prev == 1 and cur == 0:
+                edges += 1
+            prev = cur
+            d = r.read_bytes(DSP, 0, 128)
+            rows.append([(d[v * 0x10 + 4], d[v * 0x10 + 8], d[v * 0x10 + 0])
+                         for v in range(8)])
+    finally:
+        r.stop()
+    return rows, edges
+
+
+def test_leaving_the_road_is_audible(offroad):
+    """`skid` is voiced by `step` with `play_noise` — and NOTHING ELSE HERE
+    TAKES THE NOISE GENERATOR, which is what makes it unmistakable.
+
+    `circuit_song` scores no noise and this rail's other two cues are bell, so
+    a step-voiced voice in the noise mask is the skid and can be nothing else.
+
+    THE COUNT IS CHECKED AGAINST THE GAME'S OWN EDGES, not a typed number.
+    `col_map` already probed the tile under the camera every frame and wrote
+    CM_FLAG, and that flag fed nothing at all — no velocity clamp, no
+    collision response, deliberately, because a speed penalty would move a
+    pinned `make measure` cadence. A cue reads it without touching any of
+    that, which is why the most obvious event a racing game owes its player
+    cost one latch word.
+
+    THE DEFECT THIS EXISTS FOR IS A FLAGS BUG AND IT SHIPPED ONCE IN
+    DEVELOPMENT: `sta` does not touch the flags, so a `bne` after storing the
+    new surface still read the CMP's Z — always "not equal" on that arm — and
+    branched every time. Measured then: 19 edges owed, 0 delivered, with both
+    SFX channels idle, so it was not a priority drop. Asserting only "a skid
+    sounds sometimes" would have caught that one; asserting it against the
+    edge count is what keeps a HALF-firing cue from passing.
+    """
+    rows, edges = offroad
+    assert edges >= 4, (
+        f"the drive only left the road {edges} times — it is not exercising "
+        f"the surface cue, so the assertion below would be vacuous")
+    live = [i for i, row in enumerate(rows)
+            if any(row[v][0] == STEP and row[v][1] for v in SFX_VOICES)]
+    onsets = [f for j, f in enumerate(live) if j == 0 or live[j - 1] != f - 1]
+    assert onsets, (
+        f"the car left the road {edges} times and no step-voiced cue ever "
+        f"sounded — check that cm_tick's surface arm reaches sf_sfx_queue_c "
+        f"(a `bne` reading a stale Z after `sta` is how this failed before)")
+    assert len(onsets) >= edges // 3, (
+        f"only {len(onsets)} skids for {edges} departures from the road — the "
+        f"cue is firing on some edges and not others. The SFX ring holds one "
+        f"request a frame and the lower id wins, so a skid (14) loses to a "
+        f"blip (8) that shares its frame; losing MOST of them is a defect")
 
 
 def test_the_song_reserves_the_sound_effect_voices(raced):

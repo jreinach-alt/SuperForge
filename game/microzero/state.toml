@@ -44,6 +44,19 @@ sub_px = "u16[2]@dp"     # sub-pixel accumulators [x, y], 0..255 each — the
 lap = "u8"               # completed laps (rendered in the HUD)
 sector = "u8"            # last ring quadrant: 0 NE, 1 NW, 2 SW, 3 SE
 ckpt = "u8"              # sectors visited since the last lap (bit per sector)
+offprev = "u16@dp"       # the surface as of last tick: 1 on the road, 0 off
+                         # it. `col_map` already probes the tile the camera
+                         # stands on EVERY FRAME and writes CM_FLAG, and that
+                         # flag has always fed NOTHING -- no velocity clamp,
+                         # no collision response (scenes/race.asm, cm_tick,
+                         # says why: a speed penalty would move a PINNED
+                         # `make measure` cadence). A CUE reads it without
+                         # touching any of that, so the one event a racing
+                         # game most obviously owes its player costs a latch
+                         # word and a branch.
+                         # TICK: ok -- a copy of a SURFACE flag, not a count
+                         # of frames. It changes on a position.
+
 sectprev = "u16@dp"      # the sector as of last tick — what makes the
                          # CHECKPOINT an edge rather than a state. `sector`
                          # is this rail's word and `race_logic` fills it, the

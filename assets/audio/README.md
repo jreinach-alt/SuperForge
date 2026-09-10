@@ -170,6 +170,25 @@ is the shmup's gun and the saucer arena's, and neither pays for the other's.
 | `skid` | leaving the road | sustained noise |
 | `wave_break` | a crest arriving — three bands slurred under ONE key-on, so it is a break and not three hisses | sustained noise on `saw` |
 
+**An effect that does not set its own volume is QUIET.** Nothing here called
+`set_volume` until 2026-09-10, so every cue on every rail played at the
+driver's default channel volume — measured on the chip as VOL 24, against
+music channels running 48–63 on the same rails. A cue at 38% of the loudest
+voice it must be heard over is not a cue, and on `microzero`, whose song is
+mixed hot, the rail was reported as having no sound effects at all. Two
+effects now set it (`chime` 255, `pickup` 192 — a lap outranks a checkpoint);
+the other thirteen still run at the default, which is a tree-wide mix
+decision rather than a bug fix, since fifteen rails would change balance at
+once.
+
+**Timbre is the other half of audibility, and it is per-rail.** A cue voiced
+by an instrument its rail's own song already plays does not read as a cue.
+`microzero`'s checkpoint was `select` (pluck) against a song that scores
+pluck on channel D; bell is the one instrument `circuit_song` never uses,
+which is why both of that rail's cues are bell now. **Before choosing a cue,
+read the rail's song's `@` declarations** — the vocabulary is shared but the
+right choice from it is not.
+
 **Export order IS the priority policy.** The ca65 queue holds ONE effect per
 frame and the LOWER id wins (`tad-audio.s:1293`), so the ordering in
 `slice_b.terrificaudio` is a design decision: the four echo-carrying effects

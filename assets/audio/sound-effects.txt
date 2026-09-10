@@ -105,12 +105,37 @@
 
 ; --- rewards and UI --------------------------------------------------------
 
+; --- LEVEL: an effect that does not set its own volume is QUIET ------------
+; Nothing in this file called `set_volume` until 2026-09-10, so every cue on
+; every rail played at the driver's default channel volume. MEASURED on the
+; chip that is VOL 24, against music channels running 48-63 on the same rails
+; -- so a cue sat at roughly 38% of the loudest voice it had to be heard
+; over. On `microzero`, whose song is mixed hot, the result was reported as
+; the rail having no sound effects at all.
+;
+; `set_volume <0..255>` maps onto the S-DSP's VxVOL, so 255 is VOL 127 and
+; 192 is VOL 96 before the effect's own gain is applied. A cue is a TRANSIENT
+; and is meant to cut through, so it belongs near the loudest music voice
+; rather than under it -- and the frequency of the cue is what sets where in
+; that range it goes. `chime` marks a lap and gets 255; `pickup` fires several
+; times a lap and gets 192, which is a hierarchy by ear rather than two
+; effects competing.
+;
+; NOT YET APPLIED TO THE REST OF THE VOCABULARY. The other thirteen effects
+; still run at the default, which is the same imbalance measured above and is
+; a tree-wide mix decision rather than a bug fix -- fifteen rails would change
+; balance at once. Recorded here so the next person to reach for `set_volume`
+; knows why two effects have it and the rest do not.
+; ---------------------------------------------------------------------------
+
 === pickup ===
+    set_volume 192
     set_instrument_and_gain bell F110
     play_note e5 3
     play_note b5 7
 
 === chime ===
+    set_volume 255
     set_instrument_and_gain bell F127
     play_note e5 4
     play_note a5 12

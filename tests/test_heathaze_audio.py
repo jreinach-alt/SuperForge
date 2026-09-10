@@ -351,6 +351,22 @@ def test_exactly_one_music_voice_takes_the_noise_generator(driven):
 # the weather
 # =============================================================================
 
+def _share(rows, voice):
+    """`voice`'s peak amplitude as a fraction of ALL the music voices' summed.
+
+    WHY A SHARE AND NOT A RATIO TO THE LOUDEST VOICE. This module first
+    bounded the wind against the single loudest music voice, and that measure
+    cannot see the thing that actually went wrong: six voices sound at once,
+    so a bed at 86% of the loudest ONE is nearly a quarter of the whole mix.
+    Recorded off the chip against a music-only build of the same song, the
+    level that shipped added 46.6% to the total RMS. Summed peaks do not add
+    coherently and this is not an absolute loudness -- it is a stable,
+    reproducible RELATIVE measure, and relative is what the claim is about.
+    """
+    return _amp(rows, voice) / sum(_amp(rows, m) for m in MUSIC_VOICES
+                                   if m != voice)
+
+
 def _wind_voice(rows):
     """The music voice keyed to `saw`, which on this rail is the wind alone."""
     for row, _ in rows:
@@ -378,48 +394,44 @@ def test_the_wind_is_audible(driven):
         f"the part is a buzz and not weather; check the N<0-31> commands")
 
 
-def test_the_wind_is_loud_enough_to_be_heard_under_the_song(driven):
-    """THE CASE THE ORIGINAL BUG WOULD HAVE FAILED, and the reason it exists.
+def test_the_wind_sits_in_its_band_against_the_whole_mix(driven):
+    """A BAND, AND BOTH EDGES WERE PAID FOR. This is the case that has been
+    wrong in both directions, which is why it now bounds rather than floors.
 
-    The wind's first implementation SOUNDED on 99.8% of frames and swept its
-    noise band exactly as scored — and was reported as inaudible, correctly.
-    Every assertion in this module passed on it, because they all asked
-    WHETHER the voice was sounding and none asked HOW LOUD. `ENVX > 0` is true
-    at an amplitude nobody can hear, which makes presence-only audibility an
-    indirect-evidence test in the sense CLAUDE.md rule 2 forbids: green while
-    the feature is silently broken.
+    TOO QUIET WAS THE FIRST DEFECT. The wind began as a low-priority sound
+    effect at VOL 18 x ENVX 48 against a drone at 42 x 127 -- it sounded on
+    99.8% of frames, swept its band exactly as scored, and was reported as
+    inaudible. Every case in this module passed on it because they all asked
+    WHETHER the voice was sounding and none asked how loud. `ENVX > 0` is true
+    at an amplitude nobody can hear.
 
-    So the claim here is a RATIO, measured against this song's own drone
-    rather than against an absolute the mix could drift away from. A voice's
-    contribution is VOL x ENVX (the S-DSP multiplies the envelope by the
-    channel volume), and the bar is that the wind reaches a quarter of the
-    loudest music voice's peak product.
+    TOO LOUD WAS THE SECOND, AND IT CAME FROM FIXING THE FIRST BADLY. The
+    replacement bar was a FLOOR -- "at least a quarter of the loudest music
+    voice" -- and the part shipped at nearly three times it, which was
+    reported as far too much static. A floor read as a target is how that
+    happens: nothing in the case objected to a bed that was half the record.
 
-    MEASURED on the shipped binary: the wind peaks at VOL 36 x ENVX 127 =
-    4572 against the loudest music voice's 5334, a ratio of 0.86. The original
-    effect-based bed peaked at VOL 18 x ENVX 48 = 864 against the same
-    denominator — 0.16.
-
-    THE BAR WAS SET BY A PLANT, NOT BY EYE, and the first attempt at it was
-    too loose to be worth having. Scoring the channel at `v3` instead of `v9`
-    drops the wind to VOL 12 (1524, ratio 0.29) — plainly too quiet to hear,
-    and it PASSED a 0.25 bar chosen by guessing. At 0.50 the shipped reading
-    keeps a wide margin while both the `v3` plant and the original effect-based
-    bed red. A bar for an audibility claim has to be checked against a
-    deliberately-too-quiet build; a threshold nothing was ever measured
-    against is the same indirect evidence this case exists to replace.
+    So the measure changed too, not just the numbers. A ratio against the
+    single loudest voice cannot see six voices summing; the share of the whole
+    mix can. Measured on the shipped binary at `v3`: 0.08. The level that was
+    reported as static reads 0.24 here and +46.6% on a WAV against a
+    music-only build of the same song; the original effect-based bed reads
+    0.045. The band clears the ship by a wide margin either way and excludes
+    both defects.
     """
     rows, _, _, _ = driven
     v = _wind_voice(rows)
     assert v is not None, "no wind voice — see test_the_wind_is_audible"
-    wind_amp = _amp(rows, v)
-    music_amp = max(_amp(rows, m) for m in MUSIC_VOICES if m != v)
-    ratio = wind_amp / music_amp
-    assert ratio > 0.50, (
-        f"the wind peaks at {wind_amp} against the loudest music voice's "
-        f"{music_amp} — a ratio of {ratio:.2f}. It is sounding, and it is too "
-        f"quiet to hear under the song; that is exactly the state the "
-        f"effect-based bed shipped in")
+    share = _share(rows, v)
+    assert share > 0.055, (
+        f"the wind is {share:.3f} of the summed music voices — it is sounding "
+        f"and it is too quiet to pick out, which is the state the effect-based "
+        f"bed shipped in (0.045)")
+    assert share < 0.15, (
+        f"the wind is {share:.3f} of the summed music voices — that is a bed "
+        f"competing with the record rather than sitting under it. The level "
+        f"reported as far too much static reads 0.24 here; weather belongs "
+        f"a few percent over a music-only mix, not half again")
 
 
 def test_the_wind_is_a_bed_and_not_a_single_gust(driven):
