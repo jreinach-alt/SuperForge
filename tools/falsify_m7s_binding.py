@@ -36,7 +36,7 @@ from pathlib import Path
 F = Path(__file__).resolve().parent.parent
 SCENE = F / "game" / "microzero" / "scenes" / "race.asm"
 ROM = F / "build" / "microzero.sfc"
-ROM_PIN = "5953ac982e30b765a4bcf3a6174698c7"
+ROM_PIN = "1534b3340465e32dc02dda0d4d3ea916"
 
 # (symbol, the exact binding line in race.asm, the words the .error must carry)
 BINDINGS = [

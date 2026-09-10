@@ -266,7 +266,12 @@ def test_claimless_microzero_keeps_a_no_sram_header_and_its_md5(tmp_path):
     this ROM moved again on content it does not contain
     (-> 5953ac982e30b765a4bcf3a6174698c7): the audio blob is ONE artifact
     shared by all 28 audio rails, so any rail's content grows every audio
-    rail's image. Expect this pin to move whenever `assets/audio/` does.
+    rail's image. Then a THIRD time (-> 1534b3340465e32dc02dda0d4d3ea916),
+    when this rail gained checkpoint and confirm cues of its own and the
+    blob changed again under it. Expect this pin to move whenever
+    `assets/audio/` does OR microzero's own code does — which is to say
+    often, and the header assertion either side of it is the part that
+    actually guards the class.
     That is what the sentence above anticipates. The header assertion either
     side of it is the part that actually guards the class, and it is unchanged
     — a rail that gains a soundtrack must still ship $00/$00, because `audio`
@@ -278,7 +283,7 @@ def test_claimless_microzero_keeps_a_no_sram_header_and_its_md5(tmp_path):
     assert r.returncode == 0, f"make microzero failed:\n{r.stderr}"
     img = (SUPERFORGE / "build" / "microzero.sfc").read_bytes()
     assert img[OFF_CART_TYPE] == 0x00 and img[OFF_SRAM_SIZE] == 0x00
-    assert hashlib.md5(img).hexdigest() == "5953ac982e30b765a4bcf3a6174698c7", \
+    assert hashlib.md5(img).hexdigest() == "1534b3340465e32dc02dda0d4d3ea916", \
         "microzero.sfc moved — the measurement reference is a pinned md5"
 
 
