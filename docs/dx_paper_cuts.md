@@ -1243,3 +1243,33 @@ are already known to work, already frame-counted, and already the thing the
 gate runs. A fresh probe is worth writing when you need a measurement the
 module does not take; it is not worth writing to answer "does this button
 work".
+
+### I DELETED A CONSTANT AND RE-RAN EVERY GATE EXCEPT THE ONE THAT READ IT — clunky, MEDIUM
+
+Removing the withdrawn wind bed's `HZ_WIND_PHASES` from `heathaze.inc` was
+verified the careful way and still shipped a red: I proved the ROM came back
+BYTE-IDENTICAL (nothing referenced the constant in ASM), then re-ran
+`cleanroom`, `width-check`, `time-check` and `register` — and pushed. The
+landing gate found it in `test_heathaze_audio.py`, which read the constant at
+COLLECTION time to derive the old re-queue cadence. Two collection errors,
+`reading: defect`, a genuine red on the tip.
+
+Three things worth carrying:
+
+* **A byte-identical binary is not evidence that nothing broke.** It proves
+  the ASM did not reference the symbol. The tests are a second consumer of
+  the same source file and the ROM cannot speak for them.
+* **The gates I chose to re-run were the ones I imagined were affected.** The
+  module that named the symbol was not in that set precisely because I was
+  thinking about the ROM. The existing rule already covers this — "run the
+  rail's own test module before the push, always" — and I had it in mind for
+  heathaze's ASM changes and dropped it for a constant deletion, which felt
+  too small to need it.
+* **A grep for the deleted name would have taken five seconds and found it.**
+  `grep -rn HZ_WIND_PHASES` is the whole check; the tree is small enough that
+  deleting any named thing should be followed by a grep for that name across
+  `game/`, `tests/` and `tools/`, not just a rebuild.
+
+The dead cadence constants and the now-unused `_rail_const` helper went with
+the fix, so the module no longer reads a file for numbers the mechanism it
+described no longer has.

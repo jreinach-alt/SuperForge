@@ -88,36 +88,19 @@ PLUCK = SRCN["pluck"]               # `select` — ...and channel D of the song
 MUSIC_ONLY = tuple(SRCN[n] for n in ("tri_bass", "square_lead", "kick"))
 
 
-# --- the rail's own constants, likewise read ---------------------------------
-def _rail_const(name):
-    """One equate out of game/heathaze/heathaze.inc.
-
-    Same rule as `tests/test_heathaze.py::_rail_const` and for the same
-    reason: anything the ROM and this file must agree about is read from the
-    source of truth, never copied into it.
-    """
-    src = (SUPERFORGE / "game" / "heathaze" / "heathaze.inc").read_text()
-    for line in src.splitlines():
-        head, _, rest = line.partition("=")
-        if head.strip() == name:
-            v = rest.split(";")[0].strip()
-            # ca65 spells hex with a `$`, which int() does not read.
-            return int(v[1:], 16) if v.startswith("$") else int(v, 0)
-    raise KeyError(f"{name} is not in heathaze.inc")
-
-
-WIND_PHASES = _rail_const("HZ_WIND_PHASES")
-PHASE_BASE = _rail_const("HZ_PHASE_BASE")       # 8.8 phases per NTSC frame
-# The cadence the rail actually runs, DERIVED: phases to the next gust divided
-# by phases a frame. 32 / (0x60/256) = 85.33 frames = 1.42 s at 60.1 fps.
-WIND_PERIOD = WIND_PHASES * 256.0 / PHASE_BASE
-# `wind` is 80+56+64+12 = 212 ticks of the driver's FIXED 125 Hz sound-effect
-# clock (vendor docs/sound-effects.md, "Limitations") = 1.696 s = ~102 NTSC
-# frames. It is LONGER than the cadence above, which is the whole mechanism:
-# the bed is re-queued while the previous one still sounds, so the restart
-# never leaves a hole. Stated here as the reason the continuity bar can sit
-# where it does; the numbers it is checked against are measured below.
-WIND_TICKS = 212
+# THE WIND'S CADENCE CONSTANTS ARE GONE, with the mechanism they described.
+# This module used to derive a re-queue period from `HZ_WIND_PHASES` and
+# `HZ_PHASE_BASE` and check it against the 212-tick length of a `wind` sound
+# effect, because continuity had to be MANUFACTURED: an effect is a one-shot,
+# so the bed only held if the rail re-queued it faster than it ran out. The
+# wind is a noise channel in the song now (far_ridge_song, channel F) and a
+# song channel with `&` slurs sends no key-off at all, so there is no cadence
+# left to keep in step with anything and no constant to read.
+#
+# `HZ_WIND_PHASES` was removed from heathaze.inc in the same change, and this
+# module's collection-time read of it is what caught the removal — in the
+# landing gate rather than here, because the rail's own module was not re-run
+# after the constant went. dx_paper_cuts has the entry.
 
 _MAP = json.loads((SUPERFORGE / "build" / "hz" / "symbol_map.json").read_text())
 _DP = {p["sym"]: p["start"]
@@ -132,13 +115,14 @@ PERIOD = 40         # frames per press cycle...
 HOLD = 24           # ...of which this many hold B down
 FRAMES = PRESSES * PERIOD                       # 600 = 7 full wind cadences
 
-# The longest run of frames the wind may be inaudible for. The design overlaps
-# each re-queue with the bed still playing by ~17 frames, so a correct rail
-# shows a gap of at most the one frame the key-on itself costs; MEASURED on
-# the shipped binary the whole 600-frame drive has exactly one such frame.
-# Eight is that measurement with room for a key-on landing either side of a
-# sample, and far below the 26-frame hole a cadence one gust too slow opens
-# (measured with HZ_WIND_PHASES planted at 48).
+# The longest run of frames the wind may be inaudible for. A song noise
+# channel that is slurred throughout never keys off, so the correct reading
+# is ZERO and that is what the shipped binary measures across the whole
+# 600-frame drive. Eight leaves room for a key-on landing either side of a
+# sample without weakening what it catches: the defect it exists for is the
+# part scored as `N17 w1` rather than `N17,1 &`, where the default note
+# length takes over and the voice sounds on 112 of 600 frames with whole
+# silent bars between.
 MAX_SILENT_RUN = 8
 
 
