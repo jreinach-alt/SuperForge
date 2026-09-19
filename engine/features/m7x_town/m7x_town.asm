@@ -31,18 +31,32 @@
 
 ; --- the room, in tiles -----------------------------------------------------
 ; A 32x32 tilemap on a 256x224 screen shows 32x28 of it; the room rectangle is
-; inside that, so the bottom four rows are never seen and are wall by the
-; outside-the-rectangle rule.
+; inside that, so the rows past its bottom wall are never walked and are wall
+; by the outside-the-rectangle rule.
+;
+; THE BOTTOM WALL IS AT 24 AND NOT AT 26, and the two rows are the whole of the
+; owner's third report: "inside the town, I could not find the exit point."
+; Measured on the emulator with the wall at 26, the door tile rendered at
+; picture rows 207..214 — NINE SCANLINES clear of the bottom of the 224-line
+; active picture, which is inside the band a television crops and inside every
+; conventional action-safe inset. The door was not hidden by anything in the
+; ROM; it was off the bottom of the screen the owner was looking at. Raising
+; the wall two rows moves it to 191..198, twenty-five lines clear, and
+; TOWN_SAFE_MARGIN_PX below is what keeps it there.
 TOWN_ROOM_X0 = 2
 TOWN_ROOM_X1 = 29
 TOWN_ROOM_Y0 = 1
-TOWN_ROOM_Y1 = 26
+TOWN_ROOM_Y1 = 24
 
 ; The exit door: a gap IN the bottom wall. Stepping onto it is what arms the
 ; wipe back to the overworld, which is why classify tests it FIRST — it sits on
 ; the wall rectangle's border and the border rule would otherwise claim it.
+;
+; ITS ROW IS THE WALL'S ROW, derived rather than restated: a door that drifted
+; off the bottom wall would be a hole in the floor that classify still called
+; an exit.
 TOWN_DOOR_TX = 15
-TOWN_DOOR_TY = 26
+TOWN_DOOR_TY = TOWN_ROOM_Y1
 
 ; A 2x2 table in the upper room. Blocked, and blocked by the same class test
 ; the walls use — there is no second kind of obstacle.
@@ -51,10 +65,18 @@ TOWN_TABLE_X1 = 14
 TOWN_TABLE_Y0 = 10
 TOWN_TABLE_Y1 = 11
 
-; Where she arrives: a few tiles above the door, facing away from it, so the
-; first thing on screen is the room rather than the way out.
-TOWN_SPAWN_TX = 15
-TOWN_SPAWN_TY = 22
+; Where she arrives: four tiles above the door, in the door's own column, and
+; FACING IT.
+;
+; She used to arrive facing away, "so the first thing on screen is the room
+; rather than the way out" — which is a nice line and it is half of why the
+; owner could not find the exit. A room with one unmarked exit tile and an
+; avatar pointed at the far wall gives a player nothing to follow. Facing the
+; door costs nothing (the room is still the whole picture) and the way out is
+; now on the line of sight the avatar herself draws.
+TOWN_SPAWN_TX = TOWN_DOOR_TX
+TOWN_SPAWN_TY = TOWN_DOOR_TY - 4
+TOWN_SPAWN_FACING = TOWN_FACE_DOWN
 
 ; --- the classes, which ARE the tile ids ------------------------------------
 ; Bound to the generator's emitted ids rather than restated, and ASSERTED so a
@@ -87,7 +109,38 @@ TOWN_OBJ_PRIO  = $20                ; priority 2, m7x_obj's byte
 TOWN_OBJ_PAL   = $00                ; OBJ palette 0, at CGRAM 128
 TOWN_OBJ_HFLIP = $40
 TOWN_OBJ_LARGE = 2                  ; hi-table size bit: OBSEL pair 0's large = 16x16
+TOWN_OBJ_SIZE  = 16                 ; ...which is what that bit makes her
 TOWN_TILE_PX   = 8                  ; the room's grid, and the sprite's step
+
+; --- where a tile's avatar is DRAWN -----------------------------------------
+; SHE IS TWICE THE SIZE OF HER CELL, so "drawn where she stands" is not
+; tile * 8 — that puts her 16x16 body's top-left on the cell's top-left and
+; hangs the other three quarters over the cell to the right and the cell below.
+; MEASURED before this offset existed: standing on (15,22) her body rendered at
+; picture cols 120..135 rows 176..191 while the cell rendered at cols 120..127
+; rows 175..182 — half a tile down and half a tile right of the cell the walk
+; and the door test are taken on. The overworld had the same defect writ large
+; (see m7x_logic's pivot block); this is the interior's half of it.
+;
+; The vertical inset carries one extra line because a BG row and an OBJ row of
+; the same index are NOT the same scanline: with VOFS 0 the interior's floor
+; (tilemap row 2) starts at picture row 15, while an OBJ at y renders starting
+; on y. Measured, not assumed.
+TOWN_BG_SCANLINE_BIAS = 1
+TOWN_DRAW_DX = (TOWN_OBJ_SIZE - TOWN_TILE_PX) / 2
+TOWN_DRAW_DY = TOWN_DRAW_DX + TOWN_BG_SCANLINE_BIAS
+
+; --- the exit has to be ON THE SCREEN THE PLAYER HAS ------------------------
+; The active picture is 224 lines and a television crops the outermost of them;
+; every conventional action-safe inset is at least 5% of the height. The door
+; is the one cell in this room a player MUST find, so its rendered bottom row
+; is held two whole tiles clear of the picture's bottom edge and the build
+; refuses a room that moves it back out. Nine lines is what it had, and nine
+; lines is what "I could not find the exit point" looked like.
+TOWN_SCREEN_H = 224
+TOWN_SAFE_MARGIN_PX = 2 * TOWN_TILE_PX
+TOWN_DOOR_BOTTOM_ROW = TOWN_DOOR_TY * TOWN_TILE_PX + TOWN_TILE_PX - 1 - TOWN_BG_SCANLINE_BIAS
+.assert TOWN_DOOR_BOTTOM_ROW + TOWN_SAFE_MARGIN_PX < TOWN_SCREEN_H, error, "m7x_town: the exit door renders inside the band a television crops — raise the room's bottom wall"
 
 ; The facing codes, m7x_obj's — one sheet, two scenes, one vocabulary.
 TOWN_FACE_DOWN  = 0
@@ -371,7 +424,7 @@ town_spawn:
     sta z:US_TOWN_TX
     lda #TOWN_SPAWN_TY
     sta z:US_TOWN_TY
-    lda #TOWN_FACE_UP
+    lda #TOWN_SPAWN_FACING
     sta z:US_TOWN_FACING
     rts
 
@@ -513,8 +566,9 @@ town_try_step:
 ;
 ; THE HI TABLE IS REBUILT WHOLE, NEVER PATCHED — m7x_obj's rule, and the reason
 ; this feature claims the other three slots of the quad. X9 is clear by
-; construction: the room is 30 tiles wide inside its walls, so the largest
-; screen x is 232.
+; construction: the walkable columns are 3..28, so the entry's x runs 20..220
+; and never reaches 256. The low end is what the inset could have broken and
+; does not.
 ;
 ; WIDTH-RISK: A16/I16 throughout except the hi-table byte, bracketed by `sep
 ; #$20` / `rep #$20`. I-width is never touched.
@@ -536,13 +590,17 @@ town_draw:
     .repeat 3
         asl                         ; tile -> px (TOWN_TILE_PX = 8)
     .endrepeat
-    xba
+    sec
+    sbc #TOWN_DRAW_DY               ; ...and back half a body, less the line
+    xba                             ;    bias, so the cell is UNDER her
     and #$FF00                      ; byte 1 = y
     sta z:TOWN_CTY                  ; the call frame, borrowed as a temp
     lda z:US_TOWN_TX
     .repeat 3
         asl
     .endrepeat
+    sec
+    sbc #TOWN_DRAW_DX               ; the same half body on the x axis
     and #$00FF                      ; byte 0 = x
     ora z:TOWN_CTY
     sta a:ES_OAM_SHADOW + (ES_O_TOWN_AVATAR * 4) + 0

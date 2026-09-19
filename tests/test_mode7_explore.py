@@ -673,11 +673,25 @@ DP_TOWN_TY = _sym("US_TOWN_TY", TOWN)["start"]
 # from these bounds, so a classifier that got its ORDER wrong (the door sits IN
 # the bottom wall and must be tested first) produces a tilemap this disagrees
 # with.
-ROOM_X0, ROOM_X1, ROOM_Y0, ROOM_Y1 = 2, 29, 1, 26
-DOOR_TX, DOOR_TY = 15, 26
+ROOM_X0, ROOM_X1, ROOM_Y0, ROOM_Y1 = 2, 29, 1, 24
+DOOR_TX, DOOR_TY = 15, ROOM_Y1
 TABLE_X0, TABLE_X1, TABLE_Y0, TABLE_Y1 = 13, 14, 10, 11
-TOWN_SPAWN = (15, 22)
+TOWN_SPAWN = (DOOR_TX, DOOR_TY - 4)
 CLS_FLOOR, CLS_WALL, CLS_DOOR, CLS_TABLE = 0, 1, 2, 3
+
+# SHE IS TWICE THE SIZE OF HER CELL, so the OAM entry that draws her ON it is
+# not tile * 8: that hangs three quarters of a 16x16 body over the cell to the
+# right and the cell below. The entry is the cell's origin less half the
+# difference, and one line more vertically because a BG row and an OBJ row of
+# the same index are NOT the same scanline — measured, with VOFS 0 the floor's
+# tilemap row 2 starts at picture row 15 while an OBJ at y starts on y.
+TOWN_DRAW_DX = (16 - 8) // 2
+TOWN_DRAW_DY = TOWN_DRAW_DX + 1
+
+
+def _town_oam_xy(tx, ty):
+    """The OAM x,y that draws the interior's avatar standing ON (tx, ty)."""
+    return [tx * 8 - TOWN_DRAW_DX, ty * 8 - TOWN_DRAW_DY]
 
 # The reference render of the INTERIOR. Frame 59 of the published GIF is the
 # settled room with the avatar at her spawn tile — the same picture this rail's
@@ -857,7 +871,7 @@ def test_walking_onto_the_house_enters_the_town_with_no_button_press(
         _step_onto_the_house(runner)              # D-PAD ONLY, all the way
         _run_the_wipe_out(runner)
         inside = _shot(runner, tmp_path, "walkover_inside")
-        _walk_town_to_the_door(runner)            # D-PAD ONLY back out
+        _walk_town_to_the_door(runner)            # D-PAD ONLY, the way home
         _run_the_wipe_out(runner)
         home = _cam_tile(runner)
         before = _shot(runner, tmp_path, "walkover_press_before")
@@ -998,8 +1012,10 @@ def test_the_town_walk_steps_one_tile_per_press_and_the_room_refuses(runner, tmp
         tested one way locks that way and ships the other broken.
       * THE WALL REFUSES, and the TABLE refuses by the same test — the room has
         one kind of obstacle, not two.
-      * She is drawn where she stands: the OAM entry is tile * 8 on both axes,
-        which is the whole camera model of a scene where the camera is fixed.
+      * She is drawn where she stands — which is tile * 8 LESS half the
+        difference between her 16x16 body and her 8x8 cell, not tile * 8. The
+        camera is fixed here, so screen position is the only thing the entry
+        has to get right, and `_town_oam_xy` is where that arithmetic lives.
     """
     runner.boot_to_frame(str(ROM), 60)
     with runner.frame_stepping():
@@ -1015,7 +1031,7 @@ def test_the_town_walk_steps_one_tile_per_press_and_the_room_refuses(runner, tmp
             return entry()
 
         start = entry()
-        assert start[:2] == [TOWN_SPAWN[0] * 8, TOWN_SPAWN[1] * 8], (
+        assert start[:2] == _town_oam_xy(*TOWN_SPAWN), (
             f"she did not arrive at the spawn tile: OAM {start}")
 
         # ---- one tile per press, and a HELD direction is STILL one tile ----
@@ -1041,7 +1057,7 @@ def test_the_town_walk_steps_one_tile_per_press_and_the_room_refuses(runner, tmp
         for _ in range(TOWN_SPAWN[0] - ROOM_X0):
             press(left=True)
         at_wall = entry()
-        assert at_wall[0] == (ROOM_X0 + 1) * 8, (
+        assert at_wall[0] == _town_oam_xy(ROOM_X0 + 1, 0)[0], (
             f"she did not come to rest against the west wall: OAM {at_wall}")
         refused = press(left=True)
         assert refused[:2] == at_wall[:2], (
@@ -1053,12 +1069,124 @@ def test_the_town_walk_steps_one_tile_per_press_and_the_room_refuses(runner, tmp
         for _ in range(TOWN_SPAWN[1] - (TABLE_Y1 + 1)):
             press(up=True)
         below_table = entry()
-        assert below_table[:2] == [TABLE_X0 * 8, (TABLE_Y1 + 1) * 8], (
+        assert below_table[:2] == _town_oam_xy(TABLE_X0, TABLE_Y1 + 1), (
             f"the approach to the table ended at {below_table[:2]}, not "
-            f"{[TABLE_X0 * 8, (TABLE_Y1 + 1) * 8]}")
+            f"{_town_oam_xy(TABLE_X0, TABLE_Y1 + 1)}")
         into_table = press(up=True)
         assert into_table[:2] == below_table[:2], (
             f"the table let her through: {below_table[:2]} -> {into_table[:2]}")
+
+
+def _town_tile_rgb(tile_id):
+    """An interior tile's 8x8 block, expanded from the BLOBS.
+
+    4bpp planar: bytes 0..15 carry planes 0 and 1 interleaved by row, bytes
+    16..31 planes 2 and 3. The room's tilemap words are the bare tile id, so
+    the palette is BG palette 0 and a pixel value IS its CGRAM index — and
+    index 0 is transparent over a backdrop that m7x_town pins to the same
+    word, so the two agree. Built from `m7x_town_chr.bin` and
+    `m7x_town_pal.bin` rather than from CGRAM, because "the door is drawn"
+    means nothing if the thing it is compared against came out of the ROM.
+    """
+    chars = _blob("m7x_town_chr.bin")[tile_id * 32:(tile_id + 1) * 32]
+    pal = _palette_colours_list("m7x_town_pal.bin")
+    out = []
+    for row in range(8):
+        p0, p1 = chars[row * 2], chars[row * 2 + 1]
+        p2, p3 = chars[16 + row * 2], chars[16 + row * 2 + 1]
+        line = []
+        for x in range(8):
+            b = 7 - x
+            line.append(pal[((p0 >> b) & 1) | (((p1 >> b) & 1) << 1)
+                            | (((p2 >> b) & 1) << 2) | (((p3 >> b) & 1) << 3)])
+        out.append(line)
+    return out
+
+
+def _palette_colours_list(blob):
+    raw = _blob(blob)
+    return [(_snes8(w & 31), _snes8((w >> 5) & 31), _snes8((w >> 10) & 31))
+            for w in (raw[i] | (raw[i + 1] << 8) for i in range(0, len(raw), 2))]
+
+
+def _blocks_on_screen(img, want):
+    px = img.load()
+    return [(x, y) for y in range(ACTIVE_H - 8) for x in range(256 - 8)
+            if all(px[x + tx, y + ty] == want[ty][tx]
+                   for ty in range(8) for tx in range(8))]
+
+
+def test_the_way_out_of_the_town_is_on_the_screen_the_player_has(
+        runner, tmp_path):
+    """"I could not find the exit point", answered as four measurements.
+
+    The exit was never broken: walking down onto it always armed the wipe, and
+    `test_the_return_lands_on_the_same_picture` has always driven it. What was
+    wrong is that a player could not SEE it. Measured with the bottom wall at
+    row 26, the door rendered at picture rows 207..214 — nine scanlines clear
+    of the bottom of the 224-line active picture, inside the band a television
+    crops and inside every conventional action-safe inset — and the avatar
+    arrived four tiles above it FACING THE OTHER WAY. Both are now fixed, and
+    this is what holds them fixed:
+
+      * IT IS DRAWN, and drawn as itself. The door's 8x8 block is built here
+        from `m7x_town_chr.bin` and `m7x_town_pal.bin` and searched for in the
+        frame; the match must be unique, so a door rendered as more wall would
+        find none and a wall rendered as door would find many.
+      * IT IS ON SCREEN WITH ROOM TO SPARE. Its bottom row must clear the
+        picture's bottom edge by two whole tiles. This is the assertion the
+        old layout failed.
+      * SHE ARRIVES POINTED AT IT. Her body's centre column must be the door's
+        centre column and the door must be below her, and the sheet she is
+        drawn from must be the DOWN facing — arriving with her back to the one
+        exit is half of why it could not be found.
+      * AND IT STILL WORKS. Four presses of DOWN and nothing else must put the
+        overworld's own colours back on the screen.
+
+    The margin is a FLOOR and not a measurement of anyone's television: what is
+    measured is where the door renders, and the claim is that it is far enough
+    inside the frame that the usual crop cannot reach it.
+
+    m7x_town carries a `.assert` on the same margin, and the two are not the
+    same check. That one reads the DECLARED room — it refuses a bottom wall
+    moved back down, which is how the old layout is kept from returning. This
+    one reads where the PPU actually put the door, which is the thing that
+    changes if BG1's scroll stops being zero, if the tilemap base moves, or if
+    the room is drawn at an offset the declaration knows nothing about.
+    """
+    runner.boot_to_frame(str(ROM), 60)
+    with runner.frame_stepping():
+        _step_onto_the_house(runner)
+        _run_the_wipe_out(runner)
+        img = _shot(runner, tmp_path, "exit_room")
+        entry = list(runner.read_bytes(O, O_TOWN_AVATAR * 4, 4))
+        _walk_town_to_the_door(runner)
+        _run_the_wipe_out(runner)
+        back = _shot(runner, tmp_path, "exit_back")
+    doors = _blocks_on_screen(img, _town_tile_rgb(CLS_DOOR))
+    assert len(doors) == 1, (
+        f"the interior draws the door's own 8x8 block in {len(doors)} places "
+        f"({doors[:4]}) — it must be drawn, and drawn only where it is")
+    dx, dy = doors[0]
+    clear = ACTIVE_H - (dy + 8)
+    assert clear >= 2 * 8, (
+        f"the door renders at picture rows {dy}..{dy + 7}, only {clear} lines "
+        f"clear of the bottom of the {ACTIVE_H}-line picture — that is inside "
+        f"the band a television crops, which is what made it unfindable")
+    assert dx + 4 == entry[0] + 8, (
+        f"the door's centre column is {dx + 4} and her body's is {entry[0] + 8}"
+        f" — she does not arrive in the door's own column")
+    assert dy > entry[1] + 8, (
+        f"the door renders at row {dy}, above her body's centre "
+        f"{entry[1] + 8} — the walk out is not the direction she is facing")
+    assert entry[2] == _WORLD["M7X_AVATAR_TILE_DOWN"], (
+        f"she arrives drawn from sheet tile {entry[2]}, not the DOWN facing "
+        f"{_WORLD['M7X_AVATAR_TILE_DOWN']} — her back is to the only exit")
+    world = _palette_colours("m7x_pal.bin")
+    town = _palette_colours("m7x_town_pal.bin")
+    assert set(back.getdata()) & (world - town), (
+        "four presses of DOWN onto the door left none of the overworld's own "
+        "colours on screen — the exit did not fire")
 
 
 def test_the_mode7_image_survives_the_visit(runner):
