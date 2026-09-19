@@ -43,6 +43,14 @@ There is no fade to close on here, and that is the rail's own claim rather
 than a gap: the whole point is that the Mode-1 -> Mode-7 handover is a
 ONE-FRAME CUT with no visible seam. A fade at that edge would hide exactly
 what the clip exists to show.
+
+AND THE CUT IS ONLY ACTUALLY SEAMLESS SINCE THE FLICKER WORK. Until then each
+swap rendered one all-black frame — the switch ran under a forced blank armed
+a frame ahead, because it re-uploaded 32 KB of Mode-7 plane one way and
+repainted a 2 KB tilemap the other. The timeline above is unchanged by the
+fix (the switch always cost exactly one tick; what changed is what that tick
+RENDERS), so the beats still land where this docstring says. What changed in
+the clip is that the two swap frames now show the picture instead of black.
 """
 import json
 from pathlib import Path
