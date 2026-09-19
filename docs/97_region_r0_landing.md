@@ -425,3 +425,5 @@ and every byte `brawler` moved is the composition.
    carries forward unchanged — in particular item 6, whether a flashcart or a
    PAL console's menu does anything with `$7FD9 = $01`, which is the practical
    reason the destination override exists and which an emulator cannot answer.
+
+**UPDATE 2026-09-19 — a cart was run.** The owner played the demos off an FxPak Pro on their own SNES and all of them ran correctly to the eye. That retires the blanket "nothing here has touched hardware", but it does not answer the specific question above: it was a play-test rather than an instrumented measurement, the console's region was not recorded, and the images were built from `main` (so they carry none of the audio branch). `JAM.md` rule 6 carries the full scope.
