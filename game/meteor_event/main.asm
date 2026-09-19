@@ -125,6 +125,19 @@ met_pal_bin:
 .include "scenes/level.asm"
 .include "scenes/impact.asm"
 
+; --- THE TWO SCENES' VRAM DO NOT MEET, and the build proves it --------------
+; Scene VRAM is space the allocator REUSES: each scene forks the globals' free
+; list, so two scenes' claims are allowed to land on the same words. This rail
+; relies on the opposite, because MAIN uploads both scenes' images ONCE at boot
+; (below) and neither `enter` re-uploads. The premise is not luck — met_bg pins
+; its two claims with `at = 0x4800` / `at = 0x5000` (BG1SC and BG12NBA
+; granularity) and met_floor's plane is `kind = "mode7"`, which the hardware
+; pins at word 0 for 16,384 words — but a premise a comment states is a premise
+; nothing checks, so it is .asserted from the EMITTED claims instead. Move
+; either declaration into the other's span and the build stops here.
+.assert impact::ES_V_M7 + impact::ES_V_M7_WORDS <= level::ES_V_BG_MAP, error, "the Mode-7 plane's VRAM now overlaps the Mode-1 tilemap: the boot upload would clobber it"
+.assert impact::ES_V_M7 + impact::ES_V_M7_WORDS <= level::ES_V_BG_CHR, error, "the Mode-7 plane's VRAM now overlaps the Mode-1 CHR: the boot upload would clobber it"
+
 ; --- sm_nmi_hook: per-frame VBlank work -------------------------------------
 ; In: A8/I16, DB=0 (from sm_nmi_core). May clobber A/X/Y.
 ;
@@ -170,6 +183,24 @@ MAIN:
                                 ;   must stand in both scenes, so the arm is a
                                 ;   boot step rather than a scene's enter)
     jsr level::game_init        ; every [global] state word, before any read
+    ; ---- BOTH scenes' images, uploaded ONCE, here, under the boot blank ---
+    ; THE TRANSITION FLICKER LIVED HERE. These two uploads used to sit in the
+    ; scenes' `enter` routines, i.e. inside the swap: 32,768 B of Mode-7 plane
+    ; on the way in (262,144 mc = 73% of an NTSC frame) and a 2 KB paint plus
+    ; two transfers on the way back (~187,000 mc). A VBlank affords about
+    ; 50,000, so the switch had to hold forced blank across a whole DISPLAYED
+    ; frame — and MEASURED on the emulator that was exactly one all-black frame
+    ; on each swap, between two pictures that are otherwise pixel-identical. A
+    ; single black frame between two identical pictures is a blink, which is
+    ; what the owner reported.
+    ;
+    ; Doing both here instead costs one extra boot frame nobody sees, and
+    ; leaves each `enter` with only its palette and its handful of registers —
+    ; about 1,500 mc, which fits the VBlank the switch starts in. scene_mgr's
+    ; cut then holds its blank across the switch BODY rather than across a
+    ; frame, and no blank line reaches the screen at all.
+    jsr level::bg_upload        ; the Mode-1 CHR, the painted shadow, the map
+    jsr impact::floor_upload    ; the 32 KB interleaved Mode-7 plane
     ; ---- enter the boot scene (id 0 = level) under forced blank -----------
     ldx #0
     jsr (sm_enter_tab, x)

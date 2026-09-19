@@ -17,15 +17,36 @@
 ; met_bg_up dma_init claim names — a declared resource, not a hard-coded 0.
 MET_BG_REGS = $4300 + ES_D_MET_BG_UP_CH * 16
 
-; --- bg_arm: the whole Mode-1 layer (scene enter) --------------------------
-; CONTRACT bg_arm
+; --- bg_upload: the painted level, into WRAM and VRAM, ONCE, at BOOT -------
+; CONTRACT bg_upload
 ;   entry:    A16 I16 DB=0
 ;   exit:     A16 I16
-;   out:      the whole Mode-1 layer: CHR, palette, tilemap and registers
+;   out:      the tilemap shadow painted, and the shadow and the CHR in VRAM
 ;   clobbers: A, X, Y, N, Z, C
-;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
-;             contract. Everything here is written once, at enter
+;   assumes:  forced blank AND the NMI masked. Called ONCE, from MAIN's
+;             boot block under init.inc's blank — NOT from `enter`
 ;   tail:     rts
+;
+; WHY BOOT AND NOT `enter`, MEASURED: the paint alone is 126,480 master cycles
+; for its 2 KB shadow clear plus about 43,000 for the 144 cells it then sets,
+; and the two transfers add 17,408 more. That is roughly half a frame, against
+; the ~35,000 cycles a scene switch beginning at scanline 236 has left of
+; VBlank — so an `enter` that did this had to hold forced blank across a whole
+; DISPLAYED frame, and the owner saw that frame as a black flicker.
+;
+; It is safe to do once because both of this feature's VRAM claims are PINNED
+; (`at = 0x4800` / `at = 0x5000`, the BG1SC and BG12NBA granularities) and the
+; cutscene scene's plane is `kind = "mode7"`, which the hardware pins at word 0
+; for 16,384 words. The two regions cannot meet, so nothing the cutscene does
+; touches this layer's VRAM — main.asm .asserts exactly that from the emitted
+; claims, so a future allocation that broke it would stop the build.
+;
+; THE SHADOW IS THE SCENE'S, AND IT DOES NOT OUTLIVE THE CUTSCENE. `met_glow`'s
+; band table is the other scene's WRAM claim and the allocator packs the two at
+; the same address by design — scene space is reused. That is harmless and
+; stays harmless because the shadow has exactly one reader, `capture_emit`,
+; which is one-shot and runs BEFORE the swap, and because nothing re-uploads
+; the shadow to VRAM after boot.
 ;
 ; TWO transfers on the one declared channel, and DAS is armed inside EACH — it
 ; is single-shot, consumed by the transfer, so there is one arming site per
@@ -34,10 +55,10 @@ MET_BG_REGS = $4300 + ES_D_MET_BG_UP_CH * 16
 ;
 ; WIDTH-RISK: A16/I16 entry AND exit. Toggles A8 for byte-wide channel
 ; registers and PPU ports, `sep #$20` only — I-width never moves.
-bg_arm:
+bg_upload:
     .a16
     .i16
-    SF_ASSERT_WIDTH 16, 16, "bg_arm"
+    SF_ASSERT_WIDTH 16, 16, "bg_upload"
     jsr bg_paint                    ; the shadow first: the DMA below reads it
 
     sep #$20
@@ -78,6 +99,35 @@ bg_arm:
     .a8
     lda #(1 << ES_D_MET_BG_UP_CH)
     sta a:$420B                     ; fire
+    rep #$20
+    .a16
+    rts
+
+; --- bg_arm: the palette and the two layout registers (scene enter) --------
+; CONTRACT bg_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the scene's sixteen CGRAM words staged, BG1SC and BG12NBA set
+;   clobbers: A, X, N, Z, C
+;   assumes:  forced blank or VBlank, and the NMI masked — the scene_mgr
+;             enter contract. The CHR, the paint and the tilemap are NOT
+;             here: `bg_upload` put them in place at boot, once
+;   tail:     rts
+;
+; WHAT IS LEFT IS VBLANK-SIZED. Sixteen CGRAM words is thirty-two byte stores
+; and the two layout registers are one each — about 1,500 master cycles. The
+; cutscene overwrites CGRAM 0..15 with its own Mode-7 palette (both scenes
+; claim the same sixteen words; scene CGRAM is reused by declaration), so the
+; palette is the one thing here that genuinely has to run on every entry.
+;
+; WIDTH-RISK: A16/I16 entry AND exit. Toggles A8 for the byte-wide PPU ports,
+; `sep #$20` only — I-width never moves.
+bg_arm:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "bg_arm"
+    sep #$20
+    .a8
 
     ; ---- the palette: sixteen words at BG palette 0 -----------------------
     ; Word 0 is the backdrop as well as BG colour 0, which is why this

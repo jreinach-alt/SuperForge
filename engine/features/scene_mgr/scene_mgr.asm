@@ -196,11 +196,31 @@ sm_request:
 ;
 ; The fade path's phase 1 exists to WAIT for the ramp to reach black and only
 ; then arm the forced blank (@fading_out below). With no ramp there is nothing
-; to wait for, so this does that tail directly and skips phase 1 entirely. The
-; switch still runs one `sm_frame_sync` later, and that is not a frame this
-; could shave: the NMI has to have COMMITTED $80 to $2100 before exit/enter
-; touch VRAM, which is the same requirement the fade path meets by the same
-; means.
+; to wait for, so this skips phase 1 entirely.
+;
+; AND IT ARMS NO BLANK, which is the difference between a cut you SEE and a cut
+; you do not. This used to write $80 into the INIDISP shadow so the NMI would
+; commit forced blank, and the switch then ran during the whole of the frame
+; that blank covered — one all-black DISPLAYED frame per swap, MEASURED on
+; meteor_event's two Mode-1 <-> Mode-7 swaps as a 61,184-pixel black frame
+; between two pictures that are otherwise pixel-identical. A single black frame
+; between two identical pictures is a blink, and the owner reported it as one.
+;
+; @switch now asserts the blank ITSELF, directly, around the switch body — and
+; the body begins inside the VBlank the tick started in (MEASURED: scanline
+; 235). So a switch whose body fits in the rest of that VBlank blanks no
+; DISPLAYED scanline at all, and one that does not fit degrades to a black band
+; at the top of one frame rather than to a torn or corrupted one. THAT IS THE
+; CUT'S CONTRACT, and it is the destination scene's `enter` that has to meet
+; it: a long VRAM upload belongs at boot or behind a fade edge, not inside a
+; cut. meteor_event's two enters cost 19,794 and 25,978 mc against the ~36,000
+; a body starting at scanline 235 has left (tests/test_scene_mgr_cut.py pins
+; both the picture and the margin).
+;
+; The one frame between the request and the switch is NOT shaveable, and is now
+; load-bearing rather than incidental: `sm_tick` reads the phase once per
+; frame, so the switch lands on the next tick — which `sm_frame_sync` has just
+; released from its `wai`, i.e. at the top of VBlank.
 .if SF_SM_CUT
 sm_request_cut:
     .a8
@@ -209,17 +229,15 @@ sm_request_cut:
     cmp z:ES_SM_CTL             ; already there?
     beq :+
     ; Cancel any ramp still in flight, or fade_tick — which runs AFTER sm_tick
-    ; in every main loop — overwrites the forced blank below on this very
-    ; frame, and the switch's VRAM uploads happen with the screen live. Not
-    ; reachable on meteor_event (its trigger is ~120 frames of walking past the
-    ; boot fade-in), and reachable in general: a scene tick runs in phase 0,
-    ; and phase 0 is where the BOOT scene's own fade-in is still ramping. The
-    ; mirror of @cut_done's cancel, on the way in.
+    ; in every main loop — keeps ramping the screen into and across the switch
+    ; frame. Not reachable on meteor_event (its trigger is ~120 frames of
+    ; walking past the boot fade-in), and reachable in general: a scene tick
+    ; runs in phase 0, and phase 0 is where the BOOT scene's own fade-in is
+    ; still ramping. The mirror of @cut_done's cancel, on the way in.
     stz z:ES_FADE_CTL+1         ; dir = idle
-    lda #$80
-    sta z:ES_SM_NMI+1           ; INIDISP shadow = forced blank (NMI commits)
     lda #4
-    sta z:ES_SM_CTL+2           ; phase = CUT switch (after one more VBlank)
+    sta z:ES_SM_CTL+2           ; phase = CUT switch (on the next tick, which
+                                ;   begins at the top of VBlank)
 :   rts
 .endif
 
@@ -284,9 +302,18 @@ sm_tick:
 
 @switch:
     .a8                         ; reached only via A8 beq
-    ; ---- phase 2 (and phase 4, the cut): forced blank is on screen; swap
-    ;  scenes safely. ONE body, two styles — only the tail differs ------
-    ; Long uploads under NMI corrupt VRAM (VMADD clobber) — mask NMI first.
+    ; ---- phase 2 (and phase 4, the cut): swap scenes under forced blank.
+    ;  ONE body, two styles — only the tail differs --------------------
+    ; The blank is asserted HERE, on the port, rather than being taken on
+    ; trust from the INIDISP shadow. For the FADE (phase 2) that is a no-op
+    ; with a purpose: the NMI committed $80 a frame ago, so this writes the
+    ; value already in the register and the fade behaves exactly as before.
+    ; For the CUT (phase 4) it is the whole change — nothing armed a blank
+    ; ahead of this frame, so the body is bracketed instead, and a body that
+    ; fits in the VBlank it starts in blanks no displayed scanline.
+    lda #$80
+    sta a:$2100                 ; INIDISP: forced blank, NOW
+    ; Long uploads under NMI corrupt VRAM (VMADD clobber) — mask NMI next.
     stz a:$4200                 ; NMITIMEN: mask NMI + auto-joypad
     stz a:$420C                 ; HDMAEN off NOW (HDMA runs in forced blank)
     stz z:ES_SM_NMI+2           ; and the shadow (scenes re-arm in enter)
@@ -335,6 +362,29 @@ sm_tick:
 .if SF_SM_CUT
 @cut_done:
     .a8                         ; reached only via A8 beq
+    ; ---- the incoming scene's SHADOWS, committed here ---------------------
+    ; THE CUT RUNS AFTER THIS FRAME'S NMI, so the hook that normally carries a
+    ; scene's per-frame shadows to the hardware has already been and gone. Any
+    ; port the scene writes through a shadow rather than directly — the eight
+    ; Mode-7/scroll ports and the OAM table, on the rails that have them —
+    ; would otherwise reach the PPU one frame LATE, and the frame in between
+    ; renders the new scene through the OLD scene's values.
+    ;
+    ; That is not hypothetical: MEASURED on meteor_event the moment the black
+    ; frame went away, it was 809 pixels of Mode-7 plane on the forward swap
+    ; (the plane drawn at the LEVEL's camera instead of its off-field park) and
+    ; 8,704 pixels of misplaced ground on the return (BG1HOFS/BG1VOFS still
+    ; holding the cutscene's last Mode-7 origin). One frame of wrong picture in
+    ; place of one frame of black is not a fix.
+    ;
+    ; The hook is the game's own commit and it is idempotent, so running it
+    ; once more here is the whole repair. HDMA is deliberately NOT re-armed:
+    ; `@switch` cleared HDMAEN and the register-file shadow, and the real $4300
+    ; file is not refreshed until the next NMI's MVN — so enabling a channel
+    ; here would point it at the OUTGOING scene's registers. One frame with
+    ; HDMA off is what the switch has always cost.
+    jsr sm_nmi_hook             ; A8/I16, DB=0 — the contract we are already in
+    .a8
     ; ---- full brightness NOW, not through fade's ramp ---------------------
     ; The scene `enter` this switch just ran may have armed one: EVERY scene
     ; enter in this tree calls fade_start_in, because that is also how the BOOT
@@ -352,6 +402,11 @@ sm_tick:
     sep #$20
     .a8
     sta z:ES_SM_NMI+1           ; INIDISP shadow = full brightness (NMI commits)
+    ; ...and LIFT the blank on the port, here, closing the bracket @switch
+    ; opened. Waiting for the NMI to commit the shadow would leave forced
+    ; blank standing until the NEXT VBlank — which is a whole displayed frame
+    ; of black, i.e. the flicker this path exists to not have.
+    sta a:$2100                 ; INIDISP: full brightness, NOW
     stz z:ES_SM_CTL+2           ; phase = 0 (run): the switch frame is the last
     rep #$20
     .a16
