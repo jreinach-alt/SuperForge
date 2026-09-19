@@ -1,0 +1,50 @@
+# aur_obj — three figures on the cliff edge, backs to us.
+#
+# 16x32 sprites (OBSEL size pair 6), which the PPU reads as tiles N, N+1,
+# N+16, N+17, N+32, N+33, N+48, N+49 off its 16-tile-wide OBJ grid — so the
+# page is four rows of that grid and the three figures interleave into it.
+#
+# THEY GET THEIR OWN SIXTEEN. Sprites read CGRAM at `128 + (palette << 4) +
+# colour` (SnesPpu.cpp:960), so nothing here is taken from BG2's palette,
+# which is exactly full. That is what lets the figures carry a cold rim down
+# the edge the curtains light instead of being flat silhouettes.
+#
+# OBJ IS 4bpp IN EVERY MODE — mode 3's 8bpp belongs to bg1 alone
+# (SnesPpu.cpp:770 fetches sprite pixels through GetTilePixelColor<4> with the
+# depth in the template argument, for all eight modes).
+name = "aur_obj"
+role = "consumer"
+depends = ["oam_sprites", "aur_rom"]
+
+[[claims.vram]]
+name = "aur_obj_chr"
+kind = "chr"
+obj = true
+words = 0x1000          # one whole OBJ name table: OBSEL's base field steps
+                        # in 8K WORDS, so a smaller claim would not buy a
+                        # smaller footprint.
+
+[[claims.cgram]]
+name = "aur_obj_pal"
+words = 16
+at = 128
+
+[[claims.oam]]
+name = "aur_figs"
+sprites = 4             # three figures, and the slot must start a hi-table
+at = 0                  # byte because the SIZE bit for a 16x32 sprite lives
+                        # there — the ASM asserts the alignment.
+
+[[claims.reg]]
+name = "aur_obsel"
+registers = ["OBSEL"]
+
+[[claims.dma_init]]
+name = "aur_obj_up"
+channel = 1
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.screen]]
+layer = "obj"
+on = "main"

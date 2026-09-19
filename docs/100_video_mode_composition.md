@@ -406,7 +406,7 @@ checks, so a run that examined nothing reads as having examined nothing.
   is no seed and the raw channel still refuses in check 2, as before. The
   parser holds the hardware ceiling — a BG3 tilemap has 32 rows, the 1K-word
   page `BG3SC` addresses — and whether the rows a band names EXIST in the
-  table's VRAM claim is not reachable (§14, the placement limit).
+  table's VRAM claim is not reachable (§15, the placement limit).
 
 - **O11 — 16x16 tiles and a HORIZONTALLY displaced layer.** The one
   interaction between this vocabulary's two halves, and it is **not symmetric
@@ -1222,7 +1222,7 @@ advancing; `1` gives no walk, no hold, and every band from the top of the
 picture. **It is NOT harmless to the picture**, which an earlier draft of this
 section said it was: removing the seed on a tree that had it put the hall's
 machine band back to reading the room's row for about 27 lines and the walk's
-leavings under that. §14 records it as a limit of the shadow, and the fix
+leavings under that. §15 records it as a limit of the shadow, and the fix
 belongs there — seed every armed slot's counter, or defer the `HDMAEN` write
 to the frame's own init — rather than in each rail that arms one.
 
@@ -1318,7 +1318,162 @@ because VRAM now says field 0 and field 0 is what the picture shows. Four other
 cases go red. A mechanism that is *present* and a mechanism that is merely
 *self-consistent* look the same from one direction only.
 
-## 14. Stated limits
+## 14. `aurora` — mode 3, and a picture BUILT for direct colour
+
+`mill_direct` showed the bit set. What a variant of an indexed rail cannot
+show is a picture designed around what the bit gives you, and that is what
+this rail is: an end-credits card whose sky is drawn from 2048 colours on a
+**palette budget of zero**, with all 256 CGRAM words left to BG2 and the
+sprites.
+
+### 14.1 Mode 3 is forced, not chosen
+
+`mode = 3` is `bg1 8bpp + bg2 4bpp`, and it is the first mode-3 rail in the
+tree. Every other candidate is excluded by something:
+
+| | why not |
+|---|---|
+| mode 7 | one layer. The word, the hills, the cliff and the figures need a second |
+| mode 4 | its bg2 is 2bpp — four colours cannot hold two ridges, a cliff, two star levels and a nine-step anti-aliased ink ramp |
+| modes 1, 2, 5, 6 | no 8bpp layer, so `direct_color` is inert (O12) |
+
+Direct colour acts on an 8bpp layer alone, and mode 3 is the only mode in the
+tree's vocabulary that pairs one with a second layer worth having.
+
+### 14.2 The trade, both halves, paid in the open
+
+BG1 consults **no CGRAM word at all**. The pixel byte is r3 g3 b2, each
+channel extended one bit by the tilemap entry's palette field — the three bits
+an indexed 8bpp layer ignores outright (`SnesPpu.cpp:1077`). No palette is
+fitted, uploaded or consulted for the sky.
+
+The other half is that **there is no palette to CYCLE.** A colour cycle is the
+classic indexed trick: rewrite one CGRAM word and every pixel using it changes,
+for two bytes a frame. Direct colour is exactly the mode that gives that up, so
+colour animation becomes CHR traffic — **sixteen copies of every tile the
+aurora tints, 311,296 B**, for an effect an indexed layer buys for two bytes.
+That is `aur_hue`, and the number is the honest counterweight to the
+zero-CGRAM headline. Both are the same fact seen from opposite ends.
+
+**The palette field cannot stand in for it**, which is why the rail's first cut
+was wrong rather than merely cheaper. One low bit a channel — 2 of 31 in red
+and green, 4 in blue — will not carry a teal curtain to violet; and being per
+TILE, anything driven by it moves in 8x8 blocks. A wave of those blocks
+sweeping diagonally is what the first cut looked like, and it read as
+pixelation rather than as light.
+
+### 14.3 The dither is why nothing on this layer scrolls
+
+The reachable set inside one 8x8 block is 8 x 8 x 4 with steps of 4/31, 4/31
+and 8/31, because the field is per tile. A long shallow night gradient bands
+against steps that coarse, so the art is **ordered-dithered** — and that dither
+is why BG1 never moves. Sliding neighbouring scanlines by different amounts
+destroys the dither's vertical coherence, and the gradient stops reading as
+texture and starts reading as static. The rail swayed once; standing still is
+what keeps it clean.
+
+### 14.4 `bank_tiled` splits TRANSFERS, not only tiles
+
+The hue blob is 327,680 B, which no 32 KB LoROM window holds, so it is
+`bank_tiled`. The obvious invariant is clean here — 32,768/64 is 512 **whole**
+8bpp tiles, so a chunk boundary never splits a tile — and it is not the
+invariant that mattered.
+
+**A1B is constant.** A transfer that crosses a chunk boundary wraps inside its
+own bank to `$0000` and reads the WRAM mirror. Seven of the cycle's slices
+cross. The picture stayed recognisably an aurora with a few tiles of garbage in
+it, and a screenshot never would have found it; Mesen's uninitialised-read
+detector named it in one run, at `$05:09F3`. A crossing slice is armed as **two
+transfers**, and the destination needs no second VMADD because the port
+auto-increments.
+
+### 14.5 The slot order, and a beat that was built, measured and rejected
+
+The tinted tiles hold a contiguous run of BG1 indices — one VMADD and one
+transfer a frame — assigned in a **scattered** order, so a frame's share is
+spread over the whole sky rather than sweeping down it. A frame's picture is
+therefore always a mix of two adjacent phases, and the effect rests on that mix
+being invisible: five degrees of hue apart is under the dither's own noise, so
+the curtains drift in colour with nothing to see moving. **Measured on the
+shipped ROM: four 8x8 cells of the sky change in a hundred and twenty frames.**
+
+**A rise was built on top of this and then removed, and the episode is worth
+recording because the measurement was right and the conclusion was not.**
+Shipping the tinted run UNLIT in the base CHR page makes the cycle's first pass
+over it the aurora *arriving* — for no extra ROM and no second mechanism, since
+the rise is just the ordinary cycle reaching somewhere it has not been. It is
+almost free and it looks good in stills.
+
+It forces the slot order, though. The two states of a rising tile are "nothing"
+and "a curtain", so a scattered first pass materialises in 8x8 blocks all over
+the sky; ordered bottom-up the curtains climb out of the horizon instead. That
+order was then measured for the cost it was assumed to carry — a visible
+banding as the phase boundary sweeps — and it does **not** have it: across six
+cursor positions the largest mean-colour step between adjacent tile rows sits
+at the hills' edge and does not move with the cursor. No seam.
+
+The owner watched both and kept the scattered one. **A coherent front is
+legible as MOTION even where it is not legible as a seam** — the eye follows an
+edge sweeping up the screen where it cannot see a boundary standing still — so
+the drift read as a wipe. What the measurement established was that there is no
+colour *step*, which was never the thing that made it worse.
+
+Both halves are held by the harness, in the only place they are observable: the
+first two seconds. `base-page-ships-the-run-unlit` is the plant, and the
+finished card is byte-identical either way.
+
+### 14.6 The card plays itself, and the loop leaves the colour alone
+
+`aur_pres` is five beats — black, the scene brightening, the pen writing, the
+card held, black — and they wait on different things by design. The two ramps
+wait on `fade` going idle rather than on a frame count. PLAY watches the pen's
+own frame counter, so it ends when the word is written rather than on a count
+that would have to be retuned beside it. Only the held card is a tuned number,
+and it is the beat where the colour is the only thing happening.
+
+**The loop puts back the ink and NOTHING ELSE.** The hue cursor runs underneath
+every beat and no beat touches it, so each pass opens on whatever hue the drift
+has reached — which is the rail's whole claim, a fifty-one-second journey from
+cyan-teal to violet, and exactly what a tidy loop destroys. An earlier cut
+restored the CHR page at each lap: every pass then opened on the same teal and
+fifteen of the sixteen phases were unreachable. It is `the-loop-puts-the-colour
+-back`, and it is the plant every other case in the module passes against.
+
+The cost is that passes are not pixel-identical, so the rail **loops in shape,
+not in pixels**. The clip still cuts cleanly, because the loop point is black
+and one black frame is the same as another whatever colour preceded it.
+
+### 14.7 What the falsification harness is holding
+
+Seven plants, and the set is built around **what is unobservable in a finished
+frame**. The card at the end of a pass is the same picture whether the aurora
+was there from the first frame or arrived, whether the loop carries the colour
+forward or puts it back, whether the pen finished before the beat ended. The
+sharpest of them is `the-loop-puts-the-colour-back`, a defect this rail
+shipped: it is the TIDY-looking change, since every pass then opens on exactly
+the same picture, and it silently throws the headline away.
+
+Two plants were written and **withdrawn after measurement**, which the module's
+own docstring records rather than leaving absent. One rested on a channel
+contention that does not exist. The other is the slot order itself: with the
+rise removed it has almost no observable consequence — four 8x8 cells in a
+hundred and twenty frames — so a plant for it would be asserting something the
+picture cannot show, which is the indirect-evidence trap in a different
+costume.
+
+The one that says most about the vocabulary is `direct-colour-cleared`: because
+CGWSEL bit 0 is **declared with the mode** rather than written by hand, clearing
+it means the composition no longer OWNS the port, `ES_SCR_CREDITS_CGWSEL` stops
+being emitted, and the scene's write to `$2130` becomes an undeclared one — so
+the plant is expected to REFUSE the build rather than to change a picture. A
+second plant carries the defect through into a ROM that assembles, and there
+the picture is still a picture. The case that catches it counts the sky's
+colours against CGRAM rather than looking at the screen, which is the only
+observation that separates the two: **161 of the sky band's 166 distinct
+colours are outside CGRAM's 242, and on an indexed BG1 that number is zero by
+construction.**
+
+## 15. Stated limits
 
 - **The offset TABLE'S CONTENT is not modelled.** The claim says BG3's tilemap
   is a table of scroll words; it does not say which words, how they get there,

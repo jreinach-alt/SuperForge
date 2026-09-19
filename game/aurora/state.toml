@@ -1,0 +1,6 @@
+[scene.credits]
+tsc_acc = "u16@dp"       # TICK: ok -- the carried FRACTION of a scaled rate.
+                         # It exists to remove a frame coupling, not to hold
+                         # one, and it has no meaning in frames.
+tsc = "u16@dp"           # TICK: ok -- the OUTPUT of the scaler; already
+                         # expressed against the declared tick.

@@ -15,6 +15,7 @@ LD65    := ld65
 # `microzero` in the repo root would have made `make microzero` a silent
 # no-op. The other three are the same shape and are fixed alongside it.
 .PHONY: all toy alloc no-literals toy-bad rom-unbacked clean test width-check \
+	map-check \
 	cleanroom print-width-targets \
 	time-check tick-check tick-census falsify determinism \
 	probe-colmap probe-pfs probe-objview microzero room probes measure \
@@ -24,7 +25,7 @@ LD65    := ld65
 	m7dg-assets m7_dungeon m7dg-labels m7dg-measure m7dg-measure-logic \
 	sh2-assets split_h_2p_demo sh2-variants sh2-labels sh2-measure bare-check \
 	m7x-assets mode7_explore pfs-assets platformer_stream scroller \
-	lakeside heathaze smelter mill mill-direct \
+	lakeside heathaze smelter mill mill-direct aurora \
 	scroller-tb tb-measure tb-picture rate-oracle \
 	camera_follow maze jumper patrol sprite_game stomper scroll_run brawler \
 	split_h_matrix_demo split_h_persp3_demo \
@@ -1358,6 +1359,58 @@ $(BUILD)/lakeside.sfc: $(LKS_ASM) $(LKS)/lakeside.inc \
 	$(PY) tools/fix_checksum.py $@
 
 lakeside: $(BUILD)/lakeside.sfc
+# ---- aurora: an end-credits sky, drawn WITHOUT A PALETTE ----------------
+# BG1 is 8bpp read as DIRECT COLOUR, so its pixel IS its colour and it
+# consults no CGRAM word at all; the tilemap entry's palette field supplies
+# the low bit of each channel, which makes that field a live PER-TILE COLOUR
+# CONTROL and is the whole animation. The FIRST mode-3 rail here — direct
+# colour needs an 8bpp layer, mode 7 has no second one, and mode 4's 2bpp bg2
+# cannot hold the hills, the cliff, the stars and a nine-step ink ramp.
+AUR      := game/aurora
+AUR_MAP  := $(BUILD)/aur
+AUR_ASM  := $(AUR)/main.asm $(wildcard $(AUR)/scenes/*.asm) \
+            $(wildcard engine/features/*/*.asm)
+
+# EVERY blob the generator emits, because a blob the recipe .incbin's and this
+# list omits is a stale artifact waiting to happen.
+AUR_ASSETS := $(BUILD)/assets/aur_chr1.bin $(BUILD)/assets/aur_chr2.bin \
+              $(BUILD)/assets/aur_map1.bin $(BUILD)/assets/aur_map2.bin \
+              $(BUILD)/assets/aur_pal.bin $(BUILD)/assets/aur_obj.bin \
+              $(BUILD)/assets/aur_hue.bin $(BUILD)/assets/aur_write.bin \
+              $(BUILD)/assets/aur_rate.bin \
+              $(BUILD)/assets/aur_art.inc
+
+$(AUR_ASSETS): tools/gen_aurora_assets.py tools/write_on.py \
+		vendor/art/the_end/the_end_traced_strokes.svg | $(BUILD)
+	$(PY) tools/gen_aurora_assets.py $(BUILD)/assets
+
+$(AUR_MAP)/engine_state_globals.inc $(AUR_MAP)/symbol_map.json: \
+		allocator/substrate.toml allocator/allocate.py allocator/schemas.py \
+		$(wildcard engine/features/*/feature.toml) $(AUR)/game.toml \
+		$(AUR)/state.toml | $(BUILD)
+	$(PY) allocator/allocate.py --game $(AUR) --features-dir engine/features \
+		--out $(AUR_MAP)
+
+AUR_INC := -I $(AUR_MAP) -I $(VROM) -I $(AUR) -I $(BUILD)/assets \
+           -I engine/features/scene_mgr -I engine/features/input \
+           -I engine/features/fade -I engine/features/region \
+           -I engine/features/tick_scale -I engine/features/oam_sprites \
+           -I engine/features/aur_bg -I engine/features/aur_obj \
+           -I engine/features/aur_hue -I engine/features/aur_write \
+           -I engine/features/aur_pres
+
+$(BUILD)/aurora.sfc: $(AUR_ASM) $(AUR)/aurora.inc \
+		$(AUR_MAP)/engine_state_globals.inc $(AUR_ASSETS) \
+		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
+		$(VROM)/lorom_512k.cfg | $(BUILD)
+	$(PY) allocator/no_literals.py --map $(AUR_MAP)/symbol_map.json $(AUR_ASM)
+	$(CA65) $(AUR_INC) --bin-include-dir $(BUILD)/assets \
+		-o $(BUILD)/aurora.o $(AUR)/main.asm
+	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/aurora.o
+	$(PY) tools/fix_checksum.py $@
+
+aurora: $(BUILD)/aurora.sfc
+
 # ---- heathaze: heat shimmer as a per-scanline displacement ----
 # BG1 carries a desert road under a mesa ridge; below the horizon an HDMA
 # channel writes a different BG1HOFS on EVERY SCANLINE, so the lower layer
@@ -3299,6 +3352,7 @@ gates: | $(BUILD)
 	    blocking="$$1"; fi; \
 	}; \
 	run cleanroom; \
+	run map-check; \
 	run toy; run toy-bad; run rom-unbacked; run width-check; run time-check; \
 	run register; \
 	run rail-registered; run measure; \
@@ -3308,6 +3362,7 @@ gates: | $(BUILD)
 	run sh2-variants; \
 	run mode7_explore; run platformer_stream; run scroller; \
 	run lakeside; run heathaze; run smelter; run mill; run mill-direct; \
+	run aurora; \
 	run camera_follow; run maze; run jumper; run patrol; \
 	run sprite_game; \
 	run stomper; \
@@ -3330,7 +3385,7 @@ gates: | $(BUILD)
 	cat $(BUILD)/gates_summary.txt; \
 	for rom in microzero room breaker shmup platformer split_v_fight m7_dungeon \
 	           split_h_2p_demo mode7_explore platformer_stream hud_game \
-	           scroller lakeside heathaze smelter mill camera_follow maze jumper patrol sprite_game \
+	           scroller lakeside heathaze smelter mill aurora camera_follow maze jumper patrol sprite_game \
 	           stomper scroll_run brawler \
 	           split_h_matrix_demo split_h_persp3_demo split_v_demo \
 	           split_v_seamtrial split_h_demo split_h_persp_demo \
@@ -3505,7 +3560,7 @@ PYTEST_DIST := $(if $(strip $(XDIST)),-n $(strip $(XDIST)) --dist loadfile,)
 # tools/harness_faults.py then says which KIND of red it is (docs/44 section 8).
 test: toy microzero room probes breaker shmup platformer split_v_fight \
 	m7_dungeon split_h_2p_demo sh2-variants mode7_explore platformer_stream \
-	hud_game scroller lakeside heathaze smelter mill mill-direct camera_follow maze jumper patrol sprite_game \
+	hud_game scroller lakeside heathaze smelter mill mill-direct aurora camera_follow maze jumper patrol sprite_game \
 	stomper \
 	scroll_run brawler split_h_matrix_demo split_h_persp3_demo \
 	split_v_demo svd-nowin split_v_seamtrial split_h_demo shd-autodemo \
@@ -3626,6 +3681,56 @@ TIME_LINT_TARGETS  = tests tools
 time-check:
 	@$(TIME_LINT) $(TIME_LINT_TARGETS) --baseline $(TIME_LINT_BASELINE) --summary
 
+# ---- map-check: the MAP-DERIVATION gate ----------------------------------
+# The fourth sibling. `no_literals` refuses a raw address in the ROM's own
+# source; nothing said the same thing about the PYTHON that reads the machine
+# back, and that is the same problem pointed the other way. A test addressed
+# with a literal does not corrupt the console, it corrupts the MEASUREMENT:
+# when the allocator repacks, the literal keeps pointing where the thing used
+# to be and the module goes RED on a correct ROM.
+#
+# Measured instance (2026-09-04): BG2's tilemap moved $3C00 -> $5000 when a
+# tile count grew, and a script holding the old base reported 1,230 wrong
+# pixels in a ROM whose CHR was byte-identical to the blob that built it.
+#
+# THE BASELINE IS EMPTY, and `tests/test_map_lint.py::test_the_baseline_is_empty`
+# is the ratchet that keeps it so. A baselined finding is neither derived nor
+# approved — it is a third thing, passing only because it was already there
+# when the gate landed. The seven this shipped with were closed rather than
+# carried:
+#
+#   * FOUR in tests/test_boss.py and tests/test_racer.py were OAM slot bases
+#     retyped as `9 * 4` / `17 * 4` / `7 * 4 + 1`. The Makefile comment here
+#     used to say they were "real exposure in rails that do not declare their
+#     OAM slots at all"; that was WRONG, and reading the two feature.toml
+#     files is what showed it. bs_obj and rc_kart both declare `[[claims.oam]]`
+#     properly and the allocator emits ES_O_HUD / ES_O_SHOTS / ES_O_HI_PAD
+#     with an _SPRITES companion for each. The declarations were fine; only
+#     the tests were hand-written against them. They now read the placement's
+#     `start` (the SPRITE SLOT) and `size` out of symbol_map.json — both
+#     halves, because a test that derives its base and retypes its length
+#     still goes red when a repack RESIZES the claim.
+#
+#   * THREE in tests/test_measure_cpu.py address build/probe_cpu_step.sfc,
+#     which ca65 assembles straight from vendor/probes/probe_cpu_ref.asm with
+#     no allocator in the path — so there is no symbol_map.json for it. That
+#     is a reason to reach for a different oracle, NOT a reason for an
+#     override: the probe's own equates (`DEBUG_BASE = $E000`,
+#     `CY_STEP_ITERS = DEBUG_BASE + $7F4`) are the primary source, and the
+#     module now resolves them the way test_mill.py's `_rail` resolves a
+#     hand-written .inc. An override saying "cannot be derived" would have
+#     been a false reason, which is the rubber-stamping this gate names as
+#     its own regression.
+#
+# Five sites remain triaged out with reasoned overrides elsewhere in the tree
+# (the OAM low/high boundary at 512 is a PPU fact, not an allocated base).
+MAP_LINT          := $(PY) tools/map_lint.py
+MAP_LINT_TARGETS  := tests tools
+MAP_LINT_BASELINE := reports/map_lint_baseline.json
+
+map-check:
+	@$(MAP_LINT) $(MAP_LINT_TARGETS) --baseline $(MAP_LINT_BASELINE) --summary
+
 # ---- tick-check: the FRAME-ASSUMPTION gate (docs/96) ----------------------
 # The third sibling of width-check and time-check, for the class the
 # ALLOCATOR cannot see. The allocator proves two features do not collide in
@@ -3700,7 +3805,7 @@ falsify:
 MODULE  ?= tests/test_split_h_2p_sprites.py
 FALSIFY ?=
 determinism: split_h_2p_demo sh2-variants microzero hud_game scroller \
-	lakeside heathaze smelter mill mill-direct \
+	lakeside heathaze smelter mill mill-direct aurora \
 	camera_follow maze jumper patrol sprite_game stomper scroll_run \
 	brawler split_v_fight split_h_matrix_demo split_h_persp3_demo \
 	split_v_demo svd-nowin split_v_seamtrial split_h_demo shd-autodemo \

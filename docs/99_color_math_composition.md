@@ -320,7 +320,7 @@ message carries this rule, so the build teaches it at the moment it matters.
   the rail that wanted it: `mill` composes `mil_tint` in **both** scenes, and
   a blend claim owns CGWSEL whole, so a raw CGWSEL claim beside it refuses by
   name. What remains is not a vocabulary limit but a hardware one, and it is
-  stated in docs/100 §14: direct color is **all-or-nothing per 8bpp layer**.
+  stated in docs/100 §15: direct color is **all-or-nothing per 8bpp layer**.
   There is one CGWSEL bit and no per-region control without an HDMA channel
   on CGWSEL, so a scene that turns it on turns it on for every pixel of that
   layer, and the layer's fitted palette stops being read at all.

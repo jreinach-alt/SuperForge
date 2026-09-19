@@ -1,0 +1,57 @@
+# aur_pres — the credits card as a PIECE THAT PLAYS, and then plays again.
+#
+# =============================================================================
+# WHY THE RAIL SEQUENCES ITSELF
+# =============================================================================
+# Every other rail in this tree is something you DO; this one is something you
+# WATCH, and a thing you watch has to start, arrive and end or it is just a
+# picture that happens to be moving. Left to itself the scene has no shape:
+# it fades up on an aurora already risen and a word already written, because
+# both of those finish inside the first few seconds and nothing after that
+# marks time.
+#
+# So the beats are the feature. Black, then a bare sky, then the pen and the
+# aurora together, then a held card, then black again — and then the same
+# again, without a reset vector and without the console being touched.
+#
+# =============================================================================
+# THE LOOP IS NOT A RESTART, AND THAT IS THE INTERESTING PART
+# =============================================================================
+# Only two things are put back: the pen's ink (aur_write_restart) and the
+# aurora's own CHR page (aur_hue_unrise). THE HUE CURSOR IS DELIBERATELY LEFT
+# RUNNING, so each pass rises in the colour the cycle has reached rather than
+# in the one before it. The rail's own claim is a 51-second journey from
+# cyan-teal to violet; a loop that reset the phase would show the first two
+# seconds of it forever and the other fourteen phases would be unreachable
+# without a stopwatch and a lot of patience.
+#
+# The cost of that choice is that successive passes are NOT identical, so the
+# loop is a loop of shape and not of pixels. That is the honest trade and it
+# is the right way round: the shape is what makes it watchable, the colour is
+# what makes it a demonstration.
+#
+# =============================================================================
+# WHAT IT DOES NOT OWN
+# =============================================================================
+# NOT INIDISP. `fade` owns the ramp and `scene_mgr` commits the level in the
+# NMI; this feature only ARMS a direction and then waits on the ramp going
+# idle, so brightness still has exactly one writer. It claims no register at
+# all — every beat is a call into a feature that already owns the thing it
+# touches.
+name = "aur_pres"
+role = "feature"
+depends = ["aur_hue", "aur_write"]
+
+[[claims.dp]]
+name = "aur_pst"
+bytes = 2                # which beat is running, AUR_P_* in aurora.inc
+
+[[claims.dp]]
+name = "aur_ptim"
+bytes = 2                # frames left in it, for the two beats that are held
+                         # for a time rather than until something finishes.
+                         # In TICKS, not frames: it is stepped by the same
+                         # TS_STEP output the hue cycle reads, so a PAL
+                         # console holds the card for the same WALL-CLOCK
+                         # time on fifty frames that NTSC holds it for on
+                         # sixty

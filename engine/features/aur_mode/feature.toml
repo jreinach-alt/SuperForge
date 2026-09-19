@@ -1,0 +1,42 @@
+# aur_mode — MODE 3, and BG1's pixels read as DIRECT COLOUR.
+#
+# =============================================================================
+# THE MODE IS FORCED, NOT CHOSEN
+# =============================================================================
+# Direct colour acts on an 8BPP LAYER and nothing else: `GetRgbColor`'s
+# direct-colour arm is guarded by `if constexpr(bpp == 8 && directColorMode)`
+# and by nothing else (Mesen2 Core/SNES/SnesPpu.cpp:1071). So the layer that
+# wants it has to be the 8bpp one, and the question becomes which mode pairs
+# an 8bpp layer with a companion able to hold everything that must NOT be
+# direct — the hills, the cliff, the stars and a nine-step anti-aliased ink
+# ramp.
+#
+# `MODE_BPP` answers it. Mode 7 has no second layer at all. Mode 4's bg2 is
+# 2bpp: four colours for all of the above, which it cannot do. Mode 3 is
+# `bg1 8bpp + bg2 4bpp`. That is the whole reasoning, and it is why this is
+# the tree's FIRST mode-3 declaration — mill and mill_direct are mode 4,
+# smelter is 2, everything else that declares a mode declares 1.
+#
+# =============================================================================
+# WHAT THE BIT COSTS AND WHAT IT BUYS
+# =============================================================================
+# With CGWSEL b0 set, BG1's 8-bit pixel IS the colour — r3 g3 b2 — and the
+# tilemap entry's 3-bit palette field supplies the LOW bit of each channel
+# (SnesPpu.cpp:1071-1076). BG1 therefore consults NO CGRAM WORD AT ALL, which
+# is the claim this rail exists to make: the sky and the aurora are drawn out
+# of 2048 reachable colours with a palette budget of zero, and every one of
+# CGRAM's 256 words is left to BG2 and the sprites.
+#
+# The cost is the other half of the same fact. The field is per TILE, so
+# inside any one 8x8 block the reachable set is 8 x 8 x 4 and its steps are
+# 4/31, 4/31 and 8/31 — coarse enough that a long shallow gradient bands
+# unless it is dithered. tools/gen_aurora_assets.py carries the Bayer matrix
+# that pays for it, and the dither is also why nothing on this layer moves:
+# see `aur_roll`.
+name = "aur_mode"
+role = "feature"
+
+[[claims.video]]
+name = "aur_mode"
+mode = 3
+direct_color = true

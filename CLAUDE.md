@@ -47,6 +47,30 @@ Gates — keep clean: `make width-check` · `make time-check` (the
 TIME-COUPLING lint: no wall-clock waits in `tests/`/`tools/`, override
 `# WALL-CLOCK: ok — <reason>`, baseline empty — docs/45; it does NOT know
 whether a capture lands on an absolute frame, so read its §4) ·
+`make map-check` (the MAP-DERIVATION lint, the fourth sibling — the class
+`no_literals` cannot see because it is not in the ROM's source: a `tests/` or
+`tools/` Python file that addresses emulator memory with a LITERAL instead of a
+value read out of the rail's `symbol_map.json`. It does not corrupt the
+console, it corrupts the MEASUREMENT — when the allocator repacks, the literal
+keeps pointing where the thing used to be and the module goes RED on a correct
+ROM. Measured 2026-09-04: BG2's tilemap moved $3C00 -> $5000 when a tile count
+grew and a script holding the old base reported 1,230 wrong pixels in a ROM
+whose CHR was byte-identical to the blob that built it. Override
+`# MAP: ok — <reason>`, reason REQUIRED; **baseline EMPTY** — the seven it
+shipped with were closed rather than carried (four OAM slot bases derived from
+the rails' emitted `ES_O_*` placements, three probe addresses resolved from
+`vendor/probes/probe_cpu_ref.asm`'s own equates, which is the primary source
+for a ROM the allocator never touches), and
+`tests/test_map_lint.py::test_the_baseline_is_empty` is the ratchet that keeps
+it there: a grandfathered finding is neither derived nor approved. Rule is
+deliberately narrow —
+only the ADDRESS argument of a `Machine` accessor, and never zero, because a
+zero is a hardware region ORIGIN and cannot move; widening it to any four-hex
+literal finds 251 lines and teaches people to ignore the gate. Stated limits:
+single-expression not dataflow, so an address carried in through a module
+constant is invisible; it cannot tell whether a literal is CORRECT; and it
+reaches only committed files, so a scratch script — which is what produced the
+measured instance — is outside every gate there is) ·
 `make tick-check` (the FRAME-ASSUMPTION lint, the third sibling — the class
 the allocator cannot see: no NEW site that assumes ONE TICK IS ONE FRAME,
 override `TICK: ok — <reason>`, baseline holds 350 — docs/96. A finding is
@@ -209,8 +233,25 @@ writing your first test.
   `ES_OPT_*` emission whose field set is derived from the declaration, the
   tilemap `shape` that completed the `BGnSC` encoding, and the stated limits →
   [`docs/100`](docs/100_video_mode_composition.md).
-  Exercised by two rails: `smelter` (mode 2 — four plates and a melt, every
-  8-pixel column on its own scroll, for zero HDMA channels) and `mill`
+  Exercised by three rails: `smelter` (mode 2 — four plates and a melt, every
+  8-pixel column on its own scroll, for zero HDMA channels), `aurora`
+  (**MODE 3, and the first picture in the tree BUILT for direct colour** —
+  an end-credits sky drawn from 2048 colours on a palette budget of zero,
+  leaving all 256 CGRAM words to BG2 and the sprites. §14 states the trade's
+  other half rather than hiding it: there is no palette to CYCLE, so colour
+  animation is CHR traffic — 311,296 B of it — and the per-tile palette field
+  cannot stand in, being one low bit a channel and moving in 8x8 blocks. It
+  also records what `bank_tiled` does NOT protect: a chunk boundary never
+  splits a tile, but A1B is constant so it splits TRANSFERS, and the
+  uninitialised-read detector found that where a screenshot could not. §14.5
+  records a beat BUILT, MEASURED AND REJECTED — shipping the tinted run unlit
+  makes the cycle's first pass the aurora ARRIVING, for no ROM at all, and it
+  forces a screen-coherent slot order whose assumed cost (a banding seam) was
+  measured and is not there. It was dropped anyway, because a coherent front
+  is legible as MOTION even where it is not legible as a seam. §14.6 records
+  the other half: the loop puts back the ink and NOTHING else, because a loop
+  that also restored the colour opened every pass on the same teal and made
+  fifteen of the sixteen phases unreachable) and `mill`
   (**mode 4, where BIT 15 OF EACH WORD PICKS THE AXIS** — pistons pumping
   vertically on BG1 beside conveyors running horizontally on BG2, in the same
   32-word row; plus a lift whose car is a BG1 column, whose rider is occluded
