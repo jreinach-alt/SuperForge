@@ -811,6 +811,86 @@ def test_stepping_onto_the_house_pixelates_the_world(runner, tmp_path):
         f"the dissolve only reached block {seen[-1]} across the OUT ramp: {seen}")
 
 
+def _palette_colours(blob):
+    """Every colour a palette BLOB can put on screen, expanded the way the PPU
+    does. The oracle is the file on disk, not CGRAM — CGRAM is where the ROM
+    put something, and "the picture is drawn from the interior's palette" is
+    only evidence if the interior's palette is named independently."""
+    raw = _blob(blob)
+    return {(_snes8(w & 31), _snes8((w >> 5) & 31), _snes8((w >> 10) & 31))
+            for w in (raw[i] | (raw[i + 1] << 8) for i in range(0, len(raw), 2))}
+
+
+def test_walking_onto_the_house_enters_the_town_with_no_button_press(
+        runner, tmp_path):
+    """THE SNES-RPG CONVENTION, pinned in both directions.
+
+    The owner asked for the transition most SNES RPGs make — you walk onto the
+    town and you are in it, rather than standing on it and pressing something.
+    Measured, this rail already did: no routine on it reads any bit of the pad
+    but the four directions, and the one that matters is checked here as
+    behaviour rather than as a grep.
+
+    TWO ARMS, because only the pair says anything:
+
+      * THE WALK. Every driven frame of the approach and the landing latches
+        exactly one direction and RELEASES everything else on both pads
+        (`frame_step`'s stated-state discipline), so the run physically cannot
+        contain a press. The settled picture afterwards must be the interior —
+        asserted as every colour in the frame coming from the interior's
+        palette BLOB, with none of the world's own colours left anywhere. A
+        transition that had not happened leaves the world's grass and water in
+        the frame.
+      * THE PRESS. Coming back out leaves her standing ON the house at rest,
+        which is the one position from which a press path would be visible.
+        Holding a, b, x, y, l, r, start and select there must change NOTHING —
+        no second way in, and no re-entry the moment she returns. That second
+        half is also the invariant `check_town_entry` is built on: the trigger
+        fires on a LANDING and never at rest, because the return puts her back
+        on the tile that triggers it.
+
+    The control is what makes this a test rather than a restatement: an arm
+    with no control passes equally on a ROM that warps on any input at all.
+    """
+    runner.boot_to_frame(str(ROM), 60)
+    with runner.frame_stepping():
+        _step_onto_the_house(runner)              # D-PAD ONLY, all the way
+        _run_the_wipe_out(runner)
+        inside = _shot(runner, tmp_path, "walkover_inside")
+        _walk_town_to_the_door(runner)            # D-PAD ONLY back out
+        _run_the_wipe_out(runner)
+        home = _cam_tile(runner)
+        before = _shot(runner, tmp_path, "walkover_press_before")
+        for _ in range(8):                        # eight distinct press EDGES
+            runner.frame_step(1, a=True, b=True, x=True, y=True, l=True,
+                              r=True, start=True, select=True)
+            runner.frame_step(1)
+        runner.frame_step(40, a=True, b=True, x=True, y=True, l=True, r=True)
+        after = _shot(runner, tmp_path, "walkover_press_after")
+    world = _palette_colours("m7x_pal.bin")
+    town = _palette_colours("m7x_town_pal.bin")
+    obj = _palette_colours("m7x_obj_pal.bin")
+    shown = set(inside.getdata())
+    assert not (shown & (world - town)), (
+        f"walking onto the house left {len(shown & (world - town))} of the "
+        f"overworld's own colours on screen — the interior did not come up "
+        f"without a button press")
+    assert shown <= (town | obj), (
+        f"{len(shown - (town | obj))} colours in the settled frame come from "
+        f"neither the interior's palette blob nor the avatar's; the picture "
+        f"after the walk is not the interior")
+    house = (_WORLD["M7X_DEMO_HOUSE_TX"], _WORLD["M7X_DEMO_HOUSE_TY"])
+    assert home == house, (
+        f"the return put her at {home}, not on the house {house} — the "
+        f"control arm below only means something from the trigger tile")
+    a, b = before.load(), after.load()
+    bad = [(x, y) for y in range(ACTIVE_H) for x in range(256) if a[x, y] != b[x, y]]
+    assert not bad, (
+        f"standing ON the trigger tile and holding every non-direction button "
+        f"for 56 frames moved {len(bad)} pixels; first at {bad[0]} — there is "
+        f"a press path into the town, or the return re-enters it")
+
+
 def test_the_avatar_is_hidden_while_the_wipe_runs(runner, tmp_path):
     """OBJ HAS NO HARDWARE MOSAIC, so she has to be parked or she floats
     un-dissolved over a dissolving plane.
