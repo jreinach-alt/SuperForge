@@ -226,6 +226,118 @@ def test_boot_places_the_avatar_at_the_pivot(runner):
     assert not hi & 0x01, f"hi-table byte {hi:#04x}: X9 is set — she is 256 px to the right"
 
 
+# 5-bit CGRAM -> 8-bit RGB is BIT REPLICATION, not `c << 3` (which maps
+# full-scale 31 to 248) and not a rounded scale (which is one off at the bottom
+# of the range). Four other modules in this suite define the same expansion; a
+# CGRAM-word-against-a-pixel comparison through any other one is a false red.
+def _snes8(c):
+    return (c << 3) | (c >> 2)
+
+
+def _cgram_rgb(cg, index):
+    w = cg[index * 2] | (cg[index * 2 + 1] << 8)
+    return (_snes8(w & 31), _snes8((w >> 5) & 31), _snes8((w >> 10) & 31))
+
+
+def _house_blocks_on_screen(runner, img):
+    """WHERE THE ENTERABLE HOUSE IS DRAWN, recovered from the picture itself.
+
+    Exactly one tile in the 512x512 world carries the town_door id (the
+    generator asserts the count is one), and under Mode 7 an 8bpp pixel value
+    is an ABSOLUTE CGRAM index — so that tile's 64 pixels expand to a colour
+    block the frame can be searched for. Returns every 8x8 position that
+    matches; the caller requires exactly one, which is what makes the hit an
+    oracle rather than a guess.
+    """
+    cg = bytes(runner.read_bytes(C, 0, 512))
+    chars = _blob("m7x_seed.bin")[1::2]          # the odd half IS the CHR set
+    tid = _WORLD["M7X_TILE_TOWN_DOOR"]
+    want = [[_cgram_rgb(cg, chars[tid * 64 + ty * 8 + tx]) for tx in range(8)]
+            for ty in range(8)]
+    px = img.load()
+    return [(x, y) for y in range(ACTIVE_H - 8) for x in range(256 - 8)
+            if all(px[x + tx, y + ty] == want[ty][tx]
+                   for ty in range(8) for tx in range(8))]
+
+
+def _avatar_pixels(runner, img):
+    """Her drawn pixels, by colour: OBJ palette 0 holds ten colours the Mode 7
+    palette does not, so the sprite is separable from the plane in the frame.
+    Used to tie the OAM entry to the picture inside the assertion, so the box
+    the test reasons about is one the PPU demonstrably drew."""
+    cg = bytes(runner.read_bytes(C, 0, 512))
+    plane = {_cgram_rgb(cg, i) for i in range(16)}
+    obj = {_cgram_rgb(cg, i) for i in range(C_OBJ_PAL + 1, C_OBJ_PAL + 16)} - plane
+    px = img.load()
+    return [(x, y) for y in range(ACTIVE_H) for x in range(256) if px[x, y] in obj]
+
+
+def test_the_avatar_is_drawn_standing_on_the_tile_the_walk_machine_tests(
+        runner, tmp_path):
+    """THE COORDINATE CONTRACT, read as two rendered things in one frame.
+
+    Every decision this rail takes about the world — may she step there, is she
+    inside the clamp box, does this landing enter the town — is taken on tile
+    (cam_px>>3, cam_py>>3), and the avatar is drawn at a FIXED screen box. So
+    "she is standing on that tile" is a claim about the PICTURE, and it has a
+    checkable form: the world offset between her camera tile and any other
+    world tile must equal the offset between their RENDERED blocks.
+
+    The oracle is the world's one town_door tile, found by its own colours in
+    the frame; uniqueness is asserted, so a coincidental match cannot carry the
+    case. The claim is made at THREE camera positions — diagonally away,
+    directly below, and two rows below — so a constant that happens to fit one
+    of them cannot pass, and the closest position is exactly the two-tile
+    distance the defect was reported at.
+
+    THIS IS THE CASE THE PLANT SET RECORDED AS UNCOVERED. `tools/plants/
+    m7x_rail.py` said in writing that the sixteen-pixel pivot lift "shifts the
+    whole picture sixteen world pixels vertically and NOTHING in this module's
+    unconditional tests can see it", leaving only a reference-gated case that
+    skips on a bare runner. Measured on the emulator with the lift in place:
+    camera tile (258,258) rendered at picture rows 127..134 while her body sat
+    at rows 104..119 — the tile she was standing on drawn NINETEEN SCANLINES
+    below her feet, which is what "the trigger point appears to be above the
+    town by a couple rows" looks like from the sofa. `pivot-offset` in the
+    plant set is the arm that keeps this honest.
+    """
+    house = (_WORLD["M7X_DEMO_HOUSE_TX"], _WORLD["M7X_DEMO_HOUSE_TY"])
+    spawn = (_WORLD["M7X_SPAWN_TX"], _WORLD["M7X_SPAWN_TY"])
+    runner.boot_to_frame(str(ROM), 60)
+    with runner.frame_stepping():
+        legs = [(spawn, {}), ((house[0], spawn[1]), dict(left=True)),
+                ((house[0], spawn[1] - 2), dict(up=True))]
+        for target, buttons in legs:
+            if buttons:
+                _walk_to(runner, target, **buttons)
+            cam = _cam_tile(runner)
+            assert cam == target, f"the walk stopped at {cam}, not {target}"
+            img = _shot(runner, tmp_path, f"stands_on_{cam[0]}_{cam[1]}")
+            entry = list(runner.read_bytes(O, O_AVATAR * 4, 4))
+            hits = _house_blocks_on_screen(runner, img)
+            assert len(hits) == 1, (
+                f"at camera tile {cam} the house's colour block matched "
+                f"{len(hits)} places in the frame ({hits[:4]}) — the oracle is "
+                f"only an oracle while the match is unique")
+            stray = [p for p in _avatar_pixels(runner, img)
+                     if not (entry[0] <= p[0] < entry[0] + 16
+                             and entry[1] <= p[1] < entry[1] + 16)]
+            assert not stray, (
+                f"at camera tile {cam} {len(stray)} of her drawn pixels fall "
+                f"outside the 16x16 box OAM names ({entry[:2]}); first "
+                f"{stray[0]} — the box this test reasons about is not the box "
+                f"the PPU drew")
+            # Block centre minus body-box centre: (hit + 3.5) - (oam + 7.5).
+            got = (hits[0][0] - entry[0] - 4, hits[0][1] - entry[1] - 4)
+            want = ((house[0] - cam[0]) * 8, (house[1] - cam[1]) * 8)
+            assert got == want, (
+                f"at camera tile {cam} the house is drawn {got} px from the "
+                f"centre of her body, but it is {want} px from the tile the "
+                f"walk machine tests — she is drawn "
+                f"{(got[0] - want[0]) / 8:+.2f},{(got[1] - want[1]) / 8:+.2f} "
+                f"tiles away from where this rail thinks she is standing")
+
+
 def test_the_world_palette_reaches_cgram(runner):
     """The DESTINATION region of the floor's palette upload, byte for byte.
 

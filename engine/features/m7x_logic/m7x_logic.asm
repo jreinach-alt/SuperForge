@@ -91,19 +91,48 @@ MXL_CLAMP_MAX = M7X_CLAMP_MAX
 MXL_SPAWN_PX = M7X_SPAWN_TX * MXL_TILE_PX
 MXL_SPAWN_PY = M7X_SPAWN_TY * MXL_TILE_PX
 
-; --- the vertical framing pivot ---------------------------------------------
-; m7a_set_center computes VOFS = y - 112 (half of 224 active scanlines, so the
-; pivot lands at screen centre); a y - 128 pivot on BOTH axes is the other
-; obvious choice. At the identity matrix the PPU formula collapses to
-; `vram = s + OFS` and M7X/M7Y cancel entirely, so the ONLY difference between
-; the two is sixteen world pixels of vertical framing. Passing the pivot as
-; (cam_px, cam_py - 16) buys that framing while still going through the owned
-; API — the alternative is declaring BG1HOFS/BG1VOFS here, which means not
-; composing m7_affine at all and re-implementing its VBlank commit.
+; --- the pivot: the avatar's TILE, under the avatar's BODY ------------------
+; THIS IS A COORDINATE CONTRACT, not framing, and it used to be written as one
+; (`MXL_PIVOT_LIFT = 128 - 112`, "sixteen world pixels of vertical framing").
+; What the lift actually bought was a picture shifted sixteen world pixels
+; against the position every other part of this rail reads: the terrain probe,
+; the clamp box and the town trigger all ask about tile (cam_px>>3, cam_py>>3),
+; and the avatar is drawn at a FIXED screen box — so a pivot that is not the
+; one putting that tile under that box makes "where she is" and "where she
+; looks" two different places. MEASURED on the emulator before the change: with
+; the camera on tile (258,258) the tile rendered at picture cols 128..135 rows
+; 127..134 while her 16x16 body sat at cols 120..135 rows 104..119 — the tile
+; she was standing on was drawn NINETEEN SCANLINES BELOW HER FEET, two and a
+; bit tile rows. The owner's report was "walking over the town doesn't trigger,
+; the trigger point appears to be above the town by a couple rows", which is
+; the same nineteen pixels read off a television.
 ;
-; DERIVED, not narrated: it is the difference between the two half-screens, and
-; if either ever changes this follows.
-MXL_PIVOT_LIFT = 128 - 112
+; THE CONTRACT: `m7a_set_center(px, py)` puts world pixel (px, py) at screen
+; (MXO_CX, MXO_CY) — the same two half-screens m7x_obj pins the avatar's body
+; centre on. So the pivot must be the CENTRE of the camera's tile, not its
+; origin, and the offsets below are that half tile with the one asymmetry the
+; hardware imposes:
+;
+;   * MXL_PIVOT_DX moves the pivot from the tile's left edge to its middle.
+;   * MXL_PIVOT_DY does the same vertically and then takes one scanline back.
+;     A BG row and an OBJ row of the same index are not the same scanline: the
+;     first displayed BG line is VOFS+1 while an OBJ at y renders starting on
+;     y. MEASURED, not assumed — the world's one town_door tile (world px
+;     2032,2032 at VOFS 1936) renders with its top row at picture row 95, and
+;     the interior's floor (tilemap row 2, VOFS 0) starts at picture row 15.
+;
+; Both are DERIVED from m7x_obj's pin (a declared `depends`), so re-pinning the
+; avatar or resizing her sprite carries the pivot with it instead of leaving
+; this file quietly wrong.
+MXL_SPR_SCANLINE_BIAS = 1               ; BG row n renders one line lower than
+                                        ;   OBJ row n — see above, measured
+MXL_SPR_INSET = (MXO_SIZE - MXL_TILE_PX) / 2
+MXL_PIVOT_DX = MXO_CX - (MXO_X + MXL_SPR_INSET)
+MXL_PIVOT_DY = MXO_CY - (MXO_Y + MXL_SPR_INSET) - MXL_SPR_SCANLINE_BIAS
+.assert MXL_PIVOT_DX >= 0, error, "m7x_logic: the pivot's x offset left the tile"
+.assert MXL_PIVOT_DX < MXL_TILE_PX, error, "m7x_logic: the pivot's x offset left the tile"
+.assert MXL_PIVOT_DY >= 0, error, "m7x_logic: the pivot's y offset left the tile"
+.assert MXL_PIVOT_DY < MXL_TILE_PX, error, "m7x_logic: the pivot's y offset left the tile"
 
 ; --- the pad ----------------------------------------------------------------
 ; D-PAD ONLY. No other button is read on this rail — there is nothing to press.
@@ -410,14 +439,17 @@ mxl_try_step:
 ; place:
 ;
 ;  * ES_M7ORG is what mode7_stream reads to decide which world rows and
-;  columns must enter the VRAM window. It gets the TRUE camera.
-;  * m7a_set_center is what puts the picture on screen. It gets the camera
-;  with the sixteen-pixel lift applied, which is framing and not position —
-;  see MXL_PIVOT_LIFT above.
+;  columns must enter the VRAM window. It gets the TRUE camera — the tile
+;  ORIGIN, which is the coordinate the streamer's window arithmetic is in.
+;  * m7a_set_center is what puts the picture on screen. It gets the CENTRE of
+;  that same tile, so the tile the walk machine tests is the tile drawn under
+;  the avatar's body — see the pivot block above for the measurement.
 ;
 ; Getting these from one variable is what stops "where the world thinks you
 ; are" and "where the picture says you are" drifting apart, which is a class of
-; bug that looks like a streaming bug and is not.
+; bug that looks like a streaming bug and is not. The half-tile below is the
+; only difference between the two, and it is a difference of FRAMING within one
+; tile rather than of position: both describe the same cell.
 mxl_apply_camera:
     .a16
     .i16
@@ -426,10 +458,13 @@ mxl_apply_camera:
     sta z:ES_M7ORG + 0              ; M7X px — the streamer's camera
     lda z:US_CAM_PY
     sta z:ES_M7ORG + 2              ; M7Y px
-    ldx z:US_CAM_PX
+    lda z:US_CAM_PX
+    clc
+    adc #MXL_PIVOT_DX               ; the tile's middle, not its left edge
+    tax
     lda z:US_CAM_PY
-    sec
-    sbc #MXL_PIVOT_LIFT
-    tay
+    clc
+    adc #MXL_PIVOT_DY               ; ...and its middle less the BG/OBJ line
+    tay                             ;    bias, so her body lands ON the cell
     jsr ::m7a_set_center            ; pivot -> M7X/M7Y + the screen origin
     rts
