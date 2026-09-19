@@ -1005,7 +1005,9 @@ RAILS = {
                  mem="wram",
                  fields=[("ES_M7ORG", 0, 2, 4096), ("ES_M7ORG", 2, 2, 4096)],
                  why="ES_M7ORG +0/+2 is the camera mxl_apply_camera publishes "
-                     "(m7x_logic.asm:328) — the word `mode7_stream` reads to "
+                     "(m7x_logic.asm, the routine of that name — a line "
+                     "number here went stale the first time the file above it "
+                     "grew) — the word `mode7_stream` reads to "
                      "decide which world rows enter VRAM, and the same "
                      "position m7a_set_center turns into the affine pivot. "
                      "The floor is drawn FROM it, so the path length it traces "

@@ -437,6 +437,15 @@ def test_the_boot_frame_matches_the_reference_render(runner, tmp_path):
 
     Frame 5 is the recording's last AT-REST frame; frame 6 is already mid
     walk-bob.
+
+    THE RECORDING PREDATES THE PIVOT FIX AND MUST BE RE-CUT. It was made from
+    the build whose camera pivot was sixteen world pixels off the tile the walk
+    machine tests — the defect the owner reported from hardware, fixed in
+    m7x_logic's pivot block. This ROM's boot frame is therefore ~19 scanlines
+    and 4 columns away from that render BY DESIGN, and a red here means the
+    reference is old, not that the rail regressed. Until a fresh recording
+    lands, treat a failure as a request to re-record; when it does land, this
+    paragraph goes.
     """
     runner.boot_to_frame(str(ROM), 90)
     mine = _shot(runner, tmp_path, "vs_ref")
@@ -984,6 +993,13 @@ def test_the_interior_matches_the_reference_render(runner, tmp_path):
     sixteen-word palette, the room's geometry, BG1's base registers, the fixed
     scroll, and the avatar's placement in a scene where she is NOT pinned at
     the pivot.
+
+    THE RECORDING PREDATES THE INTERIOR'S TWO FIXES AND MUST BE RE-CUT — the
+    same caveat as the boot frame's, for the same reason. Frame 59 holds the
+    old room: the bottom wall two rows lower, so the door rendered nine
+    scanlines clear of the picture's edge; the avatar four tiles above it
+    facing away; and her body drawn from her cell's top-left rather than
+    centred on it. A red here means the reference is old.
     """
     runner.boot_to_frame(str(ROM), 60)
     with runner.frame_stepping():
