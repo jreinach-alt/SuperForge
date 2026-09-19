@@ -10,8 +10,10 @@ declares `style = "cut"` today, so it is the artifact these build; the next
 rail to declare a cut inherits this set unchanged, and would inherit nothing
 useful from a row filed under the cutscene's capture.
 
-The four cover the two directions the work item's brief names, plus the two
-refusals the design leans on:
+The first four cover the two directions the original work item's brief names,
+plus the two refusals the design leans on; the fifth and sixth cover the
+BLANK FRAME the cut used to render, which is a different defect from the ramp
+and needs its own plants because a ramp assertion cannot see it:
 
   1. THE VISIBLE REGRESSION the cut exists to prevent — a cut edge silently
      running the fade machine.
@@ -27,6 +29,17 @@ refusals the design leans on:
   4. THE UNDECLARED EDGE, as a build refusal. SM_SWITCH's `.error` is the
      reason a scene cannot request a transition the game.toml never declared,
      and an `.error` that never fires is a comment.
+  5. THE BLANK FRAME COMING BACK, as the deletion of @cut_done's one-line
+     lift — the NMI then commits the blank's end a frame late and a whole
+     displayed frame is black, which is the shape the owner-reported flicker
+     actually had.
+  6. THE BLANK FRAME COMING BACK THE OTHER WAY, as an `enter` that outgrows
+     its VBlank. The blank is a bracket now, so the way to make it reach the
+     screen is not to arm it early but to hold it too long — and the two
+     failures look nothing alike from the mechanism end even though the
+     player sees the same black frame. Moving one upload back inside
+     `impact::enter` does it: 262,144 master cycles against a VBlank that has
+     about 36,000 left when the switch starts.
 
 WHAT IS DELIBERATELY NOT HERE:
 
@@ -57,19 +70,24 @@ LEVEL = SUPERFORGE / "game" / "meteor_event" / "scenes" / "level.asm"
 GAME_TOML = SUPERFORGE / "game" / "meteor_event" / "game.toml"
 ROM = SUPERFORGE / "build" / "meteor_event.sfc"
 
+MET_FLOOR = SUPERFORGE / "engine" / "features" / "met_floor" / "met_floor.asm"
+MET_MAIN = SUPERFORGE / "game" / "meteor_event" / "main.asm"
+
 T = "tests/test_scene_mgr_cut.py::"
-CUT_FWD = T + "test_a_cut_edge_renders_no_intermediate_brightness[edge0]"
-CUT_BACK = T + "test_a_cut_edge_renders_no_intermediate_brightness[edge1]"
+CUT_FWD = T + "test_a_cut_edge_renders_neither_a_ramp_nor_a_blank_frame[edge0]"
+CUT_BACK = T + "test_a_cut_edge_renders_neither_a_ramp_nor_a_blank_frame[edge1]"
 DECLARED = T + "test_the_two_meteor_edges_are_declared_cut"
+VBLANK = T + "test_the_cut_holds_its_forced_blank_inside_vblank"
+MET = "tests/test_meteor_event.py::"
+MET_FWD = MET + "test_the_swap_into_mode7_blanks_no_frame_the_picture_is_continuous"
 
 PLANTS = [
     Plant(
         id="cut-path-reenables-fade",
         file=SCENE_MGR,
-        old="""    lda #$80
-    sta z:ES_SM_NMI+1           ; INIDISP shadow = forced blank (NMI commits)
-    lda #4
-    sta z:ES_SM_CTL+2           ; phase = CUT switch (after one more VBlank)""",
+        old="""    lda #4
+    sta z:ES_SM_CTL+2           ; phase = CUT switch (on the next tick, which
+                                ;   begins at the top of VBlank)""",
         new="""    lda #1                      ; PLANT: the cut edge runs the FADE machine
     sta z:ES_SM_CTL+2
     jsr fade_start_out""",
@@ -163,5 +181,79 @@ style = "fade"      # PLANT: the declaration alone, nothing else""",
             "has fired is a comment, so it is fired here: the build must fail "
             "AND the message must name the edge, which is what makes it "
             "actionable at 3am rather than a puzzle about macro internals",
+    ),
+    Plant(
+        id="cut-lets-the-nmi-lift-the-blank-a-frame-later",
+        file=SCENE_MGR,
+        old="""    sta a:$2100                 ; INIDISP: full brightness, NOW""",
+        new="""                                ; PLANT: the lift removed. The NMI
+                                ;   commits the shadow at the NEXT VBlank,
+                                ;   so the blank @switch asserted stands
+                                ;   through a whole DISPLAYED frame""",
+        artifact=ROM,
+        build=["meteor_event"],
+        tests=[CUT_FWD, CUT_BACK, MET_FWD],
+        why="THE OWNER-REPORTED DEFECT, as the one line whose absence caused "
+            "it. @switch asserts forced blank on the port; deleting @cut_done's "
+            "matching lift leaves the NMI to commit the shadow at the next "
+            "VBlank instead, which is one whole displayed frame of black per "
+            "swap — the shape the flicker actually had. Note how much stays "
+            "green against it: the rail plays through, both scenes render, the "
+            "capture holds, and every RAMP assertion in this module passes, "
+            "because there is no ramp — a cut that blanks a frame is still a "
+            "cut. Only an assertion that reads the PICTURE on the switch "
+            "frames sees it, which is why the blank half of case 1 is written "
+            "as its own claim rather than folded into the ramp half. "
+            "MEASURED WHILE WRITING THIS SET, and worth recording: restoring "
+            "the OTHER half of the old mechanism — `sm_request_cut` arming "
+            "$80 into the INIDISP shadow a frame ahead — is now INERT at the "
+            "picture, because @switch re-asserts and @cut_done lifts the same "
+            "blank inside one VBlank. That plant fires only the shadow "
+            "assertion. The bracket is what makes the blank safe, so the "
+            "bracket is what this plant takes away",
+    ),
+    Plant(
+        id="a-cut-enter-outgrows-its-vblank",
+        file=MET_MAIN,
+        old="    jsr impact::floor_upload    ; the 32 KB interleaved Mode-7 plane",
+        new="                                ; PLANT: the boot upload removed",
+        also=((MET_FLOOR,
+               """floor_arm:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, \"floor_arm\"
+""",
+               """floor_arm:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, \"floor_arm\"
+    jsr floor_upload                ; PLANT: the 32 KB plane, back inside the
+                                    ;   scene switch where it used to be
+"""),),
+        artifact=ROM,
+        build=["meteor_event"],
+        tests=[VBLANK, MET_FWD],
+        why="THE SAME BLACK FRAME BY THE OTHER MECHANISM, and the reason this "
+            "set needs two plants for one symptom. With the blank held as a "
+            "bracket rather than armed ahead, the way to put it back on "
+            "screen is to make the switch body too long for the VBlank it "
+            "starts in — and a 32,768-byte DMA is 262,144 master cycles "
+            "against roughly 36,000 available. The defect is realistic "
+            "because it is a REVERT: uploading the plane at scene enter is "
+            "what every other scene-scoped image on this rail used to do, "
+            "and it is the obvious place to put one. It fires the mechanism "
+            "case FIRST, which is the point of having that case: the "
+            "scanline gate names the cause (the body outgrew VBlank) where "
+            "the picture cases only report the symptom. "
+            "CASE 1 IS DELIBERATELY NOT IN THIS LIST, and the reason is a "
+            "MEASURED limit of its predicate rather than an oversight: an "
+            "overrun blanks the TOP of a frame, not the whole of it, so the "
+            "frame's colour set is black plus the scene's — `blank` wants "
+            "{BLACK} exactly and `dimmed` wants a colour in neither steady "
+            "picture, and a band is neither. Verified by planting this and "
+            "running that case: it stays green. A partial blank is case 1b's "
+            "and the rail module's, which compare geometry and pixels "
+            "respectively; naming case 1 here would have been a plant with a "
+            "test that cannot fire",
     ),
 ]

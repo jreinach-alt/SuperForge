@@ -89,11 +89,24 @@ features = ["met_floor", "met_glow"]
 # WHY CUT, measured. Spelling the mode swap as a scene transition is what makes
 # the allocator prove the two mode owners never coexist (the header above), but
 # it also handed this rail scene_mgr's hard-wired fade: 15 frames out + 15 back,
-# MEASURED at 31 transition frames on each of the two swaps, where a plain
-# forced-blank swap costs 2. The fade buys nothing here — both swaps land on a
-# black screen either way, because the outgoing picture on the forward swap is
-# the captured ground over black and the incoming one on the return is the same
-# frozen level. The cut keeps the allocator's proof and drops the ramp.
+# MEASURED at 31 transition frames on each of the two swaps. The cut keeps the
+# allocator's proof and drops the ramp.
+#
+# AND THE ORIGINAL RULING HERE WAS WRONG IN A WAY THE OWNER SAW. It read "the
+# fade buys nothing here — both swaps land on a black screen either way",
+# because the outgoing picture on the forward swap is the captured ground over
+# black and the incoming one on the return is the same frozen level. The
+# BACKDROP is black; the PICTURE is not. What is on screen across both swaps is
+# the captured ground, the two platforms and the player, and the two sides of
+# each swap are PIXEL-IDENTICAL — so the one forced-blank frame the switch used
+# to run under was a blink between two identical pictures, which is the most
+# visible thing a single frame can be. Both uploads are boot work now
+# (main.asm's boot block) and the cut holds its blank across the switch BODY
+# inside one VBlank, so the swaps cost NO displayed frame at all: measured, 26
+# and 32 thousand master cycles of blank, entirely between scanlines 235 and
+# 259. tests/test_meteor_event.py photographs both windows frame by frame and
+# tests/test_scene_mgr_cut.py reads the beam position at each end of the
+# bracket.
 #
 # NO `budget_bytes`, and the omission is the honest answer rather than a
 # skipped field. The edge model bills a transition for the destination scene's

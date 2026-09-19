@@ -21,7 +21,9 @@
 ; Transition phase machine (ES_SM_CTL+2):
 ;  0 run · 1 fade-out (level -> 0) · 2 blank switch (exit/enter under forced
 ;  blank, NMI masked) · 3 fade-in (level -> 15) · 4 CUT switch — the SAME
-;  phase-2 body, entered with no ramp and left with no ramp
+;  phase-2 body, entered with no ramp and left with no ramp, and with the
+;  forced blank HELD BY THE BODY rather than armed a frame ahead, so a
+;  switch that fits in the VBlank it starts in blanks no displayed line
 ;
 ; TWO TRANSITION STYLES, AND THE GAME DECLARES WHICH. A `[[edge]]` in game.toml
 ; carries `style = "fade" | "cut" | "mosaic"`; the allocator emits
