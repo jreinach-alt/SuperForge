@@ -232,10 +232,51 @@ tick:
     ; every frame. On NTSC the two are the same test to the frame.
     lda z:US_LANDED
     beq @done
+    jsr mxx_footstep                ; the arrival IS the step; see below
     jsr check_town_entry
 @done:
     .a16
     .i16
+    rts
+
+; --- mxx_sfx: queue the sound effect named in A -----------------------------
+; In: A16 = the SFX:: id (low byte). In/out: A16/I16, DB=0. Clobbers A.
+;
+; WIDTH-RISK: sf_sfx_queue_c declares `entry: A8 I16 DB=0` and this rail calls
+; it from A16 code, so the sep/rep pair is load-bearing and lives here rather
+; than at each call site. X survives it, which is why this uses the centred
+; entry point rather than loading a pan into X.
+mxx_sfx:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    jsr sf_sfx_queue_c
+    rep #$20
+    .a16
+    rts
+
+; --- mxx_footstep: one step, one sound, and NO LATCH ANYWHERE ---------------
+; In/out: A16/I16, DB=0. Clobbers A.
+;
+; THE CHEAPEST CUE IN THE TREE, and the reason is that this rail had already
+; done the hard part for a different consumer. `maze` and `camera_follow` walk
+; in free pixels and had to DECLARE a stride latch to have an edge at all;
+; here the avatar slides cell to cell and `m7x_logic` publishes US_LANDED,
+; which is 1 on exactly the step that arrives and is cleared at the top of
+; every mxl_tick. That is already an edge, so a cue on it is one-shot by
+; construction and needs no `prev` word of its own.
+;
+; It is called from the SAME `lda US_LANDED / beq` the town trigger sits under,
+; so the footstep and the doorway cannot disagree about whether a step landed.
+; Reading the feature's published word rather than editing the feature is the
+; platformer_stream settlement: a feature publishes state, the game decides
+; whether it makes a sound.
+mxx_footstep:
+    .a16
+    .i16
+    lda #SFX::footstep
+    jsr mxx_sfx
     rts
 
 ; --- check_town_entry: did that step land her on the enterable house? -------
@@ -293,6 +334,12 @@ check_town_entry:
     ; NOTHING IS REQUESTED HERE. The swap request is raised by the callback, at
     ; peak black, twenty frames from now — see mxx_blank_to_town's header for
     ; the bug that taught this rail the difference.
+    ; THE DOORWAY, and it is one-shot for the same reason the footstep is: the
+    ; caller above only reaches here on a landing frame, and exactly one tile
+    ; in the world carries TERR_TOWN_ENTER. The dissolve then takes twenty
+    ; frames during which the avatar is not moving, so nothing can re-trigger.
+    lda #SFX::chime
+    jsr mxx_sfx
     sep #$20
     .a8
     lda #TM_BG1                     ; the affected-BG nibble for $2106: BG1 only

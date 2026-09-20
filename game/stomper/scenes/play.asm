@@ -365,8 +365,7 @@ phys_step:
     jsr st_solid_box
     beq @integrate
     stz z:US_VY                 ; standing: rest, stable grounded flag
-    lda #1
-    sta z:US_GROUNDED
+    jsr st_ground               ; the landing cue lives on the EDGE
     lda z:US_PYF
     and #$FF00                  ; pixel-exact rest (clear subpixel)
     sta z:US_PYF
@@ -413,8 +412,7 @@ phys_step:
     xba                         ; pixel -> 8.8 (value <= $00FF, so xba = <<8)
     sta z:US_PYF
     stz z:US_VY
-    lda #1
-    sta z:US_GROUNDED
+    jsr st_ground               ; the landing cue lives on the EDGE
     rts
 @fall_clear:
     .a16
@@ -543,6 +541,47 @@ done:
     .a16
     .i16
 .endmacro
+
+; --- st_sfx: queue the sound effect named in A ------------------------------
+; In: A16 = the SFX:: id (low byte). In/out: A16/I16, DB=0. Clobbers A.
+;
+; WIDTH-RISK: sf_sfx_queue_c declares `entry: A8 I16 DB=0` and this rail calls
+; it from A16 code, so the sep/rep pair is load-bearing and lives here rather
+; than at each call site. X survives, which is why this is the centred entry
+; point rather than an `ldx` for a pan.
+st_sfx:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    jsr sf_sfx_queue_c
+    rep #$20
+    .a16
+    rts
+
+; --- st_ground: set grounded, and SOUND it if this is the landing edge -------
+; In/out: A16/I16, DB=0. Clobbers A.
+;
+; THE CUE IS ON THE TRANSITION, NOT THE STATE. Both writers of US_GROUNDED run
+; on EVERY frame the box rests on floor — the falling arm's ground probe
+; re-establishes the flag each frame it finds ground — so a `thud` at either
+; store sounds sixty times a second while the player stands still. The edge is
+; tested here, in the one place both paths already pass through; jumper carries
+; the same helper for the same reason, and the plant that proves it takes the
+; thud voice from 8% of frames to 51%.
+st_ground:
+    .a16
+    .i16
+    lda z:US_GROUNDED
+    bne @already                ; already standing: not a new landing
+    lda #SFX::thud
+    jsr st_sfx
+@already:
+    .a16
+    .i16
+    lda #1
+    sta z:US_GROUNDED
+    rts
 
 ; --- stomp_check ex, ealive, ey_const -> A: classify player contact ---------
 ; In/out: A16/I16, DB=0. Clobbers A. Returns 0 = no contact (dead enemies
@@ -753,6 +792,8 @@ do_jump:
     lda z:US_VJUMP              ; -ST_JUMP_VEL * r: the region's take-off
     sta z:US_VY
     stz z:US_GROUNDED
+    lda #SFX::jump
+    jsr st_sfx
     rts
 
 ; --- run_patrols: one patrol step per LIVE enemy ----------------------------
@@ -832,6 +873,8 @@ rc4:
 scored:
     .a16
     .i16
+    lda #SFX::pickup            ; the kill CONFIRMS — a bright cue, not an
+    jsr st_sfx                  ;   impact, so it cannot be mistaken for hurt
     lda z:US_FOES
     dec a
     sta z:US_FOES
@@ -854,6 +897,8 @@ scored:
 hurt_respawn:
     .a16
     .i16
+    lda #SFX::hit               ; the player took it — percussive, and audibly
+    jsr st_sfx                  ;   NOT the pickup that a stomp fires
     lda #ST_SPAWN_X
     sta z:US_PX
     lda #(ST_SPAWN_Y << 8)

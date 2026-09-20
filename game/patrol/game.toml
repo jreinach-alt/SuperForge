@@ -53,7 +53,8 @@
 # and the knockback (events), US_DIRTY (a request), and US_FRAMES (the
 # free-running heartbeat).
 globals = ["scene_mgr", "input", "fade", "text_dp", "font_rom", "enter_scr",
-           "oam_sprites", "patrol_rom", "region", "tick_scale"]
+           "oam_sprites", "patrol_rom", "audio", "tad_rom",
+           "region", "tick_scale"]
 
 [[scene]]
 id = "play"
@@ -64,3 +65,5 @@ features = ["bg_text", "patrol_bg", "patrol_obj", "col_map"]
 # pat_map is the world, pat_flags the tile-id -> flag table, both patrol_rom's
 # claims. BGMODE/TM belong to patrol_bg (the feature that defines the scene's
 # display shape); bg_text deliberately does not claim them (its own toml).
+
+# AUDIO, composed in the Phase 2 pass. The knockback is a discrete instant with one site: @hit respawns the player and counts the hit, and at most one resolves per frame by construction, so the cue needs no edge test of its own.

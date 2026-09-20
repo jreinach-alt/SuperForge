@@ -29,7 +29,7 @@ enter:
     ; the export unchanged. Harmless at boot (a no-op re-statement of the
     ; header values, processed once Tad_Process runs).
     lda #SFX::room_a_ambience
-    jsr Tad_QueueSoundEffect
+    jsr sf_sfx_queue_c
     lda #ES_C_BACKDROP_COLOR
     sta a:$2121                 ; CGADD = 0
     lda #$00                    ; backdrop = near-black $1000 (a cold dark)

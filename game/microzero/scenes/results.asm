@@ -173,6 +173,15 @@ tick:
     beq :+
     sep #$20
     .a8
+    ; THE CONFIRM, and it needs no latch: this arm is reached only on
+    ; ES_INP_PRESS's START bit, which `input` publishes as the RISING edge.
+    ; Queued BEFORE the switch on purpose -- sf_audio_tick runs later in the
+    ; same frame's main loop, so the request is already in the ring when the
+    ; edge is taken, and nothing in the switch clears it (sf_sfx_reset runs
+    ; once, at boot; the song is loaded once, at boot, so no LoadSong resets
+    ; the driver under it).
+    lda #SFX::select
+    jsr sf_sfx_queue_c
     lda #0                      ; scene id: title
     jsr sm_request
     rep #$20

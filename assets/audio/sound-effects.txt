@@ -26,3 +26,186 @@
 === footstep ===
     set_instrument_and_gain step F127
     play_note c3 4
+
+; =============================================================================
+; The demo SFX vocabulary — the primitives a rail actually needs, shared.
+;
+; SHARED ON PURPOSE. There is ONE export blob for the whole tree, so a sound
+; authored for one rail is linked into all of them. That makes a shared set of
+; primitives the architecture working as designed, not a compromise: `laser`
+; is the shmup's shot AND the saucer arena's gun, and neither pays for the
+; other's.
+;
+; WHY SO LITTLE NEW SAMPLE DATA. The S-DSP's own noise generator (`play_noise`)
+; and pitch sweeps (`portamento_calc`) carry most of this set, so the eleven
+; sounds below cost bytecode rather than BRR. Only two new instruments were
+; needed — `bell` and `saw`, single-cycle 64-sample loops at ~36 B each —
+; because `square_lead` (a 25 % pulse) and `step` (a low-passed footstep burst)
+; genuinely cannot voice a bright pickup or a full-spectrum laser.
+;
+; FLAGS. Defaults are one-channel + interruptible (project file). `both` lets a
+; sound occupy either SFX channel so two can overlap; `uninterruptible` is for
+; the ones whose loss is a STATE bug rather than a missed noise.
+;
+; GAIN vs ADSR, AND THE TRAP IN BETWEEN. A percussive one-shot must declare an
+; ATTACK. `E<rate>` / `D<rate>` GAIN are DECREASE modes -- they fall from the
+; envelope's CURRENT level, and key-on leaves that at zero, so an effect that
+; opens `set_instrument_and_gain step E14` decays from silence and is NEVER
+; AUDIBLE. It compiles, it queues, it key-ons, and the S-DSP voice reads
+; ENVX = 0 forever. Every percussive effect here therefore opens with
+; `set_instrument_and_adsr <inst> 15 <decay> <sustain> <rate>` (attack 15 =
+; instant); fixed `F<level>` gain is fine as-is, and `I<rate>` (increase) is
+; fine because it rises from zero by definition. Caught on the emulator, which
+; is the only place it is visible -- CLAUDE.md rule 2.
+; =============================================================================
+
+; --- impacts ---------------------------------------------------------------
+
+=== thud ===
+    set_instrument_and_adsr step 15 5 0 31
+    play_note c2 8
+
+=== hit === uninterruptible
+    set_instrument_and_adsr step 15 6 0 31
+    play_noise 14 sn 3
+    play_note c2 5
+
+; THE SWEEP RUNS LOW -> HIGH, and it used to run the other way. `play_noise`
+; sets the S-DSP's noise frequency (FLG bits 0-4): 0 is the slowest, 31 the
+; fastest. Authored 26 -> 18 -> 10 the effect opened as a thin HISS and only
+; reached the low band at tick 10 — measured on the DSP, the envelope peaks at
+; frame 0 (ENVX 114) while the noise index is still 26, and the low content
+; arrives at frame 4 with ENVX already down to 64. The bang is what identifies
+; an explosion, so putting it 67 ms behind the trigger reads as the sound
+; firing LATE even though the trigger is immediate (measured: 0-2 frames from
+; the kill). Reversed, the low band lands at full envelope and the hiss is the
+; decaying tail — the shape an impact actually has.
+=== explosion === both
+    set_instrument_and_adsr step 15 3 2 16
+    play_noise 10 sn 5
+    play_noise 18 sn 5
+    play_noise 26 8
+
+; --- weapons and motion ----------------------------------------------------
+
+=== laser ===
+    set_instrument_and_adsr saw 15 5 0 31
+    play_note g5 sn 1
+    portamento_calc c4 keyoff 8 9
+
+=== jump ===
+    set_instrument_and_gain square_lead F100
+    play_note c4 sn 1
+    portamento_calc c5 keyoff 6 7
+
+=== skid ===
+    set_instrument_and_gain step F80
+    play_noise 22 sn 12
+    set_temp_gain_and_rest E20 6
+
+; --- rewards and UI --------------------------------------------------------
+
+; --- LEVEL: an effect that does not set its own volume is QUIET ------------
+; Nothing in this file called `set_volume` until 2026-09-10, so every cue on
+; every rail played at the driver's default channel volume. MEASURED on the
+; chip that is VOL 24, against music channels running 48-63 on the same rails
+; -- so a cue sat at roughly 38% of the loudest voice it had to be heard
+; over. On `microzero`, whose song is mixed hot, the result was reported as
+; the rail having no sound effects at all.
+;
+; `set_volume <0..255>` maps onto the S-DSP's VxVOL, so 255 is VOL 127 and
+; 192 is VOL 96 before the effect's own gain is applied. A cue is a TRANSIENT
+; and is meant to cut through, so it belongs near the loudest music voice
+; rather than under it -- and the frequency of the cue is what sets where in
+; that range it goes. `chime` marks a lap and gets 255; `pickup` fires several
+; times a lap and gets 192, which is a hierarchy by ear rather than two
+; effects competing.
+;
+; NOT YET APPLIED TO THE REST OF THE VOCABULARY. The other thirteen effects
+; still run at the default, which is the same imbalance measured above and is
+; a tree-wide mix decision rather than a bug fix -- fifteen rails would change
+; balance at once. Recorded here so the next person to reach for `set_volume`
+; knows why two effects have it and the rest do not.
+; ---------------------------------------------------------------------------
+
+=== pickup ===
+    set_volume 192
+    set_instrument_and_gain bell F110
+    play_note e5 3
+    play_note b5 7
+
+=== chime ===
+    set_volume 255
+    set_instrument_and_gain bell F127
+    play_note e5 4
+    play_note a5 12
+
+=== select ===
+    set_instrument_and_gain pluck F127
+    play_note a3 3
+    play_note e4 5
+
+; --- the saucer arena's beam -----------------------------------------------
+; These two carry ECHO STATE as well as a sound, which is why they exist at
+; all: the arena used to fire `room_b_ambience` / `room_a_ambience` — another
+; game's per-room reverb — as its beam cues, so the beam had no sound of its
+; own and left the shared echo unit retuned. One SFX does both jobs because
+; the ca65 queue only carries ONE sound effect per frame; a separate tone and
+; re-shape would contend and the re-shape would win, silently.
+; The echo write comes FIRST so the state lands even if the tail is cut.
+
+=== beam_fire === uninterruptible
+    set_echo_feedback   96
+    set_echo_volume     70
+    set_instrument_and_gain saw I18
+    play_note c3 sn 2
+    portamento_calc c5 keyoff 10 12
+
+=== beam_end === uninterruptible
+    set_echo_feedback   24
+    set_echo_volume     12
+    set_instrument_and_adsr tri_bass 15 4 0 31
+    play_note c2 6
+
+; --- the shoreline ---------------------------------------------------------
+; A WAVE IS NOT A HIT, and that is the whole difference between this and
+; `explosion` above. An impact is loudest at the instant it happens and decays
+; from there — explosion's own header records why its bands had to be reordered
+; low -> high to get that shape. A breaking wave has three legs in the other
+; order: it GATHERS (quiet, mid band, rising), it BREAKS (loud, low band,
+; broad), and then it DRAINS (long, thinning, high band, falling away). The
+; envelope and the noise index move TOGETHER across all three, which is what
+; separates water from a burst of static.
+;
+; ONE KEY-ON FOR THE WHOLE EVENT. Every band after the first is slurred (`sn`),
+; so the driver never re-keys the voice and the GAIN envelope runs continuously
+; underneath the band changes. Keyed per band instead, the swell restarts its
+; envelope three times and reads as three separate noise hits.
+;
+; THE INSTRUMENT IS CHOSEN FOR ITS LOOP, NOT ITS TIMBRE. With noise enabled the
+; voice outputs the noise generator and the BRR sample is inaudible — but the
+; sample still ENDS the voice: a non-looping instrument plays noise only for
+; the length of its own data (bytecode-assembly-syntax.md, play_noise).
+; `step`, which `skid` and `explosion` both use, is a 0.1 s one-shot; at the
+; 0.8 s this effect needs it cuts off inside the swell. `saw` is a 64-sample
+; LOOP, so the noise runs until the key-off on the last band.
+;
+; DEFAULT FLAGS, deliberately: one-channel (a wave must not stack on itself —
+; the rail's cadence is one break per surf cycle and a second instance would
+; mean the clock had run twice) and interruptible (it is ambience; a cue the
+; player actually asked for may have its channel).
+=== wave_break ===
+    set_instrument_and_gain saw I8
+    play_noise 24 sn 12
+    play_noise 20 sn 12
+    play_noise 16 sn 12
+    set_temp_gain_and_wait F118 1
+    play_noise 9 sn 10
+    play_noise 13 sn 8
+    set_temp_gain_and_wait E17 1
+    play_noise 18 sn 14
+    play_noise 24 sn 18
+    set_temp_gain_and_wait E24 1
+    play_noise 28 sn 16
+    play_noise 30 12
+

@@ -67,7 +67,8 @@
 # `racer` and `mode7_explore` also compose.
 globals = ["scene_mgr", "input", "fade", "text_dp", "font_rom", "enter_scr",
            "world_rom", "pose_rom", "oam_sprites", "car_rom", "vwf_rom",
-           "col_map_rom", "region", "tick_scale"]
+           "col_map_rom", "audio", "tad_rom",
+           "region", "tick_scale"]
 
 [[scene]]
 id = "title"
@@ -100,3 +101,24 @@ from = "results"
 to = "title"
 style = "fade"
 budget_bytes = 4096      # title reload: same shape as results
+
+# AUDIO, composed in the Phase 2 pass, and TWO consequences worth stating here
+# because neither is obvious from the one-line change above.
+#
+# THE SONG IS THIS RAIL'S OWN. A racing game wants neither the room's ambient
+# piece nor `drive_song`, which is D minor written for a shooter, so
+# `circuit_song` was written for it: A mixolydian over I - bVII - IV, where the
+# flat seventh against a major third is the whole colour. assets/audio/README.
+#
+# THE PINNED md5 MOVED, DELIBERATELY. `tests/test_c2_sram_class.py` pins
+# microzero.sfc, and the two falsify binding tools pin it again, so a partial
+# update reds one and not the others. That pin is a LEAK DETECTOR for the
+# SRAM-header class, not a freeze — its own docstring says "if this fails and
+# you did not deliberately move microzero, the class has leaked" — and the
+# header assertion beside it is unchanged: a rail that gains a soundtrack must
+# still ship $00/$00, because `audio` holds no sram claim.
+#
+# One more, for anyone reading docs/09's census: `scope` there is derived from
+# THIS FILE alone, so `audio` and `tad_rom` read `unused` in it for the whole
+# Phase 2 pass while seventeen other rails composed them. Composing here is
+# what flipped both to `global`.

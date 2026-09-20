@@ -20,6 +20,11 @@ SF_HDR_TITLE_SET = 1
 JOY_START = 4096                    ; $4218 bit 12 (decimal: not an address)
 .include "header.inc"
 .include "init.inc"                 ; RESET: native, A16/I16, forced blank
+.include "tad-audio.inc"            ; vendor/tad — the TAD API imports + enums
+.import sf_sfx_reset, sf_sfx_queue_c, sf_audio_tick
+                                    ; engine/features/audio — the request
+                                    ;   queue and the per-frame pump
+.include "tad_audio_enums.inc"      ; GENERATED — Song:: / SFX:: ids
 .include "sf_asm.inc"               ; shared macros: placement assertions + the
                                     ;   data-bank idioms (vendor/rom)
 
@@ -74,23 +79,31 @@ text_dp_init:
 ; --- global ROM blobs (allocator-claimed; .incbin order inside a segment ----
 ; must match the allocator's packing order — the .asserts refuse drift) ------
 ;
+; EVERY BANK NUMBER HERE MOVED UP ONE WHEN `audio` WAS COMPOSED. tad_export's
+; 16,384 B half-window takes the top of window 1, and the small blobs — which
+; used to have window 13 to themselves — now fit BESIDE it in what is left of
+; window 1, pushing the eight world-map chunks to windows 2..9, poses_ab to
+; 10..11 and poses_cd to 12..13. The offsets in the `.sprintf` below are the
+; only place that arithmetic is written down, and ld65 refused the build by
+; name (`poses_ab chunk bank drifted`) until they matched the allocator.
+;
 ; The `.repeat` counts are DERIVED (ES_R_<NAME>_CHUNKS, emitted beside the
 ; per-chunk symbols) — a hand-written count is a build refusal. `.repeat 8` ->
 ; `.repeat 7` here once left the backing gate, ca65 and ld65 all green and
 ; 18,478 bytes of world map as $FF fill (docs/37 §5 limit 1).
 .repeat ES_R_POSES_AB_CHUNKS, PI
-.segment .sprintf("BANK%d", PI + 9)
+.segment .sprintf("BANK%d", PI + 10)
 .ident(.sprintf("poses_ab_t%d", PI)):
     .incbin "poses_ab.bin", PI * 32768, 32768
 .assert ^.ident(.sprintf("poses_ab_t%d", PI)) = .ident(.sprintf("ES_R_POSES_AB_T%d_BANK", PI)), error, "poses_ab chunk bank drifted"
 .endrepeat
 .repeat ES_R_POSES_CD_CHUNKS, PI
-.segment .sprintf("BANK%d", PI + 11)
+.segment .sprintf("BANK%d", PI + 12)
 .ident(.sprintf("poses_cd_t%d", PI)):
     .incbin "poses_cd.bin", PI * 32768, 32768
 .assert ^.ident(.sprintf("poses_cd_t%d", PI)) = .ident(.sprintf("ES_R_POSES_CD_T%d_BANK", PI)), error, "poses_cd chunk bank drifted"
 .endrepeat
-.segment "BANK13"
+.segment "BANK1"
 font_bin:
     .incbin "font_2bpp.bin"
 .assert ^font_bin = ES_R_FONT_BIN_BANK, error, "font_bin bank drifted from allocator claim"
@@ -118,7 +131,7 @@ car_pal_bin:
 
 ; world map: 8 bank-tiled chunks, 64 rows x 512 B each
 .repeat ES_R_WORLD_MAP_CHUNKS, WI
-.segment .sprintf("BANK%d", WI + 1)
+.segment .sprintf("BANK%d", WI + 2)
 .ident(.sprintf("world_map_t%d", WI)):
     .incbin "world_map.bin", WI * 32768, 32768
 .assert ^.ident(.sprintf("world_map_t%d", WI)) = .ident(.sprintf("ES_R_WORLD_MAP_T%d_BANK", WI)), error, "world chunk bank drifted"
@@ -222,6 +235,31 @@ MAIN:
                                 ;   change region between scenes.
     jsr text_dp_init
     jsr oam_park_all            ; whole shadow written before its first DMA
+    ; ---- audio boot (TAD contract, tad-audio.inc): interrupts are DISABLED
+    ; here by construction — init.inc leaves NMI off and $4200 is written only
+    ; below — so the S-SMP is still in the IPL. Tad_Init runs ONCE per
+    ; power-on; the song load is ASYNC and Tad_Process streams it during the
+    ; frame loop.
+    sep #$20
+    .a8
+    jsl Tad_Init
+    jsr sf_sfx_reset                ; the ring holds power-on garbage
+    ; STEREO: the song is PANNED (mid pulse left, arpeggio right) and TAD's
+    ; default is MONO (tad-audio.inc:123), which collapses every channel to
+    ; centre. The mode only takes effect at the next song load
+    ; (tad-audio.inc:525), so it is set between Tad_Init and Tad_LoadSong.
+    lda #TadAudioMode::STEREO
+    sta Tad_audioMode
+    ; THIS RAIL'S OWN SONG, and the third in the tree. `slice_b_song` is the
+    ; room rail's ambient piece, whose composed rest half-bar is the window
+    ; its reverb A/B is measured in; `drive_song` is the action rails', in D
+    ; minor, written for a shooter. A racing game wants neither, so
+    ; `circuit_song` is A mixolydian over I - bVII - IV — the flat seventh is
+    ; the whole colour. assets/audio/README.md, "Three songs".
+    lda #Song::circuit_song
+    jsr Tad_LoadSong
+    rep #$20
+    .a16
     ; ---- game-lifetime user state (game logic owns these values) ----------
     lda #0
     sta f:US_SCORE_LONG
@@ -246,5 +284,12 @@ MAIN:
     jsr input_read
     jsr sm_tick
     jsr fade_tick
+    ; ---- audio pump: once per frame, MAIN THREAD ONLY (the TAD ABI forbids
+    ; ISR calls).
+    sep #$20
+    .a8
+    jsr sf_audio_tick               ; delivers one queued cue, then Tad_Process
+    rep #$20
+    .a16
     jsr sm_frame_sync
     bra @loop

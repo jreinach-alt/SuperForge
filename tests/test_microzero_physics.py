@@ -20,6 +20,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import run_make
+
 SUPERFORGE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SUPERFORGE / "vendor"))
 sys.path.insert(0, str(SUPERFORGE / "tests"))
@@ -32,8 +34,7 @@ WR = MemoryType.SnesWorkRam
 
 @pytest.fixture(scope="module")
 def booted():
-    r = subprocess.run(["make", "microzero"], cwd=SUPERFORGE,
-                       capture_output=True, text=True)
+    r = run_make("microzero")
     assert r.returncode == 0, f"make microzero failed:\n{r.stdout}\n{r.stderr}"
     jmap = json.loads((SUPERFORGE / "build" / "mz" / "symbol_map.json").read_text())
     syms = {p["sym"]: p for p in

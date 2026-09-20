@@ -35,3 +35,4 @@ tsh_acc = "u16@dp"       # the shimmer: HZ_PHASE_BASE phases per frame
 tsh = "u16@dp"           # ...and this frame's answer, in whole phases
                          # TICK: ok -- the OUTPUT of the scaler; already
                          # expressed against the declared tick.
+

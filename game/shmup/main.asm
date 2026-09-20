@@ -18,6 +18,10 @@ SF_HDR_TITLE_SET = 1
 ; beside 20 that inherited a 32 KB default and shipped 524,288 B.
 .include "engine_state_globals.inc" ; GENERATED — system + game-lifetime map
 .include "tad-audio.inc"            ; vendor/tad — the TAD API imports + enums
+.import sf_sfx_reset, sf_sfx_queue, sf_sfx_queue_c, sf_audio_tick
+                                    ; engine/features/audio — the request
+                                    ;   queue in front of TAD's one-deep
+                                    ;   one (tad_wrapper.asm)
 .include "tad_audio_enums.inc"      ; GENERATED — Song:: / SFX:: ids
 .include "shmup.inc"                ; the rail's geometry + state vocabulary
 .include "header.inc"
@@ -69,7 +73,7 @@ text_dp_init:
 ; These blobs live in BANK2 because window 1 is the tad_export whole-window
 ; claim (AUDIO_DATA0 — the generated export demands a bank start and the 32 KB
 ; claim guarantees it).
-.segment "BANK2"
+.segment "BANK1"
 shm_bg_chr_bin:
     .incbin "shm_bg_chr.bin"
 .assert ^shm_bg_chr_bin = ES_R_SHM_BG_CHR_ROM_BANK, error, "shm_bg_chr bank drifted from allocator claim"
@@ -156,7 +160,21 @@ MAIN:
     sep #$20
     .a8
     jsl Tad_Init
-    lda #Song::slice_b_song
+    jsr sf_sfx_reset                ; the ring holds power-on garbage
+    ; STEREO, because this rail PANS its sound effects and TAD's default audio
+    ; mode is MONO (tad-audio.inc:123) — in mono the driver collapses every
+    ; channel to centre, so a panned queue call is a lie that costs cycles.
+    ; Measured before it was found: every DSP voice, music included, read
+    ; VOL_L == VOL_R, and a hard-left pan set from the game AND a `set_pan 0`
+    ; inside the effect's own bytecode BOTH changed nothing. The mode only
+    ; takes effect at the next song load (tad-audio.inc:525), so it is set
+    ; HERE — after Tad_Init, which initialises it, and before Tad_LoadSong.
+    lda #TadAudioMode::STEREO
+    sta Tad_audioMode
+    ; The ACTION rails' song — kit, sixteenth bass, saw lead, scored on
+    ; A-F so nothing of it sits on the two channels a sound effect ducks.
+    ; `slice_b_song` stays the room rail's: assets/audio/README.md, "Two songs".
+    lda #Song::drive_song
     jsr Tad_LoadSong
     rep #$20
     .a16
@@ -184,7 +202,7 @@ MAIN:
     ; ISR calls).
     sep #$20
     .a8
-    jsl Tad_Process
+    jsr sf_audio_tick               ; delivers one queued cue, then Tad_Process
     rep #$20
     .a16
     jsr sm_frame_sync

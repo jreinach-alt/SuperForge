@@ -21,6 +21,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import run_make
+
 SUPERFORGE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SUPERFORGE / "allocator"))
 
@@ -255,14 +257,42 @@ def test_claimless_microzero_keeps_a_no_sram_header_and_its_md5(tmp_path):
     ships $00/$00 — and byte-identically, which the pinned md5 proves. The
     measurement reference must not move; if this fails and
     you did not deliberately move microzero, the class has leaked into a
-    composition that never asked for it."""
+    composition that never asked for it.
+
+    MOVED TWICE, DELIBERATELY, both on 2026-09-09. First microzero composed
+    `audio` and got its own song
+    (008b19045c002c1026f87696e9350472 -> 70c2b7cec5de23a62f4cfbce5d94f174).
+    Then three OTHER rails gained songs and two effects were appended, and
+    this ROM moved again on content it does not contain
+    (-> 5953ac982e30b765a4bcf3a6174698c7): the audio blob is ONE artifact
+    shared by all 28 audio rails, so any rail's content grows every audio
+    rail's image. Then a THIRD time (-> 1534b3340465e32dc02dda0d4d3ea916),
+    when this rail gained checkpoint and confirm cues of its own and the
+    blob changed again under it. A FOURTH (-> eac1ffbc7317116648705205820b604c)
+    when those cues were made AUDIBLE: a surface cue joined them, both
+    existing cues moved to an instrument this rail's song does not use, and
+    two effects in the shared vocabulary gained an explicit `set_volume`.
+    A FIFTH (-> ccb4dbd7adda19fb46384fcd5813b9cb) for a reason none of the
+    others share: the AUDIO DRIVER ITSELF changed. SuperForge now ships a
+    forked TAD carrying one added IO command, so the driver binary embedded
+    in every audio rail's export is different and every one of those ROMs
+    moved — this one included, on a capability it does not use.
+    Expect this pin to move whenever
+    `assets/audio/` does OR microzero's own code does — which is to say
+    often, and the header assertion either side of it is the part that
+    actually guards the class.
+    That is what the sentence above anticipates. The header assertion either
+    side of it is the part that actually guards the class, and it is unchanged
+    — a rail that gains a soundtrack must still ship $00/$00, because `audio`
+    holds no sram claim. The three pins (here and the two falsify binding
+    tools) were updated together; a partial update reds one and not the
+    others, which is the point of there being three."""
     import hashlib
-    r = subprocess.run(["make", "microzero"], cwd=SUPERFORGE,
-                       capture_output=True, text=True)
+    r = run_make("microzero")
     assert r.returncode == 0, f"make microzero failed:\n{r.stderr}"
     img = (SUPERFORGE / "build" / "microzero.sfc").read_bytes()
     assert img[OFF_CART_TYPE] == 0x00 and img[OFF_SRAM_SIZE] == 0x00
-    assert hashlib.md5(img).hexdigest() == "008b19045c002c1026f87696e9350472", \
+    assert hashlib.md5(img).hexdigest() == "ccb4dbd7adda19fb46384fcd5813b9cb", \
         "microzero.sfc moved — the measurement reference is a pinned md5"
 
 

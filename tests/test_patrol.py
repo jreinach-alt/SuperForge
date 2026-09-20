@@ -131,6 +131,37 @@ def _glyph(ch):
 
 BOOT = 90                               # an absolute frame, well past the fade
 
+# US_FRAMES — the scene's own tick counter, zeroed at enter and bumped once
+# per tick. THE ORACLE IS EVALUATED AT THIS, NOT AT THE HARDWARE FRAME.
+#
+# It used to be evaluated at `frame - 1`, which held only while the rail's
+# boot cost exactly one frame. Composing `audio` broke that: Tad_Init uploads
+# the loader to the S-SMP through the IPL's byte-at-a-time handshake, and at
+# hardware frame 90 the game has run 86 ticks rather than 89 — a cost every
+# audio rail pays, once, before the fade is even done. Ten cases across this
+# module and test_stomper.py failed on the three-tick difference and blamed
+# the actors' beats.
+#
+# The capture still lands on an ABSOLUTE frame (CLAUDE.md rule 2: the picture
+# is the assertion). What changed is that the tick it is compared against is
+# READ rather than assumed, so the next rail to gain audio — or lose it —
+# does not re-break this module.
+US_FRAMES = _sym("US_FRAMES", "play")["start"]
+
+
+def _beat(m):
+    """The tick whose movement the CURRENTLY VISIBLE OAM shows.
+
+    US_FRAMES is bumped at the TOP of the scene's tick, before the actors
+    move, and the OAM the PPU is showing was DMA'd from the shadow in the
+    preceding NMI — so hardware OAM lags the counter by exactly one. Measured,
+    not reasoned: at hardware frame 90 the counter reads 86 and both actors
+    sit where the oracle puts tick 85.
+    """
+    t = int.from_bytes(m.read_bytes(MemoryType.SnesWorkRam, US_FRAMES, 2),
+                       "little")
+    return t - 1
+
 
 @pytest.fixture(scope="module")
 def boot():
@@ -336,9 +367,10 @@ def test_boot_frame_is_the_level_the_hud_and_all_three_actors(fresh):
     IS the level), the white HITS line, the red player at spawn, and both
     magenta patrollers at the positions tick 89 of their triangle waves name.
     Five colours and no sixth. OAM read BEFORE the shot (module header)."""
-    e1, e2 = _expected_e1(BOOT - 1), _expected_e2(BOOT - 1)
+    t = _beat(fresh)
+    e1, e2 = _expected_e1(t), _expected_e2(t)
     assert _actors(fresh) == [SPAWN, (e1, E1_Y), (e2, E2_Y)], (
-        "OAM disagrees with spawn + the two triangle waves at tick 89")
+        f"OAM disagrees with spawn + the two triangle waves at tick {t}")
     px = _pixels(fresh, "boot")
     pic = [_at(px, x, y) for y in range(PIC_Y0, PIC_Y0 + PIC_H)
            for x in range(PIC_W)]
@@ -393,9 +425,9 @@ def test_ground_patroller_walks_its_wall_bounded_beat_forever(boot):
     trace = []
     for f in range(61, 61 + 150):
         m.advance(1)
-        trace.append((f, _actors(m)[1]))
-    bad = [(f, got, (_expected_e1(f - 1), E1_Y)) for f, got in trace
-           if got != (_expected_e1(f - 1), E1_Y)]
+        trace.append((_beat(m), _actors(m)[1]))
+    bad = [(t, got, (_expected_e1(t), E1_Y)) for t, got in trace
+           if got != (_expected_e1(t), E1_Y)]
     assert not bad, (
         f"{len(bad)} of 150 E1 samples off the triangle wave; first 5 "
         f"(frame, got, want): {bad[:5]}")
@@ -416,9 +448,9 @@ def test_ledge_patroller_never_overhangs_its_platform(boot):
     trace = []
     for f in range(61, 61 + 140):
         m.advance(1)
-        trace.append((f, _actors(m)[2]))
-    bad = [(f, got, (_expected_e2(f - 1), E2_Y)) for f, got in trace
-           if got != (_expected_e2(f - 1), E2_Y)]
+        trace.append((_beat(m), _actors(m)[2]))
+    bad = [(t, got, (_expected_e2(t), E2_Y)) for t, got in trace
+           if got != (_expected_e2(t), E2_Y)]
     assert not bad, (
         f"{len(bad)} of 140 E2 samples off the triangle wave; first 5 "
         f"(frame, got, want): {bad[:5]}")

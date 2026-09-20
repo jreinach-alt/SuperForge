@@ -46,6 +46,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import run_make
+
 SUPERFORGE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SUPERFORGE / "vendor"))
 
@@ -158,8 +160,7 @@ def _chase_one_catch(m, max_frames=300):
 
 @pytest.fixture(scope="module", autouse=True)
 def rom_built():
-    r = subprocess.run(["make", "sprite_game"], cwd=SUPERFORGE,
-                       capture_output=True, text=True)
+    r = run_make("sprite_game")
     assert r.returncode == 0, (
         f"make sprite_game failed rc={r.returncode}:\n{r.stdout}\n{r.stderr}")
     yield

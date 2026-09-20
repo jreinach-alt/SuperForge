@@ -48,9 +48,23 @@
 #   m7_project   -- nothing to project. The avatar is pinned at the affine pivot
 #                   by construction (m7x_obj's header), and this rail has no
 #                   second actor standing on the floor.
-#   tad_rom      -- NO AUDIO in this slice, deliberately: the rail's subject is
-#                   the streamed picture. Adding it is a claim here plus
-#                   Tad_Init/Tad_Process in main.asm, not a rework.
+#   tad_rom      -- COMPOSED (2026-09-09), and by exactly the route this line
+#                   used to describe: it read "NO AUDIO in this slice ...
+#                   adding it is a claim here plus Tad_Init/Tad_Process in
+#                   main.asm, not a rework", which was an invitation rather
+#                   than a refusal, and it cost what it said. Two cues, both in
+#                   overworld.asm:
+#                     footstep -- US_LANDED, which `m7x_logic` raises on the
+#                                 step that arrives and clears at the top of
+#                                 every mxl_tick. ALREADY AN EDGE, so unlike
+#                                 `maze` and `camera_follow` this rail needed
+#                                 no stride latch of its own: it slides cell to
+#                                 cell and the feature had published the
+#                                 arrival for the town trigger already.
+#                     chime    -- the doorway. Reached only from that same
+#                                 landing test, on the ONE world tile carrying
+#                                 TERR_TOWN_ENTER, and the dissolve that
+#                                 follows freezes the avatar for twenty frames.
 #
 # `mosaic` IS GLOBAL, not scene-scoped, and it has to be: the wipe spans the
 # swap, so it is in flight in BOTH scenes within one dissolve. Its seven DP
@@ -65,6 +79,7 @@
 # times per frame, averaging 1.2018. See m7x_logic.asm's "THE GRID STEP IN TWO
 # REGIONS".
 globals = ["scene_mgr", "input", "fade", "oam_sprites", "m7_affine", "m7x_rom",
+           "audio", "tad_rom",
            "mosaic", "region", "tick_scale"]
 
 [[scene]]

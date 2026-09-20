@@ -102,6 +102,19 @@ tick:
     eor #1
     sta z:US_FLAT
     jsr hz_show
+    ; THE CUE YOU HEAR, AND IT NEEDS NO LATCH. This arm is reached only on
+    ; ES_INP_PRESS's B bit, which the `input` feature publishes as the RISING
+    ; edge (cur & ~prev), so it runs at most once per press however long B is
+    ; held. ES_INP_CUR is one token away and would sound on every held frame;
+    ; that is the mistake this site invites and what
+    ; tests/test_heathaze_audio.py's cadence case is aimed at.
+    ;
+    ; `select` rather than a sound of its own: the vocabulary already calls it
+    ; "a confirm, a gate accepting" (assets/audio/README) and `racer` uses it
+    ; for exactly this — a control toggling, not a thing happening in a world.
+    ; The shimmer going flat is a SETTING changing.
+    lda #SFX::select
+    jsr hz_sfx
 @no_toggle:
     .a16
     .i16
@@ -117,6 +130,44 @@ tick:
     .a16
     .i16
     rts
+
+; --- hz_sfx: queue the sound effect named in A ------------------------------
+; CONTRACT desert::hz_sfx
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       A = the SFX:: id (its low byte; every id in the enum is < 256)
+;   out:      the request held in the ring, or counted as a full-ring loss
+;   clobbers: A, N, Z, C
+;   tail:     rts
+;
+; WIDTH-RISK: sf_sfx_queue_c declares `entry: A8 I16 DB=0` and this rail's
+; scene code is A16 throughout, so the sep/rep pair is load-bearing and lives
+; HERE rather than at each of the two call sites — one place to be wrong
+; instead of two. X and Y survive it (the centred entry point exists precisely
+; so a pan does not have to be loaded into X), which is why neither caller
+; saves an index around a cue.
+hz_sfx:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "hz_sfx"
+    sep #$20
+    .a8
+    jsr sf_sfx_queue_c
+    rep #$20
+    .a16
+    rts
+
+; THE WIND IS NOT HERE ANY MORE, and where it went is the point.
+; It was a low-priority sound effect re-queued on a cadence by an
+; `hz_weather` routine at this spot. Measured on the chip it ran at about 7%
+; of a music voice's amplitude -- VOL 18 and ENVX 48 against the drone's VOL
+; 42 and ENVX 127 -- and could not be heard under the song. Weather is now a
+; NOISE CHANNEL IN THE SONG (far_ridge_song.mml, channel F), which is where
+; the hardware wants it: a music channel cannot be ducked by an effect or
+; dropped for priority, `w` waits sustain the noise with no re-trigger seam,
+; it mixes in the same units as the rest of the score, and it reaches the
+; echo -- which is what makes a band of noise read as moving air rather than
+; as tape hiss. The rail keeps no wind state at all as a result.
 
 ; --- exit: nothing to tear down --------------------------------------------
 ; In/out: A16/I16, DB=0, forced blank + NMI masked.

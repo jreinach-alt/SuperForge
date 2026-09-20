@@ -67,7 +67,15 @@
 # — it composes `mil_mode_dc` here and shares every other claim on this list.
 globals = ["scene_mgr", "fade", "input", "region", "tick_scale", "mil_tint",
            "mil_bg", "mil_mode", "mil_opt", "mil_band", "mil_rom",
-           "oam_sprites", "mil_obj"]
+           "oam_sprites", "mil_obj", "audio", "tad_rom"]
+
+# AUDIO, composed 2026-09-09. ONE CUE, and the restraint is the point: the
+# lift's arrival, at hall.asm's `@arrived`, which runs the scene switch two
+# instructions later and so is an edge already. Every other candidate on this
+# rail — boarding, the car leaving, a footstep on the deck — is read off a
+# LEVEL that `mil_obj` republishes every frame, and each would want its own
+# `prev` word in state.toml. Adding four latches to sound a machine hall is a
+# content decision this pass did not make; one cue on the one existing edge is.
 
 [[scene]]
 id = "lobby"

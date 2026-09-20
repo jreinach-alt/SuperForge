@@ -79,3 +79,47 @@ at = 0x1F00
 name = "tad_zp"
 bytes = 2
 at = 0xF0
+
+# --- the SFX request queue (SuperForge's, in front of TAD's one-deep one) ----
+#
+# WHY THIS EXISTS. TAD's ca65 API holds ONE pending effect and keeps the LOWER
+# id when a second arrives in the same frame (tad-audio.s:1293), so the rest of
+# that frame's requests are discarded before the DRIVER ever sees them. That
+# matters because the driver is the part with the good policy: it dedups a
+# repeat onto the channel already playing it, fills a free channel first, and
+# when both are busy evicts by `sfx_remainingTicks` — the effect that will
+# finish soonest, i.e. the one with least left to lose (audio-driver.asm:1175
+# -1250). Dropping requests CPU-side starves that policy and substitutes a
+# crude proxy for it: "lower id wins".
+#
+# So this queue's job is DELIVERY, NOT POLICY. It preserves request ORDER —
+# deliberately NOT re-sorting by id — hands the driver one per frame (the ABI
+# limit) and lets the driver arbitrate with the state only it has.
+#
+# Measured before it was built: a shot fired on the frame boss_saucer's beam
+# ignites spawns a real bullet and makes NO sound, because beam_fire (id 3)
+# takes the slot from laser (id 6). Reproduced deterministically by timing the
+# input off US_BEAM_TIMER rather than waiting for the collision by luck.
+#
+# AGING IS THE OTHER HALF. A queue that eventually plays everything converts a
+# dropped cue into a LATE one, and a gun heard 4 frames after the trigger reads
+# as input lag — worse than silence. Entries older than SFXQ_MAX_AGE frames are
+# discarded instead of fired stale, which makes the loss a DECLARED policy
+# rather than the invisible one it replaces.
+#
+# Structure-of-arrays: one index register walks three bases, which is cheaper
+# on 65816 than a stride-3 array-of-structs.
+#   +0..+3   id[4]        the effect ids held
+#   +4..+7   pan[4]       ...and each one's pan byte
+#   +8..+11  age[4]       frames since enqueue
+#   +12      head         index of the oldest held entry
+#   +13      count        entries held, 0..4
+#   +14      drop_full    saturating: enqueued into a full ring
+#   +15      drop_stale   saturating: aged out before delivery
+#   +16      delivered    saturating: handed to TAD. The three counters are
+#                         what make the policy OBSERVABLE — a test can assert
+#                         no cue was silently lost, which is exactly what
+#                         nothing could do before.
+[[claims.wram]]
+name = "sfx_queue"
+bytes = 17

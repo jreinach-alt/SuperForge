@@ -22,6 +22,10 @@ SF_HDR_TITLE_SET = 1
 .include "world.inc"                ; world geometry constants (not addresses)
 .include "racer_move.inc"           ; GENERATED — heading LUT + physics equates
 .include "tad-audio.inc"            ; vendor/tad — the TAD API imports + enums
+.import sf_sfx_reset, sf_sfx_queue, sf_sfx_queue_c, sf_audio_tick
+                                    ; engine/features/audio — the request
+                                    ;   queue in front of TAD's one-deep
+                                    ;   one (tad_wrapper.asm)
 .include "tad_audio_enums.inc"      ; GENERATED — Song:: / SFX:: ids
 .include "header.inc"
 .include "init.inc"                 ; RESET: native, A16/I16, forced blank
@@ -88,7 +92,7 @@ SB_TM_BOT   = $11               ; BG1 (the Mode 7 floor) + OBJ (the kart)
 ; inside a single LoROM window at a known base (rc_grad.asm asserts the base;
 ; this is where the bytes land). The rest of the window follows in the
 ; allocator's packing order — a `.incbin` out of order fails the addr assert.
-.segment "BANK14"
+.segment "BANK1"
 sky_keys_bin:
     .incbin "racer_sky_keys.bin"
 .assert ^sky_keys_bin = ES_R_SKY_KEYS_BANK, error, "sky_keys bank drifted from allocator claim"
@@ -202,7 +206,20 @@ MAIN:
     sep #$20
     .a8
     jsl Tad_Init
-    lda #Song::slice_b_song
+    jsr sf_sfx_reset                ; the ring holds power-on garbage
+    ; STEREO, because the song it is about to load is PANNED — the mid
+    ; pulse sits left and the arpeggio right. TAD's default is MONO
+    ; (tad-audio.inc:123) and in mono the driver collapses every channel
+    ; to centre, so the image would be authored and then discarded. The
+    ; mode only takes effect at the next song load (tad-audio.inc:525),
+    ; so it is set HERE — after Tad_Init, which initialises it, and
+    ; before Tad_LoadSong.
+    lda #TadAudioMode::STEREO
+    sta Tad_audioMode
+    ; The ACTION rails' song — kit, sixteenth bass, saw lead, scored on
+    ; A-F so nothing of it sits on the two channels a sound effect ducks.
+    ; `slice_b_song` stays the room rail's: assets/audio/README.md, "Two songs".
+    lda #Song::drive_song
     jsr Tad_LoadSong
     rep #$20
     .a16
@@ -226,7 +243,7 @@ MAIN:
     ; its music, which is what START promises: a freeze, not a stop.
     sep #$20
     .a8
-    jsl Tad_Process
+    jsr sf_audio_tick               ; delivers one queued cue, then Tad_Process
     rep #$20
     .a16
     jsr sm_frame_sync

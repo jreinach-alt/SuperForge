@@ -31,6 +31,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from conftest import run_make
+
 SUPERFORGE = Path(__file__).resolve().parent.parent
 FIX = SUPERFORGE / "tests" / "fixtures" / "tick_lint"
 sys.path.insert(0, str(SUPERFORGE / "tools"))
@@ -167,8 +169,7 @@ def test_a_bare_override_is_itself_a_finding():
 # --- the live tree ----------------------------------------------------------
 
 def test_make_tick_check_is_clean():
-    r = subprocess.run(["make", "tick-check"], cwd=SUPERFORGE,
-                       capture_output=True, text=True)
+    r = run_make("tick-check")
     assert r.returncode == 0, r.stdout + r.stderr
     assert "0 NEW finding(s)" in r.stdout
 

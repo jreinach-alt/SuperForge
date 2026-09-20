@@ -255,6 +255,8 @@ do_jump:
     lda z:US_VJUMP
     sta z:US_VY
     stz z:US_GROUNDED
+    lda #SFX::jump
+    jsr jr_sfx
 @done:
     .a16
     .i16
@@ -272,6 +274,51 @@ do_jump:
 ;     (the platformer's row_top shape — the shifts say "this tile row's top"
 ;     and keep the mask constant out of the code).
 ;
+; --- jr_sfx: queue the sound effect named in A -----------------------------
+; In: A16 = the SFX:: id (low byte). In/out: A16/I16, DB=0. Clobbers A.
+;
+; The id arrives in A16 and `sep #$20` narrows to its low byte, so the call
+; sites read `lda #SFX::jump` — the event names its own sound.
+;
+; WIDTH-RISK: sf_sfx_queue_c declares `entry: A8 I16 DB=0` and this rail calls
+; it from A16 code, so the sep/rep pair is load-bearing and lives here rather
+; than at each call site. X survives across it, which is why this uses the
+; centred entry point rather than loading a pan into X.
+jr_sfx:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    jsr sf_sfx_queue_c
+    rep #$20
+    .a16
+    rts
+
+; --- jr_ground: set grounded, and SOUND it if this is the landing edge ------
+; In/out: A16/I16, DB=0. Clobbers A.
+;
+; THE CUE BELONGS TO THE TRANSITION, NOT THE STATE, and that is why both
+; writers of US_GROUNDED come through here. The falling arm's ground probe
+; re-establishes the flag on EVERY frame the box is resting on floor, so a
+; `thud` at either store would fire sixty times a second while the player
+; stands still doing nothing. That is the exact shape the rpg's footstep cost
+; this tree once — docs/dx_paper_cuts.md, the cadence that was the frame's
+; rather than the tile's — and it is cheaper to test the edge in the one place
+; both paths already pass through than to remember it at two call sites.
+jr_ground:
+    .a16
+    .i16
+    lda z:US_GROUNDED
+    bne @already                    ; already standing: not a new landing
+    lda #SFX::thud
+    jsr jr_sfx
+@already:
+    .a16
+    .i16
+    lda #1
+    sta z:US_GROUNDED
+    rts
+
 ; Apex corner case: the frame velocity crosses 0 still runs the rising-branch
 ; probe; in open air it is a no-op, and a ceiling exactly at apex height snaps
 ; like any bump.
@@ -297,8 +344,7 @@ phys_step:
     beq @integrate
     ; ---- standing: rest, stable grounded flag -----------------------------
     stz z:US_VY
-    lda #1
-    sta z:US_GROUNDED
+    jsr jr_ground                   ; the landing cue lives on the EDGE
     lda z:US_PYF
     and #$FF00                      ; pixel-exact rest (clear subpixel)
     sta z:US_PYF
@@ -345,8 +391,7 @@ phys_step:
                                     ;   xba is exactly << 8)
     sta z:US_PYF
     stz z:US_VY
-    lda #1
-    sta z:US_GROUNDED
+    jsr jr_ground                   ; the landing cue lives on the EDGE
     rts
 @fall_clear:
     .a16

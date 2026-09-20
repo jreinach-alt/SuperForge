@@ -65,6 +65,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import run_make
+
 SUPERFORGE = Path(__file__).resolve().parent.parent
 TOOL = SUPERFORGE / "tools" / "rail_registered.py"
 
@@ -156,8 +158,7 @@ def test_the_target_is_the_gate():
     """
     env = {k: v for k, v in os.environ.items()
            if k not in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL")}
-    r = subprocess.run(["make", "rail-registered"], cwd=SUPERFORGE, env=env,
-                       capture_output=True, text=True, timeout=180)
+    r = run_make("rail-registered", env=env, timeout=180)
     assert r.returncode == 0, r.stdout + r.stderr
     assert "rail-registered OK" in r.stdout
 

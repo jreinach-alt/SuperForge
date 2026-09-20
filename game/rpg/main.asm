@@ -29,6 +29,10 @@ SF_HDR_TITLE_SET = 1
 .include "engine_state_globals.inc" ; GENERATED — system + game-lifetime map
 .assert SF_INC_FORMAT = 1, error, "this rail was written against allocator include format 1 — allocate.py now emits a different symbol shape; re-read the emitted engine_state_globals.inc before bumping this"
 .include "tad-audio.inc"            ; vendor/tad — the TAD API imports + enums
+.import sf_sfx_reset, sf_sfx_queue, sf_sfx_queue_c, sf_audio_tick
+                                    ; engine/features/audio — the request
+                                    ;   queue in front of TAD's one-deep
+                                    ;   one (tad_wrapper.asm)
 .include "tad_audio_enums.inc"      ; GENERATED — Song:: / SFX:: ids for this
                                     ;   game's export (assets/audio/export)
 .include "header.inc"
@@ -139,11 +143,18 @@ rpg_m7_bin:
 .assert ^rpg_m7_bin = ES_R_M7_WORLD_BANK, error, "m7_world bank drifted from allocator claim"
 .assert .loword(rpg_m7_bin) = ES_R_M7_WORLD_ADDR, error, "m7_world addr drifted from allocator claim"
 
-.segment "BANK7"
+; col_world moved to BANK1 when `tad_export` shrank from a whole window to its
+; first HALF (16,384 B): it is the one blob small enough to pack into window
+; 1's freed tail behind the export, so it is split out of the BANK7 run below
+; rather than renamed with it. The .asserts are what caught the split — the
+; bank one fired here, by name, on the first build after the claim changed.
+.segment "BANK1"
 rpg_col_bin:
     .incbin "rpg_col.bin"
 .assert ^rpg_col_bin = ES_R_COL_WORLD_BANK, error, "col_world bank drifted from allocator claim"
 .assert .loword(rpg_col_bin) = ES_R_COL_WORLD_ADDR, error, "col_world addr drifted from allocator claim"
+
+.segment "BANK7"
 rpg_obj_chr_bin:
     .incbin "rpg_obj_chr.bin"
 .assert ^rpg_obj_chr_bin = ES_R_OBJ_CHR_BANK, error, "obj_chr bank drifted from allocator claim"
@@ -441,6 +452,7 @@ MAIN:
     sep #$20
     .a8
     jsl Tad_Init
+    jsr sf_sfx_reset                ; the ring holds power-on garbage
     lda #Song::slice_b_song
     jsr Tad_LoadSong
     rep #$20
@@ -507,7 +519,7 @@ MAIN:
     ; ~55 CPU cycles steady state (audio/feature.toml, measured).
     sep #$20
     .a8
-    jsl Tad_Process
+    jsr sf_audio_tick               ; delivers one queued cue, then Tad_Process
     rep #$20
     .a16
     jsr sm_frame_sync

@@ -81,3 +81,19 @@ hits = "u16@dp"          # hero-enemy contacts, the knockback counter
 grace = "u16@dp"         # post-respawn frames with contact suppressed
 paused = "u16@dp"        # 0 running, 1 paused (START toggles it)
 prev_start = "u16@dp"    # last frame's START bit — pause is an EDGE, not a state
+onwin = "u16@dp"         # 1 while the hero stands inside the goal window —
+                         # what makes the CHIME an arrival rather than a state.
+                         #
+                         # `do_win_card`'s own header calls the card "an
+                         # OVERLAY, not a state machine ... Reaching the goal
+                         # draws it; leaving stops drawing it", which is right
+                         # for a picture and wrong for a sound: the window test
+                         # runs every frame and the hero may stand still on the
+                         # tile, so a cue on the test would ring continuously.
+                         # Set on the frame the test first passes, cleared in
+                         # the same routine's @off arm, so walking off and back
+                         # on chimes again — which is what a player expects.
+                         # TICK: ok — a POSITION predicate, not a count of
+                         # frames. It says where the hero is; the speed that
+                         # carried him there is already region-scaled by
+                         # r_accel / r_cap.

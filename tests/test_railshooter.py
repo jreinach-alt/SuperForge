@@ -171,6 +171,24 @@ LIFE_GREEN = (0, 255, 0)
 LIFE_SEG_GREEN_PX = 80
 # Absolute frames, all past the fade-in.
 BOOT = 120
+
+# BOOT IS A SCENE FRAME, AND IT IS NOT A HARDWARE FRAME NUMBER ANY MORE.
+#
+# `Tad_Init` uploads the driver to the S-SMP a byte at a time through the IPL
+# handshake, and that costs FOUR hardware frames before `MAIN` reaches the
+# scene enter. Every absolute frame in this module — the roll-in's first five,
+# the fail-state return, the uninit ladder's early samples — is counted from
+# the SCENE's first tick, so composing `audio` onto this rail moved all of
+# them by the same four.
+#
+# The fix is to advance to the SCENE frame rather than re-derive the numbers:
+# `rail(n)` runs n + BOOT_SKEW hardware frames so the scene reaches ITS frame
+# n. That is still an absolute, deterministic landing (CLAUDE.md rule 2) — the
+# lockstep Machine makes rom + seed + script a pure function — it is just
+# counted in the units this module's constants actually mean. Same constant,
+# same reasoning and the same value as `test_stomper.py`'s, which paid for it
+# first.
+BOOT_SKEW = 4
 # Where the read-before-write detector is sampled. It must start EARLY: the
 # detector answers "is anything still unwritten and already consumed?", so the
 # evidence for a pool read before its first spawn erases itself as the pools
@@ -203,7 +221,9 @@ def rail():
     made = []
 
     def make(frames=BOOT, drives=()):
-        m = Machine(str(ROM)).advance(frames)
+        # + BOOT_SKEW: `frames` is a SCENE frame; Tad_Init costs four hardware
+        # frames ahead of the scene enter. See the constant's note above.
+        m = Machine(str(ROM)).advance(frames + BOOT_SKEW)
         for n, pad in drives:
             m.advance(n, pad1=pad)
         made.append(m)

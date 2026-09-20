@@ -63,8 +63,11 @@
 # draws from, so the parity number is measured on rendered output rather than
 # on the counter behind it.
 globals = ["scene_mgr", "input", "fade", "text_dp", "font_rom", "enter_scr",
-           "oam_sprites", "brawler_rom", "region", "tick_scale"]
+           "oam_sprites", "brawler_rom", "audio", "tad_rom",
+           "region", "tick_scale"]
 
 [[scene]]
 id = "fight"
 features = ["brawler_bg", "brawler_obj", "bg_text"]
+
+# AUDIO, composed in the Phase 2 pass. Three one-shot sites, each reached once per resolution: the swing LANDING takes `hit`, the KO takes `chime` (bell -- a win confirms, it does not thump), and the player TAKING damage takes `thud`. hit and thud share the `step` sample but not its shape: hit opens with a noise transient and thud does not, so they are tellable apart by ear and, on the chip, by the noise-enable mask.

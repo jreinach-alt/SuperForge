@@ -355,9 +355,56 @@ do_jump:
     lda z:US_VJUMP
     sta z:US_VY
     stz z:US_GROUNDED
+    lda #SFX::jump                  ; TAKE-OFF, and it needs no edge test of
+    jsr sr_sfx                      ;   its own: ES_INP_PRESS is already the
+                                    ;   rising edge and the grounded gate above
+                                    ;   means this line runs at most once per
+                                    ;   airborne arc.
 @done:
     .a16
     .i16
+    rts
+
+; --- sr_sfx: queue the sound effect named in A ------------------------------
+; In: A16 = the SFX:: id (low byte). In/out: A16/I16, DB=0. Clobbers A.
+;
+; WIDTH-RISK: sf_sfx_queue_c declares `entry: A8 I16 DB=0` and this rail calls
+; it from A16 code, so the sep/rep pair is load-bearing and lives here rather
+; than at each call site. X survives it, which is why this uses the centred
+; entry point rather than loading a pan into X.
+sr_sfx:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    jsr sf_sfx_queue_c
+    rep #$20
+    .a16
+    rts
+
+; --- sr_ground: set grounded, and SOUND it if this is the landing edge -------
+; In/out: A16/I16, DB=0. Clobbers A.
+;
+; THE CUE IS ON THE TRANSITION, NOT THE STATE. THREE writers of US_GROUNDED
+; come through here — the ground probe's standing arm, the solid landing snap,
+; and the ONE-WAY platform's snap, which is one more than jumper has — and all
+; three re-establish the flag on every frame the box rests. A `thud` at any of
+; them would sound sixty times a second while the player stands still. Testing
+; the edge in the one place all three pass through is cheaper than remembering
+; it at three call sites, and the plant that proves it took jumper's thud voice
+; from 8% of frames to 51%.
+sr_ground:
+    .a16
+    .i16
+    lda z:US_GROUNDED
+    bne @already                    ; already standing: not a new landing
+    lda #SFX::thud
+    jsr sr_sfx
+@already:
+    .a16
+    .i16
+    lda #1
+    sta z:US_GROUNDED
     rts
 
 ; --- goal_check: the flag-2 tile under the player's centre ------------------
@@ -390,6 +437,18 @@ goal_check:
     .a8
     rep #$20
     .a16
+    ; THE CUE NEEDS NO EDGE TEST, AND THE MEASUREMENT IS WHY IT HAS NONE. The
+    ; obvious guard here is `lda US_STATE / bne` — the shape jumper, stomper
+    ; and platformer_stream all need — written on the belief that goal_check
+    ; re-probes the pillar every frame the player stands on it. It does not:
+    ; `tick` gates on US_STATE at its very top and jumps straight to @draw
+    ; once won, so goal_check is only ever reached with US_STATE == 0 and the
+    ; guard's branch is never taken. It was written, and it was DEAD, and the
+    ; falsification plant that should have proved it load-bearing passed
+    ; instead — which is how it was found. A guard that cannot fire reads as
+    ; load-bearing to the next person and is worse than no guard.
+    lda #SFX::chime                 ; bell, and the only one on this rail
+    jsr sr_sfx
     lda #1                          ; reached the goal pillar
     sta z:US_STATE
     ; ---- stage GOAL into bg_text's VBlank queue ---------------------------
@@ -539,8 +598,7 @@ phys_step:
     .a16
     .i16
     stz z:US_VY
-    lda #1
-    sta z:US_GROUNDED
+    jsr sr_ground                   ; the landing cue lives on the EDGE
     lda z:US_PYF
     and #$FF00                      ; pixel-exact rest (clear subpixel)
     sta z:US_PYF
@@ -587,8 +645,7 @@ phys_step:
                                     ;   xba is exactly << 8)
     sta z:US_PYF
     stz z:US_VY
-    lda #1
-    sta z:US_GROUNDED
+    jsr sr_ground                   ; the landing cue lives on the EDGE
     rts
 @fall_clear:
     .a16
@@ -660,8 +717,7 @@ phys_step:
     xba
     sta z:US_PYF                    ; same landing snap as a solid floor
     stz z:US_VY
-    lda #1
-    sta z:US_GROUNDED
+    jsr sr_ground                   ; the landing cue lives on the EDGE
     rts
 @ow_none:
     .a16

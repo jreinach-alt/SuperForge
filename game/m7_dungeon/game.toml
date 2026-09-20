@@ -39,7 +39,15 @@
 #     TS_STEP and carry their fraction between frames.
 globals = ["scene_mgr", "input", "fade", "oam_sprites",
            "m7_affine", "m7_project", "m7dg_rom",
+           "audio", "tad_rom",
            "region", "tick_scale"]
+
+# AUDIO, composed 2026-09-09. main.asm's header carries the reasoning; the
+# short form is two cues and the two shapes this tree keeps meeting — a
+# knockback that is already one-shot because the GRACE window turns a contact
+# into an event, and a goal that is not, because `do_win_card`'s window test
+# runs every frame the hero stands on the tile and only its 0 -> 1 edge is an
+# arrival. `onwin` in state.toml is that edge.
 
 [[scene]]
 id = "dungeon"

@@ -29,7 +29,7 @@
 
 ; --- sky_band's blobs: SCENE-scoped claims, so their `.incbin` sites live
 ; --- inside this scope where the emitted ES_R_SKY_* symbols exist -----------
-.segment "BANK6"
+.segment "BANK1"
 sky_map_bin:
     .incbin "sky_map.bin"
 .assert ^sky_map_bin = ES_R_SKY_MAP_ROM_BANK, error, "sky_map bank drifted from allocator claim"
@@ -216,9 +216,93 @@ rail_project:
     .a16
     .i16
     jsr rs_cache_build          ; PASS 1: project every actor and the aim point
+    jsr rs_shot_cue             ; the SHOT, on the same edge rs_fire gates on
     jsr rs_fire                 ; A -> the screen-space hitscan, burst, score
+    jsr rs_kill_cue             ; ...and the KILL, on the score it just moved
     jsr rs_pool_census          ; publish every pool's live count
     jsr rs_draw                 ; PASS 2: the whole foreground plus the HUD
+    rts
+
+; --- rs_sfx: queue the sound effect named in A ------------------------------
+; In: A16 = the SFX:: id (low byte). In/out: A16/I16, DB=0. Clobbers A.
+;
+; WIDTH-RISK: sf_sfx_queue_c declares `entry: A8 I16 DB=0` and this rail calls
+; it from A16 code, so the sep/rep pair is load-bearing and lives here rather
+; than at each call site. X survives it, which is why this uses the centred
+; entry point rather than loading a pan into X.
+rs_sfx:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    jsr sf_sfx_queue_c
+    rep #$20
+    .a16
+    rts
+
+; --- rs_shot_cue: the trigger, and it needs no latch of its own -------------
+; In/out: A16/I16, DB=0. Clobbers A.
+;
+; ES_INP_PRESS IS ALREADY AN EDGE — the `input` feature publishes the rising
+; edge, not the held state — so testing it here is one-shot by construction,
+; the same way `jumper`'s take-off is. It is also the EXACT condition `rs_fire`
+; bails on two instructions later, which is why this sits immediately above it:
+; the cue and the shot read one word on one frame and cannot disagree about
+; whether a trigger was pulled.
+;
+; THIS IS NOT A FEATURE EDIT, and it is not the platformer_stream boundary
+; either. ES_INP_PRESS is `input`'s published output that every rail already
+; reads for its own controls; nothing is being lifted out of `rs_logic`.
+rs_shot_cue:
+    .a16
+    .i16
+    lda z:ES_INP_PRESS
+    bit #RS_JOY_A
+    beq @none
+    lda #SFX::laser
+    jsr rs_sfx
+@none:
+    .a16
+    .i16
+    rts
+
+; --- rs_kill_cue: the score's CHANGE, which is one kill ---------------------
+; In/out: A16/I16, DB=0. Clobbers A.
+;
+; `score` is declared in this rail's own state.toml and `rs_logic` fills it —
+; the feature owns the hitscan, the game owns the counter and what it sounds
+; like — so, as on `microzero`'s lap, the cue costs the feature nothing.
+;
+; THE SCORE IS A LEVEL and the kill is its change. A cue on the value would
+; sound on every frame from the first kill onward. One extra reason to latch
+; rather than hook the hitscan: `rs_fire` resolves NEAREST WINS across the
+; whole cache, so one trigger pull scores at most one kill and the counter's
+; step is exactly the event. `rs_fail_step` re-arms the demo by resetting the
+; score, and a DECREASE is not a kill, which is why this tests for equality
+; and not for "moved".
+rs_kill_cue:
+    .a16
+    .i16
+    ; `score` is declared "u16" and not "u16@dp", so the allocator places it in
+    ; WRAM rather than the direct page and the LONG form is the addressing this
+    ; takes: `rs_logic` reaches the same word as `f:US_SCORE_LONG` and this
+    ; must agree with it. A `z:` here is not a slower read, it is a read of a
+    ; different byte -- ca65 refuses it outright, which is the gate working.
+    lda f:US_SCORE_LONG
+    cmp f:US_SCOREPREV_LONG
+    beq @same                   ; nothing died this frame
+    sta f:US_SCOREPREV_LONG
+    bcc @same                   ; the re-arm reset it: a fall is not a kill
+    lda #SFX::explosion         ; declared `both` -- which means it may take
+    jsr rs_sfx                  ;   EITHER sfx channel, so it can OVERLAP the
+                                ;   laser queued above rather than replace it
+                                ;   (assets/audio/sound-effects.txt, "FLAGS").
+                                ;   The ring still hands over one id per frame,
+                                ;   so the second of the two arrives on the
+                                ;   next frame and the pair reads as one event.
+@same:
+    .a16
+    .i16
     rts
 
 .endscope

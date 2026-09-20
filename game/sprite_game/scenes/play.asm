@@ -163,6 +163,23 @@ move_player:
     .i16
     rts
 
+; --- sprg_sfx: queue the sound effect named in A ----------------------------
+; In: A16 = the SFX:: id (low byte). In/out: A16/I16, DB=0. Clobbers A.
+;
+; WIDTH-RISK: sf_sfx_queue_c declares `entry: A8 I16 DB=0` and this rail calls
+; it from A16 code, so the sep/rep pair is load-bearing and lives here rather
+; than at the call site. X survives it, which is why this is the centred entry
+; point rather than an `ldx` for a pan.
+sprg_sfx:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    jsr sf_sfx_queue_c
+    rep #$20
+    .a16
+    rts
+
 ; --- catch_dot: player box vs dot box, and the catch action -----------------
 ; In/out: A16/I16, DB=0. Clobbers A, X.
 ;
@@ -191,6 +208,8 @@ catch_dot:
     ; ---- the catch: score++, dot to the next preset (self-debouncing —
     ; next frame the dot is elsewhere, so one pass = one catch) --------------
     inc z:US_SCORE
+    lda #SFX::pickup            ; no edge test needed: the dot teleports on
+    jsr sprg_sfx                ;   this frame, so one pass IS one catch
     lda z:US_DOT_IDX
     inc a
     and #(SPRG_PRESETS - 1)     ; wrap, derived from the declared count

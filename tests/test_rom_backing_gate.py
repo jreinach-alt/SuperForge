@@ -37,6 +37,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import run_make
+
 SUPERFORGE = Path(__file__).resolve().parent.parent
 FIXTURE = SUPERFORGE / "tests" / "fixtures" / "rom_backing"
 ALLOC = SUPERFORGE / "allocator"
@@ -60,8 +62,7 @@ def make(*args) -> subprocess.CompletedProcess:
     """
     env = {k: v for k, v in os.environ.items()
            if k not in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL")}
-    return subprocess.run(["make", *args], cwd=SUPERFORGE,
-                          capture_output=True, text=True, env=env)
+    return run_make(*args, env=env)
 
 
 def gate(map_path: Path, *files) -> subprocess.CompletedProcess:

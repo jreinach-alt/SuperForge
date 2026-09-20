@@ -47,7 +47,18 @@ RG_MATH_LAYERS = (1 << 0) | (1 << 5)
 ; both owners — `rgb_gradient` and `m7f_floor` — are composed at SCENE scope,
 ; so their ADDR/BANK symbols are emitted into engine_state_sky.inc.
 ; race.asm is the same shape.
-.segment "BANK2"
+; ORDER IS THE ALLOCATOR'S, and composing `audio` re-sorted it. `tad_export`
+; takes the top half of window 1, and place_rom packs the rest by (-bytes,
+; name) — which puts the three 32 B palettes together, so `m7f_todpal` now
+; sorts BEFORE `grad_tabs` rather than into a window of its own. The addr
+; asserts are what refused the link until this file matched: a blob in the
+; right BANK at the wrong offset reads its neighbour's bytes, and only the
+; second assert of each pair can see that.
+.segment "BANK1"
+m7f_todpal_bin:
+    .incbin "m7f_todpal.bin"
+.assert ^m7f_todpal_bin = ES_R_M7F_TODPAL_BANK, error, "m7f_todpal bank drifted from allocator claim"
+.assert .loword(m7f_todpal_bin) = ES_R_M7F_TODPAL_ADDR, error, "m7f_todpal addr drifted from allocator claim"
 ; The COLDATA sky ramp + horizon fog: THIS RAIL'S blob behind rgb_gradient's
 ; `grad_tabs` claim, indexed by distance from the horizon rather than by
 ; scanline, because this rail's horizon moves.
@@ -59,12 +70,6 @@ m7f_tod_bin:
     .incbin "m7f_tod.bin"
 .assert ^m7f_tod_bin = ES_R_M7F_TOD_BANK, error, "m7f_tod bank drifted from allocator claim"
 .assert .loword(m7f_tod_bin) = ES_R_M7F_TOD_ADDR, error, "m7f_tod addr drifted from allocator claim"
-
-.segment "BANK3"
-m7f_todpal_bin:
-    .incbin "m7f_todpal.bin"
-.assert ^m7f_todpal_bin = ES_R_M7F_TODPAL_BANK, error, "m7f_todpal bank drifted from allocator claim"
-.assert .loword(m7f_todpal_bin) = ES_R_M7F_TODPAL_ADDR, error, "m7f_todpal addr drifted from allocator claim"
 .segment "CODE"
 
 ; --- the scene's base display ----------------------------------------------

@@ -36,6 +36,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import run_make
+
 SUPERFORGE = Path(__file__).resolve().parent.parent
 
 SHIPPED = ("toy.sfc", "microzero.sfc")
@@ -57,8 +59,7 @@ def fx():
 @pytest.fixture(scope="module")
 def built():
     for target in ("toy", "microzero"):
-        r = subprocess.run(["make", target], cwd=SUPERFORGE,
-                           capture_output=True, text=True)
+        r = run_make(target)
         assert r.returncode == 0, f"make {target} failed:\n{r.stderr}"
     return [SUPERFORGE / "build" / n for n in SHIPPED]
 

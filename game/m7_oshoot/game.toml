@@ -59,6 +59,7 @@
 # 324 px where NTSC's reaches 270.
 globals = ["scene_mgr", "input", "fade", "oam_sprites",
            "m7_affine", "m7_project", "pool", "mo_rom",
+           "audio", "tad_rom",
            "region", "tick_scale"]
 
 [[scene]]
@@ -69,3 +70,5 @@ features = ["mo_floor", "mo_obj", "col_map"]
 # reuse in any scene that does not. Its SIX binding symbols are defined at the
 # include site in scenes/arena.asm — the feature carries no default for any of
 # them, so a missing one is an assembly-time error naming it.
+
+# AUDIO, composed in the Phase 2 pass. The old line read "adding a soundtrack would be content it does not have", and that was true when it was written. The Phase 1 pass built the content, so the reason expired rather than the rail changing: three one-shot sites now sound -- the bolt leaving the barrel takes `laser`, a chaser dying takes `explosion`, and a contact takes `hit`.

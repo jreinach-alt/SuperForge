@@ -212,6 +212,18 @@ tick:
 @arrived:
     .a16
     .i16
+    ; THE RIDE ENDING, and it needs no latch: this arm runs the scene switch
+    ; two instructions down, so the tick that reaches it is the last one this
+    ; scene gets. One cue rather than several on this rail, deliberately —
+    ; every other candidate here (boarding, the car leaving, a footstep on the
+    ; deck) is read off a LEVEL that `mil_obj` republishes every frame, and
+    ; each would want its own `prev` word. This one is an edge already.
+    lda #SFX::chime
+    sep #$20
+    .a8
+    jsr sf_sfx_queue_c              ; WIDTH-RISK: declares `entry: A8 I16 DB=0`
+    rep #$20
+    .a16
     lda z:ES_MIL_BAY
     eor #2                          ; ...the other bay, as a word offset
     sta z:ES_MIL_BAY

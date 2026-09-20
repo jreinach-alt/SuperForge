@@ -28,6 +28,13 @@ SF_HDR_TITLE_SET = 1
 .include "lakeside.inc"             ; the rail's geometry + tuning
 .include "header.inc"
 .include "init.inc"                 ; RESET: native, A16/I16, forced blank
+.include "tad-audio.inc"            ; vendor/tad — the TAD API imports + enums
+.import sf_sfx_reset, sf_sfx_queue_c, sf_audio_tick
+                                    ; engine/features/audio — the request
+                                    ;   queue's reset, its centred enqueue and
+                                    ;   the per-frame pump. The lake scene has
+                                    ;   two cues; the title scene has none.
+.include "tad_audio_enums.inc"      ; GENERATED — Song:: / SFX:: ids
 .include "sf_asm.inc"               ; shared macros: placement assertions + the
                                     ;   data-bank idioms (vendor/rom)
 
@@ -63,6 +70,7 @@ surf_chr_bin:
     .incbin "surf_chr.bin"
 .assert ^surf_chr_bin = ES_R_SURF_CHR_BANK, error, "surf_chr bank drifted from allocator claim"
 .assert .loword(surf_chr_bin) = ES_R_SURF_CHR_ADDR, error, "surf_chr addr drifted from allocator claim"
+.segment "BANK2"
 lk_map_bin:
     .incbin "lk_map.bin"
 .assert ^lk_map_bin = ES_R_LK_MAP_BANK, error, "lk_map bank drifted from allocator claim"
@@ -293,6 +301,32 @@ MAIN:
     jsr region_init                 ; the console's own region line, once. It
                                     ;   is game-lifetime state: a console does
                                     ;   not change region between scenes.
+    ; ---- audio boot (TAD contract, tad-audio.inc): interrupts are DISABLED
+    ; here by construction — init.inc leaves NMI off and $4200 is written only
+    ; below — so the S-SMP is still in the IPL. Tad_Init runs ONCE per
+    ; power-on; the song load is ASYNC and Tad_Process streams it during the
+    ; frame loop.
+    ;
+    ; MUSIC AND TWO CUES. The music is `shallow_water_song`, written for this
+    ; rail rather than borrowed: a relaxed sunlit coastal piece, major sevenths
+    ; and add-nines over a turnaround that never resolves hard, which is what a
+    ; warm afternoon by water sounds like. The cues are the SEA — `wave_break`,
+    ; on the cadence the surf's own cycle sets — and the B toggle that stills
+    ; it. Both live in the lake scene; the title has neither.
+    sep #$20
+    .a8
+    jsl Tad_Init
+    jsr sf_sfx_reset                ; the ring holds power-on garbage
+    ; STEREO: the song is PANNED and TAD's default is MONO
+    ; (tad-audio.inc:123), which collapses every channel to centre. The mode
+    ; takes effect at the next song load (tad-audio.inc:525), so it is set
+    ; between Tad_Init and Tad_LoadSong.
+    lda #TadAudioMode::STEREO
+    sta Tad_audioMode
+    lda #Song::shallow_water_song   ; this rail's own — assets/audio/mml/
+    jsr Tad_LoadSong
+    rep #$20
+    .a16
     ; ---- enter the boot scene (id 0 = title) under forced blank ----------
     ldx #0
     jsr (sm_enter_tab, x)
@@ -321,5 +355,15 @@ MAIN:
     jsr input_read
     jsr sm_tick
     jsr fade_tick
+    ; ---- audio pump: once per frame, MAIN THREAD ONLY (the TAD ABI forbids
+    ; ISR calls). It drains at most one held request into the driver and then
+    ; runs Tad_Process — the ring is what lets a wave and a toggle landing on
+    ; the same frame both be heard, one this frame and one the next, rather
+    ; than the second being discarded unseen.
+    sep #$20
+    .a8
+    jsr sf_audio_tick
+    rep #$20
+    .a16
     jsr sm_frame_sync
     bra @loop

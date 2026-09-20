@@ -114,6 +114,22 @@ Before / after, read out of the built images:
 Across every image this repo links: **2 declare `$05` and are 32,768 B; 54
 declare `$09` and are 524,288 B; none lies.**
 
+> **Superseded in part, 2026-09-08 — the mechanism, not the property.** Those
+> counts are the R0 census and are left as the record of that landing. Five
+> rails have since moved to 64 KB carts and now declare **`$06`**: `room`,
+> `breaker`, `platformer`, `shmup` and `split_v_fight`. They did not change a
+> line of source to do it — `tad_export` shrank to a half-window claim, their
+> whole allocation fitted one window, and they were relinked with
+> `lorom_64k.cfg`, whose own `SF_LD_ROM_SIZE` then supplied the byte. That is
+> this section's point holding rather than failing: the size is declared where
+> it is DECIDED, so changing the config changed the declaration and nothing
+> else had to know. The invariant the table exists for is unchanged and still
+> checked on every image by `tools/fix_checksum.py` — **none lies** — and
+> `tests/test_rom_header.py` derives its rail list from the tree and compares
+> each byte to that file's own length, so it needed no edit either.
+> The `split_v_fight.sfc` row above is therefore historical: it is 65,536 B
+> today, still declaring the truth.
+
 ### 2.2 `$FFD9` — the destination byte, overridable
 
 `.byte $01` became `.ifndef SF_HDR_DEST` / default `$01` / `.byte
@@ -409,3 +425,5 @@ and every byte `brawler` moved is the composition.
    carries forward unchanged — in particular item 6, whether a flashcart or a
    PAL console's menu does anything with `$7FD9 = $01`, which is the practical
    reason the destination override exists and which an emulator cannot answer.
+
+**UPDATE 2026-09-19 — a cart was run.** The owner played the demos off an FxPak Pro on their own SNES and all of them ran correctly to the eye. That retires the blanket "nothing here has touched hardware", but it does not answer the specific question above: it was a play-test rather than an instrumented measurement, the console's region was not recorded, and the images were built from `main` (so they carry none of the audio branch). `JAM.md` rule 6 carries the full scope.
