@@ -315,6 +315,13 @@ class Machine:
             self._raise("this core lacks GetMemoryAccessCounts")
         self.uninit_detection = uninit_detection
         Machine._current = self
+        # Take the process-global core's ownership ticket. Two things read
+        # it: `_check_live`, so a ROM loaded by a MesenRunner under a live
+        # Machine is a named error instead of a silent read of the wrong
+        # cartridge; and `MesenRunner.stop()`, which now refuses to Stop(0)
+        # a core it no longer owns (mesen_runner._claim_core carries the
+        # measured failure that motivated it).
+        self._core_gen = _mr._claim_core()
         _det_log("load", self.rom_md5, self.seed)
 
     def _check_live(self):
@@ -323,6 +330,16 @@ class Machine:
         if Machine._current is not self:
             self._raise("this Machine was superseded by a later load — its "
                         "state is gone; drive the newest Machine")
+        # The same question asked of the OTHER interface onto the one core.
+        # `_current` only tracks Machine-vs-Machine; a `MesenRunner.load_rom`
+        # in between replaces the ROM without disturbing it, and every read
+        # from here on would silently describe that runner's cartridge.
+        if self._core_gen != _mr._core_generation():
+            self._raise("a MesenRunner loaded a ROM into the shared core "
+                        "after this Machine did — the core is no longer "
+                        "running this Machine's cartridge; give the runner "
+                        "and the Machine separate modules, or build the "
+                        "Machine after the runner is done")
 
     # --- identity ---------------------------------------------------------
 
@@ -397,7 +414,23 @@ class Machine:
         before, _ = self._ppu()
         rc = self._lib.RunFramesSync(frames, _PARK_SCANLINE)
         if rc != 0:
-            self._raise(f"RunFramesSync({frames}) failed: {_RC_NAMES.get(rc, rc)}")
+            hint = ""
+            if rc == -1:
+                # The core answering "no ROM" while this handle is live and
+                # owns the load ticket means something unloaded the cartridge
+                # without loading another — and the only call in this harness
+                # that does that is `Stop(0)`. Name it, so a recurrence does
+                # not have to be re-derived from an opaque return code.
+                hint = ("\n  Nothing has re-LOADED the core (this Machine "
+                        "still holds the load ticket), so the ROM was "
+                        "UNLOADED: some Stop(0) reached the shared core. "
+                        "The usual source is MesenRunner.stop() — often from "
+                        "__del__, on a runner a traceback cycle kept alive "
+                        "past its own module. mesen_runner.stop() guards "
+                        "against exactly that; a fresh path here is a new "
+                        "one.")
+            self._raise(f"RunFramesSync({frames}) failed: "
+                        f"{_RC_NAMES.get(rc, rc)}{hint}")
         after, scanline = self._ppu()
         if after != before + frames or scanline != _PARK_SCANLINE:
             self._raise(
