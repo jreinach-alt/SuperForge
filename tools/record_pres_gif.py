@@ -37,6 +37,7 @@ no dither, 1.21 MB. No rail here needs an escape hatch.
 import argparse
 import hashlib
 import importlib
+import json
 import sys
 from pathlib import Path
 
@@ -108,6 +109,53 @@ def _proofs(path, proof_dir, rail):
     return out
 
 
+PROVENANCE = ROOT / "docs" / "img" / "gif_provenance.json"
+
+
+def _remember(rail, rom_name, rom_md5, gif_path, stored):
+    """Record which ROM this clip came from, so a later build can disagree.
+
+    THE CLIP IS THE ONE ARTIFACT A VISITOR SEES BEFORE ANY CODE, AND NOTHING
+    WATCHED IT. `gif_mode7_explore.gif` and `gif_meteor_event.gif` sat on the
+    README for seven weeks showing defects that had been fixed -- an avatar
+    standing off the crossroads, a town exit below the visible picture, and an
+    all-black frame which was the transition flicker, looping. Every gate was
+    green throughout, because no gate looked. This file is what
+    `tests/test_gif_provenance.py` reads to make that impossible twice.
+
+    WHY A STORED ROM DIGEST AND NOT A RE-RECORD. Comparing a fresh recording
+    against the committed one is the sharper question -- it asks whether the
+    PICTURE moved rather than whether the ROM did -- and it is the wrong gate
+    to build, because `record_gallery_clip` boots through `MesenRunner` under
+    RamState::Random with nothing seeding it (its own note: "mt19937 seeded
+    from std::random_device ONCE PER PROCESS; varies every run"). Measured
+    here on 2026-10-16: ten of fifteen clips re-record byte-identical and four
+    do not, so a re-record gate would carry a standing red that teaches people
+    to ignore it. A digest comparison runs no emulator and cannot flake.
+
+    The cost of the cheaper question is that it is CONSERVATIVE: an audio-only
+    change moves every rail's ROM without moving a pixel, and this will report
+    all of them. That is a true statement each time -- the ROM behind the clip
+    changed -- and clearing it is 9 seconds of `record_pres_gif.py <rail>`.
+    A gate that over-reports and never lies beats one that is precise and
+    flaky, which is the same trade `toy-bad` and `rom-unbacked` already make.
+    """
+    PROVENANCE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        book = json.loads(PROVENANCE.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        book = {}
+    book[rail] = {
+        "rom": rom_name,
+        "rom_md5": rom_md5,
+        "gif_md5": hashlib.md5(Path(gif_path).read_bytes()).hexdigest(),
+        "stored_frames": stored,
+    }
+    PROVENANCE.write_text(
+        json.dumps(book, indent=2, sort_keys=True) + "\n")
+    return PROVENANCE
+
+
 def record(rail, out_dir, proof_dir):
     mod = importlib.import_module(f"tools.gif_scenarios.{rail}")
     rom = ROOT / "build" / f"{mod.ROM}.sfc"
@@ -142,7 +190,56 @@ def record(rail, out_dir, proof_dir):
     if proof_dir:
         for idx, p in _proofs(path, proof_dir, rail):
             print(f"  {rail}: proof stored-frame {idx:3d} -> {p}")
+    # Only the SHIPPED clip gets remembered. A `--out /tmp/...` run is a
+    # comparison or a spike, and must not rewrite the provenance of a file it
+    # did not replace -- that would let a throwaway recording silently bless
+    # whatever ROM happens to be built.
+    if Path(out_dir).resolve() == (ROOT / "docs" / "img").resolve():
+        book = _remember(rail, rom.name, rom_md5, path, stored)
+        print(f"  {rail}: provenance -> {book.relative_to(ROOT)}")
     return size
+
+
+def bless(rail, reason):
+    """Re-pin a clip to today's ROM WITHOUT re-recording it.
+
+    THE REMEDY FOR THE RATCHET'S CONSERVATISM, and the reason it is safe to
+    have a conservative ratchet at all. `tests/test_gif_provenance.py` asks
+    whether the ROM moved, not whether the picture did, so any change to a
+    shared feature reports every clip. Re-cutting all fifteen to clear that
+    costs megabytes of binary churn for clips whose pixels never moved -- git
+    stores a whole new blob per GIF, so a 2 KB difference is a 400 KB commit.
+
+    This writes the provenance entry from the clip ALREADY ON DISK and the ROM
+    that builds now, and stores the REASON, which is required. It is the same
+    shape as `# WALL-CLOCK: ok -- <reason>` and `# MAP: ok -- <reason>`: an
+    override that a human signs. Rubber-stamping it is a regression, and the
+    reason is what a reviewer reads.
+
+    USE IT ONLY WHEN THE PICTURE IS KNOWN UNCHANGED -- which for a rail whose
+    recording reproduces means re-recording to a scratch directory and getting
+    the same bytes. For a rail whose recording does NOT reproduce (measured
+    2026-10-16: `racer`, `railshooter` and others vary run to run under
+    RamState::Random), there is no such check available, and the honest move
+    is to re-cut rather than to bless.
+    """
+    mod = importlib.import_module(f"tools.gif_scenarios.{rail}")
+    rom = ROOT / "build" / f"{mod.ROM}.sfc"
+    if not rom.exists():
+        raise SystemExit(f"record_pres_gif: {rom} is not built")
+    gif = ROOT / "docs" / "img" / f"gif_{rail}.gif"
+    if not gif.exists():
+        raise SystemExit(f"record_pres_gif: {gif} does not exist — record it")
+    stored = Image.open(gif).n_frames
+    book = _remember(rail, rom.name,
+                     hashlib.md5(rom.read_bytes()).hexdigest(), gif, stored)
+    entry = json.loads(book.read_text())[rail]
+    entry["blessed"] = reason
+    whole = json.loads(book.read_text())
+    whole[rail] = entry
+    book.write_text(json.dumps(whole, indent=2, sort_keys=True) + "\n")
+    print(f"  {rail}: blessed against {rom.name} "
+          f"{entry['rom_md5'][:8]} — {reason}")
 
 
 def main():
@@ -151,10 +248,20 @@ def main():
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--out", default=str(ROOT / "docs" / "img"))
     ap.add_argument("--proofs", default=None)
+    ap.add_argument("--bless", metavar="REASON",
+                    help="re-pin the named rails to today's ROM WITHOUT "
+                         "re-recording, storing REASON. Only when the picture "
+                         "is known unchanged — see bless().")
     a = ap.parse_args()
     rails = list(RAILS) if a.all else a.rails
     if not rails:
         ap.error("name a rail, or pass --all")
+    if a.bless:
+        if not a.bless.strip():
+            ap.error("--bless needs a reason; a bare stamp is the regression")
+        for r in rails:
+            bless(r, a.bless.strip())
+        return
     total = sum(record(r, a.out, a.proofs) for r in rails)
     if len(rails) > 1:
         print(f"\n{len(rails)} GIFs, {total / 1e6:.2f} MB total")

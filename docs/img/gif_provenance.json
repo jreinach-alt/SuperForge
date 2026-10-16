@@ -1,0 +1,96 @@
+{
+  "aurora": {
+    "gif_md5": "9156c9917fbb033e527a8cf47334790a",
+    "rom": "aurora.sfc",
+    "rom_md5": "ca6944dddc4f2eb9d2c748fb40e303b7",
+    "stored_frames": 125
+  },
+  "boss_saucer": {
+    "blessed": "re-recorded from this ROM on 2026-10-16 and reproduced byte-identical, so the picture is verified current; restored rather than re-cut to avoid a new binary blob per clip",
+    "gif_md5": "67112ab62a67b172a0215e62e1177c33",
+    "rom": "boss_saucer.sfc",
+    "rom_md5": "bddf8df071af892bb429e8d91e3ec637",
+    "stored_frames": 220
+  },
+  "heathaze": {
+    "gif_md5": "b402e33a03fd4d3841402ad7af5a62c2",
+    "rom": "heathaze.sfc",
+    "rom_md5": "f33c54bac46e90bc599ee81509a3c2da",
+    "stored_frames": 115
+  },
+  "lakeside": {
+    "gif_md5": "8775cfcfe4a75b5f4ee5983f2a3d3831",
+    "rom": "lakeside.sfc",
+    "rom_md5": "0327e63e23ae001373e0d8b5b99c4835",
+    "stored_frames": 129
+  },
+  "m7_oshoot": {
+    "gif_md5": "6d129888c763a0aabcaec05804bd6d39",
+    "rom": "m7_oshoot.sfc",
+    "rom_md5": "190bd8b35fba1b5283293f1ba9c87e93",
+    "stored_frames": 120
+  },
+  "meteor_event": {
+    "gif_md5": "92e98c0aec1854db23781aa195bbc591",
+    "rom": "meteor_event.sfc",
+    "rom_md5": "d076b27ee231851bc58f2d822f34716d",
+    "stored_frames": 133
+  },
+  "mill": {
+    "gif_md5": "98dfe166795e08c1ef26b4af5c5d1915",
+    "rom": "mill.sfc",
+    "rom_md5": "249e7a5ff63eead7a1fa6d7ece092c34",
+    "stored_frames": 125
+  },
+  "mill_direct": {
+    "blessed": "re-recorded from this ROM on 2026-10-16 and reproduced byte-identical, so the picture is verified current; restored rather than re-cut to avoid a new binary blob per clip",
+    "gif_md5": "3431d6d621dc0fd31399a4ebc091ce0a",
+    "rom": "mill_direct.sfc",
+    "rom_md5": "8bc68baa616dd7f9bf434f4f5cea7368",
+    "stored_frames": 125
+  },
+  "mode7_explore": {
+    "gif_md5": "def00533ad301b8a96df8d16e51c082b",
+    "rom": "mode7_explore.sfc",
+    "rom_md5": "2965100a9ab872c7ac34112386bc21b3",
+    "stored_frames": 138
+  },
+  "mode7_flight": {
+    "gif_md5": "e4a9b93bc0a60ada93307599487a1630",
+    "rom": "mode7_flight.sfc",
+    "rom_md5": "245eef87e0e4d3fd36de15c0f1eb2ece",
+    "stored_frames": 129
+  },
+  "racer": {
+    "gif_md5": "27a2afcf06b0917a23b20dab04a5a57a",
+    "rom": "racer.sfc",
+    "rom_md5": "0083c5ea8b50431f97f7c904af7366a8",
+    "stored_frames": 261
+  },
+  "railshooter": {
+    "gif_md5": "27b30e2a8a71c5d978616f27fd0c04be",
+    "rom": "railshooter.sfc",
+    "rom_md5": "24a28582907ad6da9a72dccbf88f3fca",
+    "stored_frames": 257
+  },
+  "smelter": {
+    "blessed": "re-recorded from this ROM on 2026-10-16 and reproduced byte-identical, so the picture is verified current; restored rather than re-cut to avoid a new binary blob per clip",
+    "gif_md5": "b278530489bbd82b3702d7e423b8ff41",
+    "rom": "smelter.sfc",
+    "rom_md5": "d20a80d909afbb6a69c02898e24d28ae",
+    "stored_frames": 251
+  },
+  "split_h_2p_demo": {
+    "blessed": "re-recorded from this ROM on 2026-10-16 and reproduced byte-identical, so the picture is verified current; restored rather than re-cut to avoid a new binary blob per clip",
+    "gif_md5": "760b2a3345064ebd678d136b2e41f379",
+    "rom": "sh2_autocam.sfc",
+    "rom_md5": "9de9a58afd6779fd07637ed6ab708db2",
+    "stored_frames": 257
+  },
+  "split_v_fight": {
+    "gif_md5": "7bed079b4dfed80787192c8e7278663c",
+    "rom": "split_v_fight.sfc",
+    "rom_md5": "4c6cefe337e0b3fe93ed08c5b4731081",
+    "stored_frames": 90
+  }
+}
