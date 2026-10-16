@@ -1363,3 +1363,97 @@ regression needs and duplicates what a real consumer gives for free.
 **The rule this is filed under: infrastructure whose test depends on a
 content decision should land WITH the content decision, or with an explicit
 note saying it did not.** This is the note.
+
+## Landing four branches that had diverged for a month (2026-10-16)
+
+### A PIN IS RE-DERIVED AT A MERGE, NEVER RESOLVED — surprise, HIGH
+
+Two branches each moved microzero's pinned md5, correctly, for unrelated
+reasons: the audio work because a forked TAD binary is embedded in every
+audio rail's export, the scene-cut flicker fix because microzero names
+`scene_mgr` in its `[globals]`. Both were right against `main`. Neither is
+right against a tree holding both, and the merge conflicted in exactly the
+three files that carry the pin.
+
+The trap is that the conflict looks resolvable. Both sides are a one-line
+md5 and git offers you a choice between them; taking either is wrong by
+construction, and the asserting test would then report a correct tree as a
+leak. The value has to be BUILT from the merged tree — resolve the three
+conflicts arbitrarily first (tests and tools are not in the ROM), then
+`make microzero` on the result.
+
+**And the enumeration found a site nobody knew was stale.**
+`engine/features/dialog/feature.toml` carried the flicker branch's value
+with no conflict at all, because the audio branch never updated that site
+when it moved the pin. The tree was already holding two different "current"
+values before the merge. Only a value-enumeration finds that; a name-grep
+for `ROM_PIN` or `hexdigest` would have missed it, which is precisely why
+docs/94 clause 2 says to enumerate by value. Filed into that clause.
+
+Second trap, nearly hit: a blanket replace of the old value corrupts the
+record. The asserting test's docstring narrates all five prior moves and
+names each target md5, so the value being retired appears there as HISTORY.
+The live assertion had to be edited by its own line.
+
+### `tools/setup.sh` REPORTS A PIP INSTALL THAT WENT TO ANOTHER INTERPRETER AS OK — surprise, HIGH
+
+A container rebuild left `pip` (`/usr/bin/pip`) pointing at a different
+interpreter from the one the repo runs (`/usr/local/bin/python3`). Step 2
+installed Pillow + pytest + pytest-xdist, got exit 0, and printed
+`[OK] Python dependencies installed` — while `python3 -m pytest` and
+`from PIL import Image` both still failed.
+
+Step 6 then failed with `[FAIL] sanity tests failed — check MesenRunner +
+libSDL2`, which is the wrong place to look: SDL2 was fine, the core built
+from source, `mesen_runner.py` imported, `make toy` built and `toy-bad`
+refused as designed. The landing gate went RED at `setup` with 59 of 60
+ROMs never built, and the artifact's `fault_reading` said `none` because
+no test had run to produce a fault.
+
+**Two fixes, both cheap: step 2 should verify the IMPORT under `python3`
+after installing rather than trusting pip's exit code, and step 6's message
+should name what actually failed instead of guessing at SDL2.** A gate that
+dies in setup is the one place a misleading message costs a whole run.
+
+### THE LANDING GATE DELETES THE VERIFIED BINARY THE MOMENT IT PASSES — clunky, MEDIUM
+
+Rule 3 wants a render from the *verified* binary, and `bare_check.sh` does
+`rm -rf "$CLONE_ROOT"` on GREEN unless `BARE_CHECK_KEEP=1`. So the artifact
+you are required to photograph is destroyed by the run that certifies it.
+Workable — `bare_check.json` records every ROM's md5, so a rebuild can be
+proven byte-identical — but it is a rebuild you should not have to do.
+
+Sharper version of the same edge: a RED run KEEPS its clone for post-mortem,
+and the next run's startup `rm -rf` destroys it. A kept clone is only safe
+until somebody runs the gate again, which cost one red's pytest log here.
+
+### `bare_check.json`'s `faults` NAMES THE TEST BUT NOT THE FAILURE — clunky, MEDIUM
+
+The entry carries test, file, phase and exception type. It does not carry
+the assertion message, so diagnosing a red means re-running the module
+locally to see what the numbers actually were. For the md5 pin that meant
+rebuilding the ROM to discover which of the two assertions in the test had
+fired — the header check or the digest.
+
+### A 30-MINUTE GATE AGAINST A 10-MINUTE BACKGROUND LIMIT — clunky, LOW
+
+The agent harness kills a tracked background command at 10 minutes; a
+landing-gate run is ~27. Launching it with `setsid nohup ... &` detaches it
+from the tracker and it runs to completion, watched by tailing its log.
+Recorded because the first attempt lost 10 minutes to learning it.
+
+### THE REPO HAD NO WRITTEN LANDING POLICY, SO ONE GOT INVENTED — surprise, MEDIUM
+
+Work here lands as plain descriptive merge commits: 69 commits on `main`,
+4 merges, and until this week not one of them a pull request. `main` is not
+protected and nothing ever required a PR. But `CLAUDE.md`, `AGENTS.md` and
+`README.md` say NOTHING about branching or landing — zero hits for "pull
+request", "PR" or "branching" — and SuperForge has no `docs/branching.md`
+(Forge2 does). Into that silence an agent read "work on a `claude/*` branch"
+and supplied the missing half from habit, opening PRs the owner had to ask
+about.
+
+Branch isolation was right and matches the history. The landing step was
+invented. **The fix is one line in AGENTS.md saying how work lands here**,
+and the merge-commit body is the artifact that carries what a PR
+description would have — `05f1cfe` is the worked example.
