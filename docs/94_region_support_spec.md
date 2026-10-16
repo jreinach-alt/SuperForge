@@ -213,6 +213,62 @@ criterion is asserted here.
    > `ROM_PIN`, the citing feature comment, and this clause — and both
    > falsification sets re-run so the new pin is known to BIND. Records of
    > `dea58053…` as history (`docs/98` §3 among them) keep it.
+
+   > **MOVED 2026-09-20, by the scene-cut flicker fix — and the tripwire
+   > FIRED first again, on the meteor branch's landing gate:**
+   > `008b19045c002c1026f87696e9350472` → **`63cbf56be436b1748d9280e6816241a7`**.
+   > `engine/features/scene_mgr/scene_mgr.asm` changed so a `cut` edge holds
+   > forced blank across the switch BODY rather than across a whole displayed
+   > frame, which removes the owner-reported one-black-frame blink at
+   > `meteor_event`'s mode swap. scene_mgr is in microzero's `globals`, so
+   > microzero's bytes move even though nothing about microzero was touched —
+   > which is the pin's job, not a defect in it.
+   >
+   > **What moved, enumerated:** 4,693 bytes, in four runs —
+   > `$000100..$000104`, `$000137`, `$00014A`, `$00016C..$001557` (the code
+   > region and everything downstream of it shifting), and `$007FDC..$007FDF`,
+   > which is the header checksum/complement that any byte change rewrites.
+   > The subject of the asserting test is UNMOVED: `cart_type` and
+   > `sram_size` both still read `$00`, so the sram class did not leak.
+   > **The delta is wholly attributable to the intended change** — restoring
+   > `scene_mgr.asm` alone to its pre-change text and rebuilding reproduces
+   > `008b1904…` EXACTLY, which is stronger evidence than either move above
+   > recorded and is the check to repeat next time.
+   >
+   > The move followed this clause's procedure: the new value reproduced on
+   > two independent trees (the landing gate's fresh clone and the working
+   > tree), every LIVE site of the old value updated by value-enumeration —
+   > the asserting test, both falsification tools' `ROM_PIN`, the citing
+   > feature comment, and this clause — and both falsification sets re-run so
+   > the new pin is known to BIND. Records of `008b1904…` as history, this
+   > clause's own 2026-08-24 block among them, keep it.
+
+   > **MOVED 2026-10-16, by the LANDING of two branches that had each moved
+   > it separately — and the conflict is the record working:**
+   > **`9ca5e47f5134d534c607fcb302c79b4f`**, which is neither branch's value.
+   > The audio work moved it to `ccb4dbd7…` (a forked driver binary embedded
+   > in every audio rail's export) and the scene-cut flicker fix moved it to
+   > `63cbf56b…` (scene_mgr, which microzero names in its `[globals]`). Both
+   > were correct against `main`; neither is correct against a tree holding
+   > both, and merging them conflicted in exactly the three files that carry
+   > the pin. That is the failure this clause is for: the second branch to
+   > land would otherwise have carried a value that was simply wrong, and
+   > the asserting test would have reported it as a leak.
+   >
+   > **The rule the conflict teaches: a pin is re-DERIVED at a merge, never
+   > resolved.** Taking either side is wrong by construction. The value here
+   > was built from the merged tree — the three conflicts resolved to one
+   > side arbitrarily first, since tests and tools are not in the ROM, then
+   > `make microzero` run on the result. `cart_type` and `sram_size` both
+   > still read `$00`, so the sram class did not leak through either branch.
+   >
+   > Five LIVE sites this time, not four: `engine/features/dialog/
+   > feature.toml` had taken the flicker branch's value cleanly because the
+   > audio branch never updated that site when it moved the pin — so the
+   > tree was already carrying two different "current" values before the
+   > merge, and only a value-enumeration finds that. Name-grep would not
+   > have. Records of `ccb4dbd7…` and `63cbf56b…` as history keep them,
+   > including the asserting test's own chain of six moves.
 3. All 37 rails keep building. `make bare-check` stays GREEN.
 4. Every gate stays clean: `width-check`, `time-check`, `toy-bad`,
    `rom-unbacked`, `measure`, `register`, `rail-registered`, `cleanroom`.

@@ -15,21 +15,36 @@
 ; dma_init claim names — a declared resource, not a hard-coded 0.
 MET_FLOOR_REGS = $4300 + ES_D_MET_UP_CH * 16
 
-; --- floor_arm: the whole plane (scene enter) ------------------------------
-; CONTRACT met_floor::floor_arm
+; --- floor_upload: the whole plane, ONCE, at BOOT --------------------------
+; CONTRACT met_floor::floor_upload
 ;   entry:    A16 I16 DB=0
 ;   exit:     A16 I16
-;   out:      the whole 32 KB interleaved Mode-7 plane uploaded by ONE
-;             DMA, plus the Mode-7 registers and the palette
+;   out:      the whole 32 KB interleaved Mode-7 plane uploaded by ONE DMA
 ;   clobbers: A, X, Y, N, Z, C
-;   assumes:  forced blank AND the NMI masked — the scene_mgr enter
-;             contract. The upload is ONE 32,768-byte DMA: mode 1 writes
-;             $2118/$2119 alternately, which is exactly the blob's
-;             tilemap/CHR interleave, and VMAIN $80 steps the word address
-;             after the HIGH byte. DAS is single-shot and is armed here
-;             for THIS transfer; 32,768 B is one whole LoROM window, so it
-;             cannot cross a bank
+;   assumes:  forced blank AND the NMI masked. Called ONCE, from MAIN's
+;             boot block under init.inc's blank — NOT from `enter`. The
+;             upload is ONE 32,768-byte DMA: mode 1 writes $2118/$2119
+;             alternately, which is exactly the blob's tilemap/CHR
+;             interleave, and VMAIN $80 steps the word address after the
+;             HIGH byte. DAS is single-shot and is armed here for THIS
+;             transfer; 32,768 B is one whole LoROM window, so it cannot
+;             cross a bank
 ;   tail:     rts
+;
+; WHY BOOT AND NOT `enter`, and it is the rail's transition that pays for it.
+; 32,768 bytes is 262,144 master cycles — 73% of an NTSC frame, and a VBlank
+; affords about 50,000. An upload inside a scene switch therefore has to hold
+; forced blank across a WHOLE DISPLAYED FRAME, and that frame is black: the
+; owner-reported flicker on the Mode-1 <-> Mode-7 swap was exactly this one
+; frame (measured — game/meteor_event/main.asm's transition note).
+;
+; The plane's VRAM is `kind = "mode7"`, pinned at word 0 by the hardware, and
+; met_bg's two claims are pinned at $4800 and $5000 — so the Mode-1 scene
+; PROVABLY never writes these 16,384 words, and the image uploaded at boot is
+; still byte-identical when the cutscene enters (asserted:
+; tests/test_meteor_event.py::test_the_mode7_plane_is_uploaded_once_at_boot).
+; Uploading it once, before the screen is ever on, costs nothing a player can
+; see and takes the reload out of the transition entirely.
 ;
 ; ONE DMA for the interleaved image: mode 1 writes $2118, $2119, $2118 ... —
 ; exactly the blob's tilemap/CHR interleave — and VMAIN = $80 advances the word
@@ -38,10 +53,10 @@ MET_FLOOR_REGS = $4300 + ES_D_MET_UP_CH * 16
 ; window, so the transfer cannot cross a bank boundary.
 ;
 ; WIDTH-RISK: A16/I16 entry AND exit; `sep #$20` only, I-width never moves.
-floor_arm:
+floor_upload:
     .a16
     .i16
-    SF_ASSERT_WIDTH 16, 16, "floor_arm"
+    SF_ASSERT_WIDTH 16, 16, "floor_upload"
     sep #$20
     .a8
     lda #$80
@@ -62,9 +77,33 @@ floor_arm:
     sep #$20
     .a8
     lda #(1 << ES_D_MET_UP_CH)
-    sta a:$420B                     ; fire (enter-time: the channel regs are free)
+    sta a:$420B                     ; fire (boot-time: the channel regs are free)
     rep #$20
     .a16
+    rts
+
+; --- floor_arm: the palette and M7SEL (scene enter) ------------------------
+; CONTRACT met_floor::floor_arm
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   out:      the scene's sixteen CGRAM words staged and M7SEL set
+;   clobbers: A, X, N, Z, C
+;   assumes:  forced blank or VBlank, and the NMI masked — the scene_mgr
+;             enter contract. The PLANE ITSELF is not here: `floor_upload`
+;             put it in VRAM at boot, once
+;   tail:     rts
+;
+; WHAT IS LEFT IS VBLANK-SIZED, and that is the point. Sixteen CGRAM words is
+; thirty-two byte stores and M7SEL is one — about 1,500 master cycles against
+; the ~35,000 a switch beginning at scanline 236 has left of VBlank. That is
+; what lets scene_mgr's cut hold its forced blank across the switch BODY
+; instead of across a displayed frame.
+;
+; WIDTH-RISK: A16/I16 entry AND exit; `sep #$20` only, I-width never moves.
+floor_arm:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "floor_arm"
 
     ; ---- the palette: sixteen absolute CGRAM indices, CPU-written ---------
     ; Sixteen words is thirty-two stores; a DMA would cost more to set up than

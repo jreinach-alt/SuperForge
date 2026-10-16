@@ -1979,9 +1979,18 @@ class SceneDecl:
 #
 #   "fade"   scene_mgr's brightness ramp: fade-out -> forced blank -> the
 #            exit/enter switch -> fade-in. The default and the majority.
-#   "cut"    the blank switch with NO ramp in either direction: forced blank,
-#            exit/enter, back to full brightness. The in-place mode swap,
-#            spelled as a transition.
+#   "cut"    the switch with NO ramp in either direction, and — since the
+#            flicker work — no blank frame either: @switch asserts forced
+#            blank on $2100 itself, runs exit/enter, and lifts it, so the
+#            blank lasts exactly as long as the body rather than covering a
+#            whole displayed frame. The body begins inside the VBlank
+#            `sm_frame_sync` released the tick into, so A CUT EDGE'S
+#            DESTINATION `enter` HAS TO FIT THERE (measured headroom on
+#            NTSC: ~36,000 master cycles from scanline 235). A long VRAM
+#            upload belongs at boot or behind a "fade" edge; put one inside
+#            a cut and the blank overruns into the top of a displayed frame
+#            as a black band. The in-place mode swap, spelled as a
+#            transition.
 #   "mosaic" mode7_explore's AND rpg's declaration (both edges each, zero
 #            sm_request/SM_SWITCH call sites in either), kept rather than
 #            rewritten — and it is NOT a scene_mgr phase, because that rail

@@ -613,3 +613,136 @@ def test_the_swap_back_restores_the_level_and_releases_control(tmp_path):
     # the one-shot guard: still in PLAY, still no captured sprites
     assert st_after == PLAY, st_after
     assert _live(oam_after, O_CAPTURE, O_CAPTURE + O_CAPTURE_N) == []
+
+
+# =============================================================================
+# THE MODE SWAP ITSELF — the owner-reported flicker
+# =============================================================================
+# What was wrong, MEASURED before anything was changed: each of the two swaps
+# rendered ONE all-black frame — every one of the 61,184 PNG pixels (0,0,0) —
+# between two pictures that are pixel-IDENTICAL to each other. scene_mgr's cut
+# armed forced blank a frame ahead so the switch could run under it, and the
+# switch needed a whole frame because it re-uploaded 32 KB of Mode-7 plane on
+# the way in and repainted a 2 KB tilemap on the way back. A single black frame
+# between two identical pictures is a blink, and that is what a player sees.
+#
+# Both uploads are now boot work and the blank is a bracket the switch holds
+# only while its body runs, inside the VBlank the tick starts in. So the claim
+# these two cases make is the strongest one the picture can carry: across the
+# swap, EVERY frame is pixel-identical to the one before it.
+#
+# That is deliberately stricter than "no black frame". The first attempt at
+# this fix removed the black frame and left a DIFFERENT one-frame artefact in
+# its place — 809 px of Mode-7 plane drawn at the level's camera going in,
+# 8,704 px of misplaced ground coming back, because the cut runs after the
+# frame's NMI and the incoming scene's shadow-committed ports arrived a frame
+# late. An "is it black?" assertion is green on both of those.
+#
+# EVERY FRAME IS ABSOLUTE. `Machine` is a pure function of (rom md5, seed,
+# input script) and `screenshot` costs exactly one emulated frame, so a run of
+# consecutive captures IS a frame-by-frame walk. The ROM's own NMI frame
+# counter is read alongside each capture and asserted to advance by exactly one
+# per picture, which pins the walk to absolute frames rather than to a wait.
+SM_FRAME = _sym("ES_SM_FRAME")["start"]
+SM_CUR = _sym("ES_SM_CTL")["start"]
+V_M7 = _sym("ES_V_M7", scene="impact")
+
+
+def _walk_pictures(m, tmp_path, tag, n):
+    """n consecutive frames: (rom frame counter, running scene id, pixels)."""
+    out = []
+    for k in range(n):
+        frame = _u16(m, SM_FRAME)
+        cur = m.read_bytes(MemoryType.SnesWorkRam, SM_CUR, 1)[0]
+        out.append((frame, cur, _flat(_img(m, tmp_path, f"{tag}{k:02d}.png"))))
+    return out
+
+
+def _assert_continuous(window, tag):
+    frames = [f for f, _, _ in window]
+    assert frames == list(range(frames[0], frames[0] + len(window))), (
+        f"{tag}: the capture walk skipped a frame — {frames}. Every picture "
+        f"below is supposed to be the frame after the one above it.")
+    scenes = [c for _, c, _ in window]
+    assert len(set(scenes)) == 2, (
+        f"{tag}: the window does not contain the swap (scene ids {scenes}); "
+        f"the pixel comparison below would be vacuous")
+    for i in range(1, len(window)):
+        diff = sum(1 for a, b in zip(window[i - 1][2], window[i][2]) if a != b)
+        black = window[i][2].count((0, 0, 0))
+        assert diff == 0, (
+            f"{tag}: frame {frames[i]} differs from frame {frames[i - 1]} in "
+            f"{diff} px ({black} of them black, {len(window[i][2])} total; "
+            f"scene id {scenes[i - 1]} -> {scenes[i]}). The swap is supposed "
+            f"to be invisible: a whole-frame difference is the forced blank "
+            f"reaching the screen, a partial one is a port that arrived late.")
+
+
+def test_the_swap_into_mode7_blanks_no_frame_the_picture_is_continuous(
+        tmp_path):
+    """THE OWNER-REPORTED DEFECT, on the forward edge, as pixels.
+
+    Ten consecutive frames spanning level -> impact: parked at capture timer
+    24, the swap is requested on the timer-30 tick and lands on the next one,
+    so the window holds seven frames of the outgoing scene, the swap frame
+    itself, and two of the incoming one. The scene id changes inside them (so
+    the comparison is not vacuous) and no two adjacent pictures differ by a
+    single pixel."""
+    with Machine(ROM) as m:
+        m.advance(30)
+        _walk_to_event(m)
+        _park_at(m, CAPTURE, 24)
+        window = _walk_pictures(m, tmp_path, "fwd", 10)
+    _assert_continuous(window, "level -> impact")
+
+
+def test_the_swap_back_to_mode1_blanks_no_frame_the_picture_is_continuous(
+        tmp_path):
+    """The same claim on the return edge, and it is the harder one: the
+    Mode-1 layer's whole re-arm is on this side.
+
+    Parked at scene timer 176, which is past MET_GLOW_RECEDE_END (m = 104,
+    timer 176) — the glow is the last thing on this rail that moves, so from
+    there to the swap nothing is supposed to change but the scene."""
+    with Machine(ROM) as m:
+        m.advance(30)
+        _walk_to_event(m)
+        _reach(m, SCENE)
+        _park_at(m, SCENE, 176)
+        window = _walk_pictures(m, tmp_path, "back", 10)
+    _assert_continuous(window, "impact -> level")
+
+
+def test_the_mode7_plane_is_uploaded_once_at_boot_and_the_level_never_moves_it(
+        tmp_path):
+    """The premise the seamless swap rests on, read off the hardware.
+
+    The 32 KB plane is uploaded by MAIN, before the screen is ever on, and no
+    `enter` re-uploads it — which is only sound if the Mode-1 scene never
+    writes those 16,384 words. met_bg pins its claims at $4800 and $5000 and
+    the plane is `kind = "mode7"` at word 0, so they cannot meet; main.asm
+    .asserts that from the emitted claims at build time. This asserts the
+    consequence at run time, against the blob: the image is already in VRAM
+    while the LEVEL is running, and it is still byte-identical after the
+    cutscene has been and gone and the player has walked on."""
+    blob = (Path("build") / "assets" / "met_map.bin").read_bytes()
+    assert len(blob) == V_M7["size"] * 2, (len(blob), V_M7["size"])
+    with Machine(ROM) as m:
+        m.advance(40)                      # the Mode-1 level, pre-event
+        boot = m.read_bytes(MemoryType.SnesVideoRam, V_M7["start"] * 2,
+                            len(blob))
+        _walk_to_event(m)
+        _reach(m, SCENE)
+        _reach(m, RESTORE)
+        _reach(m, PLAY)
+        m.advance(40, pad1={"right": True})
+        after = m.read_bytes(MemoryType.SnesVideoRam, V_M7["start"] * 2,
+                             len(blob))
+    assert boot == blob, (
+        "the plane is not in VRAM while the level runs: %d of %d bytes differ "
+        "— the boot upload did not happen or did not land"
+        % (sum(1 for a, b in zip(boot, blob) if a != b), len(blob)))
+    assert after == blob, (
+        "the plane was clobbered across the event: %d of %d bytes differ — "
+        "the one-shot boot upload is no longer sound"
+        % (sum(1 for a, b in zip(after, blob) if a != b), len(blob)))
