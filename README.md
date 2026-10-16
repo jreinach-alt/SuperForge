@@ -405,6 +405,12 @@ the tree; [`docs/08`](docs/08_feature_register_spec.md) is the spec that
 register is written to. The design story — what this engine is, why it is
 shaped this way, and what holds it true — is [`design.md`](design.md).
 
+## Sponsor
+
+SuperForge is free and zlib-licensed. If it is useful to you, you can
+support its development at
+[github.com/sponsors/jreinach-alt](https://github.com/sponsors/jreinach-alt).
+
 ## Licence
 
 SuperForge's first-party code is under the zlib licence — see
