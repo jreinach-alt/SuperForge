@@ -133,8 +133,33 @@ if [ -z "$PYTHON_PKGS_NEEDED" ]; then
     pass "Pillow + pytest + pytest-xdist already installed"
 else
     echo "  Installing: $PYTHON_PKGS_NEEDED..."
-    if retry_cmd "pip install" pip install --quiet $PYTHON_PKGS_NEEDED; then
-        pass "Python dependencies installed ($PYTHON_PKGS_NEEDED)"
+    # `python3 -m pip`, NOT bare `pip`. They are frequently different
+    # interpreters — pyenv, homebrew, conda, and Debian's split packaging all
+    # produce a `pip` whose site-packages `python3` cannot see. The checks
+    # above ask `python3`, so the install has to answer as `python3` or the
+    # two never meet.
+    if retry_cmd "pip install" python3 -m pip install --quiet $PYTHON_PKGS_NEEDED; then
+        # AND VERIFY THE IMPORT, because pip's exit code is not the claim we
+        # are making. A 0 from a pip bound to another interpreter prints
+        # "installed" over a tree that still cannot import any of it, and the
+        # failure then surfaces four steps later as a sanity-test red that
+        # blames MesenRunner and SDL2. Measured 2026-10-16: exactly that, on a
+        # container whose /usr/bin/pip was not /usr/local/bin/python3's.
+        STILL_MISSING=""
+        python3 -c "from PIL import Image" >/dev/null 2>&1 || STILL_MISSING="Pillow"
+        python3 -c "import pytest" >/dev/null 2>&1 || STILL_MISSING="$STILL_MISSING pytest"
+        python3 -c "import xdist" >/dev/null 2>&1 || STILL_MISSING="$STILL_MISSING pytest-xdist"
+        if [ -z "$STILL_MISSING" ]; then
+            pass "Python dependencies installed ($PYTHON_PKGS_NEEDED)"
+        else
+            fail "pip reported success but python3 still cannot import:$STILL_MISSING"
+            echo "         python3 is $(command -v python3) ($(python3 -V 2>&1))"
+            echo "         pip     is $(command -v pip 2>/dev/null || echo 'not on PATH')"
+            echo "         Install into THAT python3, e.g.:"
+            echo "           python3 -m pip install --user$(printf ' %s' $STILL_MISSING)"
+            echo "         (on a PEP 668 'externally managed' system, add"
+            echo "          --break-system-packages, or use a venv.)"
+        fi
     else
         fail "Python dependency installation failed"
     fi
@@ -305,7 +330,12 @@ if (cd "$REPO_ROOT" && python3 -m pytest tests/test_allocator.py tests/test_rom_
         -m "not needs_linked_images" >/dev/null 2>&1); then
     pass "sanity tests pass"
 else
-    fail "sanity tests failed — check MesenRunner + libSDL2"
+    fail "sanity tests failed"
+    echo "         Re-run to see why:"
+    echo "           python3 -m pytest tests/test_allocator.py tests/test_rom_header.py -q -m 'not needs_linked_images'"
+    echo "         'No module named pytest' here means step 2 installed into a"
+    echo "         different interpreter than python3 — see its output above."
+    echo "         A MesenRunner or libSDL2 error means the core, not the deps."
 fi
 
 # --- 7. Git hooks: the pre-push gate ----------------------------------------
