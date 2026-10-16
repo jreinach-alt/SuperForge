@@ -226,6 +226,118 @@ def test_boot_places_the_avatar_at_the_pivot(runner):
     assert not hi & 0x01, f"hi-table byte {hi:#04x}: X9 is set — she is 256 px to the right"
 
 
+# 5-bit CGRAM -> 8-bit RGB is BIT REPLICATION, not `c << 3` (which maps
+# full-scale 31 to 248) and not a rounded scale (which is one off at the bottom
+# of the range). Four other modules in this suite define the same expansion; a
+# CGRAM-word-against-a-pixel comparison through any other one is a false red.
+def _snes8(c):
+    return (c << 3) | (c >> 2)
+
+
+def _cgram_rgb(cg, index):
+    w = cg[index * 2] | (cg[index * 2 + 1] << 8)
+    return (_snes8(w & 31), _snes8((w >> 5) & 31), _snes8((w >> 10) & 31))
+
+
+def _house_blocks_on_screen(runner, img):
+    """WHERE THE ENTERABLE HOUSE IS DRAWN, recovered from the picture itself.
+
+    Exactly one tile in the 512x512 world carries the town_door id (the
+    generator asserts the count is one), and under Mode 7 an 8bpp pixel value
+    is an ABSOLUTE CGRAM index — so that tile's 64 pixels expand to a colour
+    block the frame can be searched for. Returns every 8x8 position that
+    matches; the caller requires exactly one, which is what makes the hit an
+    oracle rather than a guess.
+    """
+    cg = bytes(runner.read_bytes(C, 0, 512))
+    chars = _blob("m7x_seed.bin")[1::2]          # the odd half IS the CHR set
+    tid = _WORLD["M7X_TILE_TOWN_DOOR"]
+    want = [[_cgram_rgb(cg, chars[tid * 64 + ty * 8 + tx]) for tx in range(8)]
+            for ty in range(8)]
+    px = img.load()
+    return [(x, y) for y in range(ACTIVE_H - 8) for x in range(256 - 8)
+            if all(px[x + tx, y + ty] == want[ty][tx]
+                   for ty in range(8) for tx in range(8))]
+
+
+def _avatar_pixels(runner, img):
+    """Her drawn pixels, by colour: OBJ palette 0 holds ten colours the Mode 7
+    palette does not, so the sprite is separable from the plane in the frame.
+    Used to tie the OAM entry to the picture inside the assertion, so the box
+    the test reasons about is one the PPU demonstrably drew."""
+    cg = bytes(runner.read_bytes(C, 0, 512))
+    plane = {_cgram_rgb(cg, i) for i in range(16)}
+    obj = {_cgram_rgb(cg, i) for i in range(C_OBJ_PAL + 1, C_OBJ_PAL + 16)} - plane
+    px = img.load()
+    return [(x, y) for y in range(ACTIVE_H) for x in range(256) if px[x, y] in obj]
+
+
+def test_the_avatar_is_drawn_standing_on_the_tile_the_walk_machine_tests(
+        runner, tmp_path):
+    """THE COORDINATE CONTRACT, read as two rendered things in one frame.
+
+    Every decision this rail takes about the world — may she step there, is she
+    inside the clamp box, does this landing enter the town — is taken on tile
+    (cam_px>>3, cam_py>>3), and the avatar is drawn at a FIXED screen box. So
+    "she is standing on that tile" is a claim about the PICTURE, and it has a
+    checkable form: the world offset between her camera tile and any other
+    world tile must equal the offset between their RENDERED blocks.
+
+    The oracle is the world's one town_door tile, found by its own colours in
+    the frame; uniqueness is asserted, so a coincidental match cannot carry the
+    case. The claim is made at THREE camera positions — diagonally away,
+    directly below, and two rows below — so a constant that happens to fit one
+    of them cannot pass, and the closest position is exactly the two-tile
+    distance the defect was reported at.
+
+    THIS IS THE CASE THE PLANT SET RECORDED AS UNCOVERED. `tools/plants/
+    m7x_rail.py` said in writing that the sixteen-pixel pivot lift "shifts the
+    whole picture sixteen world pixels vertically and NOTHING in this module's
+    unconditional tests can see it", leaving only a reference-gated case that
+    skips on a bare runner. Measured on the emulator with the lift in place:
+    camera tile (258,258) rendered at picture rows 127..134 while her body sat
+    at rows 104..119 — the tile she was standing on drawn NINETEEN SCANLINES
+    below her feet, which is what "the trigger point appears to be above the
+    town by a couple rows" looks like from the sofa. `pivot-offset` in the
+    plant set is the arm that keeps this honest.
+    """
+    house = (_WORLD["M7X_DEMO_HOUSE_TX"], _WORLD["M7X_DEMO_HOUSE_TY"])
+    spawn = (_WORLD["M7X_SPAWN_TX"], _WORLD["M7X_SPAWN_TY"])
+    runner.boot_to_frame(str(ROM), 60)
+    with runner.frame_stepping():
+        legs = [(spawn, {}), ((house[0], spawn[1]), dict(left=True)),
+                ((house[0], spawn[1] - 2), dict(up=True))]
+        for target, buttons in legs:
+            if buttons:
+                _walk_to(runner, target, **buttons)
+            cam = _cam_tile(runner)
+            assert cam == target, f"the walk stopped at {cam}, not {target}"
+            img = _shot(runner, tmp_path, f"stands_on_{cam[0]}_{cam[1]}")
+            entry = list(runner.read_bytes(O, O_AVATAR * 4, 4))
+            hits = _house_blocks_on_screen(runner, img)
+            assert len(hits) == 1, (
+                f"at camera tile {cam} the house's colour block matched "
+                f"{len(hits)} places in the frame ({hits[:4]}) — the oracle is "
+                f"only an oracle while the match is unique")
+            stray = [p for p in _avatar_pixels(runner, img)
+                     if not (entry[0] <= p[0] < entry[0] + 16
+                             and entry[1] <= p[1] < entry[1] + 16)]
+            assert not stray, (
+                f"at camera tile {cam} {len(stray)} of her drawn pixels fall "
+                f"outside the 16x16 box OAM names ({entry[:2]}); first "
+                f"{stray[0]} — the box this test reasons about is not the box "
+                f"the PPU drew")
+            # Block centre minus body-box centre: (hit + 3.5) - (oam + 7.5).
+            got = (hits[0][0] - entry[0] - 4, hits[0][1] - entry[1] - 4)
+            want = ((house[0] - cam[0]) * 8, (house[1] - cam[1]) * 8)
+            assert got == want, (
+                f"at camera tile {cam} the house is drawn {got} px from the "
+                f"centre of her body, but it is {want} px from the tile the "
+                f"walk machine tests — she is drawn "
+                f"{(got[0] - want[0]) / 8:+.2f},{(got[1] - want[1]) / 8:+.2f} "
+                f"tiles away from where this rail thinks she is standing")
+
+
 def test_the_world_palette_reaches_cgram(runner):
     """The DESTINATION region of the floor's palette upload, byte for byte.
 
@@ -325,6 +437,15 @@ def test_the_boot_frame_matches_the_reference_render(runner, tmp_path):
 
     Frame 5 is the recording's last AT-REST frame; frame 6 is already mid
     walk-bob.
+
+    THE RECORDING PREDATES THE PIVOT FIX AND MUST BE RE-CUT. It was made from
+    the build whose camera pivot was sixteen world pixels off the tile the walk
+    machine tests — the defect the owner reported from hardware, fixed in
+    m7x_logic's pivot block. This ROM's boot frame is therefore ~19 scanlines
+    and 4 columns away from that render BY DESIGN, and a red here means the
+    reference is old, not that the rail regressed. Until a fresh recording
+    lands, treat a failure as a request to re-record; when it does land, this
+    paragraph goes.
     """
     runner.boot_to_frame(str(ROM), 90)
     mine = _shot(runner, tmp_path, "vs_ref")
@@ -561,11 +682,25 @@ DP_TOWN_TY = _sym("US_TOWN_TY", TOWN)["start"]
 # from these bounds, so a classifier that got its ORDER wrong (the door sits IN
 # the bottom wall and must be tested first) produces a tilemap this disagrees
 # with.
-ROOM_X0, ROOM_X1, ROOM_Y0, ROOM_Y1 = 2, 29, 1, 26
-DOOR_TX, DOOR_TY = 15, 26
+ROOM_X0, ROOM_X1, ROOM_Y0, ROOM_Y1 = 2, 29, 1, 24
+DOOR_TX, DOOR_TY = 15, ROOM_Y1
 TABLE_X0, TABLE_X1, TABLE_Y0, TABLE_Y1 = 13, 14, 10, 11
-TOWN_SPAWN = (15, 22)
+TOWN_SPAWN = (DOOR_TX, DOOR_TY - 4)
 CLS_FLOOR, CLS_WALL, CLS_DOOR, CLS_TABLE = 0, 1, 2, 3
+
+# SHE IS TWICE THE SIZE OF HER CELL, so the OAM entry that draws her ON it is
+# not tile * 8: that hangs three quarters of a 16x16 body over the cell to the
+# right and the cell below. The entry is the cell's origin less half the
+# difference, and one line more vertically because a BG row and an OBJ row of
+# the same index are NOT the same scanline — measured, with VOFS 0 the floor's
+# tilemap row 2 starts at picture row 15 while an OBJ at y starts on y.
+TOWN_DRAW_DX = (16 - 8) // 2
+TOWN_DRAW_DY = TOWN_DRAW_DX + 1
+
+
+def _town_oam_xy(tx, ty):
+    """The OAM x,y that draws the interior's avatar standing ON (tx, ty)."""
+    return [tx * 8 - TOWN_DRAW_DX, ty * 8 - TOWN_DRAW_DY]
 
 # The reference render of the INTERIOR. Frame 59 of the published GIF is the
 # settled room with the avatar at her spawn tile — the same picture this rail's
@@ -699,6 +834,86 @@ def test_stepping_onto_the_house_pixelates_the_world(runner, tmp_path):
         f"the dissolve only reached block {seen[-1]} across the OUT ramp: {seen}")
 
 
+def _palette_colours(blob):
+    """Every colour a palette BLOB can put on screen, expanded the way the PPU
+    does. The oracle is the file on disk, not CGRAM — CGRAM is where the ROM
+    put something, and "the picture is drawn from the interior's palette" is
+    only evidence if the interior's palette is named independently."""
+    raw = _blob(blob)
+    return {(_snes8(w & 31), _snes8((w >> 5) & 31), _snes8((w >> 10) & 31))
+            for w in (raw[i] | (raw[i + 1] << 8) for i in range(0, len(raw), 2))}
+
+
+def test_walking_onto_the_house_enters_the_town_with_no_button_press(
+        runner, tmp_path):
+    """THE SNES-RPG CONVENTION, pinned in both directions.
+
+    The owner asked for the transition most SNES RPGs make — you walk onto the
+    town and you are in it, rather than standing on it and pressing something.
+    Measured, this rail already did: no routine on it reads any bit of the pad
+    but the four directions, and the one that matters is checked here as
+    behaviour rather than as a grep.
+
+    TWO ARMS, because only the pair says anything:
+
+      * THE WALK. Every driven frame of the approach and the landing latches
+        exactly one direction and RELEASES everything else on both pads
+        (`frame_step`'s stated-state discipline), so the run physically cannot
+        contain a press. The settled picture afterwards must be the interior —
+        asserted as every colour in the frame coming from the interior's
+        palette BLOB, with none of the world's own colours left anywhere. A
+        transition that had not happened leaves the world's grass and water in
+        the frame.
+      * THE PRESS. Coming back out leaves her standing ON the house at rest,
+        which is the one position from which a press path would be visible.
+        Holding a, b, x, y, l, r, start and select there must change NOTHING —
+        no second way in, and no re-entry the moment she returns. That second
+        half is also the invariant `check_town_entry` is built on: the trigger
+        fires on a LANDING and never at rest, because the return puts her back
+        on the tile that triggers it.
+
+    The control is what makes this a test rather than a restatement: an arm
+    with no control passes equally on a ROM that warps on any input at all.
+    """
+    runner.boot_to_frame(str(ROM), 60)
+    with runner.frame_stepping():
+        _step_onto_the_house(runner)              # D-PAD ONLY, all the way
+        _run_the_wipe_out(runner)
+        inside = _shot(runner, tmp_path, "walkover_inside")
+        _walk_town_to_the_door(runner)            # D-PAD ONLY, the way home
+        _run_the_wipe_out(runner)
+        home = _cam_tile(runner)
+        before = _shot(runner, tmp_path, "walkover_press_before")
+        for _ in range(8):                        # eight distinct press EDGES
+            runner.frame_step(1, a=True, b=True, x=True, y=True, l=True,
+                              r=True, start=True, select=True)
+            runner.frame_step(1)
+        runner.frame_step(40, a=True, b=True, x=True, y=True, l=True, r=True)
+        after = _shot(runner, tmp_path, "walkover_press_after")
+    world = _palette_colours("m7x_pal.bin")
+    town = _palette_colours("m7x_town_pal.bin")
+    obj = _palette_colours("m7x_obj_pal.bin")
+    shown = set(inside.getdata())
+    assert not (shown & (world - town)), (
+        f"walking onto the house left {len(shown & (world - town))} of the "
+        f"overworld's own colours on screen — the interior did not come up "
+        f"without a button press")
+    assert shown <= (town | obj), (
+        f"{len(shown - (town | obj))} colours in the settled frame come from "
+        f"neither the interior's palette blob nor the avatar's; the picture "
+        f"after the walk is not the interior")
+    house = (_WORLD["M7X_DEMO_HOUSE_TX"], _WORLD["M7X_DEMO_HOUSE_TY"])
+    assert home == house, (
+        f"the return put her at {home}, not on the house {house} — the "
+        f"control arm below only means something from the trigger tile")
+    a, b = before.load(), after.load()
+    bad = [(x, y) for y in range(ACTIVE_H) for x in range(256) if a[x, y] != b[x, y]]
+    assert not bad, (
+        f"standing ON the trigger tile and holding every non-direction button "
+        f"for 56 frames moved {len(bad)} pixels; first at {bad[0]} — there is "
+        f"a press path into the town, or the return re-enters it")
+
+
 def test_the_avatar_is_hidden_while_the_wipe_runs(runner, tmp_path):
     """OBJ HAS NO HARDWARE MOSAIC, so she has to be parked or she floats
     un-dissolved over a dissolving plane.
@@ -778,6 +993,13 @@ def test_the_interior_matches_the_reference_render(runner, tmp_path):
     sixteen-word palette, the room's geometry, BG1's base registers, the fixed
     scroll, and the avatar's placement in a scene where she is NOT pinned at
     the pivot.
+
+    THE RECORDING PREDATES THE INTERIOR'S TWO FIXES AND MUST BE RE-CUT — the
+    same caveat as the boot frame's, for the same reason. Frame 59 holds the
+    old room: the bottom wall two rows lower, so the door rendered nine
+    scanlines clear of the picture's edge; the avatar four tiles above it
+    facing away; and her body drawn from her cell's top-left rather than
+    centred on it. A red here means the reference is old.
     """
     runner.boot_to_frame(str(ROM), 60)
     with runner.frame_stepping():
@@ -806,8 +1028,10 @@ def test_the_town_walk_steps_one_tile_per_press_and_the_room_refuses(runner, tmp
         tested one way locks that way and ships the other broken.
       * THE WALL REFUSES, and the TABLE refuses by the same test — the room has
         one kind of obstacle, not two.
-      * She is drawn where she stands: the OAM entry is tile * 8 on both axes,
-        which is the whole camera model of a scene where the camera is fixed.
+      * She is drawn where she stands — which is tile * 8 LESS half the
+        difference between her 16x16 body and her 8x8 cell, not tile * 8. The
+        camera is fixed here, so screen position is the only thing the entry
+        has to get right, and `_town_oam_xy` is where that arithmetic lives.
     """
     runner.boot_to_frame(str(ROM), 60)
     with runner.frame_stepping():
@@ -823,7 +1047,7 @@ def test_the_town_walk_steps_one_tile_per_press_and_the_room_refuses(runner, tmp
             return entry()
 
         start = entry()
-        assert start[:2] == [TOWN_SPAWN[0] * 8, TOWN_SPAWN[1] * 8], (
+        assert start[:2] == _town_oam_xy(*TOWN_SPAWN), (
             f"she did not arrive at the spawn tile: OAM {start}")
 
         # ---- one tile per press, and a HELD direction is STILL one tile ----
@@ -849,7 +1073,7 @@ def test_the_town_walk_steps_one_tile_per_press_and_the_room_refuses(runner, tmp
         for _ in range(TOWN_SPAWN[0] - ROOM_X0):
             press(left=True)
         at_wall = entry()
-        assert at_wall[0] == (ROOM_X0 + 1) * 8, (
+        assert at_wall[0] == _town_oam_xy(ROOM_X0 + 1, 0)[0], (
             f"she did not come to rest against the west wall: OAM {at_wall}")
         refused = press(left=True)
         assert refused[:2] == at_wall[:2], (
@@ -861,12 +1085,124 @@ def test_the_town_walk_steps_one_tile_per_press_and_the_room_refuses(runner, tmp
         for _ in range(TOWN_SPAWN[1] - (TABLE_Y1 + 1)):
             press(up=True)
         below_table = entry()
-        assert below_table[:2] == [TABLE_X0 * 8, (TABLE_Y1 + 1) * 8], (
+        assert below_table[:2] == _town_oam_xy(TABLE_X0, TABLE_Y1 + 1), (
             f"the approach to the table ended at {below_table[:2]}, not "
-            f"{[TABLE_X0 * 8, (TABLE_Y1 + 1) * 8]}")
+            f"{_town_oam_xy(TABLE_X0, TABLE_Y1 + 1)}")
         into_table = press(up=True)
         assert into_table[:2] == below_table[:2], (
             f"the table let her through: {below_table[:2]} -> {into_table[:2]}")
+
+
+def _town_tile_rgb(tile_id):
+    """An interior tile's 8x8 block, expanded from the BLOBS.
+
+    4bpp planar: bytes 0..15 carry planes 0 and 1 interleaved by row, bytes
+    16..31 planes 2 and 3. The room's tilemap words are the bare tile id, so
+    the palette is BG palette 0 and a pixel value IS its CGRAM index — and
+    index 0 is transparent over a backdrop that m7x_town pins to the same
+    word, so the two agree. Built from `m7x_town_chr.bin` and
+    `m7x_town_pal.bin` rather than from CGRAM, because "the door is drawn"
+    means nothing if the thing it is compared against came out of the ROM.
+    """
+    chars = _blob("m7x_town_chr.bin")[tile_id * 32:(tile_id + 1) * 32]
+    pal = _palette_colours_list("m7x_town_pal.bin")
+    out = []
+    for row in range(8):
+        p0, p1 = chars[row * 2], chars[row * 2 + 1]
+        p2, p3 = chars[16 + row * 2], chars[16 + row * 2 + 1]
+        line = []
+        for x in range(8):
+            b = 7 - x
+            line.append(pal[((p0 >> b) & 1) | (((p1 >> b) & 1) << 1)
+                            | (((p2 >> b) & 1) << 2) | (((p3 >> b) & 1) << 3)])
+        out.append(line)
+    return out
+
+
+def _palette_colours_list(blob):
+    raw = _blob(blob)
+    return [(_snes8(w & 31), _snes8((w >> 5) & 31), _snes8((w >> 10) & 31))
+            for w in (raw[i] | (raw[i + 1] << 8) for i in range(0, len(raw), 2))]
+
+
+def _blocks_on_screen(img, want):
+    px = img.load()
+    return [(x, y) for y in range(ACTIVE_H - 8) for x in range(256 - 8)
+            if all(px[x + tx, y + ty] == want[ty][tx]
+                   for ty in range(8) for tx in range(8))]
+
+
+def test_the_way_out_of_the_town_is_on_the_screen_the_player_has(
+        runner, tmp_path):
+    """"I could not find the exit point", answered as four measurements.
+
+    The exit was never broken: walking down onto it always armed the wipe, and
+    `test_the_return_lands_on_the_same_picture` has always driven it. What was
+    wrong is that a player could not SEE it. Measured with the bottom wall at
+    row 26, the door rendered at picture rows 207..214 — nine scanlines clear
+    of the bottom of the 224-line active picture, inside the band a television
+    crops and inside every conventional action-safe inset — and the avatar
+    arrived four tiles above it FACING THE OTHER WAY. Both are now fixed, and
+    this is what holds them fixed:
+
+      * IT IS DRAWN, and drawn as itself. The door's 8x8 block is built here
+        from `m7x_town_chr.bin` and `m7x_town_pal.bin` and searched for in the
+        frame; the match must be unique, so a door rendered as more wall would
+        find none and a wall rendered as door would find many.
+      * IT IS ON SCREEN WITH ROOM TO SPARE. Its bottom row must clear the
+        picture's bottom edge by two whole tiles. This is the assertion the
+        old layout failed.
+      * SHE ARRIVES POINTED AT IT. Her body's centre column must be the door's
+        centre column and the door must be below her, and the sheet she is
+        drawn from must be the DOWN facing — arriving with her back to the one
+        exit is half of why it could not be found.
+      * AND IT STILL WORKS. Four presses of DOWN and nothing else must put the
+        overworld's own colours back on the screen.
+
+    The margin is a FLOOR and not a measurement of anyone's television: what is
+    measured is where the door renders, and the claim is that it is far enough
+    inside the frame that the usual crop cannot reach it.
+
+    m7x_town carries a `.assert` on the same margin, and the two are not the
+    same check. That one reads the DECLARED room — it refuses a bottom wall
+    moved back down, which is how the old layout is kept from returning. This
+    one reads where the PPU actually put the door, which is the thing that
+    changes if BG1's scroll stops being zero, if the tilemap base moves, or if
+    the room is drawn at an offset the declaration knows nothing about.
+    """
+    runner.boot_to_frame(str(ROM), 60)
+    with runner.frame_stepping():
+        _step_onto_the_house(runner)
+        _run_the_wipe_out(runner)
+        img = _shot(runner, tmp_path, "exit_room")
+        entry = list(runner.read_bytes(O, O_TOWN_AVATAR * 4, 4))
+        _walk_town_to_the_door(runner)
+        _run_the_wipe_out(runner)
+        back = _shot(runner, tmp_path, "exit_back")
+    doors = _blocks_on_screen(img, _town_tile_rgb(CLS_DOOR))
+    assert len(doors) == 1, (
+        f"the interior draws the door's own 8x8 block in {len(doors)} places "
+        f"({doors[:4]}) — it must be drawn, and drawn only where it is")
+    dx, dy = doors[0]
+    clear = ACTIVE_H - (dy + 8)
+    assert clear >= 2 * 8, (
+        f"the door renders at picture rows {dy}..{dy + 7}, only {clear} lines "
+        f"clear of the bottom of the {ACTIVE_H}-line picture — that is inside "
+        f"the band a television crops, which is what made it unfindable")
+    assert dx + 4 == entry[0] + 8, (
+        f"the door's centre column is {dx + 4} and her body's is {entry[0] + 8}"
+        f" — she does not arrive in the door's own column")
+    assert dy > entry[1] + 8, (
+        f"the door renders at row {dy}, above her body's centre "
+        f"{entry[1] + 8} — the walk out is not the direction she is facing")
+    assert entry[2] == _WORLD["M7X_AVATAR_TILE_DOWN"], (
+        f"she arrives drawn from sheet tile {entry[2]}, not the DOWN facing "
+        f"{_WORLD['M7X_AVATAR_TILE_DOWN']} — her back is to the only exit")
+    world = _palette_colours("m7x_pal.bin")
+    town = _palette_colours("m7x_town_pal.bin")
+    assert set(back.getdata()) & (world - town), (
+        "four presses of DOWN onto the door left none of the overworld's own "
+        "colours on screen — the exit did not fire")
 
 
 def test_the_mode7_image_survives_the_visit(runner):

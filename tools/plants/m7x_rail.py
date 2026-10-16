@@ -30,17 +30,31 @@ rail has actually had:
             it — the state-cycle defect that only appears on the FIRST STEP
             after coming back out
 
-NOT PLANTED HERE, and stated rather than omitted: the pivot lift. Setting
-`MXL_PIVOT_LIFT = 0` shifts the whole picture sixteen world pixels vertically
-and NOTHING in this module's unconditional tests can see it — the window oracle
-is built from the camera, which does not move, and the avatar stays pinned. The
-one test that catches it is
-`test_the_boot_frame_matches_the_reference_render`, which SKIPS unless
-`SF_REFERENCE_TREE` names a tree holding the reference render. That is a real,
-bounded coverage statement and it belongs in the record: verified by hand where
-that render is on disk (the plant turns it red, 3,700-odd pixels), left out of
-the automated set because a plant whose only witness can skip reports
-TEST-BLIND on a bare runner and would read as a hole that is not one.
+...and four more for the COORDINATE CONTRACT and the two transitions, added
+when the hole this docstring used to record was closed.
+
+THAT HOLE, for the record, because it cost a real defect. This file used to say
+that setting `MXL_PIVOT_LIFT = 0` "shifts the whole picture sixteen world
+pixels vertically and NOTHING in this module's unconditional tests can see it",
+with the only witness a reference-gated case that SKIPS on a bare runner. The
+statement was exactly true and the conclusion — leave it out — was wrong: the
+rail SHIPPED with the lift, the owner played it on hardware, and the picture
+was sixteen pixels away from the position the town trigger, the terrain probe
+and the clamp box were all taken on. The reported symptom was "walking over the
+town doesnt trigger, the trigger point appears to be above the town by a couple
+rows". A coverage statement is a bug report with the date left off.
+
+  pivot-offset  the camera pivot's sign, which is what the sixteen-pixel lift
+            was. The `.assert`s in m7x_logic now refuse the lift's own form
+            outright, so what is planted is the arithmetic at the use site
+  town-enter-needs-a-press  gating the town entry on the A button — the
+            "NES era triggered controls" the owner thought they were seeing
+  town-enter-at-rest  asking "am I on it" instead of "did I just arrive on
+            it", which the source comment warns about and which warps a
+            returning player straight back in, forever
+  town-spawn-faces-away  arriving in the interior with her back to the one
+            exit. It is the room's own previous behaviour and it is half of
+            why the owner could not find the way out
 """
 import sys
 from pathlib import Path
@@ -206,5 +220,95 @@ PLANTS = [
             "wrong world that any test reading the window ONCE, LATE, calls a "
             "pass. That is what the span of assertions in the named test is "
             "for, and this plant is what proves the span is doing work",
+    ),
+    # ---- the camera pivot's sign ----------------------------------------
+    Plant(
+        id="pivot-offset",
+        file=LOGIC,
+        old="    lda z:US_CAM_PY\n"
+            "    clc\n"
+            "    adc #MXL_PIVOT_DY",
+        new="    lda z:US_CAM_PY\n"
+            "    sec                             ; PLANT: the old lift's direction\n"
+            "    sbc #MXL_PIVOT_DY",
+        artifact=ROM,
+        build=["mode7_explore"],
+        tests=[f"{T}::test_the_avatar_is_drawn_standing_on_the_tile_the_walk_machine_tests"],
+        why="THIS RAIL SHIPPED THE SIXTEEN-PIXEL FORM OF THIS and the owner "
+            "found it on hardware. The pivot is what decides which world tile "
+            "is drawn under an avatar who never moves on screen, and getting "
+            "it wrong moves the whole picture against every decision the rail "
+            "takes — the terrain probe, the clamp box, the town trigger. "
+            "Nothing else can see it: the window oracle is built from the "
+            "camera, which does not move, and the avatar stays pinned, so "
+            "every streaming, collision and transition test passes on a "
+            "picture that is two tile rows out. The constants themselves are "
+            "now guarded by .asserts that refuse a pivot outside the tile, so "
+            "what is left to plant is the ARITHMETIC — and `sec/sbc` for "
+            "`clc/adc` is the single commonest way to get an offset backwards, "
+            "as well as literally the shape this file had before",
+    ),
+    # ---- the town entry, gated on a button -------------------------------
+    Plant(
+        id="town-enter-needs-a-press",
+        file=SCENE,
+        old="    lda z:US_LANDED\n"
+            "    beq @done\n"
+            "    jsr check_town_entry",
+        new="    lda z:US_LANDED\n"
+            "    beq @done\n"
+            "    lda z:ES_INP_CUR                ; PLANT: press A to enter\n"
+            "    bit #(1 << 7)\n"
+            "    beq @done\n"
+            "    jsr check_town_entry",
+        artifact=ROM,
+        build=["mode7_explore"],
+        tests=[f"{T}::test_walking_onto_the_house_enters_the_town_with_no_button_press"],
+        why="the owner asked for the SNES-RPG convention by name — walk onto "
+            "the town and you are in it — after reporting this rail as using "
+            "\"NES era triggered controls\". It does not, but the difference "
+            "between the two is four lines at one call site, and a rail whose "
+            "d-pad-only property is stated in a comment and nowhere else will "
+            "acquire a confirm button the first time someone adds a dialog "
+            "box. The test drives the pad with every other button RELEASED, so "
+            "this is what makes that discipline mean something",
+    ),
+    # ---- the town entry, at rest instead of on the landing ---------------
+    Plant(
+        id="town-enter-at-rest",
+        file=SCENE,
+        old="    lda z:US_LANDED\n"
+            "    beq @done\n"
+            "    jsr check_town_entry",
+        new="    jsr check_town_entry            ; PLANT: \"am I on it\", not \"did I arrive\"",
+        artifact=ROM,
+        build=["mode7_explore"],
+        tests=[f"{T}::test_walking_onto_the_house_enters_the_town_with_no_button_press"],
+        why="the OTHER arm of the same test, and the mirror of the plant above: "
+            "one removes a way in, this one adds one. The landing edge is the "
+            "only thing standing between the return — which puts her back "
+            "standing ON the trigger tile — and an instant re-entry, forever. "
+            "The source comment says so; a comment is not a gate. It is also "
+            "the reading a port reaches for, because \"is she on the house\" is "
+            "the question the feature sounds like it is asking",
+    ),
+    # ---- the interior's spawn, back to the exit --------------------------
+    Plant(
+        id="town-spawn-faces-away",
+        file=TOWN,
+        old="    lda #TOWN_SPAWN_FACING\n"
+            "    sta z:US_TOWN_FACING",
+        new="    lda #TOWN_FACE_UP               ; PLANT: her back to the exit\n"
+            "    sta z:US_TOWN_FACING",
+        artifact=ROM,
+        build=["mode7_explore"],
+        tests=[f"{T}::test_the_way_out_of_the_town_is_on_the_screen_the_player_has"],
+        why="this is the room's own previous behaviour, kept deliberately and "
+            "for a stated reason — \"facing away from it, so the first thing on "
+            "screen is the room rather than the way out\" — and the owner could "
+            "not find the exit. A single unmarked door tile and an avatar "
+            "pointed at the far wall is not a discoverable room. The facing is "
+            "one byte with no other consequence, which is exactly why it drifts "
+            "back: nothing about the ROM looks wrong afterwards",
     ),
 ]
