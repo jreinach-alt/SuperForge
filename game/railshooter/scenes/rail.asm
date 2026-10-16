@@ -104,6 +104,27 @@ enter:
                                 ;   the fail-state self-restart, and this is
                                 ;   the CONSOLE's clock rather than the run's
     jsr rs_logic_arm
+    ; ---- the kill cue's edge reference ------------------------------------
+    ; SEEDED HERE, AND THIS IS A FIX. `rs_kill_cue` below opens with
+    ; `cmp f:US_SCOREPREV_LONG`, and until this line nothing had ever written
+    ; that word -- so the first frame of every boot compared the score against
+    ; whatever the console powered on holding. Mesen's own detector found it,
+    ; printing `[CPU] Uninitialized memory read: $7E05D1` / `$7E05D2` while
+    ; recording this rail's gallery clip on 2026-10-16; a screenshot could not
+    ; have, because the cue it corrupts is AUDIO.
+    ;
+    ; It is seeded from `score` rather than to a constant, so the reference is
+    ; whatever the arm above actually left -- a zero today, and still correct
+    ; if that ever becomes a carried-over or difficulty-scaled value.
+    ;
+    ; Here and NOT in `rs_logic_arm`, for the reason US_TS_ACC is here: that
+    ; routine re-runs on the fail-state self-restart, and the restart is
+    ; supposed to leave a STALE reference -- a score that falls back to zero
+    ; reads as a fall, which `rs_kill_cue`'s `bcc` already declines to call a
+    ; kill. Seeding it there would be a second mechanism for a case that has
+    ; one, and this word is the game's rather than the feature's besides.
+    lda f:US_SCORE_LONG
+    sta f:US_SCOREPREV_LONG
     ; ---- HDMAEN shadow: four channels (the NMI applies it) ----------------
     sep #$20
     .a8
