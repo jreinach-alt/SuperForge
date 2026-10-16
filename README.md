@@ -15,7 +15,7 @@ hardware at a hard 60 fps, with ~28–37k CPU cycles per frame to spend.
 *`mode7_flight` ("SKY RUNNER") — the d-pad turns, B throttles, L/R climb and
 dive, and altitude drives the perspective scale.*
 
-`game/` holds **39 complete games** built this way. Each one composes declared
+`game/` holds **42 complete games** built this way. Each one composes declared
 features, builds to a 524,288-byte ROM, and ships tests that boot that ROM on a
 cycle-accurate emulator and read the rendered output back.
 
@@ -72,7 +72,7 @@ frame ratio, carrying the fraction between frames. Everything downstream keeps
 saying "move one step" — what a step *is* becomes a property of the timebase.
 The same ROM then covers the same distance per **second** on both machines.
 
-It is opt-in, per game. **33 of the 40 games compose it** — every playable one,
+It is opt-in, per game. **35 of the 42 games compose it** — every playable one,
 plus all three screen-effect rails — and every one of them is measured, at a
 real-time parity band of **0.994–1.027** against the **0.832** an uncompensated
 game reads. The other seven decline in their own
@@ -382,7 +382,7 @@ and a proof does not.
 allocator/   the declarative allocator + the collision and no-literals gates
 engine/      the 65816 engine — features/ (170 dirs), toy/ (the smallest thing
              the allocator can prove) and toy_bad/ (its infeasible twin)
-game/        40 games — a game.toml, its scenes, and the game's own state.toml
+game/        42 games — a game.toml, its scenes, and the game's own state.toml
 tests/       pytest, driving ROMs on the cycle-accurate emulator
 tools/       setup, the linters, asset generators, the render/capture scripts
 vendor/      vendored and self-contained: the emulator harness, fonts, ROM
