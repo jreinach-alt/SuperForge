@@ -2,16 +2,38 @@
 
 # What is SuperForge?
 
-An SNES game engine built around a **declarative resource allocator**. You
-declare what each feature and each scene needs — WRAM, VRAM, CGRAM, direct
-page, OAM slots, HDMA channels, VBlank bytes, ROM banks, PPU registers, SPC
-RAM, SRAM, DMA slots — and the build *proves* the whole composition is
-collision-free before it emits a byte. An infeasible composition stops the
-build. A raw address literal stops the build.
+**Have an idea for an SNES game? Bring your imagination, your artwork, and your
+AI coding agent. SuperForge provides the rest.**
 
-Games are hand-written WDC 65816 assembly (ca65/ld65 → `.sfc`) running on real
-hardware at a hard 60 fps, with ~28–37k CPU cycles per frame to spend on your
-imagination.
+SuperForge is an open-source SNES game development framework built for humans
+**and AI agents**. Describe the game you want to make, supply your graphics and
+creative direction, and let your agent work with a framework designed to turn
+those ideas into real, playable Super Nintendo games.
+
+You don't need to teach your agent the intricacies of 65816 assembly, manually
+map out the SNES's limited memory, or explain how its graphics hardware works.
+**We've already done the hard work of making the platform understandable to an
+AI agent.**
+
+SuperForge provides the building blocks, hardware constraints, resource
+management, working examples, and automated tests that help an agent build
+games for the actual SNES—not a browser simulation or a modern engine dressed
+up in 16-bit graphics.
+
+**And this isn't just a proof of concept.** The repository includes 42 complete
+games demonstrating everything from traditional 2D gameplay to Mode 7 flight,
+split-screen effects, and other advanced SNES techniques. Each builds into a
+real `.sfc` ROM, with automated tests that boot the game in an emulator and
+verify its output.
+
+Under the hood, SuperForge uses a declarative resource allocator to manage the
+SNES's notoriously constrained hardware. Your agent declares what each game
+feature needs, and the build system checks whether those features can coexist
+before generating the ROM. Instead of spending its time fighting memory
+collisions and obscure hardware limitations, your agent can focus on building
+your game.
+
+**Your idea. Your art. Your agent. A real Super Nintendo game.**
 
 ![mode7_flight — free flight over a Mode 7 floor](docs/img/gif_mode7_flight.gif)
 

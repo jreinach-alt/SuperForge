@@ -33,3 +33,11 @@ vendor/mesen_runner.py	timed-out run_to_break
 # it and are NOT listed, because an entry for a file the gate never flags is a
 # line nobody has to keep true.
 size: ./vendor/art/forge_line/frames_sheet.png
+
+# --- the platform's own name, in the README pitch ---------------------------
+# The README's opening pitch names the target console by its full English name,
+# to say what a built ROM runs on. That is a factual description of the
+# platform, not branding of this project and not copied content; the console's
+# own abbreviation is used everywhere else in the tree.
+README.md	those ideas into real, playable Super Nintendo games.
+README.md	A real Super Nintendo game.**
