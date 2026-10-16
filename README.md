@@ -20,7 +20,7 @@ management, working examples, and automated tests that help an agent build
 games for the actual SNES—not a browser simulation or a modern engine dressed
 up in 16-bit graphics.
 
-**And this isn't just a proof of concept.** The repository includes 42 complete
+**And this isn't just a proof of concept.** The repository includes 40+ complete
 games demonstrating everything from traditional 2D gameplay to Mode 7 flight,
 split-screen effects, and other advanced SNES techniques. Each builds into a
 real `.sfc` ROM, with automated tests that boot the game in an emulator and
@@ -40,7 +40,7 @@ your game.
 *`mode7_flight` ("SKY RUNNER") — the d-pad turns, B throttles, L/R climb and
 dive, and altitude drives the perspective scale.*
 
-`game/` holds **42 complete games** built this way. Each one composes declared
+`game/` holds **40+ complete games** built this way. Each one composes declared
 features, builds to a 524,288-byte ROM, and ships tests that boot that ROM on a
 cycle-accurate emulator and read the rendered output back.
 
@@ -407,7 +407,7 @@ and a proof does not.
 allocator/   the declarative allocator + the collision and no-literals gates
 engine/      the 65816 engine — features/ (170 dirs), toy/ (the smallest thing
              the allocator can prove) and toy_bad/ (its infeasible twin)
-game/        42 games — a game.toml, its scenes, and the game's own state.toml
+game/        40+ games — a game.toml, its scenes, and the game's own state.toml
 tests/       pytest, driving ROMs on the cycle-accurate emulator
 tools/       setup, the linters, asset generators, the render/capture scripts
 vendor/      vendored and self-contained: the emulator harness, fonts, ROM
