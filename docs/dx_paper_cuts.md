@@ -1457,3 +1457,70 @@ Branch isolation was right and matches the history. The landing step was
 invented. **The fix is one line in AGENTS.md saying how work lands here**,
 and the merge-commit body is the artifact that carries what a PR
 description would have — `05f1cfe` is the worked example.
+
+## Pre-publicity audit, two weeks out from a launch (2026-10-16)
+
+### FIRST `harness-liveness` SIGHTING — the landing gate is non-deterministic — surprise, HIGH
+
+`2fedcaa` went RED, then GREEN on a re-run, with NOTHING changed. The commit
+is two `.md` files, 5 insertions; its parent had gone green on the identical
+suite thirty minutes earlier; and the failing test passes standalone in 1.5 s.
+
+`tests/test_measure_vblank.py::test_measure_multi_queue_arm_cost` raised
+`TimeoutError` out of `_wait_stall_guard`, which fires ONLY when the emulated
+frame counter has been frozen for `_STEP_STALL_S` = 30 wall-clock seconds. It
+sat at frame 209. `fault_reading` classified it `harness-liveness` correctly,
+which is the §8 machinery doing its job.
+
+**Recorded rather than waved away, because docs/44 §8 is explicit: "a
+`harness-liveness` reading is never a pass, and a second sighting of one is a
+bug report — against the harness rather than a rail." This is the first
+sighting. The next one is the bug report, and this entry is how it gets
+recognised as the second rather than diagnosed from scratch.**
+
+What makes it hard to blame on load, and the reason the honest answer here is
+"unexplained" rather than "flake": `_STEP_STALL_S`'s own comment records that
+30 s was chosen at SIX TIMES the starvation they measured — "under 12 spinners
+on 4 cores (3x oversubscription) the emulation thread really does go 5 s
+without a scanline". The box at the time was the gate alone at `-n 2` on 4
+cores, not oversubscribed, load average under 1. A total 30-second freeze
+there is not ordinary contention. Possible causes not distinguished: a
+hypervisor-level stall on a shared VM, or something real in the harness.
+
+**Launch-relevant: a stranger who runs `make bare-check` can get a spurious
+RED and conclude the project is broken.** `fault_reading` is what tells them
+otherwise, and nothing in README or the quick-start points at it. One line in
+the quick-start block next to `make bare-check` would cover it.
+
+### NOTHING DETECTS A STALE SHOWCASE GIF — surprise, HIGH
+
+`gif_mode7_explore.gif` and `gif_meteor_event.gif` sat on the README for seven
+weeks showing defects that had been fixed — the avatar standing off the
+crossroads, the town exit below the visible picture, and an ALL-BLACK FRAME at
+index 93 which is the transition flicker, looping on the front page.
+
+Every gate was green that whole time, because no gate looks at them.
+`tools/record_pres_gif.py` computes the source ROM's md5 and PRINTS it; it is
+never stored, and no test compares a GIF against the ROM that currently
+builds. The one artifact a visitor sees before any code had no ratchet at all.
+
+**The fix that matches this repo's own habits: store the ROM md5 beside each
+GIF and assert it against the current build.** Cheap, derived rather than
+listed, and it fails the moment a rail's picture moves — which is the whole
+pattern `register` and `rail_registered` already use elsewhere.
+
+### FIVE HAND-MAINTAINED COUNTS HAD DRIFTED, ALL UNDERSTATING — clunky, MEDIUM
+
+README said 39 complete games and, in another place, 40; JAM.md said 34 compose
+no `save`; the GitHub description says 37. The tree holds 42. Region: README
+said 33 of 40, the tree says 35 of 42 (its "other seven decline" was right).
+
+The irony is the point. This project's pitch is that you do not restate a
+fact, you derive it and the build proves it — and its most-read surfaces
+carried five restated numbers, every one of them stale and every one of them
+selling the project short.
+
+Worth noting how easy it is to get wrong a second time: counting `region` by
+bare grep gives 42, because six `game.toml`s carry a COMMENT saying the rail
+declines it. The count has to exclude comment lines, which is exactly the
+"open the tool, do not grep the word" rule under a different hat.
