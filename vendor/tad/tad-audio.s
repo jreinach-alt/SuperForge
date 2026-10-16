@@ -177,7 +177,7 @@ TAD_MAX_TRANSFER_PER_FRAME = 800
 ;; Used by `tad-compiler ca65-export` to verify the IO protocol in `tad-audio.s` matches the audio-driver.
 ;;
 ;; This constant MUST be increased if `LOADER_ADDR` or the IO Communication protocol changes.
-.export TAD_IO_VERSION : abs = 20
+.export TAD_IO_VERSION : abs = 21
 
 
 ; MUST match `audio-driver/src/io-commands.inc`

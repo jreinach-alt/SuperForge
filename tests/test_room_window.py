@@ -275,8 +275,26 @@ def hero_centre(runner):
 # the ROM exists and boots
 # --------------------------------------------------------------------------
 
-def test_room_rom_is_a_valid_512k_image():
-    assert ROM.stat().st_size == 512 * 1024
+def test_room_rom_is_a_valid_image():
+    """The artifact is present, and its size agrees with its OWN declaration.
+
+    This used to read `== 512 * 1024`. The rail is 65,536 B now — `tad_export`
+    shrank to a half-window claim, room's whole allocation fitted one window,
+    and it was relinked with `lorom_64k.cfg`. Rather than swap one hardcoded
+    size for another, the case asserts the INVARIANT: `$FFD7` declares 2^N KB
+    and the image must be exactly that long.
+
+    That is the shape docs/94 R0 took out of `header.inc` — a size written
+    down in two places and checked in neither, which is how twenty rails came
+    to declare 32 KB while linking 524,288 B. `tools/fix_checksum.py` enforces
+    this on every image at build time and `tests/test_rom_header.py` checks it
+    across the tree; this keeps the rail's own smoke check meaningful without
+    re-pinning a number that is free to change again.
+    """
+    img = ROM.read_bytes()
+    declared = 2 ** img[0x7FD7] * 1024
+    assert len(img) == declared, (
+        f"room.sfc is {len(img)} B but its $FFD7 declares {declared} B")
 
 
 def test_room_scene_renders_the_room(runner, anchor, tmp_path):
@@ -628,10 +646,20 @@ def test_caption_is_never_dimmed_inside_or_outside_the_lantern(
 # --------------------------------------------------------------------------
 
 MC_PER_FRAME = 357368            # allocator/substrate.toml [frame.ntsc]
-IRIS_TAB = 0x04A4                # the iris_tab claim (build/rm/*.inc)
+
+# ASKED FOR, NOT TRANSCRIBED — the same rule _room_symbols() above states, and
+# these two were the last places in this module still breaking it. They read
+# `IRIS_TAB = 0x04A4` and `SM_FRAME = 0x04A0`: faithful copies of one build's
+# WRAM packing, and the docstring above even names 0x04A4 as a literal a
+# previous sweep had removed. A new GLOBAL claim landing below them re-packed
+# the map and moved ES_SM_FRAME to $04B1, so SM_FRAME then addressed the first
+# byte of an unrelated feature's state — which reads as zero. Both cases went
+# red saying "the loop is missing frames" and "0 usable samples", i.e. blaming
+# the ROM for a stale constant in the test. Asking the map cannot rot that way.
+IRIS_TAB = _SYMS["ES_IRIS_TAB"]["start"]
 IRIS_FIRST_DATA = IRIS_TAB + 1                  # row 0's WH0
 IRIS_LAST_DATA = IRIS_TAB + 256 + 2 * 96 + 1    # row 223's WH1
-SM_FRAME = 0x04A0                # scene_mgr's frame counter
+SM_FRAME = _SYMS["ES_SM_FRAME"]["start"]        # scene_mgr's frame counter
 
 
 def _clock_at_write(runner, addr, max_frames=300):

@@ -234,6 +234,9 @@ enter:
     jsr ts_arm                      ; the timebase's accumulators, and the
                                     ;   region's three velocity constants
     jsr pfs_spawn                   ; every byte of both player DP claims
+    lda z:PL_GROUND                 ; seed the edge latch from the spawn state,
+    sta z:US_GND                    ;   so tick 1 compares against a real value
+                                    ;   and entering is not itself a landing
     jsr rg_arm                      ; the dusk ramp's three COLDATA channels
     ; ---- mode + layers: the five registers pfs_bg opens to scene code -----
     sep #$20
@@ -290,10 +293,71 @@ tick:
     .a16
     .i16
     jsr pfs_logic_tick
+    jsr pfs_ground_edge             ; the cues, read off what the physics just
+                                    ;   published — see the helper's note
     lda z:ES_PFS_CAM + 0            ; the window pl_camera just settled on...
     ldx z:ES_PFS_CAM + 2
     jsr pfs_stream_set_cam
     jsr pfs_stream_tick             ; ...and the leading edge it implies
+    rts
+
+; --- pfs_sfx: queue the sound effect named in A -----------------------------
+; In: A16 = the SFX:: id (low byte). In/out: A16/I16, DB=0. Clobbers A.
+;
+; WIDTH-RISK: sf_sfx_queue_c declares `entry: A8 I16 DB=0` and this rail calls
+; it from A16 code, so the sep/rep pair is load-bearing and lives here rather
+; than at the call site. X survives it, which is why this uses the centred
+; entry point rather than loading a pan into X.
+pfs_sfx:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    jsr sf_sfx_queue_c
+    rep #$20
+    .a16
+    rts
+
+; --- pfs_ground_edge: PL_GROUND's two transitions, and their two cues -------
+; In/out: A16/I16, DB=0. Clobbers A.
+;
+; THE FEATURE PUBLISHES THE STATE; THIS RAIL DECIDES WHETHER IT SOUNDS. Both
+; the take-off and the landing are computed inside `pfs_logic` -- `pl_jump`
+; clears PL_GROUND on the press edge, the integrator's landing arm sets it --
+; and the obvious move would be to queue the cues there, where the transitions
+; happen. That would make a `role = "game_logic"` feature DEPEND ON `audio`,
+; so every rail composing the physics would have to compose the soundtrack too
+; and could not take one without the other; and it would make the choice of
+; sound the feature's, when only "a jump happened" is mechanism and "a jump
+; sounds like this" is the game's.
+;
+; So pfs_logic stays silent and this reads its published word. ONE LATCH GIVES
+; BOTH CUES because PL_GROUND's two edges ARE the two events: 1 -> 0 is the
+; take-off, 0 -> 1 is the landing. A cue on the STATE rather than the edge
+; would fire on every frame the player rests on a floor -- the cadence defect
+; jumper and stomper each carry a helper to avoid, and maze a latch.
+pfs_ground_edge:
+    .a16
+    .i16
+    lda z:PL_GROUND
+    cmp z:US_GND
+    beq @same                       ; no transition this tick
+    sta z:US_GND
+    cmp #0
+    beq @left_the_floor
+    lda #SFX::thud                  ; 0 -> 1: the landing
+    bra @fire
+@left_the_floor:
+    .a16
+    .i16
+    lda #SFX::jump                  ; 1 -> 0: the take-off
+@fire:
+    .a16
+    .i16
+    jsr pfs_sfx
+@same:
+    .a16
+    .i16
     rts
 
 ; --- exit: nothing to put back ----------------------------------------------
@@ -318,7 +382,7 @@ exit:
 ; composition the moment rgb_gradient is in the scene's features — which is
 ; also why nothing had to renegotiate the packer's answer when the binding
 ; landed.
-.segment "BANK3"
+.segment "BANK4"
 grad_tabs_bin:
     .incbin "pfs_grad.bin"
 .assert ^grad_tabs_bin = ES_R_GRAD_TABS_BANK, error, "grad_tabs bank drifted from allocator claim"

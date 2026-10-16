@@ -31,6 +31,7 @@
 # the same worst case as NTSC, with a whole line of margin. pfs_logic.asm
 # asserts that bound at build time rather than leaving it to this comment.
 globals = ["scene_mgr", "input", "fade", "oam_sprites", "pfs_rom",
+           "audio", "tad_rom",
            "region", "tick_scale"]
 
 [[scene]]
@@ -88,3 +89,5 @@ features = ["pfs_bg", "pfs_stream", "pfs_logic", "col_map", "rgb_gradient"]
 # once, for the ROM's life. Declaring a self-edge would be a false statement
 # about the one structural thing this rail does differently from the other
 # seven.
+
+# AUDIO, composed in the Phase 2 pass. Its own note said adding audio "would be a claim here plus Tad_Init/Tad_Process in main.asm, not a rework" -- true for the MUSIC, and the cues were the real question, because the jump and the landing are computed inside the pfs_logic FEATURE. state.toml carries the answer: the feature publishes PL_GROUND and stays silent, and this rail latches its edges.

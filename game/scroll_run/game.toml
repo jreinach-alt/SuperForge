@@ -75,8 +75,28 @@
 # kind of change that walks a tuned constant through a bound nobody
 # re-checked.
 globals = ["scene_mgr", "fade", "input", "oam_sprites", "text_dp", "font_rom",
-           "sr_rom", "region", "tick_scale"]
+           "sr_rom", "audio", "tad_rom",
+           "region", "tick_scale"]
 
 [[scene]]
 id = "run"
 features = ["sr_bg", "sr_obj", "bg_text", "col_map"]
+
+# AUDIO, composed in the Phase 2 pass. Three events, and each one answers the
+# question "is this an instant or a state?" differently:
+#
+#   take-off  -- an instant BY CONSTRUCTION. `do_jump` gates on ES_INP_PRESS
+#                (the rising edge) and on being grounded, so the cue line runs
+#                at most once per airborne arc with no test of its own.
+#   landing   -- a STATE, and more so here than on `jumper`: THREE writers
+#                re-establish US_GROUNDED (the ground probe's standing arm, the
+#                solid snap, the one-way platform's snap) and every one runs on
+#                every resting frame. All three route through `sr_ground`,
+#                which sounds only on the 0 -> 1 transition. Planted off the
+#                state instead, the thud voice reads 37% of frames.
+#   goal      -- an instant, and PROVING that is the pass's one real finding.
+#                It was written with an edge test like the landing's; the test
+#                was dead, because `tick` gates on US_STATE at its top and
+#                stops calling goal_check once won. The plant that should have
+#                shown the guard load-bearing passed instead. It is gone, and
+#                run.asm says why where it stood.

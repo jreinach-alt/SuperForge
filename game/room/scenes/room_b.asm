@@ -46,7 +46,7 @@ enter:
     sep #$20
     .a8
     lda #SFX::room_b_ambience
-    jsr Tad_QueueSoundEffect
+    jsr sf_sfx_queue_c
     rep #$20
     .a16
     ; ---- BG1 + BG2: CHR, tilemaps, palettes, layer registers --------------

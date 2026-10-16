@@ -613,6 +613,25 @@ footprint_solid:
 ; =============================================================================
 ; THE BOLTS — fire, travel, expire
 ; =============================================================================
+; --- mo_sfx: queue the sound effect named in A ------------------------------
+; In: A16 = the SFX:: id (low byte). In/out: A16/I16, DB=0. Clobbers A.
+;
+; WIDTH-RISK: sf_sfx_queue_c declares `entry: A8 I16 DB=0` and this rail calls
+; it from A16 code, so the sep/rep pair is load-bearing and lives here rather
+; than at each call site. X survives it — which matters more here than on most
+; rails, because every call site is inside a pool walk holding a slot offset in
+; X, and that is exactly why this uses the centred entry point rather than
+; loading a pan into X.
+mo_sfx:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    jsr sf_sfx_queue_c
+    rep #$20
+    .a16
+    rts
+
 ; --- do_fire: A's rising edge spawns one bolt along the facing --------------
 ; In/out: A16/I16, DB=0. Clobbers A, X, Y.
 ;
@@ -641,6 +660,9 @@ do_fire:
     jsr pool_spawn                  ; X = the claimed slot's byte offset
     bmi @done                       ; the pool is full: swallow the shot
     stx z:US_IDX                    ; park it: the multiplies below clobber X
+    lda #SFX::laser                 ; BELOW the pool-full bail, deliberately: a
+    jsr mo_sfx                      ;   swallowed shot fires no bolt, so it
+    ldx z:US_IDX                    ;   must make no sound either
     ; ---- the bolt starts where the hero is --------------------------------
     lda z:US_POSX + 2
     sta f:ES_MO_ACTORS_LONG + MO_BUL_WX, x
@@ -974,6 +996,9 @@ do_bullet_hit:
     lda z:US_KILLS
     inc a
     sta z:US_KILLS                  ; monotonic, for the ROM's whole life
+    lda #SFX::explosion             ; the chaser dies — one per kill, and the
+    jsr mo_sfx                      ;   bolt is spent on this path by
+                                    ;   construction
     lda z:US_SCORE                  ; ...and the SCORE, which a contact resets
     cmp #MO_SCORE_MAX
     bcs @scored                     ; clamped: three digits can always show it,
@@ -1085,6 +1110,8 @@ do_contact:
     lda z:US_HITS
     inc a
     sta z:US_HITS
+    lda #SFX::hit                   ; taking it, not dealing it: `hit`, never
+    jsr mo_sfx                      ;   the `explosion` a kill fires
     stz z:US_SCORE                  ; ...AND THE SCORE GOES. That is the stake
                                     ;   the knockback already moves
                                     ;   the world out from under you and blinks,

@@ -17,6 +17,10 @@ SF_HDR_TITLE_SET = 1
 .include "engine_state_globals.inc" ; GENERATED — system + game-lifetime map
 .assert SF_INC_FORMAT = 1, error, "this rail was written against allocator include format 1 — allocate.py now emits a different symbol shape; re-read the emitted engine_state_globals.inc before bumping this"
 .include "tad-audio.inc"            ; vendor/tad — the TAD API imports + enums
+.import sf_sfx_reset, sf_sfx_queue, sf_sfx_queue_c, sf_audio_tick
+                                    ; engine/features/audio — the request
+                                    ;   queue in front of TAD's one-deep
+                                    ;   one (tad_wrapper.asm)
 .include "tad_audio_enums.inc"      ; GENERATED — Song:: / SFX:: ids for this
                                     ; game's export (assets/audio/export)
 JOY_START = 1 << 12                 ; $4218 bit 12 — a bit POSITION.
@@ -70,14 +74,22 @@ text_dp_init:
 
 ; --- global ROM blobs (allocator-claimed; .incbin order inside a segment ----
 ; must match the allocator's packing order — the .asserts refuse drift) ------
-.segment "BANK2"
+.segment "BANK1"
 ; ORDER IS NOT FREE: it must match the allocator's ROM packing (largest
 ; first from window 1) — see build/rm/allocation_report.txt. Each site
 ; .asserts its blob's linker bank/addr against the emitted symbols, so a
 ; reorder here (or a size change upstream) refuses the build rather than
-; silently shifting every later blob. These blobs live in BANK2 because
-; window 1 is the tad_export whole-window claim (AUDIO_DATA0 — the
-; generated export demands a bank start and the 32 KB claim guarantees it).
+; silently shifting every later blob.
+;
+; BANK1, and it used to be BANK2: `tad_export` claims the first HALF of
+; window 1 (16,384 B) rather than the whole of it, so these blobs pack into
+; the SAME window behind it instead of starting the next one. The cfg gives
+; BANK1 `align = $4000` so ld65 starts it where the allocator's arithmetic
+; says it does — the export's real content is only 8,752 B, and without the
+; alignment ld65 would pack this segment immediately behind that. The two
+; .asserts below are what proved the pairing rather than assuming it: they
+; fired, by name, on the first build after the claim shrank and before the
+; segment moved.
 bg1_map_bin:
     .incbin "bg1_map.bin"
 .assert ^bg1_map_bin = ES_R_BG1_MAP_ROM_BANK, error, "bg1_map_bin bank drifted from allocator claim"
@@ -171,6 +183,7 @@ MAIN:
     sep #$20
     .a8
     jsl Tad_Init
+    jsr sf_sfx_reset                ; the ring holds power-on garbage
     lda #Song::slice_b_song
     jsr Tad_LoadSong
     rep #$20
@@ -223,7 +236,7 @@ MAIN:
     ; queues are just processed late.
     sep #$20
     .a8
-    jsl Tad_Process
+    jsr sf_audio_tick               ; delivers one queued cue, then Tad_Process
     rep #$20
     .a16
     jsr sm_frame_sync

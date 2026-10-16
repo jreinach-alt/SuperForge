@@ -1,0 +1,177 @@
+#Title sunlight on shallow water
+#Composer SuperForge (procedural)
+#Tempo 56
+
+; The lakeside rail's own piece, and the FOURTH in the tree. The other three
+; are spoken for: `slice_b_song` is the room rail's ambient bed, whose composed
+; rest half-bar is the window its reverb A/B is measured in; `drive_song` is
+; D minor and written for a shooter; `circuit_song` is A mixolydian and written
+; for a road. A lake in the afternoon wants none of those. This one is WARM AND
+; UNHURRIED: F major, mid-tempo, and it never lands hard on the tonic.
+;
+; -----------------------------------------------------------------------------
+; THE HARMONY, AND WHY IT IS SEVENTHS AND NINTHS RATHER THAN TRIADS
+; -----------------------------------------------------------------------------
+; Eight bars, played twice:
+;
+;   | Fmaj7   | Fmaj7   | Dm9     | Dm9     |
+;   | B(b)maj9| B(b)maj9| Gm7     | C7sus4  |
+;
+; That is I - vi - IV - ii - V, the turnaround every warm afternoon is built
+; on, with two deliberate refusals in it:
+;
+;   * NO PLAIN TRIADS. Every chord carries its seventh and most carry a ninth.
+;     A triad states a key; a maj7 with a ninth on top states a COLOUR and
+;     leaves the key slightly open, which is the difference between "F major"
+;     and "sunlight". The pad on channel B voices the two GUIDE TONES (third
+;     and seventh) and nothing else, so the colour is carried by the interval
+;     rather than by stacking every note of the chord.
+;   * THE V IS SUSPENDED AND STAYS THAT WAY. C7sus4 has an F where its third
+;     would be, so the leading tone (E) is simply absent from the dominant and
+;     the pull back to F is a lean rather than a snap. The lead's last bar
+;     settles onto G — the fifth of that sus — and the loop turns over
+;     underneath it. Nothing here ever resolves hard; that is the piece.
+;
+; F major's one flat is written as the key signature, so `b` reads as B(b)
+; everywhere below and no bar has to spell it.
+;
+; -----------------------------------------------------------------------------
+; THE ECHO
+; -----------------------------------------------------------------------------
+; 96 ms of buffer (12 KiB of ARAM) behind a low-passed FIR: a soft, wide tail
+; that darkens rather than a slap. Taps sum to 128, which is the compiler's
+; limit exactly.
+;
+; EVOL AND EFB ARE NOT THIS SONG'S TO CHOOSE. 12/24 is a tree-wide constant:
+; `room_a_ambience` and `beam_end` write those two numbers back as LITERALS
+; when they finish, so a song whose header disagrees leaves any rail using
+; those effects in a rest state it was never in, permanently, after the first
+; use. drive_song learned that from a red landing gate and circuit_song copied
+; the lesson; this is the third file to carry it. The buffer length and the FIR
+; are mine, because nothing writes those back — the vendored compiler
+; structurally refuses `set_echo_delay` inside a sound effect, and no effect in
+; the tree touches the FIR taps.
+#EchoLength 96
+#EchoVolume 12
+#EchoFeedback 24
+#FirFilter 84 28 12 4 0 0 0 0
+
+#KeySignature F
+
+@1 pluck
+@2 square_lead
+@3 tri_bass
+@4 step
+@5 kick
+@6 bell
+
+; ---------------------------------------------------------------------------
+; THE KIT DOES NOT TOUCH THE NOISE GENERATOR. There is exactly one, and the
+; driver zeroes the volume of every music channel sharing it the moment a sound
+; effect wants it (audio-driver.asm, the `SfxNoise` branch). This rail's own
+; wave cue IS a noise effect and it fires every couple of seconds, so a noise
+; hi-hat here would drop out on a schedule — the worst version of the bug,
+; because it would sound deliberate. The kit is samples: `kick` on channel F,
+; and `step` at o5 for the hat and o3 for the snare, exactly as the other two
+; songs do it.
+;
+; THE GROOVE IS A SHUFFLE AND A BACK-BEAT. Each beat is 24 ticks split 16 + 8,
+; which is a swung eighth (2:1) rather than two straight twelves — the whole
+; difference between "unhurried" and "slow". The snare takes the LONG half of
+; beats 2 and 4 and the hat keeps the short halves, so the accent lands behind
+; the beat instead of on it. The kick alternates two bars and is deliberately
+; NOT four-on-the-floor: bar one puts it on 1 and the and-of-3, bar two on 1
+; and 3, which leaves beat 4 to the snare alone.
+;
+; K0 disables key-off on both drum channels: these are one-shots that decay to
+; zero on their own and a key-off would choke the kick's tail. Gaps are `w`
+; waits, never `r` rests — a rest still keys off under K0.
+; ---------------------------------------------------------------------------
+!hl v5  o5 c%16          ; the long half of the shuffle
+!hs v4  o5 c%8           ; ...and the short one, quieter
+!sn v12 o3 g%16          ; the back-beat, where a hat's long half would be
+!e  !hl !hs !sn !hs !hl !hs !sn !hs
+!k1 o3 c%24 w%36 c%12 w%24        ; 1 and the and-of-3
+!k2 o3 c%24 w%24 c%24 w%24        ; 1 and 3
+
+; ---- A: the lead. Pluck, wet, quiet, and it sits ON TOP of the bed rather
+;         than over it -- `pluck` is a one-shot that decays from its own
+;         key-on, so this voice physically cannot shout. It holds off for the
+;         first two bars so the groove and the pad state themselves, then
+;         answers across the changes.
+;
+; EVERY BAR CARRIES ITS OWN OCTAVE, so a `>` inside one cannot leak into the
+; next -- the class of bug that is silent in MML and obvious on the chip. The
+; notes are chord tones or the ninth of the bar they sit in; `pluck` tops out
+; at o4 (its `last_octave` in slice_b.terrificaudio), which is why the second
+; pass climbs to F4 and no further.
+;
+; The vibrato is delayed by an eighth, so it only reaches the long notes and
+; the eighth-note runs stay straight.
+A  L @1 v10 E1 Q7 MP10,l16,l8 l8
+A  r1                                | r1
+A  o3 a4 >c8 d8 e4. d8               | o4 d4 c4 <a2
+A  o4 d4. c8 <b4 a4                  | o4 c4 <a4 >d4 c4
+A  o3 b4. >d8 <b4 a4                 | o4 c4 <b8 a8 g2
+; ---- and the second pass, which sings all eight bars
+A  o3 a4. >c8 e4 d8 c8               | o4 c4 d8 c8 <a2
+A  o4 e4. d8 c4 <a4                  | o4 d4 e8 d8 c2
+A  o4 f4. e8 d4 c4                   | o4 d2 c4 <a4
+A  o4 d4 c8 <b8 a4 g4                | o4 c2 <g2
+
+; ---- B: the pad. GUIDE TONES ONLY -- the third and the seventh of each
+;         chord, one per half bar, and nothing else. Two notes name a seventh
+;         chord unambiguously and leave the root to the bass and the ninth to
+;         the bell, so three quiet voices spell a five-note chord between them
+;         and no single channel has to be loud. Pulse, wet, panned left.
+;
+; It carries the FIRST pass and rests through the second, which is where the
+; bell takes over: with every part sounding for all sixteen bars the loop has
+; no shape, and the two halves are otherwise distinguished only by their
+; register.
+B  L @2 v6 E1 p46 l2
+B  o3 a2 >e2                         | o3 a2 >e2
+B  o3 f2 >c2                         | o3 f2 >c2
+B  o3 d2 a2                          | o3 d2 a2
+B  o3 b2 >f2                         | o3 f2 b2
+B  r1 r1 r1 r1 r1 r1 r1 r1
+
+; ---- C: the bass. Written out bar by bar rather than transposed, and that is
+;         the point of it: a transposed figure preserves INTERVALS, so it can
+;         only ever use root, fifth, octave and ninth -- the degrees that mean
+;         the same over a major and a minor chord. This line wants the thirds
+;         and the approach notes as well. Every bar therefore ends on a note
+;         that LEADS to the next root: bar 2 on A into D, bar 4 on A into B(b)
+;         a semitone up, bar 6 on A into G, bar 8 on E into F a semitone up.
+;         Dry, and the only part that plays all sixteen bars.
+C  L @3 v12 E0 Q6 l8
+C  o2 f8 >c8 <f8 a8 >c8 <a8 f8 g8    | o2 f8 >c8 <f8 >c8 <a8 f8 g8 a8
+C  o2 d8 a8 >d8 <a8 f8 a8 d8 e8      | o2 d8 a8 >d8 <f8 a8 d8 e8 a8
+C  o2 b8 >f8 <b8 >d8 <b8 >f8 d8 c8   | o2 b8 >f8 <b8 >c8 d8 c8 <b8 a8
+C  o2 g8 >d8 <g8 b8 >d8 <b8 g8 a8    | o3 c8 <g8 >c8 <b8 g8 >c8 <b8 e8
+C  o2 f8 >c8 <f8 a8 >c8 <a8 f8 g8    | o2 f8 >c8 <f8 >c8 <a8 f8 g8 a8
+C  o2 d8 a8 >d8 <a8 f8 a8 d8 e8      | o2 d8 a8 >d8 <f8 a8 d8 e8 a8
+C  o2 b8 >f8 <b8 >d8 <b8 >f8 d8 c8   | o2 b8 >f8 <b8 >c8 d8 c8 <b8 a8
+C  o2 g8 >d8 <g8 b8 >d8 <b8 g8 a8    | o3 c8 <g8 >c8 <b8 g8 >c8 <b8 e8
+
+; ---- D: the sparkle. A broken chord per bar at a 32nd, bell, very quiet,
+;         panned right, wet. It fills the SECOND pass and leaves the first to
+;         the pad -- the same split from the other side. Its three pitches are
+;         the ninth and the upper extensions the pad deliberately does not
+;         voice, which is where the add-nine colour actually comes from.
+D  L @6 v5 E1 p92 o4
+D  r1 r1 r1 r1 r1 r1 r1 r1
+D  {{ceg}}1,%3 {{ceg}}1,%3
+D  {{cea}}1,%3 {{cea}}1,%3
+D  {{dfa}}1,%3 {{dfa}}1,%3
+D  {{dfb}}1,%3 {{fgb}}1,%3
+
+; ---- E: hat and snare.   ---- F: kick.
+; Nothing is written to G or H: those are the two channels the driver ducks
+; while a sound effect plays, and on THIS rail an effect plays every couple of
+; seconds. A part scored there would not merely be at risk; it would be gone
+; on a schedule.
+E  L @4 K0 E0
+E  [!e ]16
+F  L @5 v15 K0 E0
+F  [!k1 !k2 ]8

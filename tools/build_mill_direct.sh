@@ -54,7 +54,8 @@ INC="-I $MAP -I $VROM -I game/mill -I $BUILD/assets
      -I engine/features/mil_bg -I engine/features/mil_opt
      -I engine/features/mil_obj -I engine/features/oam_sprites
      -I engine/features/mil_tint
-     -I engine/features/mil_band"
+     -I engine/features/mil_band
+     -I vendor/tad -I assets/audio/export"
 
 if [ ! -f "$BUILD/mil/symbol_map.json" ]; then
     echo "build_mill_direct: run 'make mill' first ($BUILD/mil is missing)" >&2
@@ -105,7 +106,12 @@ build_variant() {
     # shellcheck disable=SC2086
     ca65 --cpu 65816 $INC --bin-include-dir "$BUILD/assets" "$@" \
         -o "$BUILD/$name.o" "$SRC"
-    ld65 -C "$VROM/lorom_512k.cfg" -o "$BUILD/$name.sfc" "$BUILD/$name.o"
+    # The TAD objects the shipping recipe links. `make mill-direct` depends on
+    # them, so they are present and current by the time this runs — this script
+    # is not a second build of the audio blob, only the same two objects on a
+    # second link.
+    ld65 -C "$VROM/lorom_512k.cfg" -o "$BUILD/$name.sfc" "$BUILD/$name.o" \
+        "$BUILD/mil_tad_wrapper.o" "$BUILD/mil_tad_data.o"
     python3 tools/fix_checksum.py "$BUILD/$name.sfc" >/dev/null
     echo "built $BUILD/$name.sfc"
 }

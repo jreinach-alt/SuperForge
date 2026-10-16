@@ -75,6 +75,10 @@ enter:
     sta z:US_PX
     lda #MZ_SPAWN_Y
     sta z:US_PY
+    jsr mz_cell
+    sta z:US_CELL                   ; the spawn cell, so tick 1 compares against
+                                    ;   a real cell and not power-on garbage —
+                                    ;   and so entering does not itself step
     stz z:US_FRAMES
     stz z:US_TS_ACC                 ; the timebase's carried fraction, and this
     stz z:US_TS_STEP                ;   frame's step: written before either is
@@ -181,7 +185,67 @@ tick:
 @y_blocked:
     .a16
     .i16
+    ; ---- the footstep, ON THE CELL EDGE ----------------------------------
+    ; Not on "is moving": held input re-enters this every frame, so a cue there
+    ; would fire at 60 Hz — the cadence defect this tree has paid for twice.
+    ; Not on the BLOCKED arms either: walking into a wall re-enters them every
+    ; frame just the same. The edge is a change of cell, which is what a step
+    ; physically is.
+    jsr mz_cell
+    cmp z:US_CELL
+    beq @same_cell
+    sta z:US_CELL
+    lda #SFX::footstep
+    jsr mz_sfx
+@same_cell:
+    .a16
+    .i16
     jsr mzo_draw                    ; the sprite draws what collision decided
+    rts
+
+; --- mz_sfx: queue the sound effect named in A ------------------------------
+; In: A16 = the SFX:: id (low byte). In/out: A16/I16, DB=0. Clobbers A.
+;
+; WIDTH-RISK: sf_sfx_queue_c declares `entry: A8 I16 DB=0` and this rail calls
+; it from A16 code, so the sep/rep pair is load-bearing and lives here rather
+; than at the call site. X survives it, which is why this is the centred entry
+; point rather than an `ldx` for a pan.
+mz_sfx:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    jsr sf_sfx_queue_c
+    rep #$20
+    .a16
+    rts
+
+; --- mz_cell: which 16 px STRIDE the player box's top-left sits in ----------
+; In/out: A16/I16, DB=0. Out: A = (row << 8) | col — one id per stride, and no
+; multiply: (py & $F0) << 4 IS (py >> 4) << 8. Clobbers A and US_CAND_X.
+;
+; SIXTEEN, NOT EIGHT, AND THE REASON IS THE EAR. The map's cell is 8 px and the
+; walk is MZ_SPEED = 2 px/frame, so an 8 px stride changes every four frames on
+; a straight line — measured, the step voice was live on 63% of walking frames,
+; which is a cadence no one walks at. 16 px brings it to 41%, about four steps
+; a second, on a stride twice the 8 px box. The COLLISION cell is
+; still 8 px; this is only how far the player travels between footfalls.
+mz_cell:
+    .a16
+    .i16
+    lda z:US_PX
+    lsr
+    lsr
+    lsr
+    lsr                             ; stride column
+    sta z:US_CAND_X
+    lda z:US_PY
+    and #$00F0
+    asl
+    asl
+    asl
+    asl                             ; row << 8
+    ora z:US_CAND_X
     rts
 
 ; --- mz_solid_box: is any corner of the 8x8 box at (US_CAND_X, US_CAND_Y)

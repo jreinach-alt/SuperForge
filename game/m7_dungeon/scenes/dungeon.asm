@@ -987,6 +987,14 @@ do_contact:
     lda #GRACE_FRAMES
     sta z:US_GRACE                  ; ...and re-arm the window, so a beat
                                     ;   crossing the spawn cannot re-hit
+    ; ---- and the "ow" you HEAR. One-shot without a latch of its own: this
+    ; line is only reached when the grace window is closed, and the store two
+    ; instructions up re-opens it for GRACE_FRAMES. Contact is a state (the
+    ; hero and a slime overlap for as long as the touch lasts) and the grace
+    ; window is what turns it into an event, which is the same job `sr_ground`
+    ; and `mz_lap_edge` do with a comparison.
+    lda #SFX::thud
+    jsr mdg_sfx
     ; ---- the "ow": snap the screen dark, then pace it back up ------------
     ; The knockback teleports the hero to the spawn, which is INVISIBLE when he
     ; was already near it — so the flash is the actual feedback that a hit
@@ -1021,6 +1029,23 @@ abs16:
 ; =============================================================================
 ; THE GOAL — the win card
 ; =============================================================================
+; --- mdg_sfx: queue the sound effect named in A -----------------------------
+; In: A16 = the SFX:: id (low byte). In/out: A16/I16, DB=0. Clobbers A.
+;
+; WIDTH-RISK: sf_sfx_queue_c declares `entry: A8 I16 DB=0` and this rail calls
+; it from A16 code, so the sep/rep pair is load-bearing and lives here rather
+; than at each call site. X survives it, which is why this uses the centred
+; entry point rather than loading a pan into X.
+mdg_sfx:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    jsr sf_sfx_queue_c
+    rep #$20
+    .a16
+    rts
+
 ; --- do_win_card: three stars at screen top, iff the hero stands on the goal
 ; In/out: A16/I16, DB=0. Clobbers A, X, Y.
 ;
@@ -1048,6 +1073,20 @@ do_win_card:
     sbc #(GOAL_CY - GOAL_HALF)
     cmp #(GOAL_HALF * 2)
     bcs @off
+    ; ---- ON the goal. The CARD is a state and is redrawn every frame; the
+    ; CHIME is the arrival, so it hangs off the latch and not off the test.
+    ; This routine's own header says the overlay has "no scene edge, nothing
+    ; the pause or collision behaviour has to know about" — the hero may walk
+    ; on and off it freely — which is exactly why a cue here without a latch
+    ; would ring for as long as he stands still on the tile.
+    lda z:US_ONWIN
+    bne :+
+    lda #SFX::chime
+    jsr mdg_sfx
+:   .a16
+    .i16
+    lda #1
+    sta z:US_ONWIN
     lda #WIN_ROW_Y
     sta z:ES_MDO + MDO_Y            ; one row for all three
     lda #WIN_X0
@@ -1069,6 +1108,7 @@ do_win_card:
 @off:
     .a16
     .i16
+    stz z:US_ONWIN                  ; left the goal: the next arrival chimes
     ldx #(ES_O_WIN * 4)
 @park:
     .a16

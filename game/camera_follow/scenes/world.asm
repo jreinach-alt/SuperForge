@@ -55,6 +55,9 @@ enter:
     sta z:US_PWX
     lda #CF_BOOT_Y
     sta z:US_PWY
+    jsr cf_cell
+    sta z:US_CELL                   ; seed the stride latch from the spawn, so
+                                    ;   tick 1 compares against a real stride
     stz z:US_FRAMES
     stz z:US_TS_ACC                 ; the timebase's carried fraction, and this
     stz z:US_TS_STEP                ;   frame's step: both written before read.
@@ -102,9 +105,76 @@ tick:
     sta z:US_TS_STEP
     jsr move_player
     jsr clamp_player
+    jsr cf_footstep                     ; the footstep, off the CLAMPED position
     jsr follow_camera
     jsr derive_screen
     jsr cf_obj_place                ; re-staged every frame — see cf_obj.asm
+    rts
+
+; --- cf_sfx: queue the sound effect named in A ------------------------------
+; In: A16 = the SFX:: id (low byte). In/out: A16/I16, DB=0. Clobbers A.
+;
+; WIDTH-RISK: sf_sfx_queue_c declares `entry: A8 I16 DB=0` and this rail calls
+; it from A16 code, so the sep/rep pair is load-bearing and lives here rather
+; than at the call site. X survives it, which is why this uses the centred
+; entry point rather than loading a pan into X.
+cf_sfx:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    jsr sf_sfx_queue_c
+    rep #$20
+    .a16
+    rts
+
+; --- cf_cell: which 16 px STRIDE the player box's top-left sits in -----------
+; In/out: A16/I16, DB=0. Out: A = (row << 8) | col — one id per stride, and no
+; multiply: (pwy & $F0) << 4 IS (pwy >> 4) << 8. Clobbers A and US_SCRX.
+;
+; THE PACKING IS SAFE FOR THIS WORLD, not in general: CF_WORLD_W = 512 gives 32
+; stride columns and CF_WORLD_H = 448 gives 28 rows, so both halves fit a byte.
+;
+; US_SCRX as scratch is safe by this scene's own order — `derive_screen`
+; rewrites both screen words every tick from the committed world position, and
+; this runs before it.
+cf_cell:
+    .a16
+    .i16
+    lda z:US_PWX
+    lsr
+    lsr
+    lsr
+    lsr                             ; stride column
+    sta z:US_SCRX
+    lda z:US_PWY
+    and #$00F0
+    asl
+    asl
+    asl
+    asl                             ; row << 8
+    ora z:US_SCRX
+    rts
+
+; --- cf_footstep: the footstep, on the stride EDGE --------------------------
+; In/out: A16/I16, DB=0. Clobbers A.
+;
+; Not on "is moving": move_player is LEVEL-triggered (the pad is held to walk),
+; so a cue there fires at 60 Hz. Not on the clamp either — walking into the
+; world edge re-enters it every frame just the same. The edge is a change of
+; stride, which is what a step physically is.
+cf_footstep:
+    .a16
+    .i16
+    jsr cf_cell
+    cmp z:US_CELL
+    beq @same
+    sta z:US_CELL
+    lda #SFX::footstep
+    jsr cf_sfx
+@same:
+    .a16
+    .i16
     rts
 
 ; --- move_player: the d-pad moves the player through the WORLD --------------

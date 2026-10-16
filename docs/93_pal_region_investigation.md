@@ -612,6 +612,8 @@ does not mean.
 These need real hardware or a second emulator. They are part of the
 deliverable, not gaps in it.
 
+**UPDATE 2026-09-19 — a cart was run.** The owner played the demos off an FxPak Pro on their own SNES and all of them ran correctly to the eye. That retires the blanket "nothing here has touched hardware" above, but it does not answer the specific questions in this section: it was a play-test rather than an instrumented measurement, the console's region was not recorded, and the images were built from `main` (so they carry none of the audio branch). Treat the items here as open unless one of them is named as answered. `JAM.md` rule 6 carries the full scope.
+
 1. **What a PAL television actually shows.** Mesen hands back the same 256×239
    buffer for both regions, so the border/letterbox question — 224 picture
    lines inside a 288-line PAL field — is invisible to this instrument. Needs a

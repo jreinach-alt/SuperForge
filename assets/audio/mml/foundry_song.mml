@@ -1,0 +1,198 @@
+#Title under load
+#Composer SuperForge (procedural)
+#Tempo 54
+
+; smelter's own song, and the FOURTH in the tree. The other three are spoken
+; for and none of them is this: `slice_b_song` is the room rail's ambient piece
+; (its composed rest half-bar is the window a reverb A/B is measured in),
+; `drive_song` is the action rails' D minor shooter piece, and `circuit_song`
+; is A mixolydian for a lap. This one is a MACHINE HALL under load -- four
+; steel plates rising and falling on four different harmonics over a cavern of
+; molten metal, none of them ever in step (game/smelter/game.toml describes the
+; picture). The music is written to be that, not to accompany it: what a
+; listener should hear is a machine CYCLE, not a tune.
+;
+; =============================================================================
+; THE THREE PERIODS, AND WHY THEY ARE COPRIME-ISH
+; =============================================================================
+; This is the piece's whole rhythmic idea and it is stated here rather than
+; left to be counted off the ticks. Three parts run at three different lengths:
+;
+;     the ostinato  (!mc, channel B)   42 ticks   = 7 sixteenths
+;     the strikes   (!an, channel E)   32 ticks   = 1 1/3 beats
+;     the press     (!kk, channel F)   96 ticks   = one 4/4 bar
+;
+; 42 = 2*3*7 and 32 = 2^5 and 96 = 2^5*3, so the least common multiple is
+; 2^5*3*7 = 672 ticks -- SEVEN bars. Inside those seven bars no two of the
+; three ever repeat their alignment: the ostinato's head lands on SIXTEEN
+; different points of the bar before it comes back round to the downbeat (each
+; repeat starts 42 ticks after the last, which is 18 ticks -- three quarters of
+; a beat -- past the nearest beat), while the strikes hit six times in every
+; bar and only the first of the six is ever on a beat. That drift IS the plates
+; never being in step, and it is the reason none of the three is allowed to be
+; a bar long except the press.
+;
+; The song loops at 1344 ticks -- TWO of those 672-tick cycles, fourteen bars,
+; about 31 seconds. So the ostinato repeats 32 times and the strikes 42, which
+; is the two periods swapped and is just 32*42 = 1344 read from the other end.
+;
+; WHY THE HALVES DIFFER. Cycle 1 carries the ratchet (channel D); cycle 2
+; carries the lead (channel A) and the ratchet stops. With every part sounding
+; for all fourteen bars the loop has no shape at all, and repetition that never
+; changes register stops reading as relentless and starts reading as stuck.
+; drive_song makes the same split for the same reason.
+;
+; =============================================================================
+; THE HARMONY
+; =============================================================================
+; C minor, and darker than anything else in the tree. The key signature is the
+; three flats of C natural minor (`-bea`, so `e` `a` `b` are already E flat,
+; A flat, B flat) and NOT the four of C Phrygian -- which is the point: the
+; FLAT SECOND has to be written `d-` every single time it appears, so every
+; occurrence is a deliberate accidental on the page instead of a scale degree
+; that arrived for free. The tritone is `g-` and is spelled the same way.
+;
+; Those two notes are the machine's fault, and they are used at two different
+; densities on purpose:
+;
+;   * MACHINED IN. The ostinato contains both -- C, D flat, C, G, G flat, F --
+;     so the rub and the tritone recur every 42 ticks. An ostinato that
+;     varied would not be one, and a fault a machine has is a fault it has on
+;     every stroke.
+;   * SPARING. The bass pedal is a C for six bars and then grinds to D flat
+;     for half of the seventh (a minor NINTH under the ostinato's root) before
+;     resetting. Once every 672 ticks, which is the only place in the piece
+;     the floor itself moves.
+;
+; The lead over cycle 2 is a slow descent -- C E- F | G G- | F E- D- | C |
+; A- G | F G- F | E- D- C -- whose two turns are exactly those two intervals:
+; the G falling to G flat, and the F leaning on G flat and back.
+;
+; =============================================================================
+; ECHO, AND THE TWO NUMBERS THAT ARE NOT THIS SONG'S TO PICK
+; =============================================================================
+; 96 ms of buffer (12 KiB of ARAM) behind a heavily low-passed FIR: a long,
+; dark tail with almost no top in it, which is a concrete hall with steel in
+; it rather than drive_song's 64 ms slap or the room's 128 ms cavern. Taps sum
+; to 127; the compiler rejects an absolute sum over 128.
+;
+; #EchoVolume 12 and #EchoFeedback 24 ARE NOT A CHOICE. They are a tree-wide
+; constant that lives in the sound-effect definitions rather than in any song:
+; `room_a_ambience` and `beam_end` write those two values back as LITERALS as
+; the dry rest state, so a song whose header disagrees leaves any rail using
+; those effects in a rest state it was never in, permanently, after the first
+; use. drive_song was authored at 10/20 and a red landing gate is how that was
+; found. Buffer length and FIR stay per-song because nothing writes them back.
+#EchoLength 96
+#EchoVolume 12
+#EchoFeedback 24
+#FirFilter 56 40 24 6 1 0 0 0
+
+#KeySignature -bea
+
+@1 square_lead
+@2 saw
+@3 tri_bass
+@4 pluck
+@5 step
+@6 kick
+
+; ---------------------------------------------------------------------------
+; THE PERCUSSION IS SAMPLES AND NEVER `N`. There is exactly one noise
+; generator, and the driver zeroes the volume of every music channel sharing
+; it the moment a sound effect wants it (audio-driver.asm, the `SfxNoise`
+; branch). This rail's cues are `select` and `chime`, neither of which takes
+; noise -- but `explosion`, `hit` and `skid` are in the same shared blob and
+; any rail could grow one, so a noise part here would be a part that vanishes
+; the day it does. `kick` and `step` are the two drum samples the tree has and
+; they are what this kit is made of.
+;
+; `bell` is deliberately NOT used anywhere in this song. It is what `chime`
+; is voiced by, and `chime` is this rail's departure cue -- keeping the bell
+; out of the music is what makes a bell in the mix mean "the player pressed
+; Start" to a listener as well as to a test reading VxSRCN.
+;
+; K0 disables key-off on both drum channels: these are one-shots that decay to
+; zero on their own and a key-off would choke the kick's tail. Their gaps are
+; therefore `w` waits and never `r` rests -- a rest still keys off under K0.
+; ---------------------------------------------------------------------------
+
+; --- !mc: THE MACHINE CYCLE. 42 ticks. -------------------------------------
+; An eighth-note stamp on the root, then five sixteenths: the flat second
+; leaning on the root and falling back, then the fifth walking down
+; chromatically G - G flat - F into the next stamp. Six events across seven
+; sixteenths, and outside the lead's seven bars it is the only line the piece
+; has -- which is the point: what a listener should be able to hum afterwards
+; is a machine, not a tune.
+!mc o3 c%12 d-%6 c%6 g%6 g-%6 f%6
+
+; --- !rs: the ratchet. 32 ticks. -------------------------------------------
+; Three short plucks an octave over the ostinato -- C, D flat, C -- its rub
+; the ostinato has, at the top of the mix and on the strikes' period rather
+; than the ostinato's. It runs in cycle 1 only.
+!rs o4 c%3 r%5 d-%3 r%5 c%3 r%13
+
+; --- !an: metal on metal. 32 ticks. ----------------------------------------
+; A bright ping hard right and a deep clank hard left, 12 ticks apart, three
+; times a bar. Against a 24-tick beat that puts hits at ticks 0, 12, 32, 44,
+; 64 and 76 of every bar: ONE of the six is on a beat and the other five are
+; not, which is what "syncopated, not a backbeat" means here. The pan
+; alternation is why this rail sets TadAudioMode::STEREO.
+;
+; MEASURED, because "the polyrhythm is in there" is a claim about the SOUND and
+; not about the ticks. Autocorrelating the envelope of a ten-second capture off
+; the emulator finds the bar at 2.220 s (predicted 2.222) and the ostinato at
+; 0.975 s (predicted 0.972) in the full band, but the strikes' own 0.741 s only
+; barely (r = 0.06) — they are masked by the kick and the ostinato, both of
+; which are louder and lower. High-passed to the band the o5 ping actually
+; occupies, the same lag reads r = 0.82. So the 32-tick period IS there and it
+; lives ABOVE the rest of the piece rather than inside it, which is what makes
+; the hard-left/hard-right pan load-bearing rather than decorative: spatial
+; separation carries what the spectrum does not.
+!an v12 o5 p92 c%6 w%6 v15 o3 p36 c%6 w%14
+
+; --- !kk: the press. 96 ticks. ---------------------------------------------
+; Six-four-six sixteenths: a limping three-stroke bar that is deliberately not
+; 2+2+2+2. It is the only part whose period IS the bar, so it is the grid the
+; other two are heard to drift against.
+!kk o2 c%36 c%24 c%36
+
+; ---- A: the lead, cycle 2 only. Wide vibrato, wet, and the only part of the
+;         piece that is a line rather than a loop. Sustaining ADSR because a
+;         warning horn does not decay; Q7 to keep the note ends articulated.
+; EVERY BAR CARRIES ITS OWN OCTAVE so a stray `>` cannot leak into the next --
+; the class of mistake that is invisible in MML and obvious on the chip.
+; Nothing is written to G or H on any channel: those are the two the driver
+; ducks while a sound effect plays, so a part written there would vanish every
+; time this rail's B or Start cue fired.
+A  L @1 v11 E1 Q7 A13,2,7,5 MP18,l16,l16
+A  r1 r1 r1 r1 r1 r1 r1
+A  o4 c2 e4 f4                | o4 g2. g-4              | o4 f2 e4 d-4
+A  o4 c1                      | o4 a2 g2                | o4 f2 g-4 f4
+A  o4 e2 d-4 c4
+
+; ---- B: the ostinato. Saw, dry, slightly left, and it never stops. 32 turns
+;         of a 42-tick figure is the whole loop.
+B  L @2 v14 E0 Q6 A15,3,3,14 p56
+B  [!mc ]32
+
+; ---- C: the pedal -- the plant hum. Triangle two octaves under the melody,
+;         dry (a wet drone smears everything above it), on an ADSR that
+;         sustains flat so a whole-note re-strike reads as a motor breathing
+;         rather than as a note dying. Six bars of C, then the D flat grind
+;         and the reset. Twice.
+C  L @3 v13 E0 A6,2,7,0 o2
+C  [c1]6 d-2 c2
+C  [c1]6 d-2 c2
+
+; ---- D: the ratchet, cycle 1 only. Quiet, wet, hard right.
+D  L @4 v8 E1 p100
+D  [!rs ]21
+D  r1 r1 r1 r1 r1 r1 r1
+
+; ---- E: the strikes.     ---- F: the press.
+; Both under K0, both samples, neither anywhere near the noise generator.
+E  L @5 K0 E1
+E  [!an ]42
+F  L @6 v16 K0 E0 p64
+F  [!kk ]14

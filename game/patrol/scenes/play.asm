@@ -598,6 +598,23 @@ phys_rising:
     sta z:US_PYF
     rts
 
+; --- pat_sfx: queue the sound effect named in A -----------------------------
+; In: A16 = the SFX:: id (low byte). In/out: A16/I16, DB=0. Clobbers A.
+;
+; WIDTH-RISK: sf_sfx_queue_c declares `entry: A8 I16 DB=0` and this rail calls
+; it from A16 code, so the sep/rep pair is load-bearing and lives here rather
+; than at the call site. X survives it, which is why this is the centred entry
+; point rather than an `ldx` for a pan.
+pat_sfx:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    jsr sf_sfx_queue_c
+    rep #$20
+    .a16
+    rts
+
 ; --- do_contact: either enemy overlapping the player -> knockback -----------
 ; In/out: A16/I16, DB=0. Clobbers A, X, Y and the probe scratch.
 ;
@@ -624,6 +641,8 @@ do_contact:
     .a16
     .i16
     ; ---- knockback: respawn + count the hit -------------------------------
+    lda #SFX::hit               ; at most one contact resolves per frame, and
+    jsr pat_sfx                 ;   the respawn moves the player off the enemy
     lda #PAT_SPAWN_X
     sta z:US_PX
     lda #PAT_SPAWN_Y << 8

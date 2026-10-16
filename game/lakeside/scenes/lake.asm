@@ -36,6 +36,10 @@ enter:
     stz z:US_TSW_ACC                ; the timebase's carried fraction and this
     stz z:US_TSW                    ;   frame's step: written before read
     stz z:US_STILLED                ; the surface drifts on entry
+    stz z:US_WAVE                   ; ...and the sea's cue clock starts level
+                                    ;   with the scroll wat_arm is about to
+                                    ;   zero, which is the whole of the
+                                    ;   `wave == scroll mod PERIOD` invariant
     jsr lk_arm                      ; the world: CHR, map, palette group 0
     jsr wat_arm                     ; the surface: CHR, map, palette group 2
     jsr lk_text_arm                 ; BG3: the font and a cleared tilemap
@@ -123,6 +127,16 @@ tick:
     lda z:US_STILLED
     eor #1
     sta z:US_STILLED
+    ; THE ONE DISCRETE ACTION THIS RAIL HAS, AND IT NEEDS NO LATCH. This arm is
+    ; reached only on ES_INP_PRESS's B bit, which the `input` feature publishes
+    ; as the RISING edge, so it runs at most once per press however long B is
+    ; held down. `ES_INP_CUR` is one token away and would sound on every held
+    ; frame; that is the mistake the site invites and the reason
+    ; tests/test_lakeside_audio.py measures a fraction rather than a count.
+    ; `select` because this is a control toggle rather than an event in the
+    ; world — `racer`'s pause key uses it for the same reason.
+    lda #SFX::select
+    jsr lk_sfx
 @no_toggle:
     .a16
     .i16
@@ -130,6 +144,7 @@ tick:
     bne @still                      ; latched still: the surface holds
     lda z:US_TSW
     jsr wat_advance
+    jsr lk_wave_cue                 ; ...and the sea only breaks while it moves
 @still:
     .a16
     .i16
@@ -144,6 +159,86 @@ tick:
 @done:
     .a16
     .i16
+    rts
+
+; --- lk_sfx: queue the sound effect named in A ------------------------------
+; CONTRACT lake::lk_sfx
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       A = the SFX:: id, in the low byte
+;   out:      the request held in the audio feature's ring
+;   clobbers: A, N, Z, C
+;   tail:     rts
+;
+; WIDTH-RISK: sf_sfx_queue_c declares `entry: A8 I16 DB=0` and this scene runs
+; in A16, so the sep/rep pair is load-bearing and lives HERE rather than at the
+; two call sites — the same reason hud_game keeps its `hud_sfx`. It is also a
+; CROSS-FILE callee, which the single-file width lint cannot see in either
+; direction; the contract block above is what a reader and the contract pass
+; have instead. X survives, which is why this is the centred entry point rather
+; than an `ldx` for a pan at each site.
+lk_sfx:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "lk_sfx"
+    sep #$20
+    .a8
+    jsr sf_sfx_queue_c
+    rep #$20
+    .a16
+    rts
+
+; --- lk_wave_cue: one break per surf cycle ----------------------------------
+; CONTRACT lake::lk_wave_cue
+;   entry:    A16 I16 DB=0
+;   exit:     A16 I16
+;   in:       US_TSW — this frame's published whole-pixel drift, the SAME
+;             value wat_advance has just consumed
+;   out:      US_WAVE advanced and wrapped; `wave_break` queued on the frame
+;             it wraps
+;   clobbers: A, N, Z, C
+;   assumes:  called ONLY from the not-stilled arm of tick
+;   tail:     rts / jmp lk_sfx
+;
+; THE CADENCE IS THE PICTURE'S, NOT A TIMER'S. `wat_nmi_surf` selects the swash
+; phase as (ES_WAT_SCROLL >> LK_SURF_STEP_SHIFT) & (LK_SURF_PHASES - 1), so the
+; wave the player watches restarts every LK_SURF_PERIOD_PX = 128 px of drift.
+; This counts the same pixels from the same zero, so the break is heard on the
+; frame phase 0 comes back round — at the START of the swash, which is where
+; the sound of a wave actually is: you hear it collapse and then watch it run
+; up the sand. The period is READ from the art's generated include rather than
+; written here, so re-authoring the surf moves the sound with the picture.
+;
+; WHAT WAS TRIED. Half a cycle (64 px, ~1.1 s) crowds: the drain of one break
+; is still going when the next gathers, and the shore reads as continuous
+; static rather than as waves. Two cycles (256 px, ~4.3 s) is a sea swell, not
+; a lake, and worse it leaves every OTHER visible swash silent — the sound and
+; the picture would then disagree half the time by construction. One break per
+; visible cycle is 128 px, which at LK_WATER_SPEED = 1 px/frame is about 2.1 s
+; on either machine (the step is region-scaled), and that is a lake lapping.
+;
+; TICK: ok -- name-matched `_cue` is not one of the lint's shapes, but the note
+;   is worth having anyway: nothing here counts frames. The increment is
+;   US_TSW, tick_scale's published whole-unit step, and the threshold is a
+;   DISTANCE in world pixels that the asset generator emitted. Both sides are
+;   in pixels; the interval in seconds is a consequence, not an input.
+lk_wave_cue:
+    .a16
+    .i16
+    SF_ASSERT_WIDTH 16, 16, "lk_wave_cue"
+    lda z:US_WAVE
+    clc
+    adc z:US_TSW
+    cmp #LK_SURF_PERIOD_PX
+    bcc @hold                       ; still inside this cycle
+    sbc #LK_SURF_PERIOD_PX          ; carry is SET on this arm, so this is a
+    sta z:US_WAVE                   ;   plain subtract and the remainder is
+    lda #SFX::wave_break            ;   carried into the next cycle rather
+    jmp lk_sfx                      ;   than dropped
+@hold:
+    .a16
+    .i16
+    sta z:US_WAVE
     rts
 
 ; --- exit: nothing to tear down --------------------------------------------

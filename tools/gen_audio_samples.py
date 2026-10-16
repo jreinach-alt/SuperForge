@@ -13,6 +13,16 @@ Outputs (16-bit mono PCM, written to the directory given as argv[1]):
   square25.wav  64-sample single-cycle 25% pulse -> looped lead instrument
   pluck.wav     Karplus-Strong pluck, 0.4 s      -> one-shot melodic accent
   step.wav      filtered noise burst, 0.1 s      -> footstep SFX
+  bell.wav      64-sample single-cycle bell      -> pickup / chime SFX
+  saw.wav       64-sample band-limited sawtooth  -> laser / engine SFX
+  kick.wav      pitch-dropping sine, 0.16 s      -> song kick drum
+
+The last two exist because the SFX set needs TIMBRES the four instruments
+above cannot reach: `square_lead` is a 25 % pulse (hollow, buzzy) and `step`
+is a heavily low-passed noise burst shaped for a footstep. A bright partial
+stack and a full-spectrum saw are what a pickup and a laser actually want.
+Both are single-cycle LOOPS -- 64 samples, 4 BRR blocks, ~36 B of audio data
+each -- so the whole timbral gain costs less than one tenth of a one-shot.
 
 Design constraints that shaped these:
   * BRR encodes 16 samples per 9 bytes -- single-cycle loops of exactly 64
@@ -64,6 +74,32 @@ def pulse_cycle(duty: float = 0.25, n: int = 64) -> list[int]:
     return [clamp((v - mean) * AMP * 0.8) for v in raw]
 
 
+def bell_cycle(n: int = 64) -> list[int]:
+    """A bright, glassy cycle: a fundamental under a thinning partial stack.
+
+    Deterministic by construction -- no RNG, just a fixed harmonic series.
+    Normalised by its own peak so the result sits exactly at PEAK full-scale.
+    """
+    parts = ((1, 1.0), (2, 0.60), (3, 0.35), (5, 0.22), (7, 0.12))
+    raw = [sum(a * math.sin(h * 2 * math.pi * i / n) for h, a in parts)
+           for i in range(n)]
+    peak = max(abs(v) for v in raw)
+    return [clamp(v / peak * AMP) for v in raw]
+
+
+def saw_cycle(n: int = 64, harmonics: int = 16) -> list[int]:
+    """A BAND-LIMITED sawtooth -- the buzz a laser/engine wants.
+
+    Summing 1/h to `harmonics` rather than drawing the naive ramp keeps every
+    partial below the 64-sample cycle's Nyquist (harmonic 32), so the loop
+    carries no content that would alias when the S-DSP resamples it.
+    """
+    raw = [sum(math.sin(h * 2 * math.pi * i / n) / h
+               for h in range(1, harmonics + 1)) for i in range(n)]
+    peak = max(abs(v) for v in raw)
+    return [clamp(v / peak * AMP * 0.9) for v in raw]
+
+
 def karplus_strong(freq: float = 220.0, seconds: float = 0.4,
                    damp: float = 0.996) -> list[int]:
     rng = random.Random(0x51EB)
@@ -94,6 +130,34 @@ def noise_step(seconds: float = 0.1) -> list[int]:
     return out
 
 
+def drum_kick(seconds: float = 0.16) -> list[int]:
+    """Pitch-dropping sine with a click transient -- a one-shot kick drum.
+
+    A single-cycle loop cannot be a kick: the sound IS the pitch envelope, a
+    fast drop from ~160 Hz to ~45 Hz. It exists so the song can have a bottom
+    end WITHOUT the S-DSP noise generator -- there is only one, and the driver
+    zeroes a music channel's volume whenever a sound effect wants noise
+    (audio-driver.asm, `nonShadow_music` under `SfxNoise`), so a noise-based
+    kick would drop out under every explosion.
+
+    Normalised rather than clamped: the click and the body sum past full scale,
+    and clipping a kick is audible as a rasp.
+    """
+    rng = random.Random(0x4B1C)
+    n = int(RATE * seconds)
+    click = int(0.004 * RATE)
+    out, phase = [], 0.0
+    for i in range(n):
+        t = i / n
+        phase += 2.0 * math.pi * (45.0 + 115.0 * math.exp(-14.0 * t)) / RATE
+        v = math.sin(phase) * math.exp(-5.5 * t)
+        if i < click:
+            v += rng.uniform(-0.55, 0.55) * (1.0 - i / click)
+        out.append(v)
+    peak = max(abs(v) for v in out)
+    return [clamp(v / peak * AMP) for v in out]
+
+
 def main() -> int:
     outdir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("assets/audio/samples")
     outdir.mkdir(parents=True, exist_ok=True)
@@ -102,6 +166,9 @@ def main() -> int:
     write_wav(outdir / "square25.wav", pulse_cycle())
     write_wav(outdir / "pluck.wav", karplus_strong())
     write_wav(outdir / "step.wav", noise_step())
+    write_wav(outdir / "bell.wav", bell_cycle())
+    write_wav(outdir / "saw.wav", saw_cycle())
+    write_wav(outdir / "kick.wav", drum_kick())
     return 0
 
 

@@ -282,3 +282,5 @@ R1 (the taller PAL active area) is designed (`docs/95`) and unbuilt. Audio
 keeps real time on both regions and is documented, not compensated
 (`docs/95` §5.6). Nothing here has run on hardware or a second emulator —
 `docs/95` §10's list carries forward unchanged.
+
+**UPDATE 2026-09-19 — a cart was run.** The owner played the demos off an FxPak Pro on their own SNES and all of them ran correctly to the eye. That retires the blanket "nothing here has touched hardware", but it does not answer the specific question above: it was a play-test rather than an instrumented measurement, the console's region was not recorded, and the images were built from `main` (so they carry none of the audio branch). `JAM.md` rule 6 carries the full scope.

@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import run_make
+
 SUPERFORGE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SUPERFORGE / "vendor"))
 
@@ -25,8 +27,7 @@ VR, CG, WR = MemoryType.SnesVideoRam, MemoryType.SnesCgRam, MemoryType.SnesWorkR
 
 
 def _make(*targets) -> subprocess.CompletedProcess:
-    return subprocess.run(["make", *targets], cwd=SUPERFORGE,
-                          capture_output=True, text=True)
+    return run_make(*targets)
 
 
 @pytest.fixture(scope="module")

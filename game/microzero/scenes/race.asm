@@ -123,6 +123,32 @@ enter:
     .a16
     ; ---- race logic: the HUD below renders its lap counter ----------------
     jsr rl_arm
+    ; ---- seed the lap-chime latch from the value rl_arm just wrote --------
+    ; rl_arm stores 0 to US_LAP_LONG two instructions ago, so this compares
+    ; against a REAL value on tick 1 rather than against power-on garbage
+    ; (rule 5). Masked to a byte because the counter is one.
+    sep #$20
+    .a8
+    lda f:US_LAP_LONG
+    rep #$20
+    .a16
+    and #$00FF
+    sta z:US_LAPPREV
+    ; ...and the checkpoint latch from the sector rl_arm seeded, same reason
+    sep #$20
+    .a8
+    lda f:US_SECTOR_LONG
+    rep #$20
+    .a16
+    and #$00FF
+    sta z:US_SECTPREV
+    ; ...and the surface latch. Seeded to 1 (ON the road) rather than from
+    ; CM_FLAG, because col_map has not been probed yet this scene and the
+    ; flag byte still holds the previous scene's answer or power-on garbage
+    ; (rule 5). The grid start IS on the road, so 1 is the truth and not a
+    ; guess; seeding 0 would fire a phantom skid on the first tick.
+    lda #1
+    sta z:US_OFFPREV
     ; ---- CGRAM: the 17-color floor palette (pinned at index 0) ------------
     ldx #.loword(floor_pal_bin)
     lda #^floor_pal_bin
@@ -335,8 +361,122 @@ cm_tick:
     lda z:ES_M7ORG + 2
     sta z:CM_PY
     jsr col_map_at              ; leaves A8; CM_FLAG holds the result
+    ; WIDTH-RISK: col_map_at EXITS A8, but ca65 tracks sequentially and still
+    ; believes A16 across the jsr. This sep is a NO-OP at runtime (the CPU is
+    ; already A8) and exists to resynchronise the ASSEMBLER before the A8
+    ; work below — without it `lda #$01` assembles as a 3-byte immediate and
+    ; the CPU executes the stray $00 as BRK. The lint caught exactly that.
+    sep #$20
+    .a8
+    ; ---- LEAVING THE ROAD, which is the one event the flag earns ----------
+    ; FLAG_DRIVABLE is bit 0 (see
+    ; tools/gen_col_flags.py), so the road is odd and the grass is even. The
+    ; cue is the 1 -> 0 EDGE and not the state: off-road is a place the car
+    ; can sit in for seconds, and a cue on the level would sound every frame
+    ; of it. Nothing here touches velocity, so the pinned rebuild cadence
+    ; this routine's header protects is untouched.
+    lda z:CM_FLAG
+    and #$01
+    cmp z:US_OFFPREV
+    beq @same_surface
+    sta z:US_OFFPREV
+    ; RE-TEST, and this line is the whole reason the cue works. `sta` does
+    ; NOT touch the flags, so the Z live here is still the CMP's above --
+    ; which on this arm is always "not equal", so a bare `bne` would always
+    ; branch and the cue could never fire. Measured before the fix: 19
+    ; surface edges owed a skid, 0 delivered, with both SFX channels idle.
+    ; A still holds the NEW surface, so compare it to itself explicitly.
+    cmp #$00
+    bne @same_surface           ; 0 -> 1 is REJOINING the road: no cue for it
+    lda #SFX::skid              ; noise, and circuit_song scores none -- the
+    jsr sf_sfx_queue_c          ;   one timbre that cannot be mistaken for it
+@same_surface:
+    .a8
+    .i16
     rep #$20                    ; WIDTH-RISK: col_map_at EXITS A8 — restore the
     .a16                        ;   A16 the race tick's next statement expects
+    rts
+
+; --- mz_lap_edge: the two crossings this rail earns a sound for -------------
+; In/out: A16/I16, DB=0. Clobbers A.
+;
+; WHY THE CUE IS HERE AND NOT IN THE FEATURE. The increment happens inside
+; `race_logic`'s `rl_lap`, but the word it increments is THIS RAIL'S -- `lap`
+; is declared in state.toml and the feature fills it. So the split is already
+; the one platformer_stream had to argue for: the feature owns the sector
+; machine, the game owns the counter and what it sounds like. Queueing the
+; chime in `rl_lap` would make every rail composing the lap machine compose
+; `audio` too, and would make the choice of sound the feature's when only "a
+; lap completed" is mechanism.
+;
+; THE LATCH IS WHAT MAKES IT AN INSTANT. US_LAP_LONG is a LEVEL, read fresh
+; every tick; a cue on the value rather than on its change would ring on every
+; frame of the lap it counts, which on this rail is several seconds of chime.
+mz_lap_edge:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda f:US_LAP_LONG
+    rep #$20
+    .a16
+    and #$00FF                      ; `lap` is a u8 -- mask so the high half of
+                                    ;   the latch word is defined, not garbage
+    cmp z:US_LAPPREV
+    beq @sector                     ; no lap closed this tick
+    sta z:US_LAPPREV
+    ; A LAP CROSSING IS ALSO A SECTOR CROSSING -- the start/finish spoke IS the
+    ; 3->0 edge (race_logic's header). Consume the sector here so the
+    ; checkpoint blip does not trail the chime by a frame: the ring holds one
+    ; request per frame and would deliver the second on the next one, which
+    ; reads as a stutter on the one moment that should be clean.
+    sep #$20
+    .a8
+    lda f:US_SECTOR_LONG
+    rep #$20
+    .a16
+    and #$00FF
+    sta z:US_SECTPREV
+    sep #$20
+    .a8
+    lda #SFX::chime                 ; bell -- a lap is a reward, not a thump
+    jsr sf_sfx_queue_c              ; WIDTH-RISK: declares `entry: A8 I16 DB=0`
+    rep #$20
+    .a16
+    rts
+@sector:
+    .a16
+    .i16
+    ; THE QUADRANT, four to a lap. Same latch shape as the lap above and for
+    ; the same reason: US_SECTOR_LONG is a LEVEL, so a cue on the value would
+    ; sound on every frame of the quadrant it names.
+    sep #$20
+    .a8
+    lda f:US_SECTOR_LONG
+    rep #$20
+    .a16
+    and #$00FF
+    cmp z:US_SECTPREV
+    beq @same
+    sta z:US_SECTPREV
+    sep #$20
+    .a8
+    ; `pickup` AND NOT `select`, AND THE REASON IS THE SONG. `select` is
+    ; voiced by pluck -- and circuit_song scores pluck on channel D, so the
+    ; blip was the same instrument as a running music line and did not read
+    ; as a cue at all. bell is the ONE instrument in the project this song
+    ; does not use (square_lead, saw, tri_bass, step, kick, pluck), which
+    ; makes it the only timbre here that can cut through its own soundtrack.
+    ; `pickup` is the shorter, quieter bell (a rising fifth at gain F110)
+    ; against the lap's `chime` (a rising fourth at F127) -- so the two are
+    ; still a hierarchy by ear even though they share a sample.
+    lda #SFX::pickup
+    jsr sf_sfx_queue_c
+    rep #$20
+    .a16
+@same:
+    .a16
+    .i16
     rts
 
 tick:
@@ -346,6 +486,7 @@ tick:
     ; The pose retarget a heading change implies happens in the NMI hook
     ; (VBlank — the spec); the tick only moves state.
     jsr rl_tick
+    jsr mz_lap_edge                 ; a lap completed? chime, once
     ; scroll shadows follow the origin (NMI hook commits all four)
     lda z:ES_M7ORG + 0
     sec
@@ -437,7 +578,7 @@ s_vwf2: .byte "....", 0
 s_vwf3: .byte "End. Next: go", 0
 vwf_msg_tab:
     .word .loword(s_vwf0), .loword(s_vwf1), .loword(s_vwf2), .loword(s_vwf3)
-.segment "BANK13"
+.segment "BANK1"
 sky_map_bin:
     .incbin "sky_map.bin"
 .assert ^sky_map_bin = ES_R_SKY_MAP_ROM_BANK, error, "sky_map bank drifted from allocator claim"

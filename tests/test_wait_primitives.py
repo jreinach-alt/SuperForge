@@ -36,6 +36,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import run_make
+
 SUPERFORGE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SUPERFORGE / "vendor"))
 
@@ -63,8 +65,7 @@ def budget_floor(max_frames: int) -> int:
 
 @pytest.fixture(scope="module")
 def booted():
-    r = subprocess.run(["make", "microzero"], cwd=SUPERFORGE,
-                       capture_output=True, text=True)
+    r = run_make("microzero")
     assert r.returncode == 0, f"make microzero failed:\n{r.stdout}\n{r.stderr}"
     jmap = json.loads((SUPERFORGE / "build" / "mz" / "symbol_map.json").read_text())
     syms = {p["sym"]: p for p in jmap["globals"]}
@@ -461,8 +462,7 @@ def test_boot_rom_stops_at_a_power_on_safe_ready_predicate(booted):
     """
     runner, _ = booted
     toy = SUPERFORGE / "build" / "toy.sfc"
-    r = subprocess.run(["make", "toy"], cwd=SUPERFORGE,
-                       capture_output=True, text=True)
+    r = run_make("toy")
     assert r.returncode == 0, f"make toy failed:\n{r.stdout}\n{r.stderr}"
     jmap = json.loads((SUPERFORGE / "build" / "symbol_map.json").read_text())
     scratch = next(p["start"] for p in jmap["scenes"]["toy"]["placements"]
@@ -536,8 +536,7 @@ def _fade_walk(runner):
 
 @pytest.fixture(scope="module")
 def room_runner():
-    r = subprocess.run(["make", "room"], cwd=SUPERFORGE,
-                       capture_output=True, text=True)
+    r = run_make("room")
     assert r.returncode == 0, f"make room failed:\n{r.stdout}\n{r.stderr}"
     runner = MesenRunner()
     runner.boot_rom(str(ROOM_ROM))

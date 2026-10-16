@@ -1,0 +1,109 @@
+#Title open circuit
+#Composer SuperForge (procedural)
+#Tempo 80
+
+; microzero's own song, and the THIRD in the tree. The other two are already
+; spoken for: `slice_b_song` is the room rail's ambient piece, whose composed
+; rest half-bar is the window its reverb A/B is measured in, and `drive_song`
+; is the action rails' -- D minor, dark, written for a shooter. A racing game
+; wants neither. This one is BRIGHT: A mixolydian, whose flat seventh (the G
+; against an A root) is the whole colour, over the I - bVII - IV changes that
+; make an open road sound like one.
+;
+; EVOL AND EFB ARE NOT FREE. 12/24 is a tree-wide constant: two sound effects
+; write it back LITERALLY as the dry rest state (`room_a_ambience` when the
+; player leaves the cavern, `beam_end` when the saucer's beam stops), so a song
+; whose header disagrees leaves any rail using those effects in a rest state it
+; was never in. drive_song learned that from a red landing gate. The buffer
+; length and the FIR are this song's own, because nothing writes them back.
+#EchoLength 64
+#EchoVolume 12
+#EchoFeedback 24
+#FirFilter 72 36 12 4 2 1 0 0
+
+; A mixolydian written as the key signature's two sharps (f, c) with g left
+; NATURAL -- D major's signature is f+ c+, and A mixolydian is exactly D major
+; started on A, which is why the flat seventh needs no accidental anywhere
+; below.
+#KeySignature +fc
+
+@1 square_lead
+@2 saw
+@3 tri_bass
+@4 step
+@5 kick
+@6 pluck
+
+; ---------------------------------------------------------------------------
+; The kit does NOT touch the noise generator, for the reason drive_song's does
+; not: there is exactly one, and the driver zeroes the volume of any music
+; channel sharing it the moment an effect wants it (audio-driver.asm, the
+; `SfxNoise` branch). K0 on both drum channels, so the one-shots decay to zero
+; on their own rather than being choked by a key-off, and their gaps are `w`
+; waits -- a rest still keys off under K0.
+; ---------------------------------------------------------------------------
+!h  v6  o5 c%12
+!s  v13 o3 g%12
+!e  !h !h !s !h !h !h !s !h
+!k1 o3 c%24 c%24 c%24 c%12 c%12
+!k2 o3 c%24 c%24 c%36 c%12
+
+; The bass is one bar of straight eighths with the fifth on the offbeat, moved
+; by driver transpose: A _0 | G _-2 | D _+5. Transposition preserves the
+; interval, so the root-fifth shape comes out right on every chord without a
+; second copy of the rhythm.
+!bb o2 [a%12 >e%12 <a%12 >e%12]2
+
+; ---- A: the hook. Bright pulse, wet, and the tune this rail is remembered by.
+; EVERY BAR CARRIES ITS OWN OCTAVE, so a `>` inside one cannot leak into the
+; next -- the class of bug that is silent in MML and obvious on the chip. The
+; notes are chord tones of the bar they sit in: the changes are two bars each,
+; A - bVII - IV - A, and the first draft put a c+ on the downbeat of the G bar,
+; which is a tritone against it.
+A  L @1 v12 E1 Q7 MP18,l16,l16 l8
+A  o4 a4 >c+8 d8 e4. d8      | o5 c+4 <a4 b4 a8 g8
+A  o4 g4 b8 >d8 <b4 a4       | o4 g2. f+8 e8
+A  o4 f+4 a4 >d4 <a4         | o4 d4 e4 f+4 a4
+A  o4 a4 >c+8 d8 e2          | o5 d4 c+4 <a2
+; ---- and the second half, up an octave for the turn onto the straight
+A  o5 a4 g8 f+8 e4. d8       | o5 c+4 <a4 b4 >c+8 d8
+A  o4 b4 >d4 <b4 a4          | o4 g2. a8 b8
+A  o4 >d4 <a4 f+4 a4         | o5 d4 <a4 f+4 d4
+A  o4 a4 >c+8 d8 e2          | o4 a1
+
+; ---- B: the harmony. Saw a third under the hook's long notes, dry and
+;         panned left, so the two read as one voice widened rather than two.
+; A SUSTAINED PAD rather than a second tune: two chord tones a bar, under the
+; hook's first half only, so the two read as one voice widened rather than two
+; competing. It leaves the second half to the lead alone, which is the loudest
+; thing this arrangement does with dynamics.
+B  L @2 v6 E0 Q6 p44 l8
+B  o4 e2 c+2                 | o4 e2 a2
+B  o4 d2 b2                  | o4 d1
+B  o4 a2 f+2                 | o4 a1
+B  o4 e2 c+2                 | o4 e1
+B  r1 | r1 | r1 | r1 | r1 | r1 | r1 | r1
+
+; ---- C: bass. Root and fifth in eighths, dry. I - bVII - IV - I, two bars
+;         each, which is the changes the whole piece sits on.
+C  L @3 v13 E0 Q6
+C  _0 !bb !bb _-2 !bb !bb _+5 !bb !bb _0 !bb !bb
+C  _0 !bb !bb _-2 !bb !bb _+5 !bb !bb _0 !bb !bb
+
+; ---- D: the offbeat chord stab, the thing that makes it move. Pluck, quiet,
+;         panned right, on the AND of every beat and nowhere else.
+D  L @6 v7 E1 p92 o4
+D  [r8 {{c+ea}}8,%2 r8 {{c+ea}}8,%2 r8 {{c+ea}}8,%2 r8 {{c+ea}}8,%2]2
+D  [r8 {{dgb}}8,%2 r8 {{dgb}}8,%2 r8 {{dgb}}8,%2 r8 {{dgb}}8,%2]2
+D  [r8 {{df+a}}8,%2 r8 {{df+a}}8,%2 r8 {{df+a}}8,%2 r8 {{df+a}}8,%2]2
+D  [r8 {{c+ea}}8,%2 r8 {{c+ea}}8,%2 r8 {{c+ea}}8,%2 r8 {{c+ea}}8,%2]2
+D  r1 r1 r1 r1 r1 r1 r1 r1
+
+; ---- E: snare and hat.   ---- F: kick, with the fill going into the B half.
+; Nothing is written to G or H: those are the two channels the driver ducks
+; while a sound effect plays, so leaving them empty means no part of the song
+; disappears when the game makes a noise.
+E  L @4 K0 E0
+E  [!e ]16
+F  L @5 v16 K0 E0
+F  [!k1 !k1 !k1 !k2 ]4

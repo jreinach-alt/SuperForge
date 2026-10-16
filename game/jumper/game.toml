@@ -35,7 +35,16 @@
 #
 # NOT COMPOSED, each for a reason:
 #   bg_text  -- no text in this rail; the picture is the whole of it.
-#   audio    -- this rail is silent: nothing queues music or SFX.
+#
+# AUDIO IS COMPOSED NOW, and it was not before. The old line here read "this
+# rail is silent: nothing queues music or SFX", which was a statement about
+# the rail rather than about the machine -- nothing stopped it, the cues had
+# simply never been written. What changed is that there are now cues worth
+# firing: `jump` at take-off and `thud` on the landing snap, the two moments
+# the physics step already names. The arc is the whole of this rail and both
+# ends of it are now audible.
+#   audio     the CPU-side request queue + the per-frame driver pump.
+#   tad_rom   the export blob's half-window ROM claim, pulled in beside it.
 #
 # REGION + TICK_SCALE. This rail is a BALLISTIC ARC and that is why it takes
 # the timebase: an arc has TWO region scales, not one. Velocity is px per
@@ -54,7 +63,7 @@
 # grounded flag, which is why it is the cheapest place in the tree to read
 # the two-constant discipline.
 globals = ["scene_mgr", "fade", "input", "oam_sprites", "jumper_rom",
-           "region", "tick_scale"]
+           "audio", "tad_rom", "region", "tick_scale"]
 
 [[scene]]
 id = "sky"

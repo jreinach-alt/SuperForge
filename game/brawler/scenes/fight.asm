@@ -545,7 +545,9 @@ enemy_step:
     .a16
     .i16
     stz z:US_EMOV
-    ; ---- face + walk toward the player, axis by axis ---------------------
+
+
+; ---- face + walk toward the player, axis by axis ---------------------
     lda z:US_EX
     cmp z:US_PX
     beq @no_x
@@ -695,6 +697,8 @@ swing_check:
     ; ---- landed: latch, stagger him, take a point off ---------------------
     lda #1
     sta z:US_AHIT
+    lda #SFX::hit               ; the swing connects — one per landed swing,
+    jsr br_sfx                  ;   the latch above is what makes it one
     lda #BR_STUN_T
     sta z:US_ESTUN
     lda #BR_HUD_PUMP
@@ -707,6 +711,8 @@ swing_check:
     lda z:US_WINS
     inc a
     sta z:US_WINS
+    lda #SFX::chime             ; a win CONFIRMS: bell, not another thump, so
+    jsr br_sfx                  ;   the KO cannot be mistaken for the hit
     lda #BR_RESPAWN_T
     sta z:US_ERESP
 @none:
@@ -757,6 +763,8 @@ contact_check:
     lda z:US_HP
     dec a
     sta z:US_HP
+    lda #SFX::thud              ; taking it, not dealing it — same `step`
+    jsr br_sfx                  ;   sample as `hit` but no noise transient
     lda #BR_HUD_PUMP
     sta z:US_HUDP
     lda #BR_INV_T
@@ -891,5 +899,23 @@ s_over: .byte "GAME OVER"
 s_over_end:
         .byte 0
 .assert (s_over_end - s_over) = BR_OVER_LEN, error, "the GAME OVER pump length disagrees with the string it pumps"
+
+
+; --- br_sfx: queue the sound effect named in A ------------------------------
+; In: A16 = the SFX:: id (low byte). In/out: A16/I16, DB=0. Clobbers A.
+;
+; WIDTH-RISK: sf_sfx_queue_c declares `entry: A8 I16 DB=0` and this rail calls
+; it from A16 code, so the sep/rep pair is load-bearing and lives here rather
+; than at each call site. X survives it, which is why this is the centred entry
+; point rather than an `ldx` for a pan.
+br_sfx:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    jsr sf_sfx_queue_c
+    rep #$20
+    .a16
+    rts
 
 .endscope

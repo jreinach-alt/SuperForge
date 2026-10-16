@@ -32,8 +32,25 @@
 #                   x obstacle window test in z and lateral x; the grid is pure
 #                   backdrop, which is the rail's headline (the projection is
 #                   decoupled from the matrix).
-#   audio        -- this rail is silent. A soundtrack would be content, not
-#                   mechanism, and the pool is the mechanism on show.
+#   audio        -- COMPOSED (2026-09-09). The line here used to read "this
+#                   rail is silent. A soundtrack would be content, not
+#                   mechanism, and the pool is the mechanism on show." That was
+#                   true when written and the Phase 1 pass made it false: the
+#                   content exists now, and it is the same expiry `m7_oshoot`'s
+#                   reason had. Two cues, and neither touches `rs_logic`:
+#                     laser      -- ES_INP_PRESS's A bit, the EXACT word
+#                                   rs_fire bails on, read one instruction
+#                                   above it. An edge by construction, so no
+#                                   latch.
+#                     explosion  -- `score`'s CHANGE. The counter is this
+#                                   rail's own declared word that rs_logic
+#                                   fills, so the cue is the game's to make.
+#                                   Declared `both`, which means it may take
+#                                   EITHER sfx channel and so can OVERLAP the
+#                                   laser rather than replace it. The ring
+#                                   hands over one id per frame either way, so
+#                                   on a frame that both fires and kills the
+#                                   second arrives on the next one.
 # REGION + TICK_SCALE (docs/94 R0, docs/96 §4). THE STATE STEP IS THE UNIT
 # here and it is not a preference — it is the only thing that keeps this rail's
 # GROUND LOCK intact. rail.asm's "THE RAIL IN TWO REGIONS" is the derivation;
@@ -43,6 +60,7 @@
 # INVARIANT for an actor across its whole flight"), and three independent
 # accumulators would let that invariant drift.
 globals = ["scene_mgr", "input", "fade", "oam_sprites", "enter_scr",
+           "audio", "tad_rom",
            "pose_rom", "pool", "rs_rom",
            "region", "tick_scale"]
 

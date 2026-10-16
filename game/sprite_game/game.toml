@@ -31,8 +31,11 @@
 # whole of the motion, there is no clamp to interact with, and nothing else on
 # the rail is counted in frames at all.
 globals = ["scene_mgr", "input", "fade", "oam_sprites", "sprg_rom",
+           "audio", "tad_rom",
            "region", "tick_scale"]
 
 [[scene]]
 id = "play"
 features = ["backdrop", "sprg_obj"]
+
+# AUDIO, composed in the Phase 2 pass. The catch is a discrete instant with one site and it self-debounces: the dot teleports on the frame it is caught, so one pass is one catch and the cue needs no edge test of its own.

@@ -48,6 +48,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import run_make
+
 SUPERFORGE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SUPERFORGE / "vendor"))
 sys.path.insert(0, str(SUPERFORGE / "tests"))
@@ -83,8 +85,7 @@ def probe():
     incomplete (vendor/mesen_runner.py:108-111) — which is why the probe shipped
     reading two never-written bytes without the suite noticing.
     """
-    r = subprocess.run(["make", "probe-colmap"], cwd=SUPERFORGE,
-                       capture_output=True, text=True)
+    r = run_make("probe-colmap")
     assert r.returncode == 0, f"make probe-colmap failed:\n{r.stdout}\n{r.stderr}"
     jmap = json.loads(
         (SUPERFORGE / "build" / "colmap_map" / "symbol_map.json").read_text())

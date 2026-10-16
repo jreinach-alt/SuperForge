@@ -1,0 +1,39 @@
+# platformer_stream user state.
+#
+# ONE WORD, AND IT EXISTS SO A FEATURE DOES NOT HAVE TO MAKE A NOISE.
+#
+# The jump and the landing are this rail's two audible moments, and both are
+# computed inside `pfs_logic` — a `role = "game_logic"` feature that owns the
+# player's physics in its own dp claim and writes PL_GROUND. The obvious move
+# is to queue the cues where the transitions happen, inside the feature. That
+# would be wrong, and it is worth saying why rather than only doing otherwise:
+#
+#   * A feature that queues a sound effect DEPENDS ON `audio`, so every rail
+#     composing it would have to compose `audio` too — the physics and the
+#     soundtrack welded together, with no way to take one without the other.
+#   * The cue would then be the FEATURE's, not the game's. Which sound a jump
+#     makes is a game decision; that a jump happened is a mechanism fact.
+#
+# So the feature keeps publishing PL_GROUND and stays silent, and the RAIL
+# latches it. That is the same shape as `maze`'s `cell` and `jumper`'s
+# `jr_ground` — the cue lives on the EDGE, in state the game owns — and here it
+# also crosses a feature boundary, which is the precedent: A FEATURE PUBLISHES
+# STATE; THE GAME DECIDES WHETHER THAT STATE MAKES A SOUND.
+#
+# One latch serves BOTH cues, because PL_GROUND's two edges are the two events:
+# 1 -> 0 is the take-off, 0 -> 1 is the landing.
+#
+# NO [init]-style zero fill: `enter` writes it from PL_GROUND after pfs_logic's
+# own arm has run, so the first tick compares against a real value rather than
+# power-on garbage (rule 5).
+[scene.play]
+gnd = "u16@dp"           # the previous value of PL_GROUND — what makes the
+                         # cue an EDGE rather than a state. A cue on the state
+                         # would fire on every frame the player rests on a
+                         # floor.
+                         # TICK: ok — a copy of a BOOLEAN, not a count of
+                         # anything. The frame-assumption lint reads the word
+                         # for "previous update" as a declared frame unit, but
+                         # nothing here scales with the frame rate: grounded is
+                         # grounded on both machines, and the arc that crosses
+                         # the edge is already region-scaled inside pfs_logic.

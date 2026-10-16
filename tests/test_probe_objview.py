@@ -19,6 +19,8 @@ import sys
 from pathlib import Path
 
 import pytest
+
+from conftest import run_make
 from PIL import Image
 
 SUPERFORGE = Path(__file__).resolve().parent.parent
@@ -41,8 +43,7 @@ def _snes8(word: int) -> tuple:
 @pytest.fixture(scope="module")
 def probe():
     """Build the probe through its own make target; hand back paths + map."""
-    r = subprocess.run(["make", "probe-objview"], cwd=SUPERFORGE,
-                       capture_output=True, text=True)
+    r = run_make("probe-objview")
     assert r.returncode == 0, f"make probe-objview failed:\n{r.stdout}\n{r.stderr}"
     jmap = json.loads(
         (SUPERFORGE / "build" / "objv_map" / "symbol_map.json").read_text())

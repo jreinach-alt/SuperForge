@@ -22,6 +22,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import run_make
+
 SUPERFORGE = Path(__file__).resolve().parent.parent
 FIX = SUPERFORGE / "tests" / "fixtures" / "no_wallclock"
 sys.path.insert(0, str(SUPERFORGE / "tools"))
@@ -203,8 +205,7 @@ def test_make_time_check_is_clean_on_this_tree():
     tree fails HERE, in a named test, instead of at someone's push."""
     env = {k: v for k, v in os.environ.items()
            if k not in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL")}
-    r = subprocess.run(["make", "time-check"], cwd=SUPERFORGE, env=env,
-                       capture_output=True, text=True)
+    r = run_make("time-check", env=env)
     assert r.returncode == 0, \
         f"make time-check is not clean:\n{r.stdout}\n{r.stderr}"
 

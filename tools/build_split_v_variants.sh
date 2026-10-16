@@ -49,7 +49,12 @@ build_variant() {
     # shellcheck disable=SC2086
     ca65 --cpu 65816 $INC --bin-include-dir "$BUILD/assets" "$@" \
         -o "$BUILD/$name.o" "$SRC"
-    ld65 -C "$VROM/lorom_512k.cfg" -o "$BUILD/$name.sfc" \
+    # 64 KB, the same config the rail itself links with: these variants ARE
+    # split_v_fight with one -D flag, and a variant in a different size class
+    # from the rail it varies would be a difference the comparison does not
+    # intend. The rail moved when tad_export shrank to a half-window claim and
+    # its whole allocation fitted one window.
+    ld65 -C "$VROM/lorom_64k.cfg" -o "$BUILD/$name.sfc" \
         "$BUILD/$name.o" "$BUILD/sv_tad_wrapper.o" "$BUILD/sv_tad_data.o"
     python3 tools/fix_checksum.py "$BUILD/$name.sfc" >/dev/null
     echo "built $BUILD/$name.sfc"

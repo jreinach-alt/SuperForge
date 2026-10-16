@@ -247,6 +247,23 @@ move_player:
 ; In/out: A16/I16, DB=0. ES_INP_PRESS is `cur & ~prev`, so a HELD A sets it on
 ; exactly one frame — which is the edge-vs-level lesson, and what makes
 ; "hold A for ten frames, the counter reads 1" a real assertion.
+; --- hud_sfx: queue the sound effect named in A -----------------------------
+; In: A16 = the SFX:: id (low byte). In/out: A16/I16, DB=0. Clobbers A.
+;
+; WIDTH-RISK: sf_sfx_queue_c declares `entry: A8 I16 DB=0` and this rail calls
+; it from A16 code, so the sep/rep pair is load-bearing and lives here rather
+; than at the call site. X survives it, which is why this uses the centred
+; entry point rather than loading a pan into X.
+hud_sfx:
+    .a16
+    .i16
+    sep #$20
+    .a8
+    jsr sf_sfx_queue_c
+    rep #$20
+    .a16
+    rts
+
 bump_score:
     .a16
     .i16
@@ -257,6 +274,14 @@ bump_score:
 @bump:
     .a16
     .i16
+    ; THE POINT YOU HEAR, and it needs no latch: this arm is reached only on
+    ; ES_INP_PRESS's A bit, which the `input` feature publishes as the RISING
+    ; edge, so it runs at most once per press however long A is held. That is
+    ; the same by-construction shape as `sprite_game`'s catch and `jumper`'s
+    ; take-off, and the opposite of a cue read off a level (`maze`'s walk,
+    ; `microzero`'s lap counter) which has to declare a `prev` word.
+    lda #SFX::pickup
+    jsr hud_sfx
     ; SCORE IS PACKED BCD. `sed` + a 16-bit adc gives four decimal digits, and
     ; bg_text's hex4 nibble walk then prints them as decimal for free — a
     ; decimal formatter this game does not have to own (breaker and shmup

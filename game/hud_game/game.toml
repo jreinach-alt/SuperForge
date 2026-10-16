@@ -30,7 +30,16 @@
 # level lesson holding under the region change: the held d-pad is a rate and
 # scales, the pressed button is an edge and does not.
 globals = ["scene_mgr", "input", "fade", "text_dp", "font_rom", "enter_scr",
-           "oam_sprites", "hud_rom", "region", "tick_scale"]
+           "oam_sprites", "hud_rom", "audio", "tad_rom",
+           "region", "tick_scale"]
+
+# AUDIO, composed 2026-09-09. ONE CUE and no latch anywhere, which is the whole
+# entry: `bump_score` is already gated on ES_INP_PRESS's A bit — the `input`
+# feature publishes the RISING edge, not the held state — so a `pickup` on its
+# @bump arm runs at most once per press however long A is held. The same
+# by-construction shape as `sprite_game`'s catch, and the opposite of a cue
+# read off a level, which has to declare a `prev` word (`maze`'s stride,
+# `microzero`'s lap).
 
 [[scene]]
 id = "play"

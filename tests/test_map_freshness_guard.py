@@ -213,7 +213,19 @@ def test_the_tree_agrees_with_the_rule():
         # directions — and it is why the three edits belong in one commit.
         "test_mode7_flight.py": ["build/m7f/symbol_map.json"],
         "test_m7_dungeon.py": ["build/m7dg/symbol_map.json"],
+        # Its audio module reads the same map: US_HITS, US_POSX/Y and the
+        # new US_ONWIN all come from the allocator, never from a literal.
+        "test_m7_dungeon_audio.py": ["build/m7dg/symbol_map.json"],
         "test_breaker.py": ["build/bk/symbol_map.json"],
+        # The SFX-queue module, on boss_saucer — the rail whose tick order
+        # makes a same-frame cue collision forceable rather than hoped for.
+        # Its map went into conftest.MAPS ("boss_saucer") and _SUBDIR_MAP
+        # ("sau") with this entry, and `make rail-registered` demanded all
+        # three in turn: sites 4 and 5 first, then this one. Unregistered, the
+        # resolver falls back to the TOY map and the module is checked for
+        # freshness against another game entirely — the silent failure that
+        # site 5's message calls out by name.
+        "test_sfx_queue.py": ["build/sau/symbol_map.json"],
         # an earlier phase a later sweep, same shape: its map IS in
         # conftest.MAPS ("shmup").
         "test_shmup.py": ["build/sh/symbol_map.json"],
@@ -245,6 +257,9 @@ def test_the_tree_agrees_with_the_rule():
         # about the same fact from two directions — and it is why the two
         # edits belong in one commit.
         "test_mode7_explore.py": ["build/m7x/symbol_map.json"],
+        # Its audio module reads the same map: the DP addresses its two
+        # drives steer from (US_CAM_PX / US_CAM_PY) come from the allocator.
+        "test_mode7_explore_audio.py": ["build/m7x/symbol_map.json"],
         # an earlier phase a later sweep, same shape: its map IS in conftest.MAPS
         # ("platformer_stream") and in _SUBDIR_MAP ("pfs"). Same pairing as the
         # two entries above — registering it moved that rail from "sites 5+6
@@ -262,11 +277,36 @@ def test_the_tree_agrees_with_the_rule():
         # list stays hand-reviewed — see the docstring above for why a
         # second scan cannot replace it.)
         "test_hud_game.py": ["build/hud/symbol_map.json"],
+        # Its audio module reads the same map, for the same reason: the DP
+        # address of `score` — the counter its non-vacuity case asserts moved
+        # — comes from the allocator, never from a literal.
+        "test_hud_game_audio.py": ["build/hud/symbol_map.json"],
         "test_scroller.py": ["build/scr/symbol_map.json"],
         "test_lakeside.py": ["build/lks/symbol_map.json"],
+        # Its audio module reads the same map: ES_WAT_SCROLL is what its
+        # scene-live wait reads (the manager's own byte flips 16 frames
+        # early, so the drive waits on the scene's OUTPUT instead), and
+        # US_STILLED / US_WAVE carry the cue's own state. All allocator
+        # dp placements, never literals.
+        "test_lakeside_audio.py": ["build/lks/symbol_map.json"],
         "test_heathaze.py": ["build/hz/symbol_map.json"],
+        # Its audio module reads the same map: `US_FLAT` — the flat
+        # control whose move is that module's non-vacuity check — is the
+        # allocator's dp placement, never a literal.
+        "test_heathaze_audio.py": ["build/hz/symbol_map.json"],
         "test_smelter.py": ["build/smt/symbol_map.json"],
+        # Its audio module reads the same map: the flat/offset control
+        # (ES_SMT_FLATSEL) whose alternation is the cue drive's
+        # non-vacuity check, the animation phase the idle drive proves
+        # advanced, and ES_SM_CTL — all allocator addresses, never
+        # literals. The scene ids come from the same file's declared
+        # edges rather than from a hand-written 0 and 1.
+        "test_smelter_audio.py": ["build/smt/symbol_map.json"],
         "test_mill.py": ["build/mil/symbol_map.json"],
+        # Its audio module reads the same map: the lift words its ride
+        # drive waits on (ES_MIL_DOOR / _PX / _CAR / _ARRIVE) are the
+        # allocator's, never literals.
+        "test_mill_audio.py": ["build/mil/symbol_map.json"],
         "test_aurora.py": ["build/aur/symbol_map.json"],
         "test_camera_follow.py": ["build/cf/symbol_map.json"],
         # Same family, same shape: its map IS in conftest.MAPS
@@ -293,6 +333,12 @@ def test_the_tree_agrees_with_the_rule():
         # `make rail-registered`, so this guard and that gate agree about the
         # same fact from two directions.
         "test_scroll_run.py": ["build/sr/symbol_map.json"],
+        # The audio module reads the SAME map, and for the same reason —
+        # the DP addresses its closed-loop drive steers from (US_PX,
+        # US_STATE) come from the allocator, never from a literal. Reviewed
+        # separately because the guard's scanner keys on the MODULE, not on
+        # the rail.
+        "test_scroll_run_audio.py": ["build/sr/symbol_map.json"],
         # A later sweep, same shape ("split_h_demo" / "shd").
         "test_split_h_demo.py": ["build/shd/symbol_map.json"],
         "test_brawler.py": ["build/br/symbol_map.json"],
@@ -323,6 +369,9 @@ def test_the_tree_agrees_with_the_rule():
         # railshooter (the POOL debut): same shape — the
         # module reads its rail's map at COLLECTION time.
         "test_railshooter.py": ["build/rs/symbol_map.json"],
+        # Its audio module reads the same map: `score`, the counter its
+        # non-vacuity case asserts moved, is placed by the allocator.
+        "test_railshooter_audio.py": ["build/rs/symbol_map.json"],
         # m7_oshoot : same shape again — the module reads its
         # rail's map at COLLECTION time to address the pool arrays, the matrix
         # shadow and the census words by SYMBOL rather than by literal.

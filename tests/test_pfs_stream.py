@@ -73,6 +73,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import run_make
+
 SUPERFORGE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SUPERFORGE / "vendor"))
 
@@ -145,8 +147,7 @@ def probe():
     identical argument is written out in tests/test_col_map.py's fixture,
     where probing shared game state cost 60 stale coordinates out of 512.
     """
-    r = subprocess.run(["make", "probe-pfs"], cwd=SUPERFORGE,
-                       capture_output=True, text=True)
+    r = run_make("probe-pfs")
     assert r.returncode == 0, f"make probe-pfs failed:\n{r.stdout}\n{r.stderr}"
     jmap = json.loads(
         (SUPERFORGE / "build" / "pfs_map" / "symbol_map.json").read_text())
