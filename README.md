@@ -1,3 +1,5 @@
+<p align="center"><img src=".github/superforge-logo.svg" alt="SuperForge: build worlds in 16 bits" width="640"></p>
+
 # SuperForge
 
 An SNES game engine built around a **declarative resource allocator**. You
