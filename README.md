@@ -10,7 +10,8 @@ collision-free before it emits a byte. An infeasible composition stops the
 build. A raw address literal stops the build.
 
 Games are hand-written WDC 65816 assembly (ca65/ld65 → `.sfc`) running on real
-hardware at a hard 60 fps, with ~28–37k CPU cycles per frame to spend.
+hardware at a hard 60 fps, with ~28–37k CPU cycles per frame to spend on your
+imagination.
 
 ![mode7_flight — free flight over a Mode 7 floor](docs/img/gif_mode7_flight.gif)
 
