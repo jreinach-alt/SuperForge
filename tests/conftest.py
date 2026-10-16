@@ -284,6 +284,18 @@ def repo_tree_read_lock():
 # False is what makes this cheap to leave on — the ordinary, correct teardown
 # is not a finding, and only an actually-wedged core is.
 #
+# WHAT THAT LAST SENTENCE DOES NOT COVER, now that it has been paid for once.
+# A `stop()`ed core reads False here and that is the right answer to the
+# question this guard asks — but such a core is also ROM-LESS, and `stop()`
+# can arrive from `__del__`, in the MIDDLE of a later module, on a runner a
+# traceback cycle kept alive past its own. The red then lands inside the
+# victim as `RunFramesSync(...) failed: no ROM running`, and this guard is
+# silent twice over: wrong question (parked, not ROM-less) and wrong moment
+# (boundary, not mid-module). It is closed at the source rather than widened
+# into here, because no boundary check can see a mid-module event:
+# `mesen_runner._claim_core()` gives every load a ticket and a superseded
+# runner's `stop()` touches nothing. `tests/test_core_ownership.py`.
+#
 # WHY THE BOUNDARY AND NOT EVERY TEST. Parking WITHIN a module is the whole
 # point of frame-stepping; a test that parks and hands on to the next test in
 # the same module is fine, and several do exactly that. The hazard is a park

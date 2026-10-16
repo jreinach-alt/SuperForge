@@ -426,6 +426,22 @@ honest. Use `with runner.frame_stepping():` — the resume survives a failed
 assertion — or a yield-fixture whose teardown calls `stop()` (which resumes
 first).
 
+**And hand it back only while it is still yours.** The other half of the same
+fact is that `stop()` is DESTRUCTIVE — `Stop(0)` leaves the core with no ROM
+at all — and that a runner can outlive the module that made it.
+`MesenRunner.__del__` calls `stop()`, so a runner reached by a REFERENCE CYCLE
+is freed by the cyclic collector, at an allocation point its own module no
+longer controls; any `pytest.raises` over a runner call makes one, through the
+exception's traceback. Measured: `test_wait_primitives`'s `booted` runner —
+correctly stopped by its own yield-fixture — was collected in the middle of
+`test_split_h_2p_sprites.py` and unloaded the ROM a live `Machine` was
+driving, and the red read `RunFramesSync(1) failed: no ROM running` against
+the victim. The parked-core guard is silent on it twice over: it asks at
+module boundaries, and a `Stop(0)`ed core is not PARKED. So every load on
+either interface now takes a ticket (`mesen_runner._claim_core`) and a
+superseded runner's `stop()` touches nothing — you do not have to reason
+about when your runner dies. `tests/test_core_ownership.py` is the pin.
+
 **The one deliberate exception is audio**, which is a recording of real time
 and stays wall-clock (`tests/test_slice_b_audio.py:17-19`, and the
 `enable_audio=True` runner in `tests/test_runner_guard.py` for the same

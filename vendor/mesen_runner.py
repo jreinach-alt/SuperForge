@@ -1052,6 +1052,70 @@ _GLOBAL_INIT_DONE: bool = False
 _GLOBAL_INIT_PARAMS: Optional[tuple] = None  # (core_path, home_dir, no_audio)
 
 
+# --- who owns the core right now (the load generation) ---------------------
+#
+# The core is a process-global singleton with TWO interfaces onto it —
+# `MesenRunner` here and the lockstep `Machine` (vendor/machine.py) — and
+# only ONE ROM. `Machine` already models that: a second `LoadRomParked`
+# STEALS the core and the superseded handle's methods refuse rather than
+# silently operating the new machine's state.
+#
+# `stop()` had no such notion, and `stop()` is destructive: it calls
+# `Stop(0)`, which leaves the core with NO ROM. So a runner that is no
+# longer the owner could still unload someone else's cartridge. That is not
+# hypothetical and it is not rare — `__del__` calls `stop()`, and a runner
+# reached by a REFERENCE CYCLE (any `pytest.raises` over a runner call
+# retains the runner through the exception's traceback) is freed by the
+# CYCLIC collector, at an arbitrary allocation point that can be minutes
+# later and several modules downstream. Measured on this tree: the
+# `booted` runner of `tests/test_wait_primitives.py` — correctly
+# `stop()`ped by its own yield-fixture, then retained by that module's
+# `pytest.raises(TimeoutError)` tracebacks — was collected in the middle of
+# `tests/test_split_h_2p_sprites.py`, where its `__del__` re-issued
+# `Stop(0)` and pulled the ROM out from under a live `Machine`. The red read
+# `MachineError: RunFramesSync(1) failed: no ROM running`, named the victim,
+# and was invisible to conftest's parked-core guard (the guard asks
+# `IsExecutionStopped()` at MODULE BOUNDARIES, and a `Stop(0)`ed core reads
+# False — the guard's own comment records that as deliberately not a
+# finding).
+#
+# So: every successful load takes a TICKET, and a destructive call checks
+# its ticket against the incumbent first. A monotonic counter rather than
+# the loader object itself, deliberately — an owner reference would keep
+# the previous owner alive (the exact lifetime problem being fixed) and
+# `id()` is reusable once an object is freed.
+_CORE_LOAD_GENERATION: int = 0
+
+
+def _claim_core() -> int:
+    """Take ownership of the process-global core. Returns the new ticket.
+
+    Called by EVERY successful ROM load on either interface —
+    `MesenRunner.load_rom` and friends here, `Machine.__init__` in
+    vendor/machine.py — because a load is what replaces the core's ROM.
+    """
+    global _CORE_LOAD_GENERATION
+    _CORE_LOAD_GENERATION += 1
+    return _CORE_LOAD_GENERATION
+
+
+def _core_generation() -> int:
+    """The incumbent owner's ticket; 0 when nothing has ever loaded."""
+    return _CORE_LOAD_GENERATION
+
+
+def core_has_rom() -> bool:
+    """Does the process-global core currently hold a ROM?
+
+    The core's own answer (`Emulator::IsRunning()` is `_console != nullptr`),
+    not a flag any handle keeps — which is the whole point, since the
+    failure this guards against is exactly one handle's bookkeeping
+    disagreeing with the core. False before the first load and after a
+    `Stop(0)`.
+    """
+    return bool(_GLOBAL_LIB is not None and _GLOBAL_LIB.IsRunning())
+
+
 # --- dlopen-order hazard with scientific Python stack (issue #123, part 2) ---
 #
 # Even with the InitDll/InitializeEmu deduplication above, a separate failure
@@ -1241,7 +1305,14 @@ def _bind_global_functions(lib: ctypes.CDLL) -> None:
         lib.GetProgramCounter.restype = ctypes.c_uint32
         lib.GetProgramCounter.argtypes = [ctypes.c_uint32, ctypes.c_bool]
 
-    lib.IsRunning.restype = ctypes.c_int
+    # `DllExport bool __stdcall IsRunning()` (InteropDLL/EmuApiWrapper.cpp:187)
+    # over `Emulator::IsRunning() { return _console != nullptr; }`
+    # (Core/Shared/Emulator.h:236) — i.e. "the core holds a ROM". It returned
+    # `c_int` here, which reads the three bytes of register residue above the
+    # bool as part of the value (measured: 374448641 / 374448640 for
+    # true / false), so every caller would have had to know to mask. There
+    # were none; `core_has_rom()` is the first.
+    lib.IsRunning.restype = ctypes.c_bool
     lib.IsRunning.argtypes = []
 
     lib.SetInputOverrides.restype = None
@@ -1661,6 +1732,9 @@ class MesenRunner:
         self._initialized = False
         self._rom_loaded = False
         self._debugger_active = False
+        # This runner's claim on the process-global core (see _claim_core).
+        # 0 = never loaded a ROM, so it owns nothing and may not Stop(0).
+        self._core_gen = 0
         # Deterministic frame-stepping state (S7 M1). True while this
         # runner has execution parked via debug_break()/frame_step().
         self._frame_stepping = False
@@ -1832,6 +1906,7 @@ class MesenRunner:
         if not loaded:
             raise RuntimeError(f"Mesen2 failed to load ROM: {abs_path}")
         self._rom_loaded = True
+        self._core_gen = _claim_core()
         self._apply_free_run_speed()
 
         # Let the emulation run
@@ -1936,6 +2011,7 @@ class MesenRunner:
         if not loaded:
             raise RuntimeError(f"Mesen2 failed to load ROM: {abs_path}")
         self._rom_loaded = True
+        self._core_gen = _claim_core()
         if not self._debugger_active:
             self._lib.InitializeDebugger()
             self._debugger_active = True
@@ -3139,6 +3215,7 @@ class MesenRunner:
         if not loaded:
             raise RuntimeError(f"Mesen2 failed to load ROM: {abs_path}")
         self._rom_loaded = True
+        self._core_gen = _claim_core()
 
         self._apply_free_run_speed()
         if not self._debugger_active:
@@ -3171,8 +3248,34 @@ class MesenRunner:
         which makes a subsequent ``load_rom`` cleanly start a fresh
         ROM session and (critically) prevents the running emulator from
         racing the DSO unloader at interpreter exit.
+
+        **Only if this runner still OWNS the core.** ``Stop(0)`` leaves the
+        core with no ROM at all, and by the time this runs the core may
+        belong to someone else — another runner, or a lockstep ``Machine``.
+        A superseded runner therefore drops its own bookkeeping and touches
+        nothing: see ``_claim_core`` for the measured failure this closes
+        (``__del__`` reaching a runner through a traceback cycle, modules
+        after its own, and unloading a live ``Machine``'s cartridge).
+
+        The resume is skipped on that path for the same reason and not as
+        an oversight: a superseded runner's ``_frame_stepping`` describes a
+        park that the intervening load already cleared, so resuming would
+        not be a no-op — it would UNPARK whoever owns the core now, which
+        for a ``Machine`` is its entire invariant.
+
+        Process exit is unaffected: ``_global_atexit`` issues its ``Stop(0)``
+        against the library directly and owns no ticket, so the issue #123
+        clean-teardown property still holds however many runners were
+        superseded.
         """
         if self._initialized and self._lib is not None:
+            if self._core_gen != _core_generation():
+                # Not ours any more. Say so on the instance and leave the
+                # core alone.
+                self._rom_loaded = False
+                self._debugger_active = False
+                self._frame_stepping = False
+                return
             # If this runner left execution parked (frame-stepping mode),
             # resume free-running first so Stop() doesn't race a sleeping
             # break loop and the next load_rom starts from a clean state.
