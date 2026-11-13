@@ -82,7 +82,8 @@ def test_good_toy_allocates_non_overlapping(tmp_path):
     assert "US_SCORE" in ginc and "SYS_STACK_TOP" in ginc
     assert "US_SCORE" not in inc and "SYS_STACK_TOP" not in inc
     jmap = json.loads((tmp_path / "symbol_map.json").read_text())
-    assert jmap["spaces"]["io_allowed"] == [[0x2100, 0x21FF], [0x4200, 0x43FF]]
+    assert jmap["spaces"]["io_allowed"] == [[0x2100, 0x21FF], [0x4016, 0x4017],
+                                            [0x4200, 0x43FF]]
 
 
 def test_cli_good_toy_exit_zero(tmp_path):

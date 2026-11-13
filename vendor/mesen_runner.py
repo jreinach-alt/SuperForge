@@ -1498,6 +1498,58 @@ def _apply_poweron_state(cfg: "_SnesConfig") -> None:
         )
 
 
+# --- Port 2: a plain pad (the default) or a four-pad adapter --------------
+# docs/102. Mesen's `ControllerType` enum value for its `Multitap` device is
+# 4 in the shipped core — MEASURED, not transcribed: with Port2.Type = 4 and
+# the four sub-ports SnesController, `HasControlDevice(4)` answers true after
+# the load and `GetAvailableInputOverrides` reports indices 0-4 live (0-1
+# without it). SetInputOverrides index i then reaches: 0 = port 1, 1-4 = the
+# adapter's slots 1-4 in order (slot 1 -> $421A, slot 2 -> $421E, slot 3/4 ->
+# $4017 bits 0/1 under WRIO.7 = 0). docs/102 §7.1 has the probe.
+#
+# THE DEFAULT IS UNTOUCHED BY CONSTRUCTION. `_PORT2_MODE` starts as a plain
+# pad and `ensure_port2_device` issues a SetSnesConfig ONLY when the requested
+# mode differs from the current one, so a process that never asks for the
+# adapter never makes a config call it did not make before this existed.
+# Every load site (MesenRunner's four, Machine's one) pins the mode its
+# caller asked for — default: a plain pad — so an adapter requested by one
+# module cannot leak into the next module's load.
+PORT2_PAD = "pad"
+PORT2_MULTITAP = "multitap"
+_CONTROLLER_TYPE_SNES_CONTROLLER = 1
+_CONTROLLER_TYPE_MULTITAP = 4
+_PORT2_MODE = PORT2_PAD
+
+
+def _apply_port2(cfg: "_SnesConfig") -> None:
+    """Layer the current port-2 device onto `cfg` (a no-op for a plain pad)."""
+    if _PORT2_MODE == PORT2_MULTITAP:
+        cfg.Port2.Type = _CONTROLLER_TYPE_MULTITAP
+        for i in range(4):
+            cfg.Port2SubPorts[i].Type = _CONTROLLER_TYPE_SNES_CONTROLLER
+
+
+def ensure_port2_device(mode: str) -> bool:
+    """Make the NEXT ROM load see `mode` in controller port 2.
+
+    `mode` is PORT2_PAD or PORT2_MULTITAP. Returns True when the config was
+    changed. Mesen builds its control devices when a console is created, so
+    this must run BEFORE the load it is meant to affect — the load sites call
+    it for you. It re-applies the base config, so a `set_power_on_random_
+    latches(True)` made for the same load must come AFTER it.
+    """
+    global _PORT2_MODE
+    if mode not in (PORT2_PAD, PORT2_MULTITAP):
+        raise ValueError(f"port 2 device must be {PORT2_PAD!r} or "
+                         f"{PORT2_MULTITAP!r}, got {mode!r}")
+    if mode == _PORT2_MODE:
+        return False
+    _PORT2_MODE = mode
+    if _GLOBAL_INIT_DONE and _GLOBAL_LIB is not None:
+        _GLOBAL_LIB.SetSnesConfig(_make_base_snes_config())
+    return True
+
+
 def _make_base_snes_config(force_random_latches: bool = False) -> "_SnesConfig":
     """Build the canonical harness SNES config.
 
@@ -1532,6 +1584,7 @@ def _make_base_snes_config(force_random_latches: bool = False) -> "_SnesConfig":
     # paid rather than gambled.
     cfg.DisableFrameSkipping = True
     cfg.RamPowerOnState = _RAMSTATE_RANDOM
+    _apply_port2(cfg)
     _apply_poweron_state(cfg)
     _apply_region(cfg)
     if force_random_latches:
@@ -1691,6 +1744,7 @@ class MesenRunner:
         home_dir: str = _DEFAULT_HOME_DIR,
         enable_audio: bool = False,
         fast_mode: bool = False,
+        port2: str = PORT2_PAD,
     ):
         """
         Args:
@@ -1709,7 +1763,16 @@ class MesenRunner:
                 detection). Default False to preserve existing test
                 semantics. Interactive preview consumers use it to
                 hit 60 fps end-to-end.
+            port2: the device in controller port 2 for every ROM this runner
+                loads — PORT2_PAD (default) or PORT2_MULTITAP, the four-pad
+                adapter whose slots 1-4 are ``set_input`` indices 1-4
+                (docs/102). Pinned at each load, so it cannot leak into
+                another runner's load.
         """
+        if port2 not in (PORT2_PAD, PORT2_MULTITAP):
+            raise ValueError(f"port2 must be {PORT2_PAD!r} or "
+                             f"{PORT2_MULTITAP!r}, got {port2!r}")
+        self._port2 = port2
         self._core_path = core_path
         self._home_dir = home_dir
         self._enable_audio = enable_audio
@@ -1902,6 +1965,7 @@ class MesenRunner:
             except Exception:
                 self._frame_stepping = False
 
+        ensure_port2_device(self._port2)
         loaded = self._lib.LoadRom(abs_path.encode("utf-8"), None)
         if not loaded:
             raise RuntimeError(f"Mesen2 failed to load ROM: {abs_path}")
@@ -2007,6 +2071,7 @@ class MesenRunner:
                 self._frame_stepping = False
 
         # --- 1. Throwaway load: exists only so a debugger can attach --------
+        ensure_port2_device(self._port2)
         loaded = self._lib.LoadRom(abs_path.encode("utf-8"), None)
         if not loaded:
             raise RuntimeError(f"Mesen2 failed to load ROM: {abs_path}")
@@ -2036,6 +2101,7 @@ class MesenRunner:
 
         # --- 3. Reload while paused: fresh console, fresh (zeroed) counters,
         # first-instruction break planted before the emu thread starts.
+        ensure_port2_device(self._port2)
         loaded = self._lib.LoadRom(abs_path.encode("utf-8"), None)
         if not loaded:
             raise RuntimeError(f"Mesen2 failed to re-load ROM: {abs_path}")
@@ -3211,6 +3277,7 @@ class MesenRunner:
 
         os.makedirs(output_dir, exist_ok=True)
 
+        ensure_port2_device(self._port2)
         loaded = self._lib.LoadRom(abs_path.encode("utf-8"), None)
         if not loaded:
             raise RuntimeError(f"Mesen2 failed to load ROM: {abs_path}")
@@ -3319,7 +3386,9 @@ class MesenRunner:
         Requires debugger to be initialized (happens automatically after load_rom).
 
         Args:
-            controller_index: Controller port (0 = P1, 1 = P2).
+            controller_index: Controller (0 = P1, 1 = P2). With the
+                runner built ``port2=PORT2_MULTITAP``, 1-4 are the
+                adapter's slots 1-4 (docs/102).
             **buttons: Button states as keyword args.
                        Valid names: a, b, x, y, l, r, up, down, left, right,
                        select, start.
@@ -3704,7 +3773,9 @@ class MesenRunner:
         Args:
             n: Number of frames to advance (exact, verified against the
                 emulator's PPU frame counter).
-            controller_index: Controller port (0 = P1, 1 = P2).
+            controller_index: Controller (0 = P1, 1 = P2). With the
+                runner built ``port2=PORT2_MULTITAP``, 1-4 are the
+                adapter's slots 1-4 (docs/102).
             timeout_s: Initial stall deadline, in wall seconds; scales with
                 n by default. NOT a total budget — `_await_step` pushes it
                 forward on every scanline the emulator advances, so a

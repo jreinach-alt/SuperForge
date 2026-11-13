@@ -219,7 +219,8 @@ class Machine:
 
     def __init__(self, rom_path, seed: int = DEFAULT_POWERON_SEED,
                  uninit_detection: bool = False,
-                 core_path: Optional[str] = None):
+                 core_path: Optional[str] = None,
+                 port2: str = _mr.PORT2_PAD):
         rom_abs = os.path.abspath(str(rom_path))
         if not os.path.exists(rom_abs):
             raise FileNotFoundError(f"ROM not found: {rom_abs}")
@@ -279,9 +280,18 @@ class Machine:
                 "mesen_runner — it exports its resolution), or run this "
                 "Machine in its own process."
             )
+        if port2 not in (_mr.PORT2_PAD, _mr.PORT2_MULTITAP):
+            raise ValueError(f"port2 must be {_mr.PORT2_PAD!r} or "
+                             f"{_mr.PORT2_MULTITAP!r}, got {port2!r}")
         lib = _mr._global_initialize(
             resolved_core, _mr._DEFAULT_HOME_DIR, False)
         self._lib = _bind_lockstep(lib)
+        # The port-2 device is pinned for THIS load (docs/102). A no-op —
+        # no SetSnesConfig at all — when it already is what was asked, which
+        # is every default-path Machine in a process that never asked for
+        # the adapter.
+        _mr.ensure_port2_device(port2)
+        self.port2 = port2
         self._core_path = resolved_core
         self.rom_path = rom_abs
         self.rom_md5 = hashlib.md5(Path(rom_abs).read_bytes()).hexdigest()
@@ -349,8 +359,12 @@ class Machine:
         return (self.rom_md5, self.seed, tuple(self.input_log))
 
     def _raise(self, msg: str):
+        # The port-2 device is part of the trajectory; named only when it is
+        # not the default, so a two-pad failure reads exactly as it did.
+        dev = ("" if getattr(self, "port2", _mr.PORT2_PAD) == _mr.PORT2_PAD
+               else f", port 2 {self.port2}")
         raise MachineError(f"{msg}\n  replay triple: rom md5 {self.rom_md5}, "
-                           f"seed {self.seed:#x}, input log "
+                           f"seed {self.seed:#x}{dev}, input log "
                            f"{tuple(self.input_log)!r}")
 
     # --- the machine's own clock -----------------------------------------
@@ -391,7 +405,9 @@ class Machine:
     # --- advancing --------------------------------------------------------
 
     def advance(self, frames: int = 1, pad1: Optional[dict] = None,
-                pad2: Optional[dict] = None) -> "Machine":
+                pad2: Optional[dict] = None, pad3: Optional[dict] = None,
+                pad4: Optional[dict] = None,
+                pad5: Optional[dict] = None) -> "Machine":
         """Emulate exactly `frames` frames, both pads in a STATED state.
 
         Input semantics are the park-latch semantics the legacy runner
@@ -401,15 +417,33 @@ class Machine:
         WRAM effect of a press is visible in this call's own readback; the
         OAM effect one advance later (the constant one-frame presentation
         lag of the park point).
+
+        FOUR PADS (docs/102). `pad3` / `pad4` / `pad5` are override indices
+        2 / 3 / 4 — with a Machine built `port2=PORT2_MULTITAP`, the
+        four-pad adapter's slots 2, 3 and 4 (`pad2` is slot 1; the engine's
+        players 3 and 4 are slots 2 and 3, and no player reads slot 4). On
+        such a machine every slot is latched every advance under the same
+        released-unless-named rule. Without the adapter they are latched only
+        when passed, and then reach no device — which is what lets a test
+        prove the absent path ignores them. The input log grows its extra
+        entries only in those two cases, so a two-pad trajectory's log (and
+        its determinism record) is unchanged.
         """
         self._check_live()
         if frames < 1:
             raise ValueError(f"advance needs frames >= 1, got {frames}")
         self._latch(0, pad1)
         self._latch(1, pad2)
-        self.input_log.append((frames,
-                               tuple(sorted(k for k, v in (pad1 or {}).items() if v)),
-                               tuple(sorted(k for k, v in (pad2 or {}).items() if v))))
+        four = (self.port2 == _mr.PORT2_MULTITAP or pad3 is not None
+                or pad4 is not None or pad5 is not None)
+        if four:
+            self._latch(2, pad3)
+            self._latch(3, pad4)
+            self._latch(4, pad5)
+        names = lambda p: tuple(sorted(k for k, v in (p or {}).items() if v))
+        self.input_log.append((frames, names(pad1), names(pad2))
+                              + ((names(pad3), names(pad4), names(pad5))
+                                 if four else ()))
         _det_log("advance", frames, *self.input_log[-1][1:])
         before, _ = self._ppu()
         rc = self._lib.RunFramesSync(frames, _PARK_SCANLINE)
@@ -671,6 +705,9 @@ class Machine:
         try:
             self._latch(0, None)
             self._latch(1, None)
+            if self.port2 == _mr.PORT2_MULTITAP:
+                for i in (2, 3, 4):
+                    self._latch(i, None)
         except Exception:
             pass
         if hasattr(self._lib, "SetEmulationFlag"):

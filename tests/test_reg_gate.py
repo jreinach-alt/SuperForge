@@ -634,7 +634,7 @@ def test_equate_definitions_use_the_same_resolver_as_writes(tmp_path):
 # --------------------------------------------------------------------------
 
 def test_unnamed_port_write_fires(tmp_path):
-    """The confirmed default. $4201 (WRIO) is INSIDE io_allowed
+    """The confirmed default. $420D (MEMSEL) is INSIDE io_allowed
     but carries no REGISTER_FOOTPRINT name, so no claim can describe it — and
     the earlier gate `continue`d exactly that as "unnamed port: unclaimable,
     exempt". That is the
@@ -650,7 +650,7 @@ def test_unnamed_port_write_fires(tmp_path):
     assert r.returncode == 1, r.stdout + r.stderr
     reg = [ln for ln in r.stderr.splitlines() if "[reg]" in ln]
     assert len(reg) == 1, r.stderr
-    assert "$4201" in r.stderr
+    assert "$420D" in r.stderr
     assert "no REGISTER_FOOTPRINT name" in r.stderr
     assert "Add the name to `REGISTER_FOOTPRINT` first" in r.stderr
     # the refusal must name the escape hatch, not just the problem
@@ -1236,7 +1236,12 @@ def test_covering_names_is_the_reverse_lookup():
     assert schemas.register_covering_names(0x4216) == ("ALU",)
     assert schemas.register_covering_names(0x2141) == ("APUIO",)
     assert schemas.register_covering_names(0x2105) == ("BGMODE",)
-    assert schemas.register_covering_names(0x4201) == ()      # WRIO: unnamed
+    assert schemas.register_covering_names(0x420D) == ()      # MEMSEL: unnamed
+    # WRIO and the joypad pair carry names since docs/102 (the four-pad
+    # adapter declares them); $4017 is inside JOYSER's span.
+    assert schemas.register_covering_names(0x4201) == ("WRIO",)
+    assert schemas.register_covering_names(0x4016) == ("JOYSER",)
+    assert schemas.register_covering_names(0x4017) == ("JOYSER",)
     assert schemas.register_covering_names(0x2116) == ()      # VMADDL: a latch
 
 

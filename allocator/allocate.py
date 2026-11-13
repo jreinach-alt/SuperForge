@@ -3149,7 +3149,12 @@ def emit(alloc: Allocation, out_dir: str | Path) -> list[Path]:
             "wram_base_addr": 0x7E0000,
             "dp_bytes": sub.dp_bytes,
             "vram_words": sub.vram_words,
-            "io_allowed": [[0x2100, 0x21FF], [0x4200, 0x43FF]],
+            # Silicon, not allocation: the B-bus PPU/APU window, the two
+            # serial joypad ports ($4016 strobe-write/port-1 read, $4017
+            # port-2 read — the only CPU-bus I/O in $4000-$41FF; docs/102),
+            # and the CPU's own register window.
+            "io_allowed": [[0x2100, 0x21FF], [0x4016, 0x4017],
+                           [0x4200, 0x43FF]],
             "spc_bytes": sub.spc_bytes,
             "sram_bytes": sub.sram_bytes,
             "sram_base_addr": sub.sram_bank << 16,

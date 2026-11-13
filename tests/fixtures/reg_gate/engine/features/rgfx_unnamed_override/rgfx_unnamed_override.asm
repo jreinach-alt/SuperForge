@@ -8,8 +8,8 @@
 rgfx_unnamed_override_go:
     sep #$20
     .a8
-    lda #$FF
-    ; REG-LINT: ok — WRIO is deliberately unowned; no claim class describes
-    ; the joypad strobe line and this feature is its only writer.
-    sta a:$4201
+    lda #$01
+    ; REG-LINT: ok — MEMSEL is deliberately unowned; no claim class describes
+    ; the ROM access speed and this feature is its only writer.
+    sta a:$420D
     rts

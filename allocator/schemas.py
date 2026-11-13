@@ -360,6 +360,19 @@ REGISTER_FOOTPRINT: dict[str, tuple[int, int]] = {
     # one). One name has nothing to alias. Covers $4202-$4206 (write:
     # WRMPYA/B, WRDIVL/H/B) and $4214-$4217 (read: RDDIV, RDMPY).
     "ALU":       (0x4202, WHOLE),
+    # THE SERIAL JOYPAD PORTS AND THE PORT-2 SELECT LINE (docs/102). $4016
+    # WRITE bit 0 is the strobe that latches EVERY pad on both ports; reading
+    # $4016/$4017 clocks a port's shift registers. A second writer of the
+    # strobe, or a reader that clocks a port mid-protocol, corrupts the
+    # other's bits, so the pair is one resource under one name — the HVIRQ /
+    # ALU precedent. CPU-bus I/O OUTSIDE the $42xx window (substrate
+    # `io_allowed` names $4016-$4017 for exactly this).
+    "JOYSER":    (0x4016, WHOLE),
+    # WRIO: the programmable I/O port. Bit 7 is port 2 pin 6 — the four-pad
+    # adapter's slot-select line AND the PPU H/V-counter latch enable
+    # (a 1->0 edge latches the counters; $2137 latches only while it is 1).
+    # Bit 6 is port 1 pin 6. Write-only, so one owner.
+    "WRIO":      (0x4201, WHOLE),
 }
 
 PPU_REGISTERS = frozenset(REGISTER_FOOTPRINT)
@@ -406,6 +419,8 @@ REGISTER_SPANS: dict[str, tuple[tuple[int, int], ...]] = {
     "ALU":   ((0x4202, 0x4206), (0x4214, 0x4217)),
     # HTIMEL/H + VTIMEL/H: one timer, one IRQ line (see HVIRQ above)
     "HVIRQ": ((0x4207, 0x420A),),
+    # the strobe-write port and the port-2 data port (see JOYSER above)
+    "JOYSER": ((0x4016, 0x4017),),
 }
 
 

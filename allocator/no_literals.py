@@ -2621,18 +2621,18 @@ def _reg_verdict(path: Path, port: int, kind: str, info,
         # tree is zero declarations and zero overrides.
         #
         # Note the settlement's own worked example ($4016/$4017, serial
-        # joypad) can never reach this branch: it is outside `io_allowed`, so
-        # the ADDRESS rule refuses it first. 568 unnamed ports do live inside
-        # the window — $4201 WRIO, the $4207-$420A timers, the $213x/$421x
-        # read ports.
+        # joypad) never reached this branch while it sat outside
+        # `io_allowed`; since docs/102 it is inside the window AND named
+        # (JOYSER), as is $4201 (WRIO). Unnamed ports still live inside the
+        # window — $420D MEMSEL, the $213x/$421x read ports.
         return (f"CPU write to ${port:04X}, which has no REGISTER_FOOTPRINT "
                 f"name — so no claim can describe it and this write is "
                 f"invisible to every ownership check, including this one. "
                 f"{ctx.label} cannot declare it as things stand. Add the name "
                 f"to `REGISTER_FOOTPRINT` first, then declare it — or "
                 f"suppress with `; REG-LINT: ok — <reason>` if the port is "
-                f"deliberately unowned (e.g. $4201 WRIO, or the $4207-$420A "
-                f"timer ports, which no claim class describes yet) "
+                f"deliberately unowned (e.g. $420D MEMSEL, which no claim "
+                f"class describes yet) "
                 "")
     names = "/".join(sorted(port_names[port]))
     if port in ctx.owned:
