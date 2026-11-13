@@ -1547,9 +1547,12 @@ says "verified" should say verified *on which ref*.
 checkout (`.claude/worktrees/...`), whose older lineage does have one. pytest
 walks up, finds it, and sets `rootdir` to the MAIN checkout with its
 `pythonpath`/`addopts`. Nothing failed outright, but node ids and rootdir were
-the other tree's. Worked around with `-c <empty ini> --rootdir .` (and
-`PYTEST_ADDOPTS` for `make test`). Worth a one-line `pytest.ini` (or a
-`[tool.pytest]`) at this repo's root so the walk stops here.
+the other tree's. Worked around with `-c <empty ini> --rootdir .` on the
+command line. **Do not** push the same flags through `PYTEST_ADDOPTS` for
+`make test`: the nested pytest runs inside `test_worker_schedule.py` (9) and
+`test_park_guard.py` (3) inherit them and go red — measured, and all 12 pass
+serially without it. Worth a one-line `pytest.ini` (or a `[tool.pytest]`) at
+this repo's root so the walk stops here.
 
 ### `input_read` can read `$4218` as the auto-read begins — **surprise, LOW**
 
