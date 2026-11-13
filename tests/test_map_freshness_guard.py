@@ -322,6 +322,11 @@ def test_the_tree_agrees_with_the_rule():
         # ("sprite_game") and in _SUBDIR_MAP ("sprg"), added in the same
         # commit as this entry per the pairing rule above.
         "test_sprite_game.py": ["build/sprg/symbol_map.json"],
+        # four_pads (docs/102), same shape: its map IS in conftest.MAPS
+        # ("four_pads") and in _SUBDIR_MAP ("fp"), added in the same commit.
+        # test_mtap_cost.py reads the same map, but inside a test, not at
+        # module scope, so it is not an entry here.
+        "test_four_pads.py": ["build/fp/symbol_map.json"],
         # Same family (stomper), same shape: its map IS in
         # conftest.MAPS ("stomper") and in _SUBDIR_MAP ("st"); registering it
         # moves the rail from "sites 5+6+9 not required" to demanded in

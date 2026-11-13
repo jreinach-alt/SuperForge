@@ -1228,6 +1228,9 @@ MAPS = {
     "build/sprg/symbol_map.json": (
         "sprite_game",
         ["--game", "game/sprite_game", "--features-dir", "engine/features"]),
+    "build/fp/symbol_map.json": (
+        "four_pads",
+        ["--game", "game/four_pads", "--features-dir", "engine/features"]),
     "build/st/symbol_map.json": (
         "stomper",
         ["--game", "game/stomper", "--features-dir", "engine/features"]),
@@ -1324,6 +1327,7 @@ _SUBDIR_MAP = {"aur": "build/aur/symbol_map.json",
                "jr": "build/jr/symbol_map.json",
                "pat": "build/pat/symbol_map.json",
                "sprg": "build/sprg/symbol_map.json",
+               "fp": "build/fp/symbol_map.json",
                "st": "build/st/symbol_map.json",
                "sr": "build/sr/symbol_map.json",
                "br": "build/br/symbol_map.json",

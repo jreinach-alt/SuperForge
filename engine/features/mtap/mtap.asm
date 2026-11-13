@@ -8,13 +8,15 @@
 ;
 ; Per frame, in order: input_read (P1), input2_read (P2), mtap_read (P3, P4).
 
-; The D7 guard's spin count (docs/102 D7). The automatic read begins no later
-; than H=95.5 of the first VBlank line, i.e. <= 382 master cycles after the
-; VBlank flag rises. One `dex`/`bne` pass is >= 30 mc even from FastROM (two
-; fetches + one internal cycle per instruction), so 16 passes are >= 480 mc:
-; past the latest start with margin, so the busy-wait that follows cannot
-; mistake "not started yet" for "already finished".
-MTAP_START_SPIN = 16
+; The D7 guard's line (docs/102 D7). The automatic read starts between H=32.5
+; and H=95.5 of the FIRST VBlank line and runs 4224 master cycles (just over 3
+; lines), so a caller that finds HVBJOY in VBlank with the read idle is either
+; on that first line, before it started, or on a later line, after it ended —
+; and the V counter tells the two apart without waiting. 225 is the first
+; VBlank line with SETINI's overscan bit clear, on NTSC and PAL alike; no rail
+; in this tree sets overscan (docs/94 R1 is unbuilt). A rail that does must
+; revisit this constant.
+MTAP_VBL_LINE = 225
 
 ; --- mtap_init: boot init + detection -----------------------------------------
 ; CONTRACT mtap_init
@@ -99,24 +101,27 @@ mtap_init:
 ;   entry:    A16 I16 DB=0
 ;   exit:     A16 I16
 ;   in:       ES_MTAP_ON; with it set, $421E (the auto-read's JOY4 = slot 2)
-;             and 16 clocks of $4017 bit 0 under WRIO.7 = 0 (slot 3)
+;             and 12 clocks of $4017 bit 0 under WRIO.7 = 0 (slot 3: its
+;             twelve buttons; the 4-bit signature that follows is not
+;             clocked, and P4's bits 3-0 read 0 — a standard pad's own value)
 ;   out:      ES_INP3_* / ES_INP4_* on input_read's edge convention (cur, prev,
 ;             press = cur AND NOT prev). With no adapter, nothing is written:
 ;             the words keep mtap_init's zeros, so P3/P4 read nothing pressed
-;   clobbers: A, X, N, Z, C (X only on the adapter path's D7 guard)
+;   clobbers: A, N, Z, C. X and Y are preserved
 ;   assumes:  ONCE per frame from the main thread, after the frame's automatic
 ;             read has STARTED (any time from the top of the frame until line
 ;             224; the guard below covers arriving in VBlank before it
 ;             starts). Must complete before the next VBlank — the manual
 ;             clocks would race that frame's automatic read. A mid-frame IRQ
-;             that reads $2137 must not land inside the 16-clock window,
+;             that reads $2137 must not land inside the 12-clock window,
 ;             where WRIO.7 = 0 disables the H/V latch (docs/102 D9)
 ;   tail:     rts
 ;
 ; ORDER (fullsnes, docs/102 §2): slots 1/2 are already in $421A/$421E from the
-; automatic read; THEN WRIO.7 = 0 selects slots 3/4 and 16 clocks of $4017
-; bring slot 3 out of bit 0, first bit = B, so rotating each bit in from the
-; right lands the word in the JOY1 layout; THEN WRIO.7 = 1 again, and nothing
+; automatic read; THEN WRIO.7 = 0 selects slots 3/4 and 12 clocks of $4017
+; bring slot 3's buttons out of bit 0, first bit = B, so rotating each bit in
+; from the right lands the word in the JOY1 layout ("read any number of bits",
+; fullsnes); THEN WRIO.7 = 1 again, and nothing
 ; touches the port until the next frame's automatic read. The 1->0 edge
 ; latches the PPU H/V counters as a side effect (fullsnes; docs/102 D9).
 mtap_read:
@@ -132,19 +137,26 @@ mtap_read:
     .a8
     ; ---- D7: never clock the port before the automatic read has run -------
     lda a:$4212                     ; HVBJOY: bit 7 VBlank, bit 0 auto-read busy
-    bpl @wait_done                  ; active display: this frame's read is over
+    bpl @read_over                  ; active display: this frame's read is over
     lsr a
     bcs @wait_done                  ; busy: it has started, wait it out
-    ldx #MTAP_START_SPIN            ; VBlank and idle: before it started or
-@spin:                              ;   after it ended — wait past its latest
-    .a8                             ;   start, then the busy-wait decides
-    dex
-    bne @spin
+    lda a:$2137                     ; VBlank and idle: latch H/V (WRIO.7 is 1 —
+    lda a:$213F                     ;   every exit of this file leaves it so),
+    lda a:$213D                     ;   reset the read flip-flops (the tree's
+    cmp #<MTAP_VBL_LINE             ;   convention: each reader resets its own),
+    bne @read_over                  ;   V low byte. Past the first line: over
+@wait_start:
+    .a8
+    lda a:$4212                     ; the first VBlank line, before the start:
+    lsr a                           ;   wait for it to start...
+    bcc @wait_start
 @wait_done:
     .a8
     lda a:$4212
     lsr a
-    bcs @wait_done                  ; auto-read in progress
+    bcs @wait_done                  ; ...and to finish
+@read_over:
+    .a8
     ; ---- P3: slot 2, delivered by the automatic read to JOY4 ($421E) ------
     rep #$20
     .a16
@@ -168,11 +180,19 @@ mtap_read:
     lsr a                           ;   eight bits, so no clear is needed, and
     rol z:ES_INP4_CUR + 1           ;   no loop counter is paid per clock
     .endrepeat
-    .repeat 8                       ; bits 9-16 (A X L R + signature): low byte
+    .repeat 4                       ; bits 9-12 (A X L R) into the low nibble
     lda a:$4017
     lsr a
     rol z:ES_INP4_CUR
     .endrepeat
+    lda z:ES_INP4_CUR               ; ...then up to bits 7-4, where the JOY1
+    asl a                           ;   layout keeps them; the nibble that
+    asl a                           ;   shifts out is last frame's, and bits
+    asl a                           ;   3-0 come out 0. Bits 13-16 — a pad's
+    asl a                           ;   signature, always 0 on a standard pad —
+    sta z:ES_INP4_CUR               ;   are NOT clocked: four clocks (~350 mc)
+                                    ;   cheaper, and the next automatic read's
+                                    ;   strobe re-latches every slot anyway
     lda #$FF
     sta a:$4201                     ; WRIO.7 = 1: slots 1/2 for the next frame's
                                     ;   automatic read; no access until then
