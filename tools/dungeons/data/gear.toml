@@ -1,0 +1,363 @@
+# gear.toml — item bases, enchantments, rarity and drop tuning for SuperForge
+# Dungeons. SOURCE DATA: read by tools/dungeons/loot.py (the oracle) and, once
+# the rail exists, packed into ROM tables by the asset generator.
+# Spec: docs/dungeons/04_gear_and_loot.md. All names here are original.
+#
+# Numbers are FIRST-PASS TUNING, not measurements. They are in this file so
+# that tuning is a data edit, never an ASM edit.
+
+[rarity]
+# Out of 256, one draw. A unique is only possible from depth >= unique_min_floor.
+weights = { common = 176, rare = 64, unique = 16 }
+unique_min_floor = 2
+pity_rare_after = 6          # 6 commons in a row for one player -> next is rare
+
+[power]
+# item power = floor_threat + offset, offset drawn from this table (one draw).
+offset_weights = [16, 48, 96, 64, 32]   # offsets -2, -1, 0, +1, +2 ; sums to 256
+offset_base = -2
+rare_bonus = 1
+unique_bonus = 2
+threat_per_floor = 2         # floor_threat = 1 + floor * threat_per_floor (cap 250)
+
+# --- bases -------------------------------------------------------------------
+# id is the record's byte 0. slot: melee|ranged|armor|artifact.
+# dmg/rate/reach are in game units (spec 05 §2); cd = artifact cooldown frames.
+[[base]]
+id = 1
+name = "IRON SWORD"
+slot = "melee"
+dmg = 6
+rate = 20
+reach = 18
+arc = 90
+[[base]]
+id = 2
+name = "SPEAR"
+slot = "melee"
+dmg = 7
+rate = 24
+reach = 28
+arc = 30
+[[base]]
+id = 3
+name = "MAUL"
+slot = "melee"
+dmg = 14
+rate = 44
+reach = 20
+arc = 140
+[[base]]
+id = 4
+name = "TWIN KNIVES"
+slot = "melee"
+dmg = 3
+rate = 10
+reach = 14
+arc = 70
+[[base]]
+id = 5
+name = "REAPER"
+slot = "melee"
+dmg = 8
+rate = 30
+reach = 22
+arc = 180
+[[base]]
+id = 16
+name = "SHORTBOW"
+slot = "ranged"
+dmg = 5
+rate = 18
+speed = 4
+ammo = 1
+[[base]]
+id = 17
+name = "ARBALEST"
+slot = "ranged"
+dmg = 11
+rate = 40
+speed = 6
+ammo = 1
+[[base]]
+id = 18
+name = "SLING"
+slot = "ranged"
+dmg = 3
+rate = 10
+speed = 4
+ammo = 1
+[[base]]
+id = 19
+name = "EMBER ROD"
+slot = "ranged"
+dmg = 6
+rate = 26
+speed = 3
+ammo = 0
+[[base]]
+id = 32
+name = "JERKIN"
+slot = "armor"
+hp = 30
+dr = 0
+move = 2
+[[base]]
+id = 33
+name = "MAIL"
+slot = "armor"
+hp = 40
+dr = 2
+move = 0
+[[base]]
+id = 34
+name = "BULWARK PLATE"
+slot = "armor"
+hp = 55
+dr = 4
+move = -1
+[[base]]
+id = 35
+name = "WEAVER ROBE"
+slot = "armor"
+hp = 26
+dr = 0
+move = 1
+cdr = 25
+[[base]]
+id = 48
+name = "BLAST JAR"
+slot = "artifact"
+cd = 300
+effect = "aoe_throw"
+[[base]]
+id = 49
+name = "MENDING POST"
+slot = "artifact"
+cd = 900
+effect = "heal_zone"
+[[base]]
+id = 50
+name = "BLINK SASH"
+slot = "artifact"
+cd = 240
+effect = "phase_dash"
+[[base]]
+id = 51
+name = "HOUND CALL"
+slot = "artifact"
+cd = 1200
+effect = "summon_ally"
+[[base]]
+id = 52
+name = "QUAKE BELL"
+slot = "artifact"
+cd = 480
+effect = "stun_ring"
+[[base]]
+id = 53
+name = "SUN LANTERN"
+slot = "artifact"
+cd = 600
+effect = "light_burst"
+# Uniques: a named variant of a base with one FIXED signature enchant (tier 2)
+# in enchant slot 1; slot 2 is still rolled.
+[[base]]
+id = 64
+name = "DAWNEDGE"
+slot = "melee"
+of = 1
+signature = "EMBER"
+[[base]]
+id = 65
+name = "WIDOWMAKER"
+slot = "ranged"
+of = 17
+signature = "PIERCE"
+[[base]]
+id = 66
+name = "THE HEARTH"
+slot = "armor"
+of = 33
+signature = "BOND"
+
+# --- enchantments --------------------------------------------------------------
+# id is the 5-bit field in record bytes 2/3 (0 = empty). slots = where it rolls.
+# t1/t2/t3 = the effect magnitude at each tier (units per spec 04 §4).
+[[enchant]]
+# % dmg to others in arc
+id = 1
+name = "CLEAVE"
+slots = ["melee"]
+t1 = 30
+t2 = 45
+t3 = 60
+[[enchant]]
+# hp per kill
+id = 2
+name = "LEECH"
+slots = ["melee"]
+t1 = 2
+t2 = 3
+t3 = 5
+[[enchant]]
+# burn dmg/sec, 3 s
+id = 3
+name = "EMBER"
+slots = ["melee", "ranged"]
+t1 = 1
+t2 = 2
+t3 = 3
+[[enchant]]
+# % slow, 2 s
+id = 4
+name = "FROST"
+slots = ["melee", "ranged"]
+t1 = 20
+t2 = 30
+t3 = 40
+[[enchant]]
+# % faster swing
+id = 5
+name = "FLURRY"
+slots = ["melee"]
+t1 = 10
+t2 = 20
+t3 = 30
+[[enchant]]
+# % chance of a repeat hit
+id = 6
+name = "ECHO"
+slots = ["melee"]
+t1 = 15
+t2 = 25
+t3 = 35
+[[enchant]]
+# % vs elite/boss
+id = 7
+name = "TITANBANE"
+slots = ["melee", "ranged"]
+t1 = 25
+t2 = 50
+t3 = 75
+[[enchant]]
+# knockback px
+id = 8
+name = "SHOVE"
+slots = ["melee"]
+t1 = 8
+t2 = 12
+t3 = 16
+[[enchant]]
+# shots in a fan
+id = 9
+name = "SPLIT"
+slots = ["ranged"]
+t1 = 3
+t2 = 3
+t3 = 5
+[[enchant]]
+# extra targets
+id = 10
+name = "PIERCE"
+slots = ["ranged"]
+t1 = 1
+t2 = 2
+t3 = 3
+[[enchant]]
+# wall bounces
+id = 11
+name = "RICOCHET"
+slots = ["ranged"]
+t1 = 1
+t2 = 2
+t3 = 3
+[[enchant]]
+# turn rate units
+id = 12
+name = "SEEKER"
+slots = ["ranged"]
+t1 = 1
+t2 = 2
+t3 = 3
+[[enchant]]
+# % faster ammo regen
+id = 13
+name = "QUIVER"
+slots = ["ranged"]
+t1 = 25
+t2 = 50
+t3 = 75
+[[enchant]]
+# % reflected
+id = 16
+name = "THORNS"
+slots = ["armor"]
+t1 = 20
+t2 = 35
+t3 = 50
+[[enchant]]
+# % max hp
+id = 17
+name = "VIGOR"
+slots = ["armor"]
+t1 = 10
+t2 = 20
+t3 = 30
+[[enchant]]
+# hp/sec after 3 s unhit
+id = 18
+name = "MEND"
+slots = ["armor"]
+t1 = 1
+t2 = 2
+t3 = 3
+[[enchant]]
+# % artifact cooldown cut
+id = 19
+name = "FOCUS"
+slots = ["armor"]
+t1 = 10
+t2 = 20
+t3 = 30
+[[enchant]]
+# px/frame burst after dodge
+id = 20
+name = "FLEET"
+slots = ["armor"]
+t1 = 1
+t2 = 2
+t3 = 3
+[[enchant]]
+# +drop chance /256
+id = 21
+name = "FORTUNE"
+slots = ["armor"]
+t1 = 8
+t2 = 16
+t3 = 24
+[[enchant]]
+# heal PARTNER hp/sec within 48 px
+id = 22
+name = "BOND"
+slots = ["armor"]
+t1 = 1
+t2 = 2
+t3 = 3
+[[enchant]]
+# % faster revive of partner
+id = 23
+name = "RALLY"
+slots = ["armor"]
+t1 = 30
+t2 = 50
+t3 = 70
+
+# --- drops -------------------------------------------------------------------
+[drops]
+# chance out of 256 that a kill drops GEAR, by enemy class; consumables separate.
+gear_by_class = { grunt = 10, ranged = 12, brute = 28, elite = 128, boss = 256 }
+consumable_by_class = { grunt = 40, ranged = 40, brute = 64, elite = 128, boss = 256 }
+chest_items = 2              # gear items per chest (one per player in co-op)
+boss_items_per_player = 1    # guaranteed, rarity floor = rare
+slot_weights = { melee = 72, ranged = 64, armor = 72, artifact = 48 }   # sums to 256

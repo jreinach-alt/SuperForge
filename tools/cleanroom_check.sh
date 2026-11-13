@@ -101,6 +101,13 @@ COMMERCIAL+="air${_S}?strike${_S}?patrol|r-?type|parodius|darius|actraiser|"
 # names one worked from is how that stays true rather than merely unchecked.
 COMMERCIAL+="yoshi|tetris${_S}?attack|panel${_S}de${_S}pon|aladdin|turrican|"
 COMMERCIAL+="ghouls|sonic|frogger|"
+# Added with the SuperForge Dungeons spec set (docs/dungeons/). These are the
+# genre reference and the precedents its research read: the reference game
+# and its studio/publisher, the room-grid generator write-up's subject, the
+# affix-loot lineage, and the 16-bit co-op / random-dungeon precedents. The
+# specs call the reference "the genre reference" on purpose; this keeps it so.
+COMMERCIAL+="minecraft|mojang|microsoft|spelunky|diablo|blizzard|shiren|torneko|"
+COMMERCIAL+="mystery${_S}dungeon|chunsoft|pocky|zombies${_S}ate${_S}my${_S}neighbou?rs|"
 COMMERCIAL+="nintendo|konami|capcom|squaresoft|enix|sega|"
 COMMERCIAL+="juno-?106|linndrum|dx-?7|yamaha|roland|korg|legowelt|zophar|snesmusic"
 COMMERCIAL+=")${_BR}"
