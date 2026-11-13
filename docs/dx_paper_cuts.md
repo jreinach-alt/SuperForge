@@ -1524,3 +1524,46 @@ Worth noting how easy it is to get wrong a second time: counting `region` by
 bare grep gives 42, because six `game.toml`s carry a COMMENT saying the rail
 declines it. The count has to exclude comment lines, which is exactly the
 "open the tool, do not grep the word" rule under a different hat.
+
+---
+
+## Four players: a four-pad adapter in port 2 (2026-11-13)
+
+### The brief described a different repository — **surprise, HIGH**
+
+The lane's brief named `engine/nmi_handler.asm`, `engine/engine_state.inc`,
+the Lua compiler's `btn`/`btnp`, `tutorials/`, and `docs/sprints/` — all real,
+all on local `main` (`5eb101cd`), and none on `origin/main`, which is an
+UNRELATED history (`git merge-base main origin/main` is empty). The brief's
+own setup line (`checkout -b ... origin/main`) and its out-of-scope list
+(`game/forge_gt/`, which exists only on the origin lineage) pointed one way;
+its "what exists" section pointed the other. ~20 min to establish which tree
+was meant before writing anything; the mapping is docs/102 §1. A brief that
+says "verified" should say verified *on which ref*.
+
+### A nested worktree picks up the main checkout's `pytest.ini` — **surprise, MEDIUM**
+
+`origin/main` ships no `pytest.ini`; agent worktrees live under the main
+checkout (`.claude/worktrees/...`), whose older lineage does have one. pytest
+walks up, finds it, and sets `rootdir` to the MAIN checkout with its
+`pythonpath`/`addopts`. Nothing failed outright, but node ids and rootdir were
+the other tree's. Worked around with `-c <empty ini> --rootdir .` (and
+`PYTEST_ADDOPTS` for `make test`). Worth a one-line `pytest.ini` (or a
+`[tool.pytest]`) at this repo's root so the walk stops here.
+
+### `input_read` can read `$4218` as the auto-read begins — **surprise, LOW**
+
+Found by the mtap probe, which polls VBlank instead of syncing on the NMI:
+`input_read` spins only while the read is BUSY, so a caller at the very top of
+VBlank reads the latch as it starts (lost a held A). No rail is exposed
+(they all call it after `sm_frame_sync`); docs/102 §7.3 has the detail and the
+stronger wait `mtap_read` uses.
+
+### The D7 guard's first shape cost a scanline of spin every frame — **easy, LOW**
+
+A fixed "wait past the latest auto-read start" spin was correct and was paid
+on every `four_pads` frame, because an NMI-synced main loop always arrives in
+VBlank after the read. The exec-breakpoint measurement made it obvious
+(2,976 mc, constant); the V-counter discriminator fixed it. Measure the
+common path, not just the worst one.
+

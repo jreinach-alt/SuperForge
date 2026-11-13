@@ -160,10 +160,16 @@ slots behind a detected tap that hold no pad read as nothing pressed.
 
 **D7. The auto-read race.** Measured in the harness spike (§7.1): a manual
 read that starts in VBlank before the auto-read has begun corrupts every
-pad behind the tap. `mtap_read` therefore, when it finds itself in VBlank
-with `$4212` bit 0 clear, waits past the latest auto-read start (H=95.5 of
-line 225) before spinning on bit 0. Out of VBlank the auto-read is over and
-the guard costs one `bpl`.
+pad behind the tap. `mtap_read` therefore checks `$4212` first: out of
+VBlank the read is over (one `bpl`); busy, it waits for the end; in VBlank
+and idle it latches the V counter (`$2137`, `$213F`, `$213D`) — on the first
+VBlank line (225) the read has not started yet and it waits for the start
+and then the end; on any later line it is over (it lasts 4224 mc, just over
+three lines). *First built as a fixed ~480 mc spin* and measured paying it
+every frame on `four_pads` (whose main thread always resumes in VBlank after
+the read), so the V-counter test replaced it (§7.2). Stated limit: 225 is
+the first VBlank line with SETINI overscan clear; no rail sets overscan
+(docs/94 R1 is unbuilt).
 
 **D8. btn/btnp.** `pad_btn` / `pad_btnp`: A16 = button mask, X = player
 0-3; returns A = word AND mask (Z set when none); any other X returns 0. No
@@ -171,7 +177,9 @@ compiler exists to validate the index at build time, so the check is at run
 time.
 
 **D9. WRIO.7 and the H/V latch.** The select edge latches the counters as a
-side effect, and a `$2137` read inside the 16-clock window would not latch.
+side effect, and a `$2137` read inside the 12-clock window would not latch.
+The D7 guard also latches and reads them itself (resetting the flip-flops
+first, the tree's convention); every reader in the tree latches its own.
 `mtap_read` runs in the main thread at the top of the frame; a rail that
 also reads `$2137` from a mid-frame IRQ (`shg_cam`, `sit_cam`) must not
 compose `mtap` with a seam inside that window. Stated, not enforced — no
@@ -182,6 +190,19 @@ no IRQ.
 fullsnes does not document what a standard pad returns after its 16th bit,
 so a presence bit would rest on an undocumented behaviour. *Not built*: the
 demo's "connected" is tap-level (P3/P4 lamps exist only with a tap).
+
+**D11. P4 clocks 12 bits, not 16.** fullsnes: "read any number of bits".
+Bits 13-16 of a standard pad are its signature, always 0 (fullsnes' JOY
+table); the next frame's automatic read strobes every slot, so the unread
+four need no clocking. P4's bits 3-0 therefore read 0, a standard pad's own
+value. Measured saving: four clocks, ~250 mc (2,450 -> 2,202). A device that
+uses those bits (a mouse) is on fullsnes' prohibited-behind-the-adapter list.
+
+**D12. The engine's own probe.** `pad_btn` with an out-of-range player can
+only be observed from a caller that passes one, and the demo never does. So
+`tests/fixtures/mtap_probe` composes the input stack ALONE (allocator-placed,
+`make mtap-probe`), calls `mtap_read` at the very top of VBlank (the D7
+race, on purpose) and records `pad_btn` / `pad_btnp` for players 5..0.
 
 ## 6. Order of work
 
@@ -207,3 +228,55 @@ demo's "connected" is tap-level (P3/P4 lamps exist only with a tap).
   VBlank began and got `$421A`=`$007F` with nothing pressed and the slot-3
   word shifted — corrupted. Waiting for the auto-read to start, then finish,
   made every slot read exactly what was latched.
+
+### 7.2 Cost (`tests/test_mtap_cost.py`, the shipped `four_pads` binary)
+
+Exec breakpoints on `fp_pads_begin` / `fp_pads_end` (the `jsr mtap_read` and
+the instruction after it) through the labelled twin; 24 frames each, master
+cycles, jsr + rts included. NTSC line = 1,364 mc.
+
+| configuration | min | max | scanlines |
+|---|---|---|---|
+| no adapter | 136 | 136 | 0.10 |
+| adapter, first build (fixed D7 spin, 16 clocks) | 2,976 | 2,976 | 2.18 |
+| adapter, V-counter D7 guard, 16 clocks | 2,450 | 2,450 | 1.80 |
+| **adapter, as landed (V-counter guard, 12 clocks)** | **2,202** | **2,202** | **1.61** |
+
+The floor is the clocking: one `lda a:$4017` / `lsr a` / `rol z:` per bit is
+~88 mc from bank-0 (SlowROM-speed) code, ~1,060 mc for twelve bits; P3's word
+and both edges are ~450 more. A rail whose code ran from the FastROM mirror
+would pay roughly a quarter less on every fetch; no rail here does. Rails that
+do not compose `mtap` pay nothing — there is no call.
+
+The test asserts the absent path under 200 mc and the present path under two
+scanlines (2,728 mc), the brief's ceiling; the measured 1.61 is under it but
+not "well under" — reported, not rounded.
+
+### 7.3 A finding about `input_read`, not fixed here
+
+The probe's first run without an adapter lost a held A on P1: its loop called
+`input_read` at the top of VBlank, before the automatic read had started,
+and `input_read` only spins while the read is BUSY — so it read `$4218` as
+the read began. Every rail in the tree calls `input_read` after
+`sm_frame_sync`, i.e. after the NMI handler's work, which is far longer than
+the 382 mc window, so no rail is exposed; the contract line "it must not run
+inside the window auto-joypad itself owns" is what keeps it so. `mtap_read`'s
+D7 guard is the stronger form of the same wait and could be shared. Left as a
+stated limit (out of this lane's scope; `input` is composed by the pinned
+`microzero`).
+
+### 7.4 Tests
+
+| module | cases | ROM | surface |
+|---|---|---|---|
+| `tests/test_mtap_harness.py` | 9 | `tests/fixtures/mtap_harness/probe_mtap.asm` (Level 0: no engine code) | WRAM result block of a hand-run detection + read |
+| `tests/test_mtap.py` | 13 | `make mtap-probe` | `mtap`'s DP words; `pad_btn`/`pad_btnp` answers |
+| `tests/test_four_pads.py` | 18 | `make four_pads` | OBJ VRAM, CGRAM 128-191, OAM, screenshot pixels |
+| `tests/test_mtap_cost.py` | 2 | `make fp-labels` | master clock at exec breakpoints |
+
+Falsification: `make falsify SET=mtap` — six plants (D7 guard skipped, WRIO
+left low, P3 edge from the level, absent path falling through, `pad_btn`'s
+range answer dropped, the demo's lamp ignoring its pad), each FIRED with the
+artifact md5 moved and restored. The harness was planted by hand (the
+adapter's controller type set to a plain pad): 6 of its 9 cases red,
+restored byte-identical, 9 green.

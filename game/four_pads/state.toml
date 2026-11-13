@@ -9,7 +9,7 @@
 px = "u16[4]@dp"         # token x per player, screen px (clamped FP_X_MIN..MAX)
 py = "u16[4]@dp"         # token y per player (clamped FP_Y_MIN..MAX)
 flip = "u16[4]@dp"       # $0000 or OAM attr bit 6 (h-flip), toggled per A press
-held = "u16@dp"          # the player being moved's held word, this frame
+held = "u16@dp"          # the held buttons of the player being moved (pad_btn)
 
 # --- the TIMEBASE's per-consumer state (engine/features/tick_scale) ---------
 # ONE RATE, ONE PAIR: all four tokens move at FP_SPEED.

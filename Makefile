@@ -28,7 +28,7 @@ LD65    := ld65
 	lakeside heathaze smelter mill mill-direct aurora \
 	scroller-tb tb-measure tb-picture rate-oracle \
 	camera_follow maze jumper patrol sprite_game four_pads fp-labels \
-	stomper scroll_run brawler \
+	mtap-probe stomper scroll_run brawler \
 	split_h_matrix_demo split_h_persp3_demo \
 	svd-assets split_v_demo svd-nowin split_v_seamtrial \
 	split_h_demo shd-autodemo shp-assets split_h_persp_demo shp-autodemo \
@@ -455,6 +455,35 @@ $(BUILD)/four_pads.lbl: $(BUILD)/four_pads.sfc
 	cmp $(BUILD)/four_pads_dbg.sfc $(BUILD)/four_pads.sfc
 
 fp-labels: $(BUILD)/four_pads.lbl
+
+# --- the mtap probe: the input stack composed ALONE (tests/test_mtap.py) ---
+# A test fixture, not a rail (tests/fixtures/mtap_probe — no game/ dir, so the
+# rail gates never see it). Allocated, no_literals-checked over the FEATURE
+# files it composes (its own boot block arms NMITIMEN with no scene manager to
+# own it — fixture scaffolding), assembled and linked like any 32 KB probe.
+MTP      := tests/fixtures/mtap_probe
+MTP_MAP  := $(BUILD)/mtap_probe
+MTP_FEAT := engine/features/input/input.asm engine/features/input2/input2.asm \
+            engine/features/mtap/mtap.asm
+
+$(MTP_MAP)/engine_state_globals.inc $(MTP_MAP)/symbol_map.json: \
+		allocator/substrate.toml allocator/allocate.py allocator/schemas.py \
+		$(wildcard engine/features/*/feature.toml) $(MTP)/game.toml \
+		$(MTP)/state.toml | $(BUILD)
+	$(PY) allocator/allocate.py --game $(MTP) --features-dir engine/features \
+		--out $(MTP_MAP)
+
+$(BUILD)/mtap_probe.sfc: $(MTP)/main.asm $(MTP_FEAT) \
+		$(MTP_MAP)/engine_state_globals.inc \
+		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/lorom_32k.cfg | $(BUILD)
+	$(PY) allocator/no_literals.py --map $(MTP_MAP)/symbol_map.json $(MTP_FEAT)
+	$(CA65) -I $(MTP_MAP) -I $(VROM) -I engine/features/input \
+		-I engine/features/input2 -I engine/features/mtap \
+		-o $(BUILD)/mtap_probe.o $(MTP)/main.asm
+	$(LD65) -C $(VROM)/lorom_32k.cfg -o $@ $(BUILD)/mtap_probe.o
+	$(PY) tools/fix_checksum.py $@
+
+mtap-probe: $(BUILD)/mtap_probe.sfc
 
 # ---- shmup: the vertical shooter ----------------
 # The rail that debuts POOL. Its BG feature (shmup_bg) owns both co-resident
@@ -3618,7 +3647,7 @@ PYTEST_DIST := $(if $(strip $(XDIST)),-n $(strip $(XDIST)) --dist loadfile,)
 test: toy microzero room probes breaker shmup platformer split_v_fight \
 	m7_dungeon split_h_2p_demo sh2-variants mode7_explore platformer_stream \
 	hud_game scroller lakeside heathaze smelter mill mill-direct aurora camera_follow maze jumper patrol sprite_game \
-	four_pads fp-labels \
+	four_pads fp-labels mtap-probe \
 	stomper \
 	scroll_run brawler split_h_matrix_demo split_h_persp3_demo \
 	split_v_demo svd-nowin split_v_seamtrial split_h_demo shd-autodemo \

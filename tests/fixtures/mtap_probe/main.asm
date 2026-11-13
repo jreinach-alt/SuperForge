@@ -9,9 +9,9 @@
 ; button bit set. Players 4 and 5 are out of range on purpose.
 ;
 ; Everything is allocator-placed (this dir's game.toml + state.toml);
-; tests/test_mtap.py reads the result words by name from the emitted map. The
-; test runs no_literals over the FEATURE files this probe composes, not over
-; this file: the probe arms NMITIMEN itself with no scene manager composed to
+; tests/test_mtap.py reads the result words by name from the emitted map.
+; `make mtap-probe` runs no_literals over the FEATURE files this probe
+; composes, not over this file: the probe arms NMITIMEN itself with no scene manager composed to
 ; own it — fixture scaffolding, the status vendor/probes/ has in the reg gate.
 .p816
 .smart

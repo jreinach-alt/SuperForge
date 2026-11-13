@@ -310,9 +310,13 @@ def test_cpu_bus_names_are_exactly_the_three_we_intend():
 
     The tripwire fired at the 2026-08-14 sweep-tail landing, exactly as
     designed: HVIRQ arrived WITH the spanned-name analysis in schemas.py's
-    comment block, and this pin is the acknowledgment."""
+    comment block, and this pin is the acknowledgment.
+
+    It fired again for docs/102 (the four-pad adapter): JOYSER ($4016-$4017,
+    the strobe + serial ports, one resource — the HVIRQ/ALU analysis, stated
+    beside the name in schemas.py) and WRIO ($4201, write-only, one owner)."""
     cpu_bus = sorted(set(REGISTER_FOOTPRINT) - set(B_BUS_REGISTERS))
-    assert cpu_bus == ["ALU", "HVIRQ", "NMITIMEN"]
+    assert cpu_bus == ["ALU", "HVIRQ", "JOYSER", "NMITIMEN", "WRIO"]
 
 
 def test_alu_is_one_name_not_a_multiplier_and_a_divider():

@@ -2,8 +2,8 @@
 
 THE ROM UNDER TEST is `tests/fixtures/mtap_probe/`: the input stack
 (`input` + `input2` + `mtap`) composed ALONE — no scene manager, no display,
-no game — and built here by the same allocator / no_literals / ca65 / ld65
-steps a rail's Makefile block runs. Its frame loop calls `mtap_read` the
+no game — built by `make mtap-probe` with the same allocator / no_literals /
+ca65 / ld65 steps a rail's Makefile block runs. Its frame loop calls `mtap_read` the
 instant VBlank begins, BEFORE the automatic read has started: the race
 docs/102 D7 names, so every correct read below is also a proof of the guard.
 It then asks `pad_btn` / `pad_btnp` about players 5..0 with every button bit
@@ -20,11 +20,12 @@ AND to be absent from the other three, because the failure this class has is
 a crossed or leaked wire, not a missing one.
 """
 import json
-import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+from conftest import run_make
 
 SUPERFORGE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SUPERFORGE / "vendor"))
@@ -32,12 +33,9 @@ sys.path.insert(0, str(SUPERFORGE / "vendor"))
 from machine import Machine, MemoryType  # noqa: E402
 import mesen_runner as mr  # noqa: E402
 
-FIX = SUPERFORGE / "tests" / "fixtures" / "mtap_probe"
 BUILD = SUPERFORGE / "build"
 MAP_DIR = BUILD / "mtap_probe"
 ROM = BUILD / "mtap_probe.sfc"
-FEATURES = [SUPERFORGE / "engine" / "features" / f / f"{f}.asm"
-            for f in ("input", "input2", "mtap")]
 W = MemoryType.SnesWorkRam
 
 # The JOY1 word layout (fullsnes; docs/102 §2) — the order a pad shifts out.
@@ -48,28 +46,11 @@ PRESS = ["ES_INP_PRESS", "ES_INP2_PRESS", "ES_INP3_PRESS", "ES_INP4_PRESS"]
 BOOT = 20
 
 
-def _run(argv):
-    r = subprocess.run(argv, capture_output=True, text=True, cwd=SUPERFORGE)
-    assert r.returncode == 0, f"{argv[:3]} failed:\n{r.stdout}\n{r.stderr}"
-    return r
-
-
 @pytest.fixture(scope="module")
 def addr():
-    """Build the probe the way a rail is built; answer {symbol: DP offset}."""
-    py = sys.executable
-    _run([py, "allocator/allocate.py", "--game", str(FIX), "--features-dir",
-          "engine/features", "--out", str(MAP_DIR)])
-    _run([py, "allocator/no_literals.py", "--map",
-          str(MAP_DIR / "symbol_map.json"), *map(str, FEATURES)])
-    inc = []
-    for d in ("input", "input2", "mtap"):
-        inc += ["-I", f"engine/features/{d}"]
-    _run(["ca65", "--cpu", "65816", "-I", str(MAP_DIR), "-I", "vendor/rom",
-          *inc, "-o", str(BUILD / "mtap_probe.o"), str(FIX / "main.asm")])
-    _run(["ld65", "-C", "vendor/rom/lorom_32k.cfg", "-o", str(ROM),
-          str(BUILD / "mtap_probe.o")])
-    _run([py, "tools/fix_checksum.py", str(ROM)])
+    """Build the probe (`make mtap-probe`); answer {symbol: DP offset}."""
+    r = run_make("mtap-probe")
+    assert r.returncode == 0, f"make mtap-probe failed:\n{r.stdout}\n{r.stderr}"
     jmap = json.loads((MAP_DIR / "symbol_map.json").read_text())
     return {p["sym"]: p["start"] for p in jmap["globals"]}
 

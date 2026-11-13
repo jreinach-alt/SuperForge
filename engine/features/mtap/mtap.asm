@@ -186,13 +186,14 @@ mtap_read:
     rol z:ES_INP4_CUR
     .endrepeat
     lda z:ES_INP4_CUR               ; ...then up to bits 7-4, where the JOY1
-    asl a                           ;   layout keeps them; the nibble that
-    asl a                           ;   shifts out is last frame's, and bits
-    asl a                           ;   3-0 come out 0. Bits 13-16 — a pad's
-    asl a                           ;   signature, always 0 on a standard pad —
-    sta z:ES_INP4_CUR               ;   are NOT clocked: four clocks (~350 mc)
-                                    ;   cheaper, and the next automatic read's
-                                    ;   strobe re-latches every slot anyway
+    asl a                           ;   layout keeps them (last frame's nibble
+    asl a                           ;   rotated out the top as this one came
+    asl a                           ;   in), bits 3-0 coming out 0. Bits 13-16
+    asl a                           ;   — a pad's signature, always 0 on a
+    sta z:ES_INP4_CUR               ;   standard pad — are NOT clocked: ~250 mc
+                                    ;   cheaper (measured, docs/102 §7.2), and
+                                    ;   the next automatic read's strobe
+                                    ;   re-latches every slot anyway
     lda #$FF
     sta a:$4201                     ; WRIO.7 = 1: slots 1/2 for the next frame's
                                     ;   automatic read; no access until then

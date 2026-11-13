@@ -1,8 +1,8 @@
 # mtap_probe — the engine feature on its own (tests/test_mtap.py).
 #
 # A test fixture, not a rail: it lives under tests/fixtures/ so `make
-# rail-registered` and the gates never see it, and tests/test_mtap.py runs the
-# allocator, no_literals and the assembler over it itself. It composes the
+# rail-registered` and the gates never see it; `make mtap-probe` builds it
+# (allocator, no_literals over the composed features, ca65, ld65). It composes the
 # input stack and NOTHING else — no scene manager, no display — so what the
 # test reads is the feature's own output: the DP words mtap writes, and the
 # answers pad_btn / pad_btnp give for players 0..5 (4 and 5 out of range).

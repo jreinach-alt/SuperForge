@@ -26,7 +26,7 @@ All 40 games build to 524,288-byte ROMs and are gated in the `Makefile`'s
 
 ---
 
-## Part 1 — the library: 40 games, one line each
+## Part 1 — the library: 41 games, one line each
 
 ### Complete games (8)
 
@@ -76,7 +76,7 @@ All 40 games build to 524,288-byte ROMs and are gated in the `Makefile`'s
 | `smelter` | Per-column vertical scroll for **zero HDMA channels**: in modes 2/4/6 the PPU reads BG3's tilemap as one scroll offset per 8-pixel column instead of as tiles, so the displacement rides the tilemap fetch a layer already pays for. Four plates on four harmonics over a melt that erupts column by column and CHURNS while it does (an 8-frame CHR swap under an unchanging tilemap) while a band of light drifts left to right across the wall behind it (a colour rotation over eight palette entries, 16 B a frame — the wall carries no pattern in its pixels at all). Both are motion the offset table has nothing to do with, shown apart from it by holding the flat control and watching them keep going; and WHICH mechanism each surface may have is decided by the constraint, not by taste — the wall must stay invariant under vertical displacement, and a palette cycle does not touch a pixel, with a knight standing on a plate and riding it — his collision reads the same word the picture is drawn from, which is what makes the offset a POSITION rather than a display trick. One 64 B VBlank transfer a frame, and 32 independent columns cost what 1 would. Debuts the `[[claims.video]]` / `[[claims.offset]]` vocabulary and the mode-dependent refusal set (`docs/100`), and generalises the per-scene disarm rule from a port to a whole LAYER'S IDENTITY. |
 | `heathaze` | A mirage: BG1 displaced per scanline through `BG1VOFS`, so source rows are **duplicated and skipped** rather than sheared — the boiling a per-scanline `BG1HOFS` cannot produce — with a small `BG1HOFS` term beside it for turbulence. 65 baked phases at a 256 B stride put an animation frame one store from the channel's A1T high byte. Generalises the per-scene disarm rule from the blender to any HDMA-driven register. |
 
-### Mechanics studies (10)
+### Mechanics studies (11)
 
 | game | what it is → what it uniquely proves |
 |---|---|
@@ -90,6 +90,7 @@ All 40 games build to 524,288-byte ROMs and are gated in the `Makefile`'s
 | `patrol` | The composition reference: sprites, BG terrain, text HUD, tile collision, jump physics and patrol beats all in one frame. |
 | `scroll_run` | The page-seam world: a 512-px level across two BG pages with a platform straddling the seam, camera follow + clamp; its composition was probed before any ASM existed. |
 | `platformer_stream` | Two-axis normal-BG streaming: a level four screens wide *and* tall through a 64×64-word four-page ring (`pfs_stream`) with no pop-in. |
+| `four_pads` | Four players on four pads: a four-pad adapter in port 2 (`mtap`, docs/102) detected at boot, players 3-4 read every frame, each token moved by its own pad, a lamp per pad lit while it holds a button, players 3-4 absent without the adapter (`tests/test_four_pads.py`, `tests/test_mtap.py`). |
 
 ### Engine trials (2)
 
@@ -126,6 +127,7 @@ Capability → proving game(s) → feature(s). Features live under
 | **Two cameras, one frame** | `split_h_matrix_demo` (two matrices), `split_h_persp_demo` (two trapezoids), `split_h_persp3_demo` (three bands), `split_h_2p_demo` (two pads) | `shm_cam`, `shp_cam`, `sh2_cam` |
 | **Scanline IRQ mid-frame CPU** | `seam_irq_trial` (proof), `split_h_irq_grad_demo` (applied) | `irq` + `sit_cam` / `shg_cam` |
 | **Windowing as a game object** (lantern) | `room` — incl. the disarm-on-exit path | `window_iris` (WH0/WH1 per scanline) |
+| **Input: 1, 2 or 4 players** — auto-read pads with edge detection; players 3-4 behind a four-pad adapter in port 2, detected at boot, with a player-indexed `pad_btn` / `pad_btnp` | every game (`input`); `room`, `split_v_fight`, `split_h_2p_demo` (two pads); `four_pads` (four) | `input`, `input2`, `mtap` (docs/102 — 2,202 mc/frame with the adapter, 136 without, measured) |
 | **Sprite pipeline** — 544-B shadow, boot park, one VBlank DMA | every game with OBJ; isolated by `sprite_game` | `oam_sprites` |
 | **Sprite pools** (spawn/despawn lifecycles) | `railshooter` (debut), `m7_oshoot`, `boss`, `boss_saucer` | `pool` |
 | **Sprite priority** — OAM index order *is* priority; pinned slot ledgers | `railshooter` (`engine/features/rs_obj/feature.toml`'s front-to-back ledger), `room` (pips over heroes) | per-rail `*_obj` claims |
