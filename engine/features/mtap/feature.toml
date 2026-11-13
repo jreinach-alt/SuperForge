@@ -1,0 +1,63 @@
+# mtap — a four-pad adapter in controller port 2: players 3 and 4 (global).
+#
+# docs/102 is the spec of record: the fullsnes detection and read sequence,
+# which adapter slot is which player, the measured cost, and the decisions.
+#
+# PLAYERS. P1 is port 1 (`input`, $4218). P2 is port 2 — a plain pad, or the
+# adapter's slot 1 — and stays `input2`'s ($421A), unchanged. THIS feature
+# adds P3 (slot 2, which the automatic read delivers to $421E) and P4 (slot 3,
+# clocked by hand out of $4017 bit 0 while WRIO bit 7 is low). With no adapter
+# detected at boot, P3/P4 stay zero — nothing pressed — and the per-frame read
+# is one flag test.
+#
+# WHY A SIBLING FEATURE (input2's argument, once more): claims on `input`
+# re-pack microzero's DP map and change its pinned md5. A rail that does not
+# compose `mtap` is byte-identical to what it was.
+#
+# DEPENDS on input + input2 because `pad_btn` / `pad_btnp` answer for all four
+# players, and players 1-2 are their words.
+name = "mtap"
+role = "feature"
+depends = ["input", "input2"]
+
+[[claims.dp]]
+name = "mtap_on"
+bytes = 2                # non-zero = an adapter answered detection at boot
+
+[[claims.dp]]
+name = "inp3_cur"
+bytes = 2                # P3 ($421E) this frame — the JOY1 bit layout
+
+[[claims.dp]]
+name = "inp3_prev"
+bytes = 2
+
+[[claims.dp]]
+name = "inp3_press"
+bytes = 2                # cur AND NOT prev
+
+[[claims.dp]]
+name = "inp4_cur"
+bytes = 2                # P4 (manual $4017 bit 0) this frame, same layout
+
+[[claims.dp]]
+name = "inp4_prev"
+bytes = 2
+
+[[claims.dp]]
+name = "inp4_press"
+bytes = 2
+
+# THE PORTS THIS FEATURE DRIVES, declared. JOYSER is the $4016 strobe that
+# latches every pad on both ports (detection drives it by hand at boot), plus
+# the $4017 clock the manual P4 read pulses; WRIO is $4201, whose bit 7 is the
+# adapter's slot-select line. Both are CPU-bus names (claims.reg only). A
+# second writer of either — a mouse or light-gun driver, say — must refuse to
+# compose with this one, which is what declaring them buys.
+[[claims.reg]]
+name = "mtap_ports"
+registers = ["JOYSER", "WRIO"]
+
+[init]
+zero = ["mtap_on", "inp3_cur", "inp3_prev", "inp3_press",
+        "inp4_cur", "inp4_prev", "inp4_press"]

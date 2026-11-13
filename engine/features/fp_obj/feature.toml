@@ -1,0 +1,58 @@
+# fp_obj — the four_pads actors: four player tokens and four pad lamps.
+#
+# EIGHT 8x8 OBJs from THREE tiles through FOUR OBJ palettes. Slots 0-3 are the
+# players' tokens (slot n = player n+1), slots 4-7 the lamps in the same order.
+# Positions are written every frame into the oam_sprites SHADOW — never into
+# hardware OAM, which the engine's declared VBlank GP-DMA owns.
+#
+# CONNECTED / PRESSED, IN OAM. A lamp is drawn only for a pad that can be
+# there: players 1-2 always (a port pad), players 3-4 only when `mtap`
+# detected the adapter at boot — absent, both their lamps AND their tokens are
+# parked off-screen. A lamp shows the RING tile while its pad is idle and the
+# LIT tile while it holds any button; a token's horizontal-flip bit toggles
+# once per A press (the edge query, pad_btnp).
+#
+# Slots are pinned (`at`) and fill two whole hi-table bytes, so this feature
+# owns every bit it writes there (sprg_obj's argument, twice over). All eight
+# are SMALL and every X stays below 256 (the play scene clamps), so both
+# hi-table bytes are zero by construction and are written as zero.
+#
+# CPU-WRITTEN REGISTER, DECLARED: OBSEL — oam_sprites claims only OAMDATA, so
+# every rail's OBJ feature declares OBSEL itself.
+name = "fp_obj"
+role = "consumer"
+depends = ["oam_sprites", "fp_rom", "mtap"]
+
+# The enter-time CHR upload (forced blank: scene_mgr's enter clears HDMAEN
+# and zeroes NMITIMEN, so this cannot race an active/vblank claim on channel 0).
+[[claims.dma_init]]
+name = "obj_up"
+channel = 0
+registers = ["VMDATAL", "VMDATAH"]
+mode = 1
+
+[[claims.vram]]
+name = "obj_chr"
+kind = "chr"
+obj = true
+words = 48               # 3 tiles x 16 words: token, ring, lit
+
+[[claims.cgram]]
+name = "obj_pal"
+words = 64
+at = 128                 # hardware contract: OBJ palettes start at CGRAM 128;
+                         # palette n (words 128+16n..) = player n+1
+
+[[claims.oam]]
+name = "tokens"
+sprites = 4
+at = 0
+
+[[claims.oam]]
+name = "lamps"
+sprites = 4
+at = 4
+
+[[claims.reg]]
+name = "obj_obsel"
+registers = ["OBSEL"]

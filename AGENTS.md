@@ -180,7 +180,8 @@ python3 -m pytest tests/ -q -n 3 --dist loadfile   # parallel, pytest-xdist  (me
                              #        hud_game scroller lakeside heathaze \
                              #        smelter mill mill-direct aurora \
                              #        camera_follow \
-                             #        maze jumper patrol sprite_game stomper \
+                             #        maze jumper patrol sprite_game four_pads \
+                             #        fp-labels stomper \
                              #        scroll_run brawler \
                              #        split_h_matrix_demo \
                              #        split_h_persp3_demo split_v_demo \

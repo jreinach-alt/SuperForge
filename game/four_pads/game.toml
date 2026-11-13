@@ -1,0 +1,24 @@
+# four_pads — four players, four pads, one screen (docs/102).
+#
+# The demo of `mtap`: a four-pad adapter in port 2 gives players 3 and 4.
+# Each player moves its own token with its own d-pad, flips it with A, and
+# owns a lamp along the top that is LIT while its pad holds any button. With
+# no adapter, players 3 and 4 are absent — token and lamp both — which is the
+# screen's statement of which pads are connected.
+#
+# OBJ-ONLY, like sprite_game (which this rail is forked from): `backdrop`
+# owns CGRAM word 0 + BGMODE + TM, and `fp_obj` is the whole picture. ONE
+# SCENE, NO EDGES, NO AUDIO.
+#
+# THE INPUT STACK: `input` (P1, $4218), `input2` (P2, $421A — a plain pad or
+# the adapter's slot 1), `mtap` (detection, P3, P4, and pad_btn/pad_btnp).
+# `mtap` depends on the other two, so listing them is documentation.
+#
+# REGION + TICK_SCALE: one rate (FP_SPEED) for all four tokens, made
+# region-correct by TS_STEP, exactly as sprite_game does it.
+globals = ["scene_mgr", "input", "input2", "mtap", "fade", "oam_sprites",
+           "fp_rom", "region", "tick_scale"]
+
+[[scene]]
+id = "play"
+features = ["backdrop", "fp_obj"]

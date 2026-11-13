@@ -669,7 +669,7 @@ with — a timing contract is not a resource claim.
 > are outside it. See `tools/gen_register.py`'s KNOWN LIMIT.
 
 <!-- BEGIN GENERATED: census -->
-**All 186 dirs under `engine/features/` accounted for.** 96 feature &middot; 49 blob &middot; 3 companion &middot; 28 consumer &middot; 10 game_logic.
+**All 189 dirs under `engine/features/` accounted for.** 97 feature &middot; 50 blob &middot; 3 companion &middot; 29 consumer &middot; 10 game_logic.
 
 Generated from the tree by `tools/gen_register.py`; `make register` fails when this block and the tree disagree. Every column here is a fact a `feature.toml` states -- including `role`, which is declared rather than inferred because nothing in the claims distinguishes a blob from a feature. The judgement columns live in §3.1, which is hand-owned.
 
@@ -707,6 +707,8 @@ Generated from the tree by `tools/gen_register.py`; `make register` fails when t
 | `enter_scr` | **companion** | global | `dp`, `dma_init`&times;2 | &mdash; |
 | `fade` | **feature** | global | `dp` | &mdash; |
 | `font_rom` | **blob** | global | `rom` | &mdash; |
+| `fp_obj` | **consumer** | unused | `vram`, `cgram`, `oam`&times;2, `dma_init`, `reg` | `oam_sprites`, `fp_rom`, `mtap` |
+| `fp_rom` | **blob** | unused | `rom`&times;2 | &mdash; |
 | `haze` | **feature** | unused | `dp`&times;2, `hdma`&times;2, `reg` | `hz_rom` |
 | `hero_rom` | **blob** | unused | `rom`&times;2 | &mdash; |
 | `hud_obj` | **consumer** | unused | `vram`, `cgram`, `oam`&times;2, `dma_init`, `reg` | `oam_sprites`, `hud_rom` |
@@ -766,6 +768,7 @@ Generated from the tree by `tools/gen_register.py`; `make register` fails when t
 | `mode7_persp` | **feature** | scene | `dp`, `wram`, `hdma`&times;2, `reg` | `pose_rom` |
 | `mode7_stream` | **feature** | scene | `dp`&times;2, `wram`&times;3, `hdma`, `dma` | &mdash; |
 | `mosaic` | **feature** | unused | `dp`, `reg` | &mdash; |
+| `mtap` | **feature** | unused | `dp`&times;7, `reg` | `input`, `input2` |
 | `oam_sprites` | **feature** | global | `wram`, `hdma`, `dma` | &mdash; |
 | `patrol_bg` | **feature** | unused | `vram`&times;2, `cgram`, `dma_init`, `reg` | `patrol_rom` |
 | `patrol_obj` | **consumer** | unused | `vram`, `cgram`, `oam`&times;3, `dma_init`, `reg` | `oam_sprites`, `patrol_rom` |
@@ -918,6 +921,8 @@ machine-written.
 | `dlg_rom` | `dialog`'s nine nine-patch tiles + its 4-colour panel sub-palette |
 | `enter_scr` | **global companion** — enter-time scratch + `mode7_floor`'s two upload shapes |
 | `fade` | fades (§1.2) |
+| `fp_obj` | `four_pads`' eight actors (docs/102); SPR consumer — four player tokens (slots 0-3) and four pad lamps (slots 4-7) from THREE tiles through FOUR OBJ palettes, the player being the palette. The lamps are the screen's statement of the input stack: present for a pad that can be there (players 3-4 only when `mtap` detected the adapter), LIT while that pad holds a button; a token's h-flip toggles once per A press (the `pad_btnp` edge). Claims OBSEL and two whole hi-table bytes; every X is clamped below 256, so both bytes are zero by construction |
+| `fp_rom` | `fp_obj` — the three 8×8 tiles (token, lamp ring, lamp lit; 96 B) + four OBJ palettes (128 B), from `tools/gen_four_pads_assets.py`, which encodes them from their pixel descriptions |
 | `font_rom` | `bg_text` |
 | `hero_rom` | `room_hero` |
 | `hud_obj` | `hud_game`'s player (one 8x8 OBJ); SPR consumer — the smallest OBJ feature in the tree, and the one that shows the hi-table-byte rule at its floor: it claims FOUR sprites for ONE player so the draw can rebuild the byte from the player's own X rather than read-modify-write around three slots it does not own (`breaker_obj`'s and `split_v_obj`'s argument, minimum size) |
@@ -978,6 +983,7 @@ machine-written.
 | `mode7_persp` | M7-persp |
 | `mode7_stream` | STREAM |
 | `mosaic` | **The pixelate-to-black scene wipe** — a symmetric 20-frame OUT / 15-frame IN dissolve that fires a caller-supplied swap routine at peak black, with mosaic size locked to `15 - brightness` so a clean image and a black one are the two ends of one curve. Owns `MOSAIC` ($2106) outright and a seven-byte DP state block; drives brightness through scene_mgr's INIDISP shadow the way `fade` does, and claims no register for it. It deliberately does NOT own `TM`: an OBJ drop inside the wipe is refused here by `check_reg_ownership`'s reg×reg pass against every BG feature in the tree, and is defeated anyway on an HDMA-TM Mode 7 scene — so hiding OBJ is a stated caller contract, gated on the `mosaic_active` query. See the feature.toml header |
+| `mtap` | **Players 3 and 4: a four-pad adapter in controller port 2** (docs/102). Detects the adapter ONCE at boot (fullsnes' strobe-high/strobe-low byte pair, before the automatic read is armed) and, while one answered, reads P3 from the automatic read's JOY4 (`$421E`, slot 2) and P4 by hand (16 clocks of `$4017` bit 0 under WRIO.7 = 0, slot 3) into two DP triples on `input`'s edge convention. Supplies `pad_btn` / `pad_btnp`, the player-indexed held / pressed query for players 0-3 (any other index answers 0) — hence `depends = [input, input2]`. Owns the joypad ports by declaration: `[[claims.reg]]` on `JOYSER` ($4016-$4017) and `WRIO` ($4201), the two footprint names docs/102 added. A sibling feature, `input2`'s reason: a rail that does not compose it is byte-identical. With no adapter the per-frame read is one flag test |
 | `oam_sprites` | SPR |
 | `patrol_bg` | **BG** — the `patrol` rail's terrain: a 32×28 walled level (ground, side borders, two jumpable low walls, a floating platform), the seventh instance of the keystone BG pattern. What is specific to it: the tilemap is **rendered at enter from the `pat_map` blob** rather than built from an expression (maze's shape — the same 1,024 bytes are col_map's world, so the picture and the collision cannot drift), and the scroll is **pinned at enter with the VOFS −1** (maze's rule: world y = screen y = OAM y, so a wall-stop or beat-bound coordinate is the same number in the map, the picture and the OAM byte). Owns CGRAM word 0 (at palette group 0 that word IS the backdrop slot) |
 | `patrol_obj` | the `patrol` rail's three actors — the red player and BOTH magenta patrollers — one 8×8 OBJ each from ONE shared tile in two OBJ palettes (all three draw tile #1, attr $00 vs $02). Player pinned at OAM 0, enemies at 1..2, so a test reads an entry and says which actor it is; claims the hi-table byte's fourth slot as pad and REBUILDS the byte from the three X values every frame (`hud_obj`'s argument, one slot bigger). SPR consumer |

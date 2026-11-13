@@ -27,7 +27,8 @@ LD65    := ld65
 	m7x-assets mode7_explore pfs-assets platformer_stream scroller \
 	lakeside heathaze smelter mill mill-direct aurora \
 	scroller-tb tb-measure tb-picture rate-oracle \
-	camera_follow maze jumper patrol sprite_game stomper scroll_run brawler \
+	camera_follow maze jumper patrol sprite_game four_pads fp-labels \
+	stomper scroll_run brawler \
 	split_h_matrix_demo split_h_persp3_demo \
 	svd-assets split_v_demo svd-nowin split_v_seamtrial \
 	split_h_demo shd-autodemo shp-assets split_h_persp_demo shp-autodemo \
@@ -400,6 +401,60 @@ $(BUILD)/sprite_game.sfc: $(SPRG_ASM) $(SPRG)/sprg.inc \
 	$(PY) tools/fix_checksum.py $@
 
 sprite_game: $(BUILD)/sprite_game.sfc
+
+# ---- four_pads: four players on four pads (docs/102) -
+# The `mtap` demo: a four-pad adapter in port 2 gives players 3 and 4. Each
+# player moves a token with its own d-pad and flips it with A; a lamp per
+# player is LIT while its pad holds a button. Without the adapter, players 3
+# and 4 are absent. OBJ-only, forked from sprite_game; no audio.
+FP      := game/four_pads
+FP_MAP  := $(BUILD)/fp
+FP_ASM  := $(FP)/main.asm $(wildcard $(FP)/scenes/*.asm) \
+           $(wildcard engine/features/*/*.asm)
+FP_INC  := -I $(FP_MAP) -I $(VROM) -I $(FP) \
+		-I engine/features/scene_mgr -I engine/features/input \
+		-I engine/features/input2 -I engine/features/mtap \
+		-I engine/features/fade -I engine/features/oam_sprites \
+		-I engine/features/region -I engine/features/tick_scale \
+		-I engine/features/fp_obj
+
+$(FP_MAP)/engine_state_globals.inc $(FP_MAP)/symbol_map.json: \
+		allocator/substrate.toml allocator/allocate.py allocator/schemas.py \
+		$(wildcard engine/features/*/feature.toml) $(FP)/game.toml \
+		$(FP)/state.toml | $(BUILD)
+	$(PY) allocator/allocate.py --game $(FP) --features-dir engine/features \
+		--out $(FP_MAP)
+
+$(BUILD)/assets/fp_obj_chr.bin $(BUILD)/assets/fp_obj_pal.bin: \
+		tools/gen_four_pads_assets.py | $(BUILD)
+	$(PY) tools/gen_four_pads_assets.py $(BUILD)/assets
+
+$(BUILD)/four_pads.sfc: $(FP_ASM) $(FP)/fp.inc \
+		$(FP_MAP)/engine_state_globals.inc \
+		$(BUILD)/assets/fp_obj_chr.bin $(BUILD)/assets/fp_obj_pal.bin \
+		$(VROM)/header.inc $(VROM)/init.inc $(VROM)/ppu_reset.inc \
+		$(VROM)/lorom_512k.cfg | $(BUILD)
+	$(PY) allocator/no_literals.py --map $(FP_MAP)/symbol_map.json $(FP_ASM)
+	$(CA65) $(FP_INC) --bin-include-dir $(BUILD)/assets \
+		-o $(BUILD)/four_pads.o $(FP)/main.asm
+	$(LD65) -C $(VROM)/lorom_512k.cfg -o $@ $(BUILD)/four_pads.o
+	$(PY) tools/fix_checksum.py $@
+
+four_pads: $(BUILD)/four_pads.sfc
+
+# --- the labelled twin (m7_dungeon's pattern): same sources, `-g` + `-Ln`, and
+# the `cmp` proves the label file describes the binary that ships. The cost
+# test (tests/test_mtap_cost.py) puts execution breakpoints on fp_pads_begin /
+# fp_pads_end by NAME through it.
+$(BUILD)/four_pads.lbl: $(BUILD)/four_pads.sfc
+	$(CA65) $(FP_INC) --bin-include-dir $(BUILD)/assets -g \
+		-o $(BUILD)/four_pads_dbg.o $(FP)/main.asm
+	$(LD65) -C $(VROM)/lorom_512k.cfg -Ln $@ \
+		-o $(BUILD)/four_pads_dbg.sfc $(BUILD)/four_pads_dbg.o
+	$(PY) tools/fix_checksum.py $(BUILD)/four_pads_dbg.sfc
+	cmp $(BUILD)/four_pads_dbg.sfc $(BUILD)/four_pads.sfc
+
+fp-labels: $(BUILD)/four_pads.lbl
 
 # ---- shmup: the vertical shooter ----------------
 # The rail that debuts POOL. Its BG feature (shmup_bg) owns both co-resident
@@ -3365,6 +3420,7 @@ gates: | $(BUILD)
 	run aurora; \
 	run camera_follow; run maze; run jumper; run patrol; \
 	run sprite_game; \
+	run four_pads; \
 	run stomper; \
 	run scroll_run; run split_h_demo; run shd-autodemo; \
 	run brawler; \
@@ -3386,6 +3442,7 @@ gates: | $(BUILD)
 	for rom in microzero room breaker shmup platformer split_v_fight m7_dungeon \
 	           split_h_2p_demo mode7_explore platformer_stream hud_game \
 	           scroller lakeside heathaze smelter mill aurora camera_follow maze jumper patrol sprite_game \
+	           four_pads \
 	           stomper scroll_run brawler \
 	           split_h_matrix_demo split_h_persp3_demo split_v_demo \
 	           split_v_seamtrial split_h_demo split_h_persp_demo \
@@ -3561,6 +3618,7 @@ PYTEST_DIST := $(if $(strip $(XDIST)),-n $(strip $(XDIST)) --dist loadfile,)
 test: toy microzero room probes breaker shmup platformer split_v_fight \
 	m7_dungeon split_h_2p_demo sh2-variants mode7_explore platformer_stream \
 	hud_game scroller lakeside heathaze smelter mill mill-direct aurora camera_follow maze jumper patrol sprite_game \
+	four_pads fp-labels \
 	stomper \
 	scroll_run brawler split_h_matrix_demo split_h_persp3_demo \
 	split_v_demo svd-nowin split_v_seamtrial split_h_demo shd-autodemo \
@@ -3806,7 +3864,7 @@ MODULE  ?= tests/test_split_h_2p_sprites.py
 FALSIFY ?=
 determinism: split_h_2p_demo sh2-variants microzero hud_game scroller \
 	lakeside heathaze smelter mill mill-direct aurora \
-	camera_follow maze jumper patrol sprite_game stomper scroll_run \
+	camera_follow maze jumper patrol sprite_game four_pads stomper scroll_run \
 	brawler split_v_fight split_h_matrix_demo split_h_persp3_demo \
 	split_v_demo svd-nowin split_v_seamtrial split_h_demo shd-autodemo \
 	split_h_persp_demo shp-autodemo racer mode7_chamber railshooter rs-probe \
