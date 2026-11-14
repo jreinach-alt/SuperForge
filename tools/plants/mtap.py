@@ -21,6 +21,24 @@ tests that must go red for it:
   * pad_btn's out-of-range answer dropped — X = 4/5 returns the caller's mask
     instead of 0.
   * the demo's lamp ignores its pad — always lit.
+
+PER-PAD PRESENCE (docs/102 D10, audit-1 F1 remediation):
+
+  * the boot census drops player 4's 17th bit — a pad in slot 3 reads
+    absent until the first periodic census. Only a read taken right after
+    boot sees it, which is what the presence case's first read is.
+  * the periodic census never runs (the countdown's branch lands on the
+    plain path) — presence is the boot census forever. The re-read case
+    pokes the word and waits for the census; the cost case requires census
+    calls in its sample.
+  * the census's first half writes the whole low byte (the masked merge's
+    AND dropped) — player 4's bit, the other half's, is overwritten with
+    the port's junk bits for a call, and bits 4-7 stay junk.
+  * the boot census's closing re-latch dropped — the rail's first
+    mtap_read, made before any automatic read, shifts padding 1s out of
+    slot 3: player 4 holds every button for one frame, and its token flips
+    at boot.
+  * the demo draws every player whatever pad_here says.
 """
 import sys
 from pathlib import Path
@@ -43,7 +61,8 @@ PLANTS = [
           artifact=PROBE,
           build=["mtap-probe"],
           tests=[T + "test_every_button_lands_in_its_own_players_word_only[3]",
-                 T + "test_a_held_button_is_pressed_on_its_first_frame_only[3]"],
+                 T + "test_a_held_button_is_pressed_on_its_first_frame_only[3]",
+                 "tests/test_mtap_cost.py::test_a_caller_at_the_top_of_vblank_pays_the_auto_read_wait"],
           why="a caller at the top of VBlank (the probe's loop, or any rail "
               "whose NMI work is short) would clock slot 3 before the "
               "automatic read latches it; the guard is the only thing "
@@ -111,4 +130,66 @@ PLANTS = [
           why="a lamp that is lit whatever its pad does still passes every "
               "'is the lamp drawn' check; only the idle-vs-held contrast, in "
               "OAM and on screen, catches it"),
+    Plant(id="boot-census-p4-dropped",
+          file=MTAP,
+          old="""    bcc @p4_gone
+    lda #MTAP_PAD_P4""",
+          new="""    bra @p4_gone                    ; PLANT: P4's 17th bit never counted
+    lda #MTAP_PAD_P4""",
+          artifact=PROBE,
+          build=["mtap-probe"],
+          tests=[T + "test_presence_names_exactly_the_connected_pads_at_boot_and_after[pad-multitap-1111]"],
+          why="the boot census is the only presence a rail has for its "
+              "first CENSUS_EVERY frames — and, without an adapter, for good"),
+    Plant(id="census-never-reruns",
+          file=MTAP,
+          old="""    beq @census                     ;   cost of presence, one dec + one branch""",
+          new="""    beq @slot3                      ; PLANT: the census never runs""",
+          artifact=PROBE,
+          build=["mtap-probe", "fp-labels"],
+          tests=[T + "test_the_census_re_reads_presence_once_a_period_in_two_halves",
+                 "tests/test_mtap_cost.py::test_a_call_after_the_auto_read_stays_under_two_scanlines_census_included"],
+          why="a census computed at boot and never again looks exactly right "
+              "until somebody plugs a pad in; only a word that is wrong "
+              "BEFORE the census and right after it shows the census ran"),
+    Plant(id="census-half-clobbers-p4",
+          file=MTAP,
+          old="""    and #(MTAP_PAD_P1 | MTAP_PAD_P2 | MTAP_PAD_P3) ; census, the rest (player""",
+          new="""                                    ; PLANT: the mask dropped (player""",
+          artifact=PROBE,
+          build=["mtap-probe"],
+          tests=[T + "test_the_census_re_reads_presence_once_a_period_in_two_halves",
+                 T + "test_presence_names_exactly_the_connected_pads_at_boot_and_after[pad-multitap-1110]"],
+          why="two halves writing one byte must each write only their own "
+              "bits; a plain store of the first half's byte carries the "
+              "port's always-1 bits into player 4's and the unused ones"),
+    Plant(id="boot-relatch-dropped",
+          file=MTAP,
+          old="""    lda #$01
+    sta a:$4016                     ; strobe ON
+    stz a:$4016                     ; strobe OFF (the auto-read needs it low)
+    rep #$20""",
+          new="""    lda #$01                        ; PLANT: no re-latch after the census
+    rep #$20""",
+          artifact=FP,
+          build=["four_pads"],
+          tests=["tests/test_four_pads.py::test_with_the_adapter_all_four_players_have_a_token_and_a_lamp",
+                 "tests/test_four_pads.py::test_a_flips_the_token_once_per_press_not_per_frame[3]"],
+          why="the first mtap_read of a rail that arms the automatic read and "
+              "goes straight into its loop runs before any automatic read: "
+              "whatever state the boot left the pads in is what it reads"),
+    Plant(id="demo-ignores-presence",
+          file=PLAY,
+          old="""    jsr pad_here                ; Z clear = this player's pad is connected
+    bne @shown""",
+          new="""    jsr pad_here                ; Z clear = this player's pad is connected
+    bra @shown                  ; PLANT: everyone drawn, pad or none""",
+          artifact=FP,
+          build=["four_pads"],
+          tests=["tests/test_four_pads.py::test_a_player_is_drawn_only_while_its_own_pad_is_connected[p2-empty]",
+                 "tests/test_four_pads.py::test_the_screen_shows_only_the_connected_pads_lamps",
+                 "tests/test_four_pads.py::test_without_the_adapter_players_3_and_4_are_absent"],
+          why="'which pads are connected' is the demo's half of the owner's "
+              "ask; a lamp drawn for an empty port says connected where "
+              "nothing is"),
 ]

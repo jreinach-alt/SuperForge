@@ -3,4 +3,5 @@
 held = "u16[6]@dp"       # pad_btn(X, $FFFF) for X = 0..5, this frame
 press = "u16[6]@dp"      # pad_btnp(X, $FFFF) for X = 0..5, this frame
 zflag = "u16@dp"         # bit X set = pad_btn(X, $FFFF) returned with Z set
+here = "u16@dp"          # bit X set = pad_here(X) answered non-zero (connected)
 frames = "u16@dp"        # frames the loop has completed

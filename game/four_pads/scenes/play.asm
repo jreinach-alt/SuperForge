@@ -3,7 +3,7 @@
 ; =============================================================================
 ; Per frame: each player's held word moves its token (d-pad, clamped to the
 ; play field), an A PRESS flips it (the edge, not the hold), and the lamps and
-; tokens are redrawn — players 3/4 only when the adapter answered at boot.
+; tokens are redrawn — each only while its pad is connected (pad_here).
 ;
 ; EVERY PAD READ GOES THROUGH pad_btn / pad_btnp (engine/features/mtap), the
 ; player-indexed query: X = player 0-3, A = button mask. The scene never names
@@ -161,10 +161,11 @@ fp_move:
 
 ; --- fp_place: state -> the OAM shadow, every slot, every frame -------------
 ; In/out: A16/I16, DB=0. Clobbers A, X, Y.
-; A player is SHOWN when its pad can be there: 0-1 always, 2-3 only with the
-; adapter (ES_MTAP_ON). Shown: token at (px, py) with its flip; lamp at its
-; row slot, LIT while pad_btn(JOY_ANY) is non-zero, else the RING. Not shown:
-; both parked.
+; A player is SHOWN while its pad is connected — pad_here, the per-pad
+; presence mtap's census measures (the pad's 17th bit): P1 and P2 in their
+; ports, P3 and P4 behind the adapter, each on its own. Shown: token at
+; (px, py) with its flip; lamp at its row slot, LIT while pad_btn(JOY_ANY) is
+; non-zero, else the RING. Not shown: both parked.
 fp_place:
     .a16
     .i16
@@ -175,10 +176,8 @@ fp_place:
     asl a
     asl a
     tay                         ; Y = slot * 4 (both runs share the stride)
-    cpx #2
-    bcc @shown                  ; players 1-2: a port pad
-    lda z:ES_MTAP_ON
-    bne @shown                  ; players 3-4: only behind the adapter
+    jsr pad_here                ; Z clear = this player's pad is connected
+    bne @shown
     sep #$20
     .a8
     lda #FP_PARK_Y

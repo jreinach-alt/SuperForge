@@ -48,6 +48,22 @@ bytes = 2
 name = "inp4_press"
 bytes = 2
 
+# PER-PAD PRESENCE (docs/102 D10, as corrected). Bit n set = player n+1's pad
+# answered the last census: its 17th bit read 1 ("17th and up: Padding,
+# always 1 ... or 0 when no pad connected", fullsnes). Bits 0-3 = P1-P4; the
+# high byte and bits 4-7 are always 0. Read it through `pad_here`.
+[[claims.dp]]
+name = "mtap_pads"
+bytes = 2
+
+# THE CENSUS CLOCK. Low byte: mtap_read calls until the next census (adapter
+# only). High byte: which half runs next — 0 = players 1-3 (one more clock of
+# each line), else player 4 (five more clocks of slot 3). Split so neither
+# census frame takes the read past two scanlines (docs/102 §7.2).
+[[claims.dp]]
+name = "mtap_tick"
+bytes = 2
+
 # THE PORTS THIS FEATURE DRIVES, declared. JOYSER is the $4016 strobe that
 # latches every pad on both ports (detection drives it by hand at boot), plus
 # the $4017 clock the manual P4 read pulses; WRIO is $4201, whose bit 7 is the
@@ -60,4 +76,4 @@ registers = ["JOYSER", "WRIO"]
 
 [init]
 zero = ["mtap_on", "inp3_cur", "inp3_prev", "inp3_press",
-        "inp4_cur", "inp4_prev", "inp4_press"]
+        "inp4_cur", "inp4_prev", "inp4_press", "mtap_pads", "mtap_tick"]

@@ -10,8 +10,8 @@ It then asks `pad_btn` / `pad_btnp` about players 5..0 with every button bit
 set and records the answers.
 
 THE OUTPUT REGIONS: the DP words `mtap` (and `input` / `input2`) write —
-the feature's whole output — and the `pad_btn` / `pad_btnp` answers the probe
-recorded. The harness this stands on is proved separately, on a ROM with no
+the feature's whole output, presence (`ES_MTAP_PADS`) included — and the
+`pad_btn` / `pad_btnp` / `pad_here` answers the probe recorded. The harness this stands on is proved separately, on a ROM with no
 engine code at all (`test_mtap_harness.py`).
 
 THE PAD SCRIPT IS THE INPUT, THE WORDS ARE THE OUTPUT, AND EVERY ASSERTION
@@ -44,6 +44,7 @@ BITS = {"b": 15, "y": 14, "select": 13, "start": 12, "up": 11, "down": 10,
 CUR = ["ES_INP_CUR", "ES_INP2_CUR", "ES_INP3_CUR", "ES_INP4_CUR"]
 PRESS = ["ES_INP_PRESS", "ES_INP2_PRESS", "ES_INP3_PRESS", "ES_INP4_PRESS"]
 BOOT = 20
+CENSUS_EVERY = 32          # MTAP_CENSUS_EVERY (engine/features/mtap/mtap.asm)
 
 
 @pytest.fixture(scope="module")
@@ -208,3 +209,113 @@ def test_the_select_line_is_released_so_the_next_auto_read_sees_slots_1_and_2(ad
     m.advance(10, pad2={"y": True}, pad3={"l": True})
     assert _words(m, addr, CUR) == [0, 1 << 14, 1 << 5, 0], (
         [hex(v) for v in _words(m, addr, CUR)])
+
+
+# =============================================================================
+# MT-9 — per-pad presence: which pads are connected (docs/102 D10)
+# =============================================================================
+# The harness configuration is the INPUT; the expected word is written out
+# from it here, independently of the ROM: bit 0 = port 1's pad, bit 1 = port
+# 2's plain pad or the adapter's slot 1, bit 2 = slot 2, bit 3 = slot 3 (slot
+# 4 is nobody's — it must not show). Level 0 (test_mtap_harness.py) proves the
+# 17th bit the harness devices answer; this proves what mtap makes of it.
+_SLOTS = [tuple(bool(n >> (3 - i) & 1) for i in range(4)) for n in range(16)]
+_CONFIGS = ([(p1, p2, mr.TAP_FULL) for p1 in (mr.PORT_PAD, mr.PORT_EMPTY)
+             for p2 in (mr.PORT2_PAD, mr.PORT_EMPTY)]
+            + [(p1, mr.PORT2_MULTITAP, sl) for p1 in (mr.PORT_PAD, mr.PORT_EMPTY)
+               for sl in _SLOTS])
+
+
+def _cfg_id(c):
+    return f"{c[0]}-{c[1]}" + ("-" + "".join("1" if b else "0" for b in c[2])
+                               if c[1] == mr.PORT2_MULTITAP else "")
+
+
+def _want_present(p1, p2, slots):
+    w = 1 if p1 == mr.PORT_PAD else 0
+    if p2 == mr.PORT2_PAD:
+        w |= 2
+    elif p2 == mr.PORT2_MULTITAP:
+        w |= (2 if slots[0] else 0) | (4 if slots[1] else 0) | (8 if slots[2] else 0)
+    return w
+
+
+def _presence(m, addr):
+    return m.read_u16(W, addr["ES_MTAP_PADS"]), m.read_u16(W, addr["US_HERE"])
+
+
+@pytest.mark.parametrize("cfg", _CONFIGS, ids=[_cfg_id(c) for c in _CONFIGS])
+def test_presence_names_exactly_the_connected_pads_at_boot_and_after(addr, cfg):
+    """Read twice: right after boot (the boot census — before the first
+    periodic one, which is CENSUS_EVERY calls away) and after more than two
+    census periods (the periodic census, both halves, twice). Both the word
+    and pad_here's answers for players 0..5 (4 and 5: nobody, ever)."""
+    p1, p2, slots = cfg
+    want = _want_present(*cfg)
+    m = Machine(str(ROM), port1=p1, port2=p2, tap_slots=slots).advance(5)
+    boot = _presence(m, addr)
+    m.advance(2 * (CENSUS_EVERY + 1) + 4)
+    later = _presence(m, addr)
+    assert m.read_u16(W, addr["US_FRAMES"]) >= 2 * CENSUS_EVERY, "probe stalled"
+    assert boot == (want, want), (
+        f"{_cfg_id(cfg)} at boot: ES_MTAP_PADS {boot[0]:#06b}, pad_here bits "
+        f"{boot[1]:#08b}; want {want:#06b} for both")
+    assert later == (want, want), (
+        f"{_cfg_id(cfg)} after two census periods: ES_MTAP_PADS "
+        f"{later[0]:#06b}, pad_here bits {later[1]:#08b}; want {want:#06b}")
+
+
+def test_the_census_re_reads_presence_once_a_period_in_two_halves(addr):
+    """Presence is MEASURED, not remembered: overwrite the word with its
+    complement and watch the census put the truth back — players 1-3 on one
+    call, player 4 on the next (the split that keeps each call under two
+    scanlines) — and not before. Then again: the next census is exactly one
+    period later, so the word is not re-read every frame either."""
+    slots = (True, False, True, False)                     # P2 + P4 behind it
+    truth = _want_present(mr.PORT_PAD, mr.PORT2_MULTITAP, slots)
+    assert truth == 0b1011
+    m = Machine(str(ROM), port2=mr.PORT2_MULTITAP, tap_slots=slots).advance(BOOT)
+    assert m.read_u16(W, addr["ES_MTAP_PADS"]) == truth
+
+    def watch(limit):
+        """Poke the complement, then step ONE call at a time until both
+        halves have put their bits back; answer every value seen."""
+        m.write_bytes(W, addr["ES_MTAP_PADS"], bytes([truth ^ 0x0F, 0]))
+        seen = []
+        while len(seen) < limit and (not seen or seen[-1] != truth):
+            m.advance(1)
+            seen.append(m.read_u16(W, addr["ES_MTAP_PADS"]))
+        return seen
+
+    def halves(seen):
+        a = next(i for i, v in enumerate(seen) if v & 0b0111 == truth & 0b0111)
+        b = next(i for i, v in enumerate(seen) if v & 0b1000 == truth & 0b1000)
+        return a, b
+
+    seen = watch(2 * CENSUS_EVERY + 4)
+    assert seen[-1] == truth, f"the census never restored the word: {seen}"
+    a, b = halves(seen)
+    assert seen[:a] == [truth ^ 0x0F] * a, f"changed before its census: {seen}"
+    assert (b == a + 1 and seen[a] == (truth & 0b0111) | (~truth & 0b1000)
+            and seen[b] == truth), (
+        f"players 1-3 came back on call {a}, player 4 on call {b}: want 4 on "
+        f"the call after 1-3, each half writing only its own bits. {seen}")
+    # the period: poked again right after the second half, the next first
+    # half is CENSUS_EVERY calls later (the second half reloads the countdown)
+    seen = watch(2 * CENSUS_EVERY + 4)
+    a2, b2 = halves(seen)
+    assert (a2, b2) == (CENSUS_EVERY - 1, CENSUS_EVERY), (
+        f"after a census, the next came back on calls {a2}/{b2}; want "
+        f"{CENSUS_EVERY - 1}/{CENSUS_EVERY} (0-based). {seen}")
+    assert seen[:a2] == [truth ^ 0x0F] * a2, seen
+
+
+def test_without_an_adapter_presence_is_the_boot_census_and_never_re_read(addr):
+    """The stated limit (docs/102 D10): the no-adapter path stays a flag
+    test, so P1/P2 presence is what the boot census found. Proved by its
+    consequence — a word overwritten after boot STAYS overwritten."""
+    m = Machine(str(ROM), port2=mr.PORT_EMPTY).advance(BOOT)
+    assert m.read_u16(W, addr["ES_MTAP_PADS"]) == 0b0001, "boot census wrong"
+    m.write_bytes(W, addr["ES_MTAP_PADS"], bytes([0b0110, 0]))
+    m.advance(3 * CENSUS_EVERY)
+    assert m.read_u16(W, addr["ES_MTAP_PADS"]) == 0b0110

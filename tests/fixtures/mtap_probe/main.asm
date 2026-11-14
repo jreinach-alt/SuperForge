@@ -6,7 +6,12 @@
 ; race docs/102 D7 names and mtap_read's guard exists for. input_read and
 ; input2_read then run after it (mtap_read has already waited the automatic
 ; read out), and pad_btn / pad_btnp are asked about players 5..0 with every
-; button bit set. Players 4 and 5 are out of range on purpose.
+; button bit set, and pad_here whether each is connected. Players 4 and 5 are
+; out of range on purpose.
+;
+; mp_read_begin / mp_read_end bracket the one `jsr mtap_read` — the worst-case
+; cost measurement's marks (tests/test_mtap_cost.py, through the labelled
+; twin `make mtap-probe` also builds).
 ;
 ; Everything is allocator-placed (this dir's game.toml + state.toml);
 ; tests/test_mtap.py reads the result words by name from the emitted map.
@@ -50,6 +55,7 @@ MAIN:
     cpx #(PROBE_SLOTS * 2)
     bcc @clear
     stz z:US_ZFLAG
+    stz z:US_HERE
     stz z:US_FRAMES
     sep #$20
     .a8
@@ -69,7 +75,9 @@ probe_frame:
     bpl @vblank                     ; VBlank has JUST begun: auto-read not yet
     rep #$20
     .a16
+mp_read_begin:
     jsr mtap_read                   ; D7: its guard must wait the race out
+mp_read_end:
     ; input_read / input2_read assume the automatic read has STARTED (their
     ; contracts); with an adapter, mtap_read's guard has just waited it out.
     ; Without one, mtap_read returned at once and nothing has — so the probe
@@ -126,5 +134,18 @@ probe_frame:
     plx
     dex
     bpl @ask
+    stz z:US_HERE
+    ldx #(PROBE_SLOTS - 1)
+@here:
+    .a16
+    jsr pad_here                    ; A = 1 (Z clear) when connected
+    sec
+    bne @there
+    clc
+@there:
+    .a16
+    rol z:US_HERE                   ; asked 5..0, so bit X = player X here
+    dex
+    bpl @here
     inc z:US_FRAMES
     jmp probe_frame

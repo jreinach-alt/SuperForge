@@ -483,7 +483,19 @@ $(BUILD)/mtap_probe.sfc: $(MTP)/main.asm $(MTP_FEAT) \
 	$(LD65) -C $(VROM)/lorom_32k.cfg -o $@ $(BUILD)/mtap_probe.o
 	$(PY) tools/fix_checksum.py $@
 
-mtap-probe: $(BUILD)/mtap_probe.sfc
+# The probe's labelled twin (fp-labels' pattern): the worst-case cost test
+# (tests/test_mtap_cost.py) breaks on mp_read_begin / mp_read_end by NAME, and
+# the `cmp` proves the label file describes the probe that ships.
+$(BUILD)/mtap_probe.lbl: $(BUILD)/mtap_probe.sfc
+	$(CA65) -I $(MTP_MAP) -I $(VROM) -I engine/features/input \
+		-I engine/features/input2 -I engine/features/mtap -g \
+		-o $(BUILD)/mtap_probe_dbg.o $(MTP)/main.asm
+	$(LD65) -C $(VROM)/lorom_32k.cfg -Ln $@ \
+		-o $(BUILD)/mtap_probe_dbg.sfc $(BUILD)/mtap_probe_dbg.o
+	$(PY) tools/fix_checksum.py $(BUILD)/mtap_probe_dbg.sfc
+	cmp $(BUILD)/mtap_probe_dbg.sfc $(BUILD)/mtap_probe.sfc
+
+mtap-probe: $(BUILD)/mtap_probe.sfc $(BUILD)/mtap_probe.lbl
 
 # ---- shmup: the vertical shooter ----------------
 # The rail that debuts POOL. Its BG feature (shmup_bg) owns both co-resident

@@ -8,9 +8,12 @@ WHAT THE DEMO CLAIMS, and the output region each claim is read from:
     byte (FP-3, the destination regions);
   * each player's token moves with ITS OWN pad and no other — both directions
     on both axes, and the play-field clamp holds (FP-1, the OAM low table);
-  * the lamps say which pads are connected and which are pressed — players
-    3-4 have no token and no lamp without the adapter; a lamp shows the LIT
-    tile only while its pad holds a button (FP-2, OAM tile / Y bytes);
+  * the lamps say which pads are connected and which are pressed — a player
+    has a token and a lamp only while ITS pad is connected (mtap's per-pad
+    presence: P1 and P2 in their ports, P3/P4 behind the adapter, each on
+    its own — every combination of empty port and empty slot below); a lamp
+    shows the LIT tile only while its pad holds a button (FP-2, OAM tile / Y
+    bytes, and screenshot pixels for a mixed configuration);
   * A flips a token once per PRESS, not per held frame — the demo's use of the
     edge query `pad_btnp` (OAM attr bit 6);
   * and the composited picture: each token and lamp is drawn in its player's
@@ -275,3 +278,72 @@ def test_the_screen_shows_four_tokens_and_four_lamps_in_their_colours(tap, tmp_p
             assert centre == colour(p, 2), f"lamp 2 is held but not lit: {centre}"
         else:
             assert centre == backdrop, f"lamp {p + 1} idle but its centre is {centre}"
+
+
+# =============================================================================
+# FP-2 — connected, per pad: empty ports and empty adapter slots
+# =============================================================================
+E, T = mr.PORT_EMPTY, mr.PORT2_MULTITAP
+_PRESENCE = [
+    ("p1-empty", dict(port1=E), [False, True, False, False]),
+    ("p2-empty", dict(port2=E), [True, False, False, False]),
+    ("both-empty", dict(port1=E, port2=E), [False, False, False, False]),
+    ("tap-p2-p4", dict(port2=T, tap_slots=(True, False, True, False)),
+     [True, True, False, True]),
+    ("tap-p3-only", dict(port1=E, port2=T, tap_slots=(False, True, False, False)),
+     [False, False, True, False]),
+    ("tap-empty", dict(port2=T, tap_slots=(False, False, False, False)),
+     [True, False, False, False]),
+    ("tap-slot4-only", dict(port2=T, tap_slots=(False, False, False, True)),
+     [True, False, False, False]),
+]
+
+
+@pytest.mark.parametrize("ports,shown", [(c[1], c[2]) for c in _PRESENCE],
+                         ids=[c[0] for c in _PRESENCE])
+def test_a_player_is_drawn_only_while_its_own_pad_is_connected(ports, shown):
+    m = Machine(str(ROM), **ports).advance(BOOT)
+    m.advance(1)
+    for p in range(4):
+        t, l = _token(m, p), _lamp(m, p)
+        if shown[p]:
+            assert (t["x"], t["y"], t["tile"]) == (*HOME[p], TILE_TOKEN), (
+                f"player {p + 1} is connected but its token is {t}")
+            assert (l["x"], l["y"], l["tile"]) == (LAMP_X[p], LAMP_Y, TILE_RING), (
+                f"player {p + 1} is connected but its lamp is {l}")
+        else:
+            assert (t["y"], l["y"]) == (PARK_Y, PARK_Y), (
+                f"player {p + 1} has no pad but is drawn: token {t}, lamp {l}")
+
+
+def test_the_screen_shows_only_the_connected_pads_lamps(tmp_path):
+    """The composited picture for a mixed configuration — port 1's pad, and
+    the adapter with pads in slots 1 and 3 only (players 2 and 4): three
+    lamps (P4's lit, it holds X) and three tokens in their colours, and
+    player 3's lamp and token positions showing the backdrop."""
+    from PIL import Image
+    m = Machine(str(ROM), port2=T, tap_slots=(True, False, True, False)).advance(BOOT)
+    m.advance(1, pad4={"x": True})
+    m.advance(1, pad4={"x": True})                # held across the OAM lag
+    img = Image.open(m.screenshot(str(tmp_path / "fp_mixed.png"))).convert("RGB")
+    pal = (ASSETS / "fp_obj_pal.bin").read_bytes()
+
+    def colour(p, idx):
+        o = (p * 16 + idx) * 2
+        w = pal[o] | (pal[o + 1] << 8)
+        return tuple(((c << 3) | (c >> 2))
+                     for c in (w & 31, (w >> 5) & 31, (w >> 10) & 31))
+
+    backdrop = _px(img, 0, 0, 0, 100)
+    for p in (0, 1, 3):
+        x, y = HOME[p]
+        assert _px(img, x, y, 1, 3) == colour(p, 1), f"token {p + 1} body"
+        assert _px(img, LAMP_X[p], LAMP_Y, 1, 3) == colour(p, 1), f"lamp {p + 1} ring"
+        centre = _px(img, LAMP_X[p], LAMP_Y, 3, 3)
+        assert centre == (colour(p, 2) if p == 3 else backdrop), (
+            f"lamp {p + 1} centre {centre}")
+    x, y = HOME[2]
+    for c in range(8):
+        assert _px(img, x, y, c, 3) == backdrop, f"player 3's token is drawn (col {c})"
+        assert _px(img, LAMP_X[2], LAMP_Y, c, 3) == backdrop, (
+            f"player 3's lamp is drawn (col {c})")
