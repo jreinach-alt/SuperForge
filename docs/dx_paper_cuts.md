@@ -1604,3 +1604,46 @@ the setup script does not keep it.
 exists only in the main checkout's older tree; audits cite its line numbers
 from there. A vendored copy (or a stated path) would make citations checkable
 from the tree that makes them.
+
+### Remediation-1 of the four-pad lane (2026-11-13) — `docs/audit/multitap-4p-remediation-1.md`
+
+**width_lint treats same-named cheap-local labels in one file as ONE label —
+surprise, MEDIUM.** Adding `@p4` inside `mtap_read` produced
+`annotation-contradicts-arrival` on `pad_btn`'s `@p4`, a different routine:
+the lint merged every arrival at every `@p4` in the file (`tools/width_lint.py`
+L213: "for our purposes we treat each label as its own analysis unit").
+ca65 scopes `@` labels to the previous global label. The false finding cost
+five minutes; the false NEGATIVE the same merge allows — a wrong-width arrival
+at one `@x` hidden by another routine's `@x` of the right width — is the
+expensive half. Renamed the label here; the lint itself is untouched.
+
+**A new manual read at boot changed what the rail's FIRST per-frame read saw
+— surprise, MEDIUM.** The presence census clocked every line past its 16th
+bit at boot; `four_pads`' first `mtap_read` runs before any automatic read
+(MAIN arms NMITIMEN and goes straight into its loop, outside VBlank), so it
+read padding 1s: P4 "held every button" for one frame and its token flipped.
+The probe could not see it — its loop always waits for VBlank first — and
+only the demo's OAM tests did. Any code that touches the joypad ports at boot
+owns the state the first frame inherits; re-latch before leaving. (Recorded
+in docs/102 §7.3 beside F3, the same "before the automatic read" class.)
+
+**Region counts had drifted before this lane, and nothing derives them —
+clunky, MEDIUM.** Counting rails for the envelope's region row: 43 rails, 36
+compose `region`, and `aurora` and `mill` are in neither
+`tools/rate_oracle.py`'s `RAILS` nor the envelope's Part 1 table, so "33 of
+40, all measured" was already wrong on main. `make rail-registered` derives
+ten registration sites but not "composes region ⇒ in the rate oracle", nor
+"rail ⇒ Part 1 row". Stated in the envelope and docs/98; not fixed (their own
+lane).
+
+**`test_scene_mgr_cut.py`'s blank-window case is flaky on this box — clunky,
+MEDIUM.** Red in the full suite and alone; A/B with the pre-remediation
+harness on the same ROM: 2/8 vs 1/8 green. It counts `$2100` writes through
+the legacy runner's breakpoints and saw 5, 7, 9 where it wants 4. Not caused
+here; worth a determinism run (`make determinism MODULE=test_scene_mgr_cut`).
+
+**The harness could not say "nothing in this port" — easy, LOW.** The
+port-2 mode was one string (pad / adapter), so the empty-port and empty-slot
+cases fullsnes describes could not be configured until `ensure_ports` gained
+port 1, port 2 and the slot pattern. Cheap once the knob existed; every
+input-presence question needs it.
