@@ -18,7 +18,8 @@ made (docs/102 §7.2):
     its loop resumes from an NMI body that outlasts the read, so the D7 guard
     never waits. This is the work itself: the P3 copy, slot 3's twelve
     clocks, the census clock, and — on two calls in every
-    MTAP_CENSUS_EVERY — one half of the presence census. Sampled across more
+    census period (33 calls: the MTAP_CENSUS_EVERY = 32 countdown, reloaded
+    by the second half) — one half of the presence census. Sampled across more
     than two census periods so both halves are in the sample, and bounded at
     two scanlines on EVERY call, census calls included.
   * with an adapter, called at the TOP OF VBLANK, before the automatic read
@@ -103,9 +104,14 @@ def _measure(rom, lbl, marks, map_dir, port2, samples=SAMPLES):
                 # EMULATED-frame budget: a False is a claim about the ROM.
                 assert runner.run_to_break(max_frames=10), "no breakpoint hit"
                 st = runner.snes_state_snapshot()
-                if st.cpu_pc & 0xFFFF == begin & 0xFFFF:
+                pc = st.cpu_pc & 0xFFFF
+                if pc == begin & 0xFFFF:
                     t0 = st.master_clock
-                elif t0 is not None:
+                elif pc == end & 0xFFFF and t0 is not None:
+                    # Close a pair ONLY on the end mark: run_to_break can stop
+                    # at a PC that is neither mark (a stop the runner makes on
+                    # its own, see its docstring); counting that as the call's
+                    # end once cut calls short (audit-3 N7: 10..3,560 mc).
                     costs.append(st.master_clock - t0)
                     t0 = None
     finally:

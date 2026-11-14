@@ -1706,3 +1706,33 @@ the slow batch was the loaded one; round 2 changed nothing that fixture runs.
 Every remediation round now spends ~20 min re-proving this flake is not
 theirs. Moving `blank_windows` off the wall-clock `MesenRunner` onto a
 lockstep `Machine` would end it.
+
+### Audit-3 of the four-pad lane (2026-11-14) — `docs/audit/multitap-4p-audit-3.md`
+
+**One harness artifact explained two "unrelated" open questions — surprise,
+HIGH.** `MesenRunner.run_to_break` can manufacture a stop at whatever PC the
+CPU is on (its own docstring measures ~2.6%); a fixture that classifies hits
+by "not the common PC" or pairs on "the next hit" counts those stops as real.
+`test_scene_mgr_cut`'s `blank_windows` counted stops at `sm_frame_sync`'s
+`wai` (`$81E0`, 94 of 95 extras) as cut-switch `$2100` writes; the
+`test_mtap_cost` pairing closed calls on stops inside `mtap_read` (10 in
+28,998 calls: the 410 / 5,024 / 6,522 mc "unexplained" outliers). Two
+remediation rounds and two audits spent time on each without connecting
+them; resolving the hit PCs against a label twin settled both in minutes.
+Any breakpoint consumer should check the hit's PC against the mark it wants
+(or `write_count`), never infer it from frequency or order.
+
+**A/B under a shared host is load-bound, not vendor-bound — clunky,
+MEDIUM.** The box ran other sessions' emulator sweeps (load 3.5-21), so
+"nothing else running" was not attainable; interleaving the arms with the
+order alternated per pair is what made 7/22 vs 7/22 (p = 1.0) meaningful.
+Pass/fail tracked load (pass runs began at load 6.3, fail at 9.4), and 18 of
+22 pairs agreed.
+
+**Long scratch commands are moved to the background after 180 s — clunky,
+LOW.** Every ≥3-minute measurement became a background task plus a bounded
+wait loop; plan scratch runs as background jobs from the start.
+
+**A scratch script that imports `mesen_runner` before `machine` dies with
+the two-cores message — easy, LOW.** The message names the fix (import
+`machine` first); worth remembering for any ad-hoc Machine script.

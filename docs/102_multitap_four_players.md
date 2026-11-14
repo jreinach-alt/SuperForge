@@ -335,9 +335,12 @@ re-measured 1,320 calls (40 census periods, each call classified by
 of four; the 72-call test sample and audit-2's 140 calls had shown plain calls
 only up to 6,516 and 6,582. The bound is the test's 7,334 below. (The fourth
 run also recorded three plain-call deltas outside every class — 410, 5,024 and
-6,522 mc, the first two below the work's own floor — that did not reproduce
-in the other three. Not explained; recorded so the next measurement looks for
-them. A 410 in the test's sample would turn its `> 4224` floor red.)
+6,522 mc, the first two below the work's own floor. Audit-3 explained them:
+`MesenRunner.run_to_break` sometimes stops at a PC that is neither mark, and
+the cost test used to close a pair on any stop that was not the begin mark,
+cutting the call short. Over 6,000 lockstep frames on each ROM every pad read
+correctly in its frame, so no call skipped the read. The test now closes a
+pair only on the end mark (audit-3 N7).)
 
 The floor is the clocking: one `lda a:$4017` / `lsr a` / `rol z:` per bit is
 ~88 mc from bank-0 (SlowROM-speed) code, ~1,060 mc for twelve bits; P3's word
