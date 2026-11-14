@@ -217,8 +217,9 @@ writing your first test.
 - **Provenance** — what in this tree is not ours, and how that was established → [`docs/92`](docs/92_provenance_audit.md)
 - **Region speed** — the rate oracle, the frame-assumption lint (`make tick-check`), and a prototype timebase measured at 0.99919 parity → [`docs/96`](docs/96_region_timebase_tooling.md)
 - **Region support** — the region flag, the two header corrections, and the timebase promoted to a composable feature (R0 landed) → [`docs/97`](docs/97_region_r0_landing.md)
-- **Region parity across the tree** — **33 of 40** rails compose `region` +
-  `tick_scale` and all 33 are measured, at a 0.994–1.027 band; the 7 exempt by
+- **Region parity across the tree** — **36 of 43** rails compose `region` +
+  `tick_scale` and 34 are measured (`aurora` and `mill` are not in the rate
+  oracle's registry), at a 0.994–1.027 band; the 7 exempt by
   design, and the deferrals converted by the paths it named → [`docs/98`](docs/98_region_fleet_landing.md)
   (the sweep landed at 30 of 37; the screen-effect rails were measured into it
   on 2026-08-28 — `heathaze` and `lakeside`, then `smelter` at 0.99989, to five

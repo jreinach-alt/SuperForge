@@ -83,6 +83,21 @@
 > And **the same 0.99989 a third time**, which by now is the expected answer
 > rather than a surprise: the run's rate and the phase's are the same scaler
 > applied to different constants, so they round the same way.
+>
+> **AMENDED 2026-11-13 (docs/102, audit-1 F7).** `four_pads`, the four-player
+> rail, composes `region` + `tick_scale` and is now in the registry and
+> measured — a shuttle on player 1's token, the only pad a default `Machine`
+> has in port 1:
+>
+> | rail | observable | NTSC/s | PAL/s | ratio |
+> |---|---|---:|---:|---:|
+> | `four_pads` | `token_oam_x` (OAM px) | 120.198 | 120.184 | **0.99989** |
+> | `four_pads` | `player_x` (screen px) | 120.198 | 120.101 | **0.99919** |
+>
+> The band is unchanged. The live counts at that date are **36 of 43 rails
+> composing** and **34 measured**: `aurora` and `mill` compose the pair but
+> are not in `tools/rate_oracle.py`'s `RAILS` — unmeasured, found while
+> counting for this entry and left for their own lane.
 
 > Both sit inside the band this section reports, so **the band is unchanged**
 > at 0.994-1.027. What these two add is a shape the sweep did not have: a rail

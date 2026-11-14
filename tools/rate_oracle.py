@@ -701,6 +701,32 @@ RAILS = {
                      "sees the wrap the byte cannot."),
         ],
     ),
+    "four_pads": dict(
+        rom="build/four_pads.sfc", map="build/fp/symbol_map.json",
+        scene="play",
+        klass="walking",
+        # A horizontal shuttle on player 1, the only pad a default Machine
+        # has in port 1 (docs/102). The token spawns at x 64 and is clamped
+        # to [8, 240]; a 0.7 s half-period is 84 px at the NTSC rate, so it
+        # swings between roughly 64 and 148 and never reaches a clamp. Every
+        # token moves at the one TS_STEP-scaled base, so player 1 speaks for
+        # all four.
+        script=_axis_shuttle(0.7, "right", "left"),
+        warmup_s=2.0, window_s=12.0, guard=[],
+        observables=[
+            dict(name="token_oam_x", kind="distance", unit="OAM px",
+                 mem="oam", fields=[("ES_O_TOKENS", 0, 1, 256)],
+                 why="byte 0 of player 1's token entry — the X the PPU draws "
+                     "it at, out of the sprite table itself. The play field "
+                     "is clamped below 256, so the byte is the whole X."),
+            dict(name="player_x", kind="distance", unit="screen px",
+                 mem="wram", fields=[("US_PX", 0, 2, 65536)],
+                 why="player 1's word in the game's own x array, which "
+                     "fp_place copies into that OAM byte; reading both says "
+                     "the move, not just the draw, runs at the measured "
+                     "rate."),
+        ],
+    ),
     "hud_game": dict(
         rom="build/hud_game.sfc", map="build/hud/symbol_map.json",
         scene="play",

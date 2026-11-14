@@ -15,9 +15,12 @@ controller port 2 once at boot and, while one is present, reads **players 3
 and 4** every frame with the same edge convention `input` / `input2` use for
 players 1 and 2. It also supplies `pad_btn` / `pad_btnp`, the
 player-indexed "is this button held / newly pressed" query (player 0–3, any
-other index answers 0). `game/four_pads` is the demo: four players, four
-sprites, each moved by its own pad, with a lamp per player that is lit while
-that pad holds a button and absent while that pad is not connected.
+other index answers 0), and `pad_here`, the player-indexed "is this pad
+connected" query, answered from a per-pad presence census (D10). `game/four_pads`
+is the demo: four players, four sprites, each moved by its own pad, with a
+lamp per player that is lit while that pad holds a button and absent — lamp
+and token both — while that pad is not connected: P1 and P2 in their ports,
+P3 and P4 behind the adapter, each on its own.
 
 A rail that does not compose `mtap` is **byte-identical to what it was**.
 
@@ -102,23 +105,26 @@ Tap slot 4 (`$4017` bit 1) is not read: four players is the scope.
 | MT-4 | no tap: P3/P4 read nothing even with overrides latched on slots 2-3 | DP words |
 | MT-5 | P1/P2 identical with and without a tap (the `input`/`input2` words) | DP words, both configs |
 | MT-6 | `pad_btn` / `pad_btnp` answer per player 0-3 and 0 for 4+ | the demo's lamp/sprite OAM and a probe of the routine's result |
-| MT-7 | WRIO.7 is back to 1 after the read (the H/V latch works) | `$2137`-latched counter changes after the read (see §7) |
-| MT-8 | per-frame cost measured both ways; absent path is a flag test; present path < 2 scanlines (2,728 mc) | master clock at exec breakpoints |
+| MT-7 | WRIO.7 is back to 1 after the read | the slot routing of the NEXT frame's automatic read: P4 held alone must not appear in P2's or P3's word (WRIO.7 left low would route slots 3/4 to `$421A`/`$421E`), then P2/P3 held must land in their own words — DP words. (The H/V-latch side effect, D9, is not what the test reads) |
+| MT-8 | per-frame cost measured at both call timings; absent path is a flag test; a call after the automatic read < 2 scanlines (2,728 mc) on EVERY call, census calls included; a call at the top of VBlank waits the read out and is bounded | master clock at exec breakpoints, `four_pads` and `mtap_probe` |
+| MT-9 | per-pad presence: `ES_MTAP_PADS` / `pad_here` name exactly the connected pads for every port/slot combination the harness drives (36), at boot and after the periodic census; the census re-reads once a period in two halves; without the adapter it is the boot census only | DP word + the probe's recorded `pad_here` answers; a poked word and its restoration call by call |
 | FP-1 | demo: each sprite moves only with its own pad, both directions per axis | OAM low table |
-| FP-2 | demo: lamps show connection (P3/P4 absent without a tap) and pressed state | OAM tile/Y, screenshot |
+| FP-2 | demo: a player's token and lamp exist only while its own pad is connected (seven port/slot configurations), the lamp lit while it holds a button | OAM tile/Y, screenshot pixels (full adapter, and a mixed one: P1, P2, P4) |
 | FP-3 | demo: CHR/palette uploads are the blob, byte for byte | VRAM / CGRAM |
 
 ## 4. Resource claims
 
 * **DP (feature `mtap`)**: `mtap_on` 2 B; `inp3_cur`/`inp3_prev`/`inp3_press`
-  2 B each; `inp4_cur`/`inp4_prev`/`inp4_press` 2 B each — 14 B, global.
+  2 B each; `inp4_cur`/`inp4_prev`/`inp4_press` 2 B each; `mtap_pads` 2 B
+  (presence, D10) and `mtap_tick` 2 B (the census clock) — 18 B, global.
 * **Registers**: one `[[claims.reg]]` naming `JOYSER` (`$4016`, span
   `$4016-$4017`) and `WRIO` (`$4201`) — two names added to
   `REGISTER_FOOTPRINT`. Only `mtap` writes either port in the live tree
   (verified by grep: zero `$4016`/`$4201` write sites before this lane).
 * **Address window**: `$4016-$4017` added to the substrate's `io_allowed`.
 * **`$4201` contract**: WRIO is `$FF` at every exit of `mtap_init` and
-  `mtap_read`; bit 7 is 0 only inside `mtap_read`'s 16-clock window.
+  `mtap_read`; bit 7 is 0 only inside `mtap_read`'s clock window (12 clocks;
+  17 on a player-4 census call) and `mtap_init`'s boot census.
 
 ## 5. Gaps and decisions (recommendation taken where reversible)
 
@@ -156,7 +162,12 @@ scanned tree).
 
 **D6. Detection timing.** Boot only, before NMITIMEN arms the auto-read
 (`mtap_init` asserts that contract). Hot-plugging the tap is not supported;
-slots behind a detected tap that hold no pad read as nothing pressed.
+slots behind a detected tap that hold no pad read as nothing pressed (and
+`pad_here` says they are empty, D10). **Untested (audit-1 F8):** fullsnes'
+second condition, `B ≠ $FF` — "pin 5 stuck high is not an adapter" — is in
+the code (`mtap_init`, `beq @absent` after `cmp #$FF` on byte B) but no
+harness device presents B = $FF, so no test can see it: an audit plant that
+removed it left every test green. It stands on fullsnes alone.
 
 **D7. The auto-read race.** Measured in the harness spike (§7.1): a manual
 read that starts in VBlank before the auto-read has begun corrupts every
@@ -169,7 +180,17 @@ three lines). *First built as a fixed ~480 mc spin* and measured paying it
 every frame on `four_pads` (whose main thread always resumes in VBlank after
 the read), so the V-counter test replaced it (§7.2). Stated limit: 225 is
 the first VBlank line with SETINI overscan clear; no rail sets overscan
-(docs/94 R1 is unbuilt).
+(docs/94 R1 is unbuilt). Second stated limit (audit-1 F5): **the automatic
+joypad read must be enabled** — with NMITIMEN bit 0 clear, a call on line 225
+waits in `@wait_start` for a read that never starts, forever. `mtap_read`'s
+contract says so; the wait is not bounded (a bound would cost every waiting
+call a counter, and the only caller that can arrive there is one that has
+broken the contract).
+
+The cost of the guard's waiting path is the feature's WORST case, not its
+typical one: a caller that arrives on line 225 pays the whole automatic read
+(4224 mc) plus its start on top of the work — measured 6,274-6,886 mc,
+4.6-5.0 lines, on `mtap_probe` (§7.2).
 
 **D8. btn/btnp.** `pad_btn` / `pad_btnp`: A16 = button mask, X = player
 0-3; returns A = word AND mask (Z set when none); any other X returns 0. No
@@ -186,12 +207,47 @@ compose `mtap` with a seam inside that window. Stated, not enforced — no
 claim class describes "port 2 pin 6 is a select line". `four_pads` composes
 no IRQ.
 
-**D10. Per-pad presence.** Mesen models an empty tap slot (§7.1), but
-fullsnes does not document what a standard pad returns after its 16th bit,
-so a presence bit would rest on an undocumented behaviour. *Not built*: the
-demo's "connected" is tap-level (P3/P4 lamps exist only with a tap).
+**D10. Per-pad presence.** *Corrected 2026-11-13 (audit-1 F1).* The first
+version of this decision said fullsnes does not document what a standard
+pad returns after its 16th bit, and dropped per-pad presence on that
+premise. **That was wrong.** fullsnes documents it twice: the Joypad bit
+table, "17th and up — Padding (always 1=Low) (or 0=High when no pad
+connected)" (owner's tree L3181), and the controller-ID table, "0000.00000000
+No controller connected / 0000.11111111 Normal Joypad" (L3021-3022). This
+lane's own Level-0 harness test already asserted the trailing 1s. *Built*:
 
-**D11. P4 clocks 12 bits, not 16.** fullsnes: "read any number of bits".
+* **The bit.** One clock past the 16th: 1 = a pad, 0 = nothing there. Port 1
+  is `$4016` bit 0; port 2's pin 4 (a plain pad or slot 1) and pin 5 (slot 2)
+  are `$4017` bits 0/1; slot 3 is `$4017` bit 0 under WRIO.7 = 0. The
+  harness answers fullsnes for every combination of empty port 1, empty port
+  2, and empty adapter slots (`test_mtap_harness.py`, Level 0, 36 configs).
+* **When it is read — the cost decision.** The owner's standing rule is that
+  this CPU cannot afford new per-frame work, so presence is a CENSUS, not a
+  per-frame read. `mtap_init` takes it at boot (a fresh strobe, 17 clocks of
+  every line; auto-read still off) and re-latches every pad before leaving.
+  With an adapter, `mtap_read` re-takes it every `MTAP_CENSUS_EVERY` = 32
+  calls, split over two consecutive calls — players 1-3 on one (one more
+  clock of `$4016` and of `$4017`, read before the select line drops), player
+  4 on the next (slot 3's 13th-17th clocks after its 12 buttons) — because
+  both halves on one call measured over two scanlines. The per-frame price
+  is the census clock alone: one `dec` and one branch, **54 mc** (§7.2).
+* **Without an adapter, presence is the boot census only.** The absent path
+  stays the flag test it was (the brief: "no adapter → frame cost
+  unchanged"), so a pad plugged into port 1 or 2 after power-on is not seen
+  as connected until reset (its buttons still read — presence gates nothing
+  in `mtap`). Tested as stated: a word overwritten after boot stays
+  overwritten. A rail that wants hot-plug without the adapter would pay the
+  census clock on the absent path too (~60 mc/frame) — not taken.
+* **With an adapter, hot-plug is seen within 33 calls** (a pad unplugged or
+  plugged into a port or slot; hot-plugging the ADAPTER itself is still
+  unsupported, D6).
+* **API.** `ES_MTAP_PADS` (bit n = player n+1, `MTAP_PAD_P1..P4`) and
+  `pad_here` (X = player 0-3 → A = that player's bit or 0, Z set iff absent;
+  out-of-range players answer 0). The demo draws a player's token and lamp
+  only while `pad_here` says so.
+
+**D11. P4 clocks 12 bits, not 16** (17 on a player-4 census call, D10).
+fullsnes: "read any number of bits".
 Bits 13-16 of a standard pad are its signature, always 0 (fullsnes' JOY
 table); the next frame's automatic read strobes every slot, so the unread
 four need no clocking. P4's bits 3-0 therefore read 0, a standard pad's own
@@ -229,18 +285,45 @@ race, on purpose) and records `pad_btn` / `pad_btnp` for players 5..0.
   word shifted — corrupted. Waiting for the auto-read to start, then finish,
   made every slot read exactly what was latched.
 
-### 7.2 Cost (`tests/test_mtap_cost.py`, the shipped `four_pads` binary)
+### 7.2 Cost (`tests/test_mtap_cost.py`, the shipped binaries)
 
-Exec breakpoints on `fp_pads_begin` / `fp_pads_end` (the `jsr mtap_read` and
-the instruction after it) through the labelled twin; 24 frames each, master
-cycles, jsr + rts included. NTSC line = 1,364 mc.
+Exec breakpoints bracketing the one `jsr mtap_read` (its label and the
+instruction after it) through each ROM's labelled twin (`make fp-labels`,
+`make mtap-probe`), master cycles, jsr + rts included. NTSC line = 1,364 mc.
+72 calls each — more than two census periods, so both census halves are in
+every sample.
 
-| configuration | min | max | scanlines |
-|---|---|---|---|
-| no adapter | 136 | 136 | 0.10 |
-| adapter, first build (fixed D7 spin, 16 clocks) | 2,976 | 2,976 | 2.18 |
-| adapter, V-counter D7 guard, 16 clocks | 2,450 | 2,450 | 1.80 |
-| **adapter, as landed (V-counter guard, 12 clocks)** | **2,202** | **2,202** | **1.61** |
+**The call's cost depends on where in the frame it is made**, and both
+numbers are the feature's:
+
+| configuration | call timing | min | max | scanlines (max) |
+|---|---|---|---|---|
+| no adapter | any (`four_pads`) | 136 | 136 | 0.10 |
+| adapter, first build (fixed D7 spin, 16 clocks) | after the auto-read (`four_pads`) | 2,976 | 2,976 | 2.18 |
+| adapter, V-counter D7 guard, 16 clocks | after the auto-read | 2,450 | 2,450 | 1.80 |
+| adapter, V-counter guard, 12 clocks (before presence) | after the auto-read | 2,202 | 2,202 | 1.61 |
+| adapter, before presence — audit-1's measurement | **top of VBlank** (`mtap_probe`) | 6,220 | 6,528 | 4.79 |
+| **adapter, as landed (presence census)** | **after the auto-read** (`four_pads`) | **2,256** | **2,626** | **1.93** |
+| **adapter, as landed** | **top of VBlank** (`mtap_probe`, the worst case) | **6,274** | **6,886** | **5.05** |
+
+The landed after-the-read histogram is 66 × 2,256 (a plain call: the 2,202
+work + the census clock's 54), 3 × 2,594 (the players 1-3 census half) and
+3 × 2,626 (the player 4 half). One census, both halves on one call, measured
+2,666 + the first half's ~380 over two lines — hence the split (D10). The
+average over a period is ~2,286 mc: presence costs ~84 mc/frame averaged,
+54 of it the census clock.
+
+**Demo timing vs the worst case.** `four_pads`' main loop resumes from an NMI
+body that outlasts the automatic read, so every call arrives after it and
+the D7 guard never waits (120/120 frames in audit-1). A rail whose loop can
+arrive on the first VBlank line before the read starts — a short NMI body,
+or none, which is `mtap_probe` on purpose — pays the guard's wait: the whole
+read (4224 mc) plus its start (up to H=95.5, 382 mc) on top of the work,
+**4.6-5.0 lines**. Most of that is idle spin the caller would otherwise pay
+somewhere else (it cannot read any pad before the read is over), but it is
+the per-frame cost such a rail sees. The probe's histogram spreads over
+6,274-6,516 for plain calls (the read's start moves in 256-mc steps, fullsnes)
+and up to 6,886 on census calls.
 
 The floor is the clocking: one `lda a:$4017` / `lsr a` / `rol z:` per bit is
 ~88 mc from bank-0 (SlowROM-speed) code, ~1,060 mc for twelve bits; P3's word
@@ -248,9 +331,14 @@ and both edges are ~450 more. A rail whose code ran from the FastROM mirror
 would pay roughly a quarter less on every fetch; no rail here does. Rails that
 do not compose `mtap` pay nothing — there is no call.
 
-The test asserts the absent path under 200 mc and the present path under two
-scanlines (2,728 mc), the brief's ceiling; the measured 1.61 is under it but
-not "well under" — reported, not rounded.
+The tests assert: the absent path under 200 mc; a call after the automatic
+read under two scanlines (2,728 mc, the brief's ceiling) on EVERY call, with
+at least four census calls in the sample; a call at the top of VBlank above
+the read's own 4224 mc (it waited — the guard-skipped plant drops it to
+~2,256) and under 2,728 + 4,224 + 382 = 7,334 mc. The after-the-read worst,
+1.93 lines, is under two but not "well under" — reported, not rounded.
+PAL is not measured for `mtap_read` (the clocks are bus cycles, the same on
+both; the guard's wait is one automatic read on either).
 
 ### 7.3 A finding about `input_read`, not fixed here
 
@@ -265,18 +353,44 @@ D7 guard is the stronger form of the same wait and could be shared. Left as a
 stated limit (out of this lane's scope; `input` is composed by the pinned
 `microzero`).
 
+**Follow-up (audit-1 F3, deferred).** The race is real (fullsnes: reads of
+`$4218-$421F` during the automatic read "will read back incorrect values";
+the probe reproduced a lost button) and latent (every rail syncs on an armed
+NMI whose body outlasts the window). Two things are owed, neither here: share
+`mtap_read`'s V-counter guard with `input_read` (and `input2_read`), which
+re-pins `microzero`, so it needs its own lane; and note the hazard in
+`mtap`'s per-frame order, which names `input_read, input2_read, mtap_read` —
+the exposed order for a caller that can arrive before the read starts.
+
+**A second instance of the same class, found while remediating F1.** A rail's
+FIRST `mtap_read` can come before the first automatic read has ever run
+(`four_pads`' MAIN arms NMITIMEN and enters its loop outside VBlank, where the
+guard reads "over"): the read then takes whatever state boot left the ports
+in. With the boot census leaving slot 3 clocked past its 16th bit, that was
+padding 1s — player 4 "held every button" for one frame and its token
+flipped at boot (caught by `test_four_pads.py`). Fixed by re-latching every
+pad at the end of `mtap_init`, which restores what detection alone used to
+leave. The same first-call read of `$421E` (P3) returns whatever the register
+holds before any automatic read — 0 on Mesen; fullsnes does not say for
+hardware. Stated, not fixed.
+
 ### 7.4 Tests
 
 | module | cases | ROM | surface |
 |---|---|---|---|
-| `tests/test_mtap_harness.py` | 9 | `tests/fixtures/mtap_harness/probe_mtap.asm` (Level 0: no engine code) | WRAM result block of a hand-run detection + read |
-| `tests/test_mtap.py` | 13 | `make mtap-probe` | `mtap`'s DP words; `pad_btn`/`pad_btnp` answers |
-| `tests/test_four_pads.py` | 18 | `make four_pads` | OBJ VRAM, CGRAM 128-191, OAM, screenshot pixels |
-| `tests/test_mtap_cost.py` | 2 | `make fp-labels` | master clock at exec breakpoints |
+| `tests/test_mtap_harness.py` | 47 | `tests/fixtures/mtap_harness/probe_mtap.asm` (Level 0: no engine code) | WRAM result block of a hand-run detection + read, the 17th bit of every line included, for 36 port/slot configurations |
+| `tests/test_mtap.py` | 51 | `make mtap-probe` | `mtap`'s DP words (presence included); `pad_btn`/`pad_btnp`/`pad_here` answers |
+| `tests/test_four_pads.py` | 26 | `make four_pads` | OBJ VRAM, CGRAM 128-191, OAM, screenshot pixels |
+| `tests/test_mtap_cost.py` | 3 | `make fp-labels`, `make mtap-probe` | master clock at exec breakpoints, both call timings |
 
-Falsification: `make falsify SET=mtap` — six plants (D7 guard skipped, WRIO
-left low, P3 edge from the level, absent path falling through, `pad_btn`'s
-range answer dropped, the demo's lamp ignoring its pad), each FIRED with the
-artifact md5 moved and restored. The harness was planted by hand (the
-adapter's controller type set to a plain pad): 6 of its 9 cases red,
-restored byte-identical, 9 green.
+Falsification: `make falsify SET=mtap` — eleven plants: the six of the first
+landing (D7 guard skipped, WRIO left low, P3 edge from the level, absent path
+falling through, `pad_btn`'s range answer dropped, the demo's lamp ignoring
+its pad) and five for presence (the boot census dropping P4's bit, the
+periodic census never running, the census's first half clobbering P4's bit,
+the boot re-latch dropped, the demo ignoring `pad_here`); the D7-guard plant
+also names the worst-case cost case. Each FIRED with the artifact md5 moved
+and restored. The harness was planted by hand: the adapter's controller type
+set to a plain pad (first landing: 6 of its 9 cases red), and an empty slot
+configured as a pad (remediation: the empty-slot cases red), each restored
+byte-identical.
