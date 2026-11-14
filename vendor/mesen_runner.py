@@ -1516,38 +1516,87 @@ def _apply_poweron_state(cfg: "_SnesConfig") -> None:
 # module cannot leak into the next module's load.
 PORT2_PAD = "pad"
 PORT2_MULTITAP = "multitap"
+# EMPTY PORTS (docs/102 D10, remediation F1). A port with nothing in it is
+# ControllerType::None (0) — MEASURED like the two above: an empty port 1
+# reads 0 on every $4016 clock, an empty port 2 on every $4017 clock, and an
+# adapter sub-port set to None answers 0 on every clock of its line, the
+# 17th included (tests/test_mtap_harness.py proves each on a Level-0 ROM).
+PORT_PAD = PORT2_PAD
+PORT_EMPTY = "empty"
+TAP_FULL = (True, True, True, True)
+_CONTROLLER_TYPE_NONE = 0
 _CONTROLLER_TYPE_SNES_CONTROLLER = 1
 _CONTROLLER_TYPE_MULTITAP = 4
+_PORT1_MODE = PORT_PAD
 _PORT2_MODE = PORT2_PAD
+_TAP_SLOTS = TAP_FULL
 
 
 def _apply_port2(cfg: "_SnesConfig") -> None:
-    """Layer the current port-2 device onto `cfg` (a no-op for a plain pad)."""
-    if _PORT2_MODE == PORT2_MULTITAP:
+    """Layer the current port devices onto `cfg` (a no-op for two plain pads)."""
+    if _PORT1_MODE == PORT_EMPTY:
+        cfg.Port1.Type = _CONTROLLER_TYPE_NONE
+    if _PORT2_MODE == PORT_EMPTY:
+        cfg.Port2.Type = _CONTROLLER_TYPE_NONE
+    elif _PORT2_MODE == PORT2_MULTITAP:
         cfg.Port2.Type = _CONTROLLER_TYPE_MULTITAP
         for i in range(4):
-            cfg.Port2SubPorts[i].Type = _CONTROLLER_TYPE_SNES_CONTROLLER
+            cfg.Port2SubPorts[i].Type = (_CONTROLLER_TYPE_SNES_CONTROLLER
+                                         if _TAP_SLOTS[i]
+                                         else _CONTROLLER_TYPE_NONE)
 
 
-def ensure_port2_device(mode: str) -> bool:
-    """Make the NEXT ROM load see `mode` in controller port 2.
+def check_ports(port1: str = PORT_PAD, port2: str = PORT2_PAD,
+                tap_slots=TAP_FULL) -> tuple:
+    """Validate a port configuration; answer it normalised (tap_slots a tuple
+    of four bools). Raises ValueError naming the bad argument."""
+    if port1 not in (PORT_PAD, PORT_EMPTY):
+        raise ValueError(f"port 1 device must be {PORT_PAD!r} or "
+                         f"{PORT_EMPTY!r}, got {port1!r}")
+    if port2 not in (PORT2_PAD, PORT2_MULTITAP, PORT_EMPTY):
+        raise ValueError(f"port 2 device must be {PORT2_PAD!r}, "
+                         f"{PORT2_MULTITAP!r} or {PORT_EMPTY!r}, got {port2!r}")
+    slots = tuple(bool(s) for s in tap_slots)
+    if len(slots) != 4:
+        raise ValueError(f"tap_slots names the adapter's four slots, got "
+                         f"{tap_slots!r}")
+    if port2 != PORT2_MULTITAP and slots != TAP_FULL:
+        raise ValueError("tap_slots describes the adapter's slots; it needs "
+                         f"port2={PORT2_MULTITAP!r}")
+    return port1, port2, slots
 
-    `mode` is PORT2_PAD or PORT2_MULTITAP. Returns True when the config was
-    changed. Mesen builds its control devices when a console is created, so
-    this must run BEFORE the load it is meant to affect — the load sites call
-    it for you. It re-applies the base config, so a `set_power_on_random_
-    latches(True)` made for the same load must come AFTER it.
+
+def ensure_ports(port1: str = PORT_PAD, port2: str = PORT2_PAD,
+                 tap_slots=TAP_FULL) -> bool:
+    """Make the NEXT ROM load see these devices in the two controller ports.
+
+    `port1` is PORT_PAD or PORT_EMPTY; `port2` is PORT2_PAD, PORT2_MULTITAP
+    or PORT_EMPTY; `tap_slots` (adapter only) says which of its four slots
+    hold a pad. Returns True when the config was changed. Mesen builds its
+    control devices when a console is created, so this must run BEFORE the
+    load it is meant to affect — the load sites call it for you. It
+    re-applies the base config, so a `set_power_on_random_latches(True)` made
+    for the same load must come AFTER it. The default (two plain pads) makes
+    no config call at all in a process that never asked for anything else.
     """
-    global _PORT2_MODE
-    if mode not in (PORT2_PAD, PORT2_MULTITAP):
-        raise ValueError(f"port 2 device must be {PORT2_PAD!r} or "
-                         f"{PORT2_MULTITAP!r}, got {mode!r}")
-    if mode == _PORT2_MODE:
+    global _PORT1_MODE, _PORT2_MODE, _TAP_SLOTS
+    want = check_ports(port1, port2, tap_slots)
+    if want == (_PORT1_MODE, _PORT2_MODE, _TAP_SLOTS):
         return False
-    _PORT2_MODE = mode
+    _PORT1_MODE, _PORT2_MODE, _TAP_SLOTS = want
     if _GLOBAL_INIT_DONE and _GLOBAL_LIB is not None:
         _GLOBAL_LIB.SetSnesConfig(_make_base_snes_config())
     return True
+
+
+def ensure_port2_device(mode: str) -> bool:
+    """`ensure_ports(port2=mode)`: `mode` in port 2, a plain pad in port 1
+    and (for the adapter) a pad in every slot. Returns True when the config
+    was changed."""
+    if mode not in (PORT2_PAD, PORT2_MULTITAP, PORT_EMPTY):
+        raise ValueError(f"port 2 device must be {PORT2_PAD!r}, "
+                         f"{PORT2_MULTITAP!r} or {PORT_EMPTY!r}, got {mode!r}")
+    return ensure_ports(port2=mode)
 
 
 def _make_base_snes_config(force_random_latches: bool = False) -> "_SnesConfig":

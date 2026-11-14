@@ -12,8 +12,11 @@
 ;
 ; The sequence is fullsnes' (docs/102 §2): detection with the strobe held
 ; high then low, reading 8 bits of $4017 bit 1 each way; then, every frame,
-; the auto-read's $4218-$421F and a manual 16-clock read of $4017 under
-; WRIO.7 = 0 (bit 0 = slot 3, bit 1 = slot 4), WRIO restored to $FF after.
+; the auto-read's $4218-$421F, ONE more clock of each port (the 17th bit of
+; port 1 and of port 2's two lines — fullsnes: "17th and up: Padding (always
+; 1=Low) (or 0=High when no pad connected)"), and a manual 17-clock read of
+; $4017 under WRIO.7 = 0 (bit 0 = slot 3, bit 1 = slot 4; the first 16 into
+; the words, the 17th kept apart), WRIO restored to $FF after.
 ;
 ; THE AUTO-READ IS WAITED OUT FROM ITS START, not just to its end: the
 ; frame loop waits for VBlank, then for $4212 bit 0 to SET, then to CLEAR.
@@ -34,6 +37,10 @@ R_DETB  = $1001                         ; detection byte B (strobe low)
 R_JOY   = $1010                         ; $4218..$421F, copied (8 B)
 R_MAN0  = $1020                         ; manual word, $4017 bit 0 (slot 3)
 R_MAN1  = $1022                         ; manual word, $4017 bit 1 (slot 4)
+R_X17   = $1024                         ; 17th bits: $4016 bit 0 (port 1),
+                                        ;   $4017 bits 0-1 (port 2's lines)
+R_X17B  = $1025                         ; 17th bit of slots 3/4 ($4017 bits
+                                        ;   0-1 under WRIO.7 = 0)
 R_FRAME = $1030                         ; frames completed
 R_SIG   = $1032                         ; $1234 once detection has run
 
@@ -109,6 +116,14 @@ MAIN:
     stz R_MAN1
     sep #$20
     .a8
+    lda $4017                           ; port 2's 17th bit, both lines
+    and #$03
+    asl
+    sta R_X17
+    lda $4016                           ; port 1's 17th bit
+    and #$01
+    ora R_X17
+    sta R_X17                           ; bit 0 port 1, 1 port 2 pin 4, 2 pin 5
     lda #$7F
     sta $4201                           ; WRIO.7 = 0: select slots 3/4
     ldx #16
@@ -122,6 +137,9 @@ MAIN:
     rol R_MAN1 + 1
     dex
     bne @manual
+    lda $4017                           ; slots 3/4's 17th bit
+    and #$03
+    sta R_X17B
     lda #$FF
     sta $4201                           ; WRIO.7 = 1: slots 1/2 for next frame
     rep #$20

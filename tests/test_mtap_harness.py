@@ -18,7 +18,13 @@ What is proved, each on the hardware's own answer:
     bit-1 word — and each press lands in exactly ONE place;
   * the default (no adapter) harness is unchanged: port 2 is a plain pad,
     `pad3`/`pad4` reach nothing, and building a default Machine after an
-    adapter Machine puts the plain pad back.
+    adapter Machine puts the plain pad back;
+  * EMPTY PORTS AND EMPTY SLOTS (docs/102 D10): `port1=PORT_EMPTY`,
+    `port2=PORT_EMPTY` and the adapter's `tap_slots` put nothing where they
+    say, and the 17th bit every line answers is fullsnes' — "17th and up:
+    Padding (always 1=Low) (or 0=High when no pad connected)" — 1 behind a
+    pad, 0 on an empty port or slot, for every combination. This is the
+    ground truth `mtap`'s per-pad presence census stands on.
 
 Addresses are the probe's own equates, parsed from the fixture source — the
 same primary-source rule `vendor/probes/` follows for ROMs the allocator never
@@ -46,6 +52,7 @@ _EQ = dict((m.group(1), int(m.group(2), 16)) for m in re.finditer(
     r"^(R_[A-Z0-9]+)\s*=\s*\$([0-9A-Fa-f]+)", SRC.read_text(), re.M))
 R_DETA, R_DETB, R_JOY = _EQ["R_DETA"], _EQ["R_DETB"], _EQ["R_JOY"]
 R_MAN0, R_MAN1, R_SIG = _EQ["R_MAN0"], _EQ["R_MAN1"], _EQ["R_SIG"]
+R_X17, R_X17B = _EQ["R_X17"], _EQ["R_X17B"]
 
 # One button per override index, each a different bit of the pad word, so a
 # swapped pair of indices reads as the wrong BIT, not merely the wrong place.
@@ -156,3 +163,81 @@ def test_the_default_config_is_the_two_pad_config_it_always_was():
                for i in range(4))
     assert mr.ensure_port2_device(mr.PORT2_PAD) is False, (
         "asking for the mode already in force must not touch the config")
+
+
+# =============================================================================
+# empty ports and empty adapter slots — the 17th bit (docs/102 D10)
+# =============================================================================
+_SLOTS = [tuple(bool(n >> (3 - i) & 1) for i in range(4)) for n in range(16)]
+_CONFIGS = ([(p1, mr.PORT2_PAD, mr.TAP_FULL) for p1 in (mr.PORT_PAD, mr.PORT_EMPTY)]
+            + [(p1, mr.PORT_EMPTY, mr.TAP_FULL) for p1 in (mr.PORT_PAD, mr.PORT_EMPTY)]
+            + [(p1, mr.PORT2_MULTITAP, sl) for p1 in (mr.PORT_PAD, mr.PORT_EMPTY)
+               for sl in _SLOTS])
+
+
+def _cfg_id(c):
+    return f"{c[0]}-{c[1]}" + ("-" + "".join("1" if b else "0" for b in c[2])
+                               if c[1] == mr.PORT2_MULTITAP else "")
+
+
+@pytest.mark.parametrize("cfg", _CONFIGS, ids=[_cfg_id(c) for c in _CONFIGS])
+def test_the_17th_bit_is_1_behind_a_pad_and_0_on_an_empty_port_or_slot(cfg):
+    """Per line, written out from the configuration alone: port 1 pin 4 is
+    port 1's pad; port 2 pin 4 is port 2's plain pad or the adapter's slot 1;
+    pin 5 is the adapter's slot 2 (a plain pad does not drive it); under
+    WRIO.7 = 0, bits 0/1 are the adapter's slots 3/4 (a plain pad keeps
+    shifting 1s out of pin 4, and leaves pin 5 low)."""
+    p1, p2, slots = cfg
+    m = Machine(str(ROM), port1=p1, port2=p2, tap_slots=slots).advance(BOOT)
+    assert m.read_u16(W, R_SIG) == 0x1234, "the probe never finished detection"
+    pad1 = p1 == mr.PORT_PAD
+    if p2 == mr.PORT2_MULTITAP:
+        pin4, pin5, sel4, sel5 = slots
+    elif p2 == mr.PORT2_PAD:
+        pin4, pin5, sel4, sel5 = True, False, True, False
+    else:
+        pin4 = pin5 = sel4 = sel5 = False
+    want_x17 = int(pad1) | int(pin4) << 1 | int(pin5) << 2
+    want_x17b = int(sel4) | int(sel5) << 1
+    got = (m.read_byte(W, R_X17), m.read_byte(W, R_X17B))
+    assert got == (want_x17, want_x17b), (
+        f"{_cfg_id(cfg)}: 17th bits {got[0]:#05b} / {got[1]:#04b}, want "
+        f"{want_x17:#05b} / {want_x17b:#04b} (port1/pin4/pin5, then slots 3/4)")
+    # ...and an empty slot or port is EMPTY, not an idle pad that a latched
+    # override could still reach: hold every button on every index.
+    allb = {b: True for b in ("b", "y", "select", "start", "up", "down",
+                              "left", "right", "a", "x", "l", "r")}
+    m.advance(2, pad1=allb, pad2=allb, pad3=allb, pad4=allb, pad5=allb)
+    r = _result(m)
+    full = 0xFFF0
+    assert r["joy1"] == (full if pad1 else 0), r
+    assert r["joy2"] == (full if pin4 else 0), r
+    assert r["joy4"] == (full if (p2 == mr.PORT2_MULTITAP and pin5) else 0), r
+    if p2 == mr.PORT2_MULTITAP:
+        assert (r["man0"], r["man1"]) == (full if sel4 else 0,
+                                          full if sel5 else 0), r
+
+
+def test_an_impossible_port_configuration_is_refused():
+    with pytest.raises(ValueError):
+        mr.check_ports(port2=mr.PORT2_PAD, tap_slots=(True, False, True, True))
+    with pytest.raises(ValueError):
+        mr.check_ports(port1=mr.PORT2_MULTITAP)
+    with pytest.raises(ValueError):
+        mr.check_ports(port2="mouse")
+
+
+@pytest.mark.parametrize("ports", [dict(port1=mr.PORT_EMPTY),
+                                   dict(port2=mr.PORT_EMPTY),
+                                   dict(port1=mr.PORT_EMPTY, port2=mr.PORT_EMPTY)],
+                         ids=["port1", "port2", "both"])
+def test_a_default_machine_after_an_empty_port_machine_gets_both_pads_back(ports):
+    """Each port alone as well as both: a pin that compared only the port it
+    used to compare (port 2) would leak an empty port 1 into the next load."""
+    Machine(str(ROM), **ports).advance(BOOT).close()
+    m = Machine(str(ROM)).advance(BOOT)
+    assert (mr._PORT1_MODE, mr._PORT2_MODE, mr._TAP_SLOTS) == (
+        mr.PORT_PAD, mr.PORT2_PAD, mr.TAP_FULL)
+    assert m.read_byte(W, R_X17) == 0b011, (
+        "an empty port leaked into a default Machine's load: 17th bits "
+        f"{m.read_byte(W, R_X17):#05b}, want both pads (port 1, port 2 pin 4)")

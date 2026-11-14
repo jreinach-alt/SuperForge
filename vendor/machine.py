@@ -220,7 +220,9 @@ class Machine:
     def __init__(self, rom_path, seed: int = DEFAULT_POWERON_SEED,
                  uninit_detection: bool = False,
                  core_path: Optional[str] = None,
-                 port2: str = _mr.PORT2_PAD):
+                 port2: str = _mr.PORT2_PAD,
+                 port1: str = _mr.PORT_PAD,
+                 tap_slots=_mr.TAP_FULL):
         rom_abs = os.path.abspath(str(rom_path))
         if not os.path.exists(rom_abs):
             raise FileNotFoundError(f"ROM not found: {rom_abs}")
@@ -280,18 +282,18 @@ class Machine:
                 "mesen_runner — it exports its resolution), or run this "
                 "Machine in its own process."
             )
-        if port2 not in (_mr.PORT2_PAD, _mr.PORT2_MULTITAP):
-            raise ValueError(f"port2 must be {_mr.PORT2_PAD!r} or "
-                             f"{_mr.PORT2_MULTITAP!r}, got {port2!r}")
+        port1, port2, tap_slots = _mr.check_ports(port1, port2, tap_slots)
         lib = _mr._global_initialize(
             resolved_core, _mr._DEFAULT_HOME_DIR, False)
         self._lib = _bind_lockstep(lib)
-        # The port-2 device is pinned for THIS load (docs/102). A no-op —
-        # no SetSnesConfig at all — when it already is what was asked, which
-        # is every default-path Machine in a process that never asked for
-        # the adapter.
-        _mr.ensure_port2_device(port2)
+        # The port devices are pinned for THIS load (docs/102). A no-op —
+        # no SetSnesConfig at all — when they already are what was asked,
+        # which is every default-path Machine in a process that never asked
+        # for anything but two plain pads.
+        _mr.ensure_ports(port1, port2, tap_slots)
         self.port2 = port2
+        self.port1 = port1
+        self.tap_slots = tap_slots
         self._core_path = resolved_core
         self.rom_path = rom_abs
         self.rom_md5 = hashlib.md5(Path(rom_abs).read_bytes()).hexdigest()
@@ -361,8 +363,13 @@ class Machine:
     def _raise(self, msg: str):
         # The port-2 device is part of the trajectory; named only when it is
         # not the default, so a two-pad failure reads exactly as it did.
-        dev = ("" if getattr(self, "port2", _mr.PORT2_PAD) == _mr.PORT2_PAD
-               else f", port 2 {self.port2}")
+        ports = (getattr(self, "port1", _mr.PORT_PAD),
+                 getattr(self, "port2", _mr.PORT2_PAD),
+                 getattr(self, "tap_slots", _mr.TAP_FULL))
+        dev = ("" if ports == (_mr.PORT_PAD, _mr.PORT2_PAD, _mr.TAP_FULL)
+               else f", port 1 {ports[0]}, port 2 {ports[1]}"
+                    + (f" slots {ports[2]}" if ports[2] != _mr.TAP_FULL
+                       else ""))
         raise MachineError(f"{msg}\n  replay triple: rom md5 {self.rom_md5}, "
                            f"seed {self.seed:#x}{dev}, input log "
                            f"{tuple(self.input_log)!r}")
