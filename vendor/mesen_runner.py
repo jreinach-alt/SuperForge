@@ -1505,7 +1505,9 @@ def _apply_poweron_state(cfg: "_SnesConfig") -> None:
 # the load and `GetAvailableInputOverrides` reports indices 0-4 live (0-1
 # without it). SetInputOverrides index i then reaches: 0 = port 1, 1-4 = the
 # adapter's slots 1-4 in order (slot 1 -> $421A, slot 2 -> $421E, slot 3/4 ->
-# $4017 bits 0/1 under WRIO.7 = 0). docs/102 §7.1 has the probe.
+# $4017 bits 0/1 under WRIO.7 = 0). docs/102 §7.1 has the probe. With port 1
+# EMPTY every index reaches one position later — `override_index` below maps
+# the harness's fixed positions onto Mesen's indices (audit-2 N1).
 #
 # THE DEFAULT IS UNTOUCHED BY CONSTRUCTION. `_PORT2_MODE` starts as a plain
 # pad and `ensure_port2_device` issues a SetSnesConfig ONLY when the requested
@@ -1544,6 +1546,24 @@ def _apply_port2(cfg: "_SnesConfig") -> None:
             cfg.Port2SubPorts[i].Type = (_CONTROLLER_TYPE_SNES_CONTROLLER
                                          if _TAP_SLOTS[i]
                                          else _CONTROLLER_TYPE_NONE)
+
+
+def override_index(position: int, port1: str = PORT_PAD):
+    """The SetInputOverrides index that reaches pad POSITION, or None.
+
+    Positions are the harness's fixed numbering: 0 = port 1, 1 = port 2's
+    plain pad or the adapter's slot 1, 2-4 = the adapter's slots 2-4.
+    Mesen's override index is that position EXCEPT when port 1 is empty:
+    then it leaves port 1 out of its count and every index reaches the
+    device one position LATER (index 0 = port 2 / slot 1, 1-3 = slots 2-4).
+    An empty port 2 or an empty adapter slot does NOT shift anything.
+    MEASURED on the Level-0 probe for all 36 port configurations (docs/102
+    D10, audit-2 N1; tests/test_mtap_harness.py drives one position at a
+    time). So the empty port 1's own position answers None: it has no
+    device, and nothing is latched for it."""
+    if port1 != PORT_EMPTY:
+        return position
+    return position - 1 if position >= 1 else None
 
 
 def check_ports(port1: str = PORT_PAD, port2: str = PORT2_PAD,

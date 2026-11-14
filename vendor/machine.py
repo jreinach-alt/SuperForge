@@ -399,7 +399,10 @@ class Machine:
     # --- input ------------------------------------------------------------
 
     def _latch(self, controller_index: int, buttons: Optional[dict]):
-        """Latch a FULL controller state (unnamed buttons released)."""
+        """Latch a FULL controller state (unnamed buttons released) on pad
+        POSITION `controller_index` (0 = port 1, 1 = port 2 / slot 1, 2-4 =
+        slots 2-4). Mesen's own index differs when port 1 is empty;
+        `_mr.override_index` maps it, and an empty port 1 latches nothing."""
         state = _mr.DebugControllerState()
         for name in (buttons or {}):
             if buttons[name]:
@@ -407,7 +410,10 @@ class Machine:
                 if field is None:
                     raise ValueError(f"unknown button {name!r}")
                 setattr(state, field, 1)
-        self._lib.SetInputOverrides(controller_index, state)
+        raw = _mr.override_index(controller_index, self.port1)
+        if raw is None:
+            return
+        self._lib.SetInputOverrides(raw, state)
 
     # --- advancing --------------------------------------------------------
 
@@ -435,6 +441,15 @@ class Machine:
         prove the absent path ignores them. The input log grows its extra
         entries only in those two cases, so a two-pad trajectory's log (and
         its determinism record) is unchanged.
+
+        EMPTY PORTS AND SLOTS (docs/102 D10). Each `padN` is a fixed port
+        POSITION whatever is empty: `pad1` is port 1 and with `port1=
+        PORT_EMPTY` reaches nothing; `pad2` is still port 2 / slot 1 and
+        `pad3`-`pad5` still slots 2-4 (Mesen counts an empty port 1 out of
+        its own override indices; `_latch` maps them back — audit-2 N1). An
+        empty port 2 or slot just leaves its `padN` with no device. The
+        input log is by the same positions, so entry k always records what
+        was held on port position k.
         """
         self._check_live()
         if frames < 1:

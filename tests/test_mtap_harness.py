@@ -24,7 +24,11 @@ What is proved, each on the hardware's own answer:
     say, and the 17th bit every line answers is fullsnes' — "17th and up:
     Padding (always 1=Low) (or 0=High when no pad connected)" — 1 behind a
     pad, 0 on an empty port or slot, for every combination. This is the
-    ground truth `mtap`'s per-pad presence census stands on.
+    ground truth `mtap`'s per-pad presence census stands on;
+  * and in every one of those combinations each `padN` drives port position
+    N-1 and nothing else (nothing at all when that position is empty) — held
+    ONE index at a time and read off the hardware (audit-2 N1: Mesen counts
+    an empty port 1 out of its override indices; the harness maps it back).
 
 Addresses are the probe's own equates, parsed from the fixture source — the
 same primary-source rule `vendor/probes/` follows for ROMs the allocator never
@@ -216,6 +220,52 @@ def test_the_17th_bit_is_1_behind_a_pad_and_0_on_an_empty_port_or_slot(cfg):
     if p2 == mr.PORT2_MULTITAP:
         assert (r["man0"], r["man1"]) == (full if sel4 else 0,
                                           full if sel5 else 0), r
+
+
+def _line_for(cfg, pos):
+    """The result-block word that pad POSITION `pos` drives in `cfg`, or None
+    when that position has no device — from the configuration alone."""
+    p1, p2, slots = cfg
+    tap = p2 == mr.PORT2_MULTITAP
+    return {0: "joy1" if p1 == mr.PORT_PAD else None,
+            1: "joy2" if (p2 == mr.PORT2_PAD or (tap and slots[0])) else None,
+            2: "joy4" if tap and slots[1] else None,
+            3: "man0" if tap and slots[2] else None,
+            4: "man1" if tap and slots[3] else None}[pos]
+
+
+@pytest.mark.parametrize("cfg", _CONFIGS, ids=[_cfg_id(c) for c in _CONFIGS])
+def test_each_pad_index_drives_its_own_port_position_whatever_is_empty(cfg):
+    """audit-2 N1. Hold ONE index at a time, each with its own button bit, and
+    read which line of the hardware answers: `padN` must reach port position
+    N-1 (port 1; port 2 / slot 1; slots 2-4) and NOTHING else, in every
+    empty-port / partial-adapter configuration — and nothing at all when that
+    position is empty. Mesen counts an empty port 1 out of its override
+    indices, so without the harness's mapping every index would land one
+    position late (pad1 on port 2, pad3 on slot 3). The input log entry is
+    checked against the same positions."""
+    m = Machine(str(ROM), port1=cfg[0], port2=cfg[1], tap_slots=cfg[2])
+    m.advance(BOOT)
+    assert m.read_u16(W, R_SIG) == 0x1234, "the probe never finished detection"
+    lines = ("joy1", "joy2", "joy4", "man0", "man1")
+    m.advance(2)
+    idle = _result(m)
+    for pos in range(5):
+        r = _press(m, pos)
+        name, bit = BUTTON[pos]
+        moved = {k: r[k] ^ idle[k] for k in lines if r[k] != idle[k]}
+        want = _line_for(cfg, pos)
+        assert moved == ({want: bit} if want else {}), (
+            f"{_cfg_id(cfg)}: pad{pos + 1} ({name}) moved "
+            f"{ {k: hex(v) for k, v in moved.items()} }, want "
+            f"{ {want: hex(bit)} if want else 'nothing'}. Full read: "
+            f"{ {a: hex(b) for a, b in r.items()} }")
+        log = m.input_log[-1]
+        assert log[1 + pos] == (name,) and all(
+            e == () for i, e in enumerate(log[1:]) if i != pos), (
+            f"{_cfg_id(cfg)}: pad{pos + 1}'s press logged as {log!r}")
+        m.advance(2)                                     # release everything
+        assert _result(m) == idle, f"{_cfg_id(cfg)}: pad{pos + 1} stuck"
 
 
 def test_an_impossible_port_configuration_is_refused():
