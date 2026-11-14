@@ -1647,3 +1647,26 @@ port-2 mode was one string (pad / adapter), so the empty-port and empty-slot
 cases fullsnes describes could not be configured until `ensure_ports` gained
 port 1, port 2 and the slot pattern. Cheap once the knob existed; every
 input-presence question needs it.
+
+### Audit-2 of the four-pad lane (2026-11-13) — `docs/audit/multitap-4p-audit-2.md`
+
+**An empty port 1 shifts every harness pad index down one — surprise, MEDIUM.**
+`Machine(port1=PORT_EMPTY)` configures the device correctly, but Mesen's input
+override index evidently counts connected controllers: `pad1` then drives port
+2, `pad2..pad4` drive adapter slots 2-4. Every committed case either held no
+button or held every button on every index, which hides the shift; it surfaced
+only because a screenshot showed P4's lamp lit when `pad3` (documented slot 2)
+held X. A new harness knob needs a Level-0 case that drives ONE index at a time
+and reads which line answers, not just "all held → all read".
+
+**A plant's test module rebuilt an artifact the plant did not declare —
+clunky, LOW.** `test_mtap_cost.py`'s fixture runs `make fp-labels` and
+`make mtap-probe`; a plant declaring only the probe left `build/four_pads.sfc`
+built from the planted source after `run_plant`'s restore (which rebuilds and
+md5-checks only the declared artifact). Found by checking md5s after the run;
+`make four_pads` fixed it. Cost-test plants should declare both ROMs.
+
+**The worktree guard refuses compound shell lines with `git` in them — easy,
+LOW.** `cd … && git show …:file | …` and a `for` loop over `game/*/` were
+refused as "too complex to verify"; splitting into plain commands or a Python
+script works. Budget for it in audit scripts.
