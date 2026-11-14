@@ -246,3 +246,176 @@ full adapter (all four), slots 1+3 (P1, P2, P4), port 1 empty + slot 2 (P3
 only), adapter with no pads (P1), slot 4 only (P1), slots 1+3 with P4
 holding right+down+X (P4's lamp lit, token moved). Each matches its
 configuration.
+
+
+---
+
+# Round 2 — remediation of audit-2 (`docs/audit/multitap-4p-audit-2.md`)
+
+Agent: a fresh remediation agent (wrote neither the sprint, the audits nor
+round 1). In scope: N1 (MEDIUM), N2-N4 (LOW), privacy of the branch's added
+lines. N5, N6 recorded as follow-ups only (docs/102 §7.4); F3/F4/F6/F8/F9
+unchanged. Commits on `claude/multitap-4p`, not pushed:
+
+| commit | content |
+|---|---|
+| `06c718fb` | audit-2 report + its paper-cut section, copied verbatim |
+| `d039ef9c` | N1: harness index mapping + Level-0 test |
+| `08915cdb` | N2-N4 record fixes, N5/N6 follow-ups, local paths scrubbed, round-2 paper cuts |
+| (this commit) | this section |
+
+## N1 (MEDIUM) — pad indices with port 1 empty → fixed
+
+**Measured first** (scratch `rawmap.py`, latching RAW override indices on
+`probe_mtap_harness.sfc`, one index at a time, for all 36 configurations of
+`tests/test_mtap_harness.py::_CONFIGS`): with port 1 empty, raw index 0
+reaches port 2 / slot 1 and raw 1-3 reach slots 2-4; raw 4 reaches nothing.
+An empty port 2 or an empty adapter slot shifts NOTHING (e.g. `pad-multitap-0101`:
+raw 2 → `$421E`, raw 4 → manual bit 1; raw 1 and 3 → nothing). So it is port
+1 alone that Mesen drops from its count, not "connected controllers".
+
+**Fix.**
+
+* `vendor/mesen_runner.py:1551` — new `override_index(position, port1)`:
+  identity when port 1 holds a pad; `position - 1` (and `None` for position
+  0) when it is empty. Comment at `:1509` points at it.
+* `vendor/machine.py:413` — `_latch` latches `_mr.override_index(
+  controller_index, self.port1)` and returns without a call when it is `None`.
+  Before: `self._lib.SetInputOverrides(controller_index, state)`.
+  `advance`'s docstring (`:445`) states the positions contract and that the
+  input log is by the same positions.
+* `MesenRunner.set_input` unchanged: it has no port-1 knob, its loads always
+  put a pad in port 1 (`ensure_port2_device` → `ensure_ports(port2=…)`), so
+  its indices never shifted.
+
+**Input log.** It already recorded by harness position (`(frames, pad1,
+pad2[, pad3, pad4, pad5])`); with the mapping fixed, position k IS port
+position k, so entry k now records what was held on that port. The new test
+asserts it per press.
+
+**Default path.** Spy on `SetInputOverrides` (scratch `spy.py`): a default
+Machine's two advances issue raw indices `[0, 1, 0, 1]` — the same calls as
+before (port 1 present → identity). Port 1 empty: `[0, 0]` (pad1 latched
+nowhere, pad2 → raw 0). Adapter: `[0..4, 0..4]`; port 1 empty + adapter:
+`[0..3, 0..3]`. No config call added (the mapping is pure Python). The
+pinned ROMs are unchanged (below).
+
+**Test** — `tests/test_mtap_harness.py:238`
+`test_each_pad_index_drives_its_own_port_position_whatever_is_empty`, 36
+cases (every configuration of `_CONFIGS`). Level 0 (the hand-run probe, no
+engine code). For each position 0-4 in turn it holds ONE `padN` with its own
+button bit (B, Y, Select, Start, Up), reads the probe's WRAM result block
+(`R_JOY` words for `$4218`/`$421A`/`$421E` and the two manual words
+`R_MAN0`/`R_MAN1`), and asserts the set of words that changed versus idle is
+exactly `{line: bit}` for the line `_line_for` (`:225`) derives from the
+configuration alone — or empty when that position has no device; then
+releases and asserts the block is back to idle. It also checks the input log
+entry (secondary; the verdict is the hardware read).
+
+**Fault plant** (by hand; `tools/falsify.py` cannot register a plant with no
+ROM artifact, see paper cuts): `vendor/machine.py:413` changed to
+`raw = controller_index` (the shifted mapping) → **16 failed, 20 passed**:
+`empty-pad` and `empty-multitap-*` for every slot pattern except `0000` (the
+two port-1-empty configurations with nothing behind port 2, `empty-empty`
+and `empty-multitap-0000`, have nothing to misroute). Restored with the
+inverse `sed`; `md5sum -c` of `vendor/machine.py` OK.
+
+**Screen.** Audit-2's shot 11 re-taken on `four_pads` (port 1 empty, slots
+2-4, `pad3` holding X): P3's (green) lamp is lit, P4's (yellow) ring is
+hollow — before the fix it was P4's.
+
+## N2 (LOW) — envelope region-parity row → fixed
+
+`docs/capability_envelope.md:152`. Before: "…opt-in per rail 36 of the 43
+rails…" (3 `|`), the "**0.832**" clause after the aurora/mill parenthesis.
+After: "…opt-in per rail | 36 of the 43…" (4 `|`, same as its neighbours),
+and the clause back where `e34fb353` had it — "at a band of **0.994–1.027**
+against the **0.832** an uncompensated rail reads (`docs/98` §1); `four_pads`
+measures…". No number changed.
+
+## N3 (LOW) — census period → text made to match the code (33)
+
+The code's period is 33 calls: the second half reloads `ES_MTAP_TICK` to
+`MTAP_CENSUS_EVERY` = 32, the 32nd call after it reaches 0 and is the next
+first half (`tests/test_mtap.py:303-310` asserts exactly that). Kept the
+code — 32 is a countdown, not a stated period, and changing it would move
+every census-timing test and cost number — and fixed the text:
+
+* `docs/102_multitap_four_players.md:231` "every `MTAP_CENSUS_EVERY` = 32
+  calls" → "once every 33 calls (the countdown `MTAP_CENSUS_EVERY` = 32 runs
+  out on the 32nd call after a census's second half, and that half is the one
+  extra call)".
+* `docs/09_feature_register.md:986` "every 32 calls in two halves" → "once
+  every 33 calls in two halves (`MTAP_CENSUS_EVERY` = 32 plain-countdown calls
+  + the second half)". `make register` 0.
+* `engine/features/mtap/mtap.asm:31-38, :224, :465` — comments only ("calls
+  between censuses" → "census countdown (period = this + 1 calls)"; "every
+  MTAP_CENSUS_EVERY calls" → "every MTAP_CENSUS_EVERY + 1 calls"). Comment-only:
+  `four_pads` and `mtap_probe` md5s unchanged.
+* `docs/capability_envelope.md:130` ("two census calls in every 33") and
+  docs/102 D10 ("within 33 calls") already said 33.
+
+## N4 (LOW) — two counts in docs/102 → fixed
+
+* §7.4 (`:395`): `test_mtap_harness.py` 47 → **85** (49 collected before
+  this round — 9 + 36 + 1 + 3 — plus the 36 new cases); its surface column
+  names the new one-index-at-a-time read.
+* §7.2 (`:330`): re-measured (scratch `cost.py`: `mtap_probe`, adapter, exec
+  breakpoints on `mp_read_begin`/`mp_read_end`, master-clock delta, each call
+  classified by `ES_MTAP_TICK` read at its entry breakpoint), 1,320 calls =
+  40 census periods, four runs. Three runs identical: plain **6,274-6,582**
+  ×1,240 (hist 6274×106, 6340×339, 6384×174, 6450×413, 6516×196, 6582×12),
+  players 1-3 half 6,612-6,854 ×40, player 4 half 6,644-6,886 ×40. Text now
+  "6,274-6,582 for plain calls … and 6,612-6,886 on census calls", stated
+  as a sample (the bound is the test's 7,334). One run (the first) also
+  recorded three plain deltas outside every class — 410, 5,024 and 6,522 mc
+  — that did not recur; recorded in §7.2 as unexplained, not hidden.
+
+## N5, N6 — follow-ups only
+
+Recorded in docs/102 §7.4 ("Follow-ups, not this lane", `:427`). No change
+to `tests/test_dma_init_forced_blank.py` or `tools/falsify.py`.
+
+## Privacy
+
+Local paths in lines the branch adds rewritten: the session scratch
+directory → `<scratch>/`, the main checkout's absolute path → `<main
+checkout>` (audit-1: 3, audit-2: 3, remediation-1: 2 occurrences; scratch
+`scrub.py`). The brief's privacy grep over `git diff origin/main...HEAD`
+(added lines naming the home directory, its mangled scratch form, or a
+personal mail address) prints nothing.
+
+## Test runs (round 2)
+
+Modules, one process each, own `SF_MESEN_HOME`, `-c <empty ini> --rootdir .`:
+
+```
+test_mtap_harness: 85 passed in 106.10s (0:01:46)
+test_mtap: 51 passed in 93.69s (0:01:33)
+test_four_pads: 26 passed in 65.13s (0:01:05)
+test_mtap_cost: 3 passed in 17.04s
+```
+
+Full suite, `make test XDIST=3`, no `PYTEST_ADDOPTS`:
+
+```
+= 4 failed, 2787 passed, 15 skipped, 491 warnings, 1 error in 3251.55s (0:54:11) =
+schedule-check: ok — 140 module run(s) across 3 worker(s), no module split across workers
+```
+
+2,792 run cases (4 + 2,787 + 1) = audit-2's 2,756 + the 36 new. Triage:
+
+| red | triage |
+|---|---|
+| `test_batch_union.py` ×4 | PyYAML not installed — environmental, same four as base |
+| `test_scene_mgr_cut.py::test_the_cut_holds_its_forced_blank_inside_vblank` (setup error: 13 `$2100` writes where it wants 4) | **the pre-existing flake** remediation-1 and audit-2 both reproduced on base. Its fixture (`blank_windows`) drives the legacy free-running `MesenRunner` (boot, wall-clock run, `debug_break`, `set_input`) — none of which round 2 changed: `override_index` is called only from `Machine._latch` (`grep`), and `MesenRunner.set_input` is untouched. Alone, 6 runs each on ONE base tree (`git archive aee087f0`, built) with only `vendor/machine.py` + `vendor/mesen_runner.py` swapped: base vendor 5/6 green, round-1 vendor (`ff4d78fe`) 3/6, round-2 vendor (HEAD) 1/6; the base tree as-is 2/4. Red on every vendor; the rate moves with load (the HEAD batch ran 33-47 s per run against 22-26 s for the others) and samples this small do not separate the vendors. Not this round's code; the flake is a free-running wall-clock fixture and should move to `Machine` in its own lane |
+
+Gates (sequential): `width-check 0 · time-check 0 · map-check 0 · tick-check
+0 · cleanroom 0 · register 0 · rail-registered 0 · toy-bad 0 · rom-unbacked
+0 · measure 0`.
+
+ROM md5s after the round: `microzero 9ca5e47f5134d534c607fcb302c79b4f`,
+`sprite_game 9c8a69cf…`, `split_h_2p_demo b26ff7b4…`, `room 9327eeca…`,
+`patrol 6d751737…`, `stomper 86906e45…` — the base (`aee087f0`) values audit-2
+recorded; `four_pads 256a0cad…`, `mtap_probe d6b0e203…` — unchanged from
+round 1.

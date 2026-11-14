@@ -1697,3 +1697,12 @@ floor); three further runs on the same binary did not. Unexplained; written
 into docs/102 §7.2 so the next measurement looks for it. A 410 in the
 committed test's 72-call sample would turn its `> 4224` floor red and read as
 a ROM defect.
+
+**`test_scene_mgr_cut`'s free-running fixture flakes under load — clunky,
+MEDIUM.** Red again in round 2's full suite (13 `$2100` writes, wants 4).
+A/B on one base tree with only the two `vendor/` files swapped: 5/6, 3/6 and
+1/6 green for base, round-1 and round-2 vendor — but red on all three, and
+the slow batch was the loaded one; round 2 changed nothing that fixture runs.
+Every remediation round now spends ~20 min re-proving this flake is not
+theirs. Moving `blank_windows` off the wall-clock `MesenRunner` onto a
+lockstep `Machine` would end it.
