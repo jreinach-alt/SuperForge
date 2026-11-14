@@ -92,7 +92,10 @@ latches the H/V counters, and `$2137` only latches while WRIO.7 is 1. See D9.
 | P3 | 2 | tap slot 2, `$421E` (`mtap`) | 2 |
 | P4 | 3 | tap slot 3, manual `$4017` bit 0 under WRIO.7 = 0 (`mtap`) | 3 |
 
-Tap slot 4 (`$4017` bit 1) is not read: four players is the scope.
+Tap slot 4 (`$4017` bit 1) is not read: four players is the scope. The
+harness column is the `Machine.advance` position (`padN` = N-1); Mesen's
+own override index differs only when port 1 is empty, and the harness maps
+it (§7.4, audit-2 N1).
 
 ## 3. Acceptance criteria and test IDs
 
@@ -225,8 +228,10 @@ lane's own Level-0 harness test already asserted the trailing 1s. *Built*:
   this CPU cannot afford new per-frame work, so presence is a CENSUS, not a
   per-frame read. `mtap_init` takes it at boot (a fresh strobe, 17 clocks of
   every line; auto-read still off) and re-latches every pad before leaving.
-  With an adapter, `mtap_read` re-takes it every `MTAP_CENSUS_EVERY` = 32
-  calls, split over two consecutive calls — players 1-3 on one (one more
+  With an adapter, `mtap_read` re-takes it once every 33 calls (the
+  countdown `MTAP_CENSUS_EVERY` = 32 runs out on the 32nd call after a
+  census's second half, and that half is the one extra call), split over two
+  consecutive calls — players 1-3 on one (one more
   clock of `$4016` and of `$4017`, read before the select line drops), player
   4 on the next (slot 3's 13th-17th clocks after its 12 buttons) — because
   both halves on one call measured over two scanlines. The per-frame price
@@ -322,8 +327,17 @@ read (4224 mc) plus its start (up to H=95.5, 382 mc) on top of the work,
 **4.6-5.0 lines**. Most of that is idle spin the caller would otherwise pay
 somewhere else (it cannot read any pad before the read is over), but it is
 the per-frame cost such a rail sees. The probe's histogram spreads over
-6,274-6,516 for plain calls (the read's start moves in 256-mc steps, fullsnes)
-and up to 6,886 on census calls.
+6,274-6,582 for plain calls (the read's start moves in 256-mc steps, fullsnes)
+and 6,612-6,886 on census calls (6,612-6,854 the players 1-3 half, 6,644-6,886
+the player 4 half). Those ranges are a SAMPLE, not a bound: remediation-2
+re-measured 1,320 calls (40 census periods, each call classified by
+`ES_MTAP_TICK` at its entry breakpoint) and saw them exactly, in three runs out
+of four; the 72-call test sample and audit-2's 140 calls had shown plain calls
+only up to 6,516 and 6,582. The bound is the test's 7,334 below. (The fourth
+run also recorded three plain-call deltas outside every class — 410, 5,024 and
+6,522 mc, the first two below the work's own floor — that did not reproduce
+in the other three. Not explained; recorded so the next measurement looks for
+them. A 410 in the test's sample would turn its `> 4224` floor red.)
 
 The floor is the clocking: one `lda a:$4017` / `lsr a` / `rol z:` per bit is
 ~88 mc from bank-0 (SlowROM-speed) code, ~1,060 mc for twelve bits; P3's word
@@ -378,7 +392,7 @@ hardware. Stated, not fixed.
 
 | module | cases | ROM | surface |
 |---|---|---|---|
-| `tests/test_mtap_harness.py` | 47 | `tests/fixtures/mtap_harness/probe_mtap.asm` (Level 0: no engine code) | WRAM result block of a hand-run detection + read, the 17th bit of every line included, for 36 port/slot configurations |
+| `tests/test_mtap_harness.py` | 85 | `tests/fixtures/mtap_harness/probe_mtap.asm` (Level 0: no engine code) | WRAM result block of a hand-run detection + read, the 17th bit of every line included, for 36 port/slot configurations; and, for the same 36, which line answers when ONE `padN` is held at a time (audit-2 N1) |
 | `tests/test_mtap.py` | 51 | `make mtap-probe` | `mtap`'s DP words (presence included); `pad_btn`/`pad_btnp`/`pad_here` answers |
 | `tests/test_four_pads.py` | 26 | `make four_pads` | OBJ VRAM, CGRAM 128-191, OAM, screenshot pixels |
 | `tests/test_mtap_cost.py` | 3 | `make fp-labels`, `make mtap-probe` | master clock at exec breakpoints, both call timings |
@@ -392,5 +406,31 @@ the boot re-latch dropped, the demo ignoring `pad_here`); the D7-guard plant
 also names the worst-case cost case. Each FIRED with the artifact md5 moved
 and restored. The harness was planted by hand: the adapter's controller type
 set to a plain pad (first landing: 6 of its 9 cases red), and an empty slot
-configured as a pad (remediation: the empty-slot cases red), each restored
-byte-identical.
+configured as a pad (remediation: the empty-slot cases red), and the
+port-1-empty index mapping dropped (`Machine._latch` latching the raw index:
+remediation-2, 16 of the 36 one-index-at-a-time cases red — every
+configuration with port 1 empty and at least one device behind port 2), each
+restored byte-identical.
+
+**The harness's pad indices are port positions (audit-2 N1).** Mesen counts
+an empty port 1 out of its input-override indices: with `port1=PORT_EMPTY`
+its index 0 reaches port 2 / slot 1 and 1-3 reach slots 2-4, while an empty
+port 2 or adapter slot shifts nothing (measured for all 36 configurations).
+`mesen_runner.override_index` maps the harness's fixed positions onto it and
+`Machine._latch` latches through it, so `pad1` is always port 1 (nothing,
+when it is empty), `pad2` always port 2 / slot 1, `pad3`-`pad5` slots 2-4, and
+the input log's entries are by the same positions. With port 1 present the
+mapping is the identity — the default path makes exactly the calls it made.
+`MesenRunner.set_input` has no port-1 knob (its loads always put a pad in
+port 1), so its indices were never shifted.
+
+**Follow-ups, not this lane (audit-2):** N5 —
+`tests/test_dma_init_forced_blank.py`'s
+`test_every_observed_fire_matches_a_declared_claim` builds its failure message
+with `sorted(unknown)` / `k[0]` over a set that can hold `None` (a fire whose
+MDMAEN mask names other than one channel), so the assertion's own diagnosis
+is lost to a `TypeError`; pre-existing. N6 — `tools/falsify.py`'s `run_plant`
+restores and md5-checks only the plant's declared artifact, while
+`test_mtap_cost.py`'s fixture rebuilds both `four_pads` and `mtap_probe`: a
+cost-test plant declaring one leaves the other built from the planted source
+(declare both, or rebuild every target a named module's fixture builds).

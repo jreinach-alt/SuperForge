@@ -13,9 +13,9 @@
 | Remediation commits | `48608115` (audit-1 doc), `c2ce93d6`, `8689c1e2`, `a9df18c9`, `ff4d78fe` — 23 files vs `e34fb353` |
 | Inputs | `docs/audit/multitap-4p-audit-1.md`, `docs/audit/multitap-4p-remediation-1.md` |
 | Scope | F1 (HIGH), F2 (MEDIUM), F5 (LOW), F7 (LOW); F3/F8 records only; regression |
-| Hardware reference | `/home/justin/SuperForge/docs/reference/fullsnes.txt` (read-only; line numbers are that file's) |
-| Toolchain | `PATH=$HOME/toolchains/src/cc65/bin:/home/justin/SuperForge/.venv/bin:$PATH`; no `PYTEST_ADDOPTS`; every emulator process its own `SF_MESEN_HOME` |
-| Scratch | `/tmp/claude-1000/-home-justin-SuperForge/209f4e6c-da92-421f-bf84-12ae5159976e/scratchpad/mtap_audit2/` (scripts, logs, `shots/`, `contact_sheet.png`) |
+| Hardware reference | `<main checkout>/docs/reference/fullsnes.txt` (read-only; line numbers are that file's) |
+| Toolchain | `PATH=$HOME/toolchains/src/cc65/bin:<main checkout>/.venv/bin:$PATH`; no `PYTEST_ADDOPTS`; every emulator process its own `SF_MESEN_HOME` |
+| Scratch | `<scratch>/mtap_audit2/` (scripts, logs, `shots/`, `contact_sheet.png`) |
 | Base trees | `git archive aee087f0` and `git archive e34fb353` extracted under scratch (`tree_*`), built there |
 
 Commands: per-module `python3 -m pytest <m> -q -rsfE -p no:cacheprovider`, one

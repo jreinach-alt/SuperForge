@@ -28,12 +28,14 @@ MTAP_PAD_P2 = $02
 MTAP_PAD_P3 = $04
 MTAP_PAD_P4 = $08
 
-; THE CENSUS PERIOD (adapter only): mtap_read calls between censuses. Each
-; census is two calls in a row (players 1-3, then player 4 — split so that
-; neither call passes two scanlines, docs/102 §7.2), so presence is at most
-; this many calls + 1 stale. It counts CALLS, not time: it is a hot-plug
+; THE CENSUS PERIOD (adapter only): the countdown reloaded by a census's
+; second half; it runs out — the next first half — on the 32nd call after
+; it, so one census every MTAP_CENSUS_EVERY + 1 = 33 calls. Each census is
+; two calls in a row (players 1-3, then player 4 — split so that neither
+; call passes two scanlines, docs/102 §7.2), so presence is at most 33 calls
+; stale. It counts CALLS, not time: it is a hot-plug
 ; sampling interval, not a game rate, and nothing on screen moves by it.
-MTAP_CENSUS_EVERY = 32              ; mtap_read calls between censuses
+MTAP_CENSUS_EVERY = 32              ; census countdown (period = this + 1 calls)
 
 ; --- MTAP_P4_BUTTONS: slot 3's twelve buttons into ES_INP4_CUR ----------------
 ; WIDTH-RISK: entry A8 (asserted at every expansion), exit A8; no sep/rep, no
@@ -219,7 +221,7 @@ mtap_init:
 ;             1-3's 17th bits) or five more of slot 3 (player 4's)
 ;   out:      ES_INP3_* / ES_INP4_* on input_read's edge convention (cur, prev,
 ;             press = cur AND NOT prev); ES_MTAP_PADS refreshed by a census
-;             every MTAP_CENSUS_EVERY calls (players 1-3 on one call, player 4
+;             every MTAP_CENSUS_EVERY + 1 calls (players 1-3 on one, player 4
 ;             on the next). With no adapter, nothing is written: the words
 ;             keep mtap_init's zeros, so P3/P4 read nothing pressed, and
 ;             presence stays what the boot census found
@@ -460,7 +462,7 @@ pad_btnp:
 ;             answers 0 (Z set)
 ;   clobbers: A, N, Z, C. X and Y are preserved
 ;   assumes:  mtap_init has run (the boot census). With an adapter, presence
-;             is refreshed every MTAP_CENSUS_EVERY mtap_read calls; without
+;             is refreshed every MTAP_CENSUS_EVERY + 1 mtap_read calls; without
 ;             one it is the boot census's answer (the absent path stays a
 ;             flag test, docs/102 D10)
 ;   tail:     rts

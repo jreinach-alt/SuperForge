@@ -1670,3 +1670,30 @@ md5-checks only the declared artifact). Found by checking md5s after the run;
 LOW.** `cd … && git show …:file | …` and a `for` loop over `game/*/` were
 refused as "too complex to verify"; splitting into plain commands or a Python
 script works. Budget for it in audit scripts.
+
+### Remediation-2 of the four-pad lane (2026-11-13) — `docs/audit/multitap-4p-remediation-1.md` "Round 2"
+
+**Mesen's input-override index skips an empty port 1 but not an empty slot —
+surprise, MEDIUM.** Measured raw for all 36 port configurations: with port 1
+`None`, override index 0 reaches port 2 / slot 1 and 1-3 reach slots 2-4; an
+empty port 2 or an empty adapter slot leaves every index where it was. So
+"Mesen counts connected controllers" (audit-2's guess) is only half right —
+it is port 1 alone that drops out. The harness now maps positions through
+`mesen_runner.override_index`; anyone driving `SetInputOverrides` directly
+with a non-default port config has to do the same.
+
+**The plant registry cannot hold a harness (Python) plant — clunky, LOW.**
+`tools/falsify.py`'s `run_plant` requires the declared artifact's md5 to MOVE
+after the rebuild, so a defect in `vendor/machine.py` (no ROM changes) cannot
+be a registered plant; the N1 mapping plant was run by hand (sed, run the
+named test, restore, md5-check). Every harness plant in this lane has been
+by hand for the same reason. A `kind="harness"` plant (no artifact, restore
+by md5 of the file) would let `make falsify SET=mtap` carry them.
+
+**A cost sample showed three deltas no class explains — surprise, LOW.** One
+of four 1,320-call runs of the top-of-VBlank cost on `mtap_probe` recorded
+plain-call deltas of 410, 5,024 and 6,522 mc (the first two below the work's
+floor); three further runs on the same binary did not. Unexplained; written
+into docs/102 §7.2 so the next measurement looks for it. A 410 in the
+committed test's 72-call sample would turn its `> 4224` floor red and read as
+a ROM defect.

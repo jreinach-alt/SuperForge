@@ -12,7 +12,7 @@
 | Date | 2026-11-13 |
 | Spec of record | the owner's sentence + the brief (quoted in the dispatch), `docs/102_multitap_four_players.md` |
 | Hardware reference | `docs/reference/fullsnes.txt` from the main checkout's tree (not present in this lineage); line numbers below are that file's |
-| Toolchain | `PATH=$HOME/toolchains/src/cc65/bin:/home/justin/SuperForge/.venv/bin:$PATH`; lockstep core `/tmp/Mesen2-lockstep`; every emulator process had its own `SF_MESEN_HOME` under the audit scratch dir |
+| Toolchain | `PATH=$HOME/toolchains/src/cc65/bin:<main checkout>/.venv/bin:$PATH`; lockstep core `/tmp/Mesen2-lockstep`; every emulator process had its own `SF_MESEN_HOME` under the audit scratch dir |
 | Base comparisons | `git archive aee087f0` extracted to scratch (not a git worktree) |
 
 Commands: per-module `python3 -m pytest <module> -q -rsfE -p no:cacheprovider`
@@ -23,7 +23,7 @@ seven audit-authored plants driven through `tools/falsify.py`'s `run_plant`
 cost, and harness identity.
 
 Environment note: pytest in this nested worktree walks up and takes the main
-checkout's `pytest.ini` (`rootdir: /home/justin/SuperForge`), exactly as the
+checkout's `pytest.ini` (`rootdir: <main checkout>`), exactly as the
 implementer's paper cut says. I ran with it rather than overriding it; the
 suite came out green except the PyYAML module (below), so the walk-up changed
 nothing measurable here.
@@ -243,7 +243,7 @@ Re-measured with exec breakpoints bracketing the single `jsr mtap_read`
 
 ## 7. Demo, judged on screenshots I captured
 
-Scratch: `/tmp/claude-1000/-home-justin-SuperForge/209f4e6c-da92-421f-bf84-12ae5159976e/scratchpad/mtap_audit1/shots/` (11 PNGs) from the e34fb353 binary, with OAM dumped beside each:
+Scratch: `<scratch>/mtap_audit1/shots/` (11 PNGs) from the e34fb353 binary, with OAM dumped beside each:
 
 | shot | state | what is on screen |
 |---|---|---|

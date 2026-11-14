@@ -10,8 +10,8 @@
 |---|---|
 | Branch | `claude/multitap-4p`, base `origin/main` @ `aee087f0`, audited HEAD `e34fb353` |
 | Commits | `48608115` docs: audit-1 report · `c2ce93d6` 1/3 harness · `8689c1e2` 2/3 presence + cost + contract · `a9df18c9` 3/3 the record · plus the commit that adds this file |
-| Hardware reference | `/home/justin/SuperForge/docs/reference/fullsnes.txt` (owner's tree; line numbers are that file's) |
-| Scratch | `/tmp/claude-1000/-home-justin-SuperForge/209f4e6c-da92-421f-bf84-12ae5159976e/scratchpad/mtap_rem1/` |
+| Hardware reference | `<main checkout>/docs/reference/fullsnes.txt` (owner's tree; line numbers are that file's) |
+| Scratch | `<scratch>/mtap_rem1/` |
 
 ## F1 (HIGH) — per-pad presence
 
