@@ -1570,3 +1570,37 @@ VBlank after the read. The exec-breakpoint measurement made it obvious
 (2,976 mc, constant); the V-counter discriminator fixed it. Measure the
 common path, not just the worst one.
 
+
+### Audit-1 of the four-pad lane (2026-11-13) — `docs/audit/multitap-4p-audit-1.md`
+
+**A design decision rested on a reference-doc claim nobody checked — surprise, HIGH.**
+docs/102 D10 dropped per-pad "connected" because "fullsnes does not document
+what a standard pad returns after its 16th bit". fullsnes does, twice (Joypad
+bits "17th and up — Padding ... 0=High when no pad connected", and the
+controller-ID table's "No controller connected" row), and the lane's own
+Level-0 harness test asserts the 1s. The owner-facing demo lost "which pads are
+connected" on that premise. When a decision cites a reference for an
+*absence*, grep the reference for it before writing the decision down.
+
+**The cost test measured the one call timing where the guard never waits —
+clunky, MEDIUM.** `test_the_present_path_stays_under_two_scanlines` brackets
+`mtap_read` on `four_pads`, whose NMI-synced loop always arrives after the
+auto-read; the same routine called at the top of VBlank (the probe) costs
+6.2-6.5k mc, 4.8 lines. "Measure the common path, not just the worst one"
+(the entry above) has a mirror: measure the worst one too, and name the test
+for the one it measures.
+
+**The branch under audit was checked out in another worktree — easy, LOW.**
+`git checkout claude/multitap-4p` refuses; `git checkout --detach <branch>`
+works and is what an auditor wants anyway (no accidental commits on it).
+Worth one line in the audit dispatch template.
+
+**No Mesen source on disk — clunky, LOW.** `/tmp/Mesen2*` hold only built
+cores, so the multitap device model (empty-slot answer, slot routing) could
+not be read, only measured. CLAUDE.md rule 6 asks for the emulator source;
+the setup script does not keep it.
+
+**fullsnes is not in this lineage — clunky, LOW.** `docs/reference/fullsnes.txt`
+exists only in the main checkout's older tree; audits cite its line numbers
+from there. A vendored copy (or a stated path) would make citations checkable
+from the tree that makes them.
