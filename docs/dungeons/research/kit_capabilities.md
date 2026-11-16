@@ -45,6 +45,7 @@
 | Projectiles | **Proven** | `shmup` bullets; `m7_oshoot` on `pool`. |
 | Hero sprites, P1/P2 tint | **Proven** | `split_v_obj`: one 32×32 knight drawn twice with an OBJ palette swap. |
 | Metasprites / Y-sort | **New** | Zero hits for "metasprite". Every cast is resident CHR uploaded at enter. |
+| OBJ frame streaming | **Near (sibling repo)** | Not in this tree, but SUPERFORGE GT (`jreinach-alt/sf-gt`) ships per-VBlank car-frame streaming from ROM into fixed slots. Port it (02 §1.2, 11 §1). |
 | HUD | **Proven** | OBJ pips (`room_logic` `hud_pips`), BG3 text via `bg_text`. Note that a running scene gets 4 text cells per frame. |
 | Scenes and transitions | **Proven, with a trap** | `scene_mgr` + `fade`/`mosaic`. **`sm_request` to the scene already running is a no-op**, so "next floor" must go through another scene (06 §5). |
 | Save | **Proven, too small** | 2 slots × 24 B payload with CRC (`save/feature.toml:9`). The payload cap is "a choice, not a law". (The jam's no-SRAM rule does not apply: this is not a jam game.) |

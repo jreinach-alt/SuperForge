@@ -11,7 +11,7 @@
 The direction lives in **[10 — World and visual themes](10_world_and_themes.md)**:
 the palette philosophy, biomes, bestiary and heroes. The production method
 lives in **[11 — Art pipeline](11_art_pipeline_3d.md)**: Blender prerenders
-through a seven-step intake. This file is the **inventory**: what must exist,
+through the pipeline ported from SUPERFORGE GT. This file is the **inventory**: what must exist,
 and how much of it.
 
 ## 2. Asset list, tier M

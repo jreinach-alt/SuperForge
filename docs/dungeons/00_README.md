@@ -24,7 +24,7 @@
 | [08 — Milestones](08_milestones.md) | **the build order**: M0–M10, each with rendered-output acceptance tests |
 | [09 — Open questions](09_open_questions.md) | the owner's decisions, each with a working recommendation |
 | [10 — World and visual themes](10_world_and_themes.md) | the premise (the Unwriting), the "80s matte painting" look, biomes, the bestiary, and the evocation-not-reproduction line |
-| [11 — Art pipeline](11_art_pipeline_3d.md) | Blender prerenders → SNES: the camera contract, the 7-step intake, the tests |
+| [11 — Art pipeline](11_art_pipeline_3d.md) | Blender prerenders → SNES, ported from SUPERFORGE GT: data-pass renders, material-vote pixelation, palette role tables, plus what is new (skinned characters, tiles) |
 | [12 — Music and sound](12_music_and_sound.md) | 80s orchestral in three colours, adaptive layers on TAD's channel mask, the synthesised orchestra, the cue sheet |
 | [research/genre_reference.md](research/genre_reference.md) | what the genre reference and its precedents do (the evidence behind 01–06) |
 | [research/kit_capabilities.md](research/kit_capabilities.md) | what this kit already proves, game by game (Proven / Near / New) |
@@ -87,7 +87,8 @@ output rather than a proxy: the expected tilemap is computable.
 - **Music** is 80s orchestral, borrowing technique from a barbarian-epic
   score (brass, war drums, chant) and a goblin-maze score (synth-orchestra
   whimsy). There are no quoted melodies (12).
-- **Art** is modelled in Blender and prerendered (11). The build consumes
+- **Art** is modelled in Blender and prerendered with the pipeline Fable built
+  for SUPERFORGE GT (`jreinach-alt/sf-gt`), ported and extended (11). The build consumes
   committed renders and never runs Blender.
 - **Save** is battery SRAM. This is not a jam game.
 

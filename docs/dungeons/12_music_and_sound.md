@@ -71,10 +71,29 @@ rule (09 Q9 asks whether to relax it). The 80s orchestral sound is then an
 honest synth-orchestra, which is exactly the hybrid texture the maze score is
 known for.
 
-| instrument | synthesis recipe (in `gen_audio_samples.py`) | BRR form | est. size |
+**Start from SUPERFORGE GT's synthesiser** (`sf-gt:tools/fgt/gen_audio_samples.py`,
+first-party, the same owner). It already synthesises **`brass`, `strings`,
+`bell`, `organ`, `sine`, `ep`** and others, under the same no-sampled-material
+rule. It also settled three techniques this score needs:
+
+- **Pitched periods of 128, 64 or 32 samples only.** They are octaves of one
+  another, so every instrument is in tune with every other and they all share
+  one run of the driver's pitch table.
+- **"Attack + loop" with frozen partials.** A short evolving attack, then a
+  1–2 period loop whose partial levels are fixed from the loop point. The loop
+  is exactly periodic and cannot click. The envelope is the driver's ADSR.
+- **Chord samples.** One voice plays a whole voicing, in just ratios with whole
+  cycles per loop. sf-gt uses jazz voicings. Here, an **open-fifth brass
+  chord**, a **minor triad string pad** and a **choir "OH" triad** give the
+  orchestral weight of 3 voices for 1. That is the single biggest lever on an
+  8-voice chip.
+
+Port that file and extend it with the instruments below that it lacks.
+
+| instrument | synthesis recipe | BRR form | est. size |
 |---|---|---|---|
-| **string ensemble** | 3 detuned band-limited saws (±7 cents), a low-pass, a slow attack via ADSR | single-cycle loop ×3 phases (64 samples each) | ~110 B |
-| **brass / horn** | saw through a resonant low-pass whose cutoff rises in the attack; the **attack** is a 0.1 s one-shot + a looped sustain cycle | attack one-shot + loop | ~1.2 KB |
+| **string ensemble** | start from sf-gt's `strings`; add 3 detuned band-limited saws (±7 cents), a low-pass, a slow attack via ADSR | single-cycle loop ×3 phases (64 samples each) | ~110 B |
+| **brass / horn** | start from sf-gt's `brass` (and `brass_round`); a saw through a resonant low-pass whose cutoff rises in the attack; the **attack** is a 0.1 s one-shot + a looped sustain cycle | attack one-shot + loop | ~1.2 KB |
 | **choir "OH/AH"** | a glottal pulse train through 3 vowel formant filters (AH ≈ 700/1220/2600 Hz, OH ≈ 450/800/2830 Hz), with slight vibrato baked into a long loop | ~0.25 s loop per vowel | ~2.5 KB ×2 |
 | **timpani** | pitched decaying sine + inharmonic partials + a noise strike | one-shot 0.6 s | ~3 KB |
 | **war drum (taiko)** | a low sine with a pitch drop + filtered noise body (the existing `kick` recipe, longer and lower) | one-shot 0.4 s | ~2 KB |

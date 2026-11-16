@@ -54,10 +54,12 @@ from ROM into 4 fixed 16×16 slots.
 - Cost: 4 × 128 B = 512 B, plus 4 × 128 B arm cost = **1,024 B-equivalent of
   the 5,952 B VBlank pin**. Together with OAM's 544 B, that leaves about
   4.3 KB for the HUD queue and the cell queue.
-- **This is a new kit feature (`obj_stream`).** It has no precedent in the
-  tree (`research/kit_capabilities.md` §2, "Metasprites"). It declares
-  `[claims.dma]`, and its test reads the 4 slots out of VRAM after a known
-  input sequence and compares them against the generator's frame blob.
+- **A new feature in this tree (`obj_stream`), with a shipped precedent.**
+  SUPERFORGE GT streams one car frame per VBlank from ROM into fixed VRAM
+  slots: 1.3 MB of frames through 16 KB (`sf-gt:README.md`). Port its
+  mechanism. It declares `[claims.dma]`, and its test reads the 4 slots out of
+  VRAM after a known input sequence and compares them against the frame
+  blob.
 - Enemies stay resident in table 1: about 140 tiles, with side-facing frames
   and left by HFLIP.
 

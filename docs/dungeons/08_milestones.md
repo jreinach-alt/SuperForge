@@ -150,10 +150,10 @@
 
 | track | work | meets |
 |---|---|---|
-| **A1** | the Blender camera/light/scale rig and the render script (11 §2), with the hero model | M3: replace the CC0 placeholder hero |
-| **A2** | the intake steps 1–7 (11 §4) and the contact sheet | M2: CHR round-trip test |
+| **A1** | port sf-gt's render → pixelate stages (11 §7), add the armature and 35° rig, and take the wanderer's walk cycle through to a screenshot in the M3 ROM | M3: replace the CC0 placeholder hero |
+| **A2** | the converter (11 §5 stage 6) and the contact sheets | M2: CHR round-trip test |
 | **A3** | the Hollow Wood metatile atlas (10 §3), enemies, the boss poses | M2 / M4 / M9 |
-| **S1** | the synthesised orchestra (12 §3), auditioned as WAVs | — |
+| **S1** | port sf-gt's sample synthesiser; add the choir, percussion and chord samples (12 §3); audition as WAVs | — |
 | **S2** | the camp and floor songs with the adaptive layer plan (12 §2) | M10, or earlier as a scaffold |
 
 ## Dependency graph
