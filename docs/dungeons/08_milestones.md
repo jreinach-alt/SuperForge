@@ -110,7 +110,7 @@
 ## M7 — Down, revive, lives; `results`; `camp`; persistence
 
 - The 06 §5 rules, the camp scene, salvage and sparks.
-- Save, which depends on **09 Q1**.
+- Save: battery SRAM through `save` with the payload raised (02 §2.1).
 - **Tests:**
   - A downed hero's OAM shows the downed frame.
   - The partner's held A for 90 frames restores HP: the HUD bar cells
@@ -146,6 +146,16 @@
 - A flashcart run on NTSC (and PAL if available), recorded in `JAM.md`'s
   shape.
 
+## Parallel tracks (start any time; they meet the main line where named)
+
+| track | work | meets |
+|---|---|---|
+| **A1** | the Blender camera/light/scale rig and the render script (11 §2), with the hero model | M3: replace the CC0 placeholder hero |
+| **A2** | the intake steps 1–7 (11 §4) and the contact sheet | M2: CHR round-trip test |
+| **A3** | the Hollow Wood metatile atlas (10 §3), enemies, the boss poses | M2 / M4 / M9 |
+| **S1** | the synthesised orchestra (12 §3), auditioned as WAVs | — |
+| **S2** | the camp and floor songs with the adaptive layer plan (12 §2) | M10, or earlier as a scaffold |
+
 ## Dependency graph
 
 ```
@@ -156,4 +166,4 @@ M0 ─► M1 ─► M2 ─► M3 ─► M4 ─► M5 ─► M6 ─► M7 ─► 
 - M5 deliberately comes **before** loot and content. It is the milestone that
   can force a design cut (fewer enemies, an AI cadence change). Taking that
   cut later would invalidate more work.
-- M6 and M7 can swap order if 09 Q1 is still open.
+- **Art and music run in parallel with M0–M9** (A- and S-tracks below).

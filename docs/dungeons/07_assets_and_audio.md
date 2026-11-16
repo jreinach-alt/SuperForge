@@ -6,26 +6,13 @@
 > Nothing is traced, recoloured or "inspired-by" from the genre reference. The
 > look is our own.
 
-## 1. Art direction (one paragraph the artist and the agent both hold)
+## 1. Art direction
 
-The setting is warm torchlight in cold stone. The floor is a desaturated
-slate. Walls are darker, with a lit top edge. Braziers and chests are the only
-warm accents, so the eye finds loot.
-
-Heroes are compact, 16×16, readable from the silhouette alone:
-
-- **P1** in cool blue, **P2** in amber. That is the same CHR, palette swapped.
-- Each hero's weapon is a separate swing sprite, so the weapon change is
-  visible.
-
-Enemies read by colour family:
-
-- grunts: rust
-- archers: green
-- brutes: bone
-- skitters: violet
-
-The boss is two-tone with one glowing weak point.
+The direction lives in **[10 — World and visual themes](10_world_and_themes.md)**:
+the palette philosophy, biomes, bestiary and heroes. The production method
+lives in **[11 — Art pipeline](11_art_pipeline_3d.md)**: Blender prerenders
+through a seven-step intake. This file is the **inventory**: what must exist,
+and how much of it.
 
 ## 2. Asset list, tier M
 
@@ -43,9 +30,9 @@ The boss is two-tone with one glowing weak point.
 | UI font | BG3 2bpp | the kit's vendored font | `docs/11` |
 
 **Placeholder path.** `vendor/art/dungeon_sprites` holds a CC0 16×16 hero and
-ghost, provenance-traced in `docs/92` §5.1. They are good enough to stand in
-for the hero and an enemy through M5. Final art replaces them through the same
-generator.
+ghost, provenance-traced in `docs/92` §5.1. They stand in until track A1's
+Blender renders land (08). The renders replace them through the same intake,
+and no ROM code changes.
 
 ## 3. The asset generator (`tools/gen_dungeons_assets.py`)
 
@@ -65,14 +52,6 @@ because the allocator does that.
 
 ## 4. Audio
 
-| cue | source | status |
-|---|---|---|
-| hit, pickup, footstep, explosion, chime, select | the existing `assets/audio/sound-effects.txt` cues | **reuse** |
-| swing (3 weights), bow, roll, potion, revive, down, gate seal/open, boss roar | new TAD SFX | new |
-| camp theme | new MML | new |
-| floor theme (biome 1) | new MML | new; the per-cell echo comes from the `room` ambience-SFX pattern |
-| boss theme | new MML | tier S |
-
-- TAD owns the SPC outright, and an over-budget song **fails the build**.
-- **Audio has never run on a cart** (`JAM.md` row 6c). M10 includes a flashcart
-  listen-through.
+The full direction is in **[12 — Music and sound](12_music_and_sound.md)**:
+the three colours, the adaptive layers on TAD's channel mask, the synthesised
+orchestra, and the cue sheet.

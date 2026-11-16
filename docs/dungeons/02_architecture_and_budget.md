@@ -90,6 +90,36 @@ from ROM into 4 fixed 16×16 slots.
 | GEN / FX PRNG | global, `@dp` | 2 × 2 B | 03 §2.3 |
 | camera | scene `floor`, `@dp` | 4 B | |
 
+### 2.1 The save (battery SRAM: decided)
+
+The kit's `save` feature is proven: CRC-16, magic and version, reject codes,
+and a power-cycle test. Its **24 B payload cap is a constant, "a choice, not a
+law"** (`engine/features/save/feature.toml`). Dungeons raises it. The save
+record:
+
+| field | bytes |
+|---|---|
+| equipped kits, 2 × 5 × 4 B | 40 |
+| stash, 24 × 4 B | 96 |
+| sparks ×2, deepest floor, lives meta, options | 8 |
+| **payload** | **144 B** |
+
+- No separate spark ledger is needed. Sparks spent on an item are its enchant
+  tiers above I, which are already in the record (04 §2). Salvage refunds
+  read them from the record.
+- 2 slots × (8 B header + 144 B) = 304 B. The `sram` claim grows from the
+  feature's 64 B. The allocator already derives the cart header from the
+  claim: `$FFD8 = $01` (2 KiB declared, the minimum) and `$FFD6 = $02`
+  (battery), both read from `engine/features/save/feature.toml`. So 304 B
+  changes no header byte.
+- The CRC routine's cost grows with the payload. **Measure it** in M7. It runs
+  at camp only, never in a floor frame.
+- **Change the feature, not a copy of it.** Raise the cap in `save` itself:
+  turn the constant into a declared parameter, and keep `platformer`, `room`
+  and `rpg` byte-identical. Their tests are the regression guard.
+
+### 2.2 DP
+
 DP is the scarcest class. Only these go `@dp`:
 
 - the PRNG states

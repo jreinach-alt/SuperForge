@@ -81,6 +81,10 @@ band.
 
 ## 2. Enemies (tier M: 4 types + 1 boss)
 
+The archetype names below are mechanical. Their in-world names and looks
+(Rootling, Thornspitter, Cairnback, Mothwick, the Hollow Crown) are in
+10 §5.
+
 | type | size | HP @ threat | behaviour | telegraph |
 |---|---|---|---|---|
 | **grunt** | 16×16 | 12 | walk toward the nearest hero, swing at 12 px | 12 f flash |

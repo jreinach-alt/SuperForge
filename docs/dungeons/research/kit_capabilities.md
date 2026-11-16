@@ -47,7 +47,7 @@
 | Metasprites / Y-sort | **New** | Zero hits for "metasprite". Every cast is resident CHR uploaded at enter. |
 | HUD | **Proven** | OBJ pips (`room_logic` `hud_pips`), BG3 text via `bg_text`. Note that a running scene gets 4 text cells per frame. |
 | Scenes and transitions | **Proven, with a trap** | `scene_mgr` + `fade`/`mosaic`. **`sm_request` to the scene already running is a no-op**, so "next floor" must go through another scene (06 §5). |
-| Save | **Proven, too small, jam conflict** | 2 slots × 24 B payload with CRC (`save/feature.toml:9`). The payload cap is "a choice, not a law". The jam's rule 4 forbids SRAM (`JAM.md`). |
+| Save | **Proven, too small** | 2 slots × 24 B payload with CRC (`save/feature.toml:9`). The payload cap is "a choice, not a law". (The jam's no-SRAM rule does not apply: this is not a jam game.) |
 | Audio | **Proven** | `audio` + `tad_rom`. Existing cues include hit, pickup, footstep, explosion and chime. **Never run on hardware** (`JAM.md` row 6c). |
 | Hit-flash | **Near** | An OAM palette-attribute swap (zero DMA), or a CGRAM VBlank write (the `smt_opt` shape). |
 | Lantern / darkness | **Proven but costly** | `window_iris`: one window, tied to `room_rom`, 20.84% of the frame. Two lanterns would be new work. That is scope tier C only. |

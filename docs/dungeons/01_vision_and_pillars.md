@@ -13,6 +13,11 @@ Two friends on one couch, one SNES, one screen: they dive a freshly generated
 dungeon floor, and the gear it drops decides who becomes the brawler, the
 archer or the healer this run. Nobody picks a class.
 
+The world is **Lumenvale**, a storybook realm being erased from the edges
+inward by a silence called the Unwriting. The look is luminous 80s fantasy:
+painted, dusty, vast. The score is 80s orchestral, with war brass and synth
+mystery. See 10 and 12.
+
 ## 2. Pillars (in priority order: when two collide, the higher one wins)
 
 1. **Couch co-op first.** Every system is designed for two players sharing one
@@ -54,9 +59,9 @@ archer or the healer this run. Nobody picks a class.
 - **One run** is an "expedition": floors 1, 2, 3 and so on until the party
   returns or runs out of lives. Depth raises the threat (04 §3), which raises
   drop power.
-- **Persistence:** the camp stash plus each player's equipped set, saved
-  battery-backed. See 09 Q1: that decision is the user's, because the SNES DEV
-  jam rules forbid SRAM.
+- **Persistence:** the camp stash plus each player's equipped set, saved to
+  battery-backed SRAM (02 §2.1). This is not a jam entry, so the jam's no-SRAM
+  rule does not apply (owner, 2026-11-16).
 
 ## 4. The controls (both pads identical)
 
@@ -79,7 +84,7 @@ at two artifacts rather than three. The researched design implications agree
 
 | tier | contents | must ship? |
 |---|---|---|
-| **M (minimum)** | 1 biome tileset, 13 room templates (already authored), 4 enemy types, 1 boss, 22 item bases, 21 enchants, camp, save | yes |
+| **M (minimum)** | 1 biome (the Hollow Wood, 10 §3) tileset, 13 room templates (already authored), 4 enemy types, 1 boss, 22 item bases, 21 enchants, camp, save | yes |
 | **S (should)** | 2nd biome (palette swap plus 8 templates), elites, enchant upgrades at camp, ping, music per biome | next |
 | **C (could)** | 3rd biome, a 2nd boss, darkness floors lit by SUN LANTERN (the `window_iris` lantern), daily seed | later |
 | **W (won't)** | online, more than 2 players, a 3rd artifact slot, procedural music | — |

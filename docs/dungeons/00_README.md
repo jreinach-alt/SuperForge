@@ -23,6 +23,9 @@
 | [07 — Assets and audio](07_assets_and_audio.md) | art direction, the asset list, the generator, sound |
 | [08 — Milestones](08_milestones.md) | **the build order**: M0–M10, each with rendered-output acceptance tests |
 | [09 — Open questions](09_open_questions.md) | the owner's decisions, each with a working recommendation |
+| [10 — World and visual themes](10_world_and_themes.md) | the premise (the Unwriting), the "80s matte painting" look, biomes, the bestiary, and the evocation-not-reproduction line |
+| [11 — Art pipeline](11_art_pipeline_3d.md) | Blender prerenders → SNES: the camera contract, the 7-step intake, the tests |
+| [12 — Music and sound](12_music_and_sound.md) | 80s orchestral in three colours, adaptive layers on TAD's channel mask, the synthesised orchestra, the cue sheet |
 | [research/genre_reference.md](research/genre_reference.md) | what the genre reference and its precedents do (the evidence behind 01–06) |
 | [research/kit_capabilities.md](research/kit_capabilities.md) | what this kit already proves, game by game (Proven / Near / New) |
 
@@ -75,12 +78,25 @@ output rather than a proxy: the expected tilemap is computable.
    - AI thinking on a 4-frame stagger
    - a hand-kept per-scanline ledger, checked against STAT77 in M5
 
+## The creative direction (owner, 2026-11-16)
+
+- **Visuals** borrow the mood of a 1984 fantasy film: a storybook world
+  erased by an advancing void, painted 80s luminosity, vast scale. The take
+  is mood, palette and motifs; no characters, designs or names. 10 draws the
+  line and lists what is explicitly out.
+- **Music** is 80s orchestral, borrowing technique from a barbarian-epic
+  score (brass, war drums, chant) and a goblin-maze score (synth-orchestra
+  whimsy). There are no quoted melodies (12).
+- **Art** is modelled in Blender and prerendered (11). The build consumes
+  committed renders and never runs Blender.
+- **Save** is battery SRAM. This is not a jam game.
+
 ## House rules this set follows (and that the implementer must)
 
-- **The cleanroom rule.** The genre reference and the precedents are never
-  named in the tree. The denylist entries that enforce this were added with
-  this set (`tools/cleanroom_check.sh`). All item, enemy and place names are
-  original.
+- **The cleanroom rule.** The genre reference, the source film and the score
+  influences are never named in the tree, nor are their characters and
+  composers. The denylist entries that enforce this were added with this set
+  (`tools/cleanroom_check.sh`). All item, enemy and place names are original.
 - **The repo's seven rules** (`CLAUDE.md`):
   - emulator truth over reading ASM
   - rendered-output tests

@@ -108,6 +108,15 @@ COMMERCIAL+="ghouls|sonic|frogger|"
 # specs call the reference "the genre reference" on purpose; this keeps it so.
 COMMERCIAL+="minecraft|mojang|microsoft|spelunky|diablo|blizzard|shiren|torneko|"
 COMMERCIAL+="mystery${_S}dungeon|chunsoft|pocky|zombies${_S}ate${_S}my${_S}neighbou?rs|"
+# Added with docs/dungeons/10-12 (owner direction 2026-11-16: the visual
+# themes borrow from a 1984 fantasy film, the music takes 80s orchestral
+# influence from two 1980s fantasy scores). Mood is borrowed; NAMES are not:
+# the film/novel and its characters, creatures and props, the second film's
+# franchise and lead, and the composers. "labyrinth" is NOT listed: it is a
+# common word this tree uses for mazes, so that title is guarded by review.
+COMMERCIAL+="neverending|michael${_S}ende|atreyu|bastian|falkor|artax|gmork|morla|"
+COMMERCIAL+="rockbiter|auryn|fantasia|conan|poledouris|doldinger|moroder|"
+COMMERCIAL+="trevor${_S}jones|jareth|bowie|henson|"
 COMMERCIAL+="nintendo|konami|capcom|squaresoft|enix|sega|"
 COMMERCIAL+="juno-?106|linndrum|dx-?7|yamaha|roland|korg|legowelt|zophar|snesmusic"
 COMMERCIAL+=")${_BR}"
