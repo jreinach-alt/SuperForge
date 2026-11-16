@@ -19,7 +19,7 @@ and how much of it.
 | asset | format | count | notes |
 |---|---|---|---|
 | floor/wall metatiles | 16×16, 4bpp, in BG palettes 0–5 | ~32: floor ×4, rubble, brazier ×2 frames, doorway, gate, stairs, wall ×8 autotile, pillar, chasm ×4 edge | **the `tiles16` quad layout** (N, N+1, N+16, N+17) is the generator's job, asserted from VRAM |
-| hero | 16×16 OBJ, **streamed** (02 §1.2) | 4 directions × (idle 2 + walk 4 + roll 3 + hurt 1 + downed 1) = 44 | left = HFLIP of right; one CHR set, two palettes |
+| hero | 16×16 OBJ, **streamed** (02 §1.2) | 3 directions × (idle 2 + walk 4 + roll 3 + hurt 1 + downed 1) = 33 (`tools/dungeons/art/actions.toml`) | left = HFLIP of right; one CHR set, two palettes |
 | swing | 16×16 OBJ, **streamed** | 5 melee bases × 3 frames × 3 directions (left by flip) = 45 | |
 | shots | 8×8 | arrow ×2, bolt, stone, ember ×2, enemy bolt | 8-direction arrows use flips plus 2 diagonals |
 | drops | 8×8 | gear bag (tinted per owner), ammo, potion, spark | |

@@ -1,0 +1,102 @@
+# actions.toml — the wanderer's rig, scale and actions, as DATA.
+#
+# The Blender script (to be written in track A1, docs/dungeons/13 §3) reads
+# this file; it hard-codes none of it. The game reads the same file through
+# the asset generator (frame counts, durations, the anchor), so the art and
+# the engine cannot disagree about how long a step is.
+#
+# Units: 1 Blender unit = 16 sprite px = one metatile. Angles in degrees.
+# Durations are in game frames at 60 Hz (class-B countdowns, 02 §7).
+
+[camera]
+projection = "ortho"
+depression_deg = 35.0         # docs/dungeons/11 §2 — tied to wall autotiling
+px_per_unit = 16
+supersample = 8               # raw px per sprite px (sf-gt used 6..16 by size)
+margin_px = 4
+box = [16, 16]
+directions = ["right", "up", "down"]   # left = HFLIP of right
+yaw_deg = { right = 90.0, up = 180.0, down = 0.0 }
+
+[light]                       # sf-gt's repeatable rig: direct sun only + AO for sky
+engine = "CYCLES"
+samples = 2
+bounces = 0
+sun_dir = [-0.45, 0.55, -0.70]    # from upper-left, matching the wall-face bevel
+symmetric_for_flip = false        # right is rendered, left is flipped: the sun
+                                  # flips with it — accepted, as sf-gt did for cars
+
+[rig]                          # stocky 16-bit proportions: head ~ 1/3 of height
+height_units = 0.86           # projected ~ 13 px tall at 35 deg, room for outline
+bones = [
+  "root", "hips", "spine", "head",
+  "upperarm.L", "forearm.L", "upperarm.R", "forearm.R",
+  "thigh.L", "shin.L", "thigh.R", "shin.R",
+  "cloak.1", "cloak.2",        # secondary motion: lag the hips by 1 sample
+  "weapon",                    # parent of the swing layer (render layer 2)
+]
+anchor_bone = "root"          # projected to the sprite = the foot point (13 §5)
+
+# Each action: the frames the GAME shows (count, hold in game frames) and the
+# pose curve the script keys. Pose values are exaggerated ~1.5x over realistic:
+# at 16 px a 1-px limb must still read as motion.
+[action.idle]
+frames = 2
+hold = [30, 30]
+
+[action.idle.keys]
+"spine.pitch" = [0.0, 3.0]
+"hips.z" = [0.0, -0.02]
+"cloak.1.pitch" = [0.0, 6.0]
+
+[action.walk]
+frames = 4                    # contact, passing, contact, passing
+hold = [8, 8, 8, 8]           # a 32-frame cycle = 1.5 px/tick * 32 = 48 px stride pair
+
+[action.walk.keys]
+"thigh.L.pitch" = [30, 0, -30, 0]
+"thigh.R.pitch" = [-30, 0, 30, 0]
+"shin.L.pitch" = [0, 40, 10, 0]
+"shin.R.pitch" = [10, 0, 0, 40]
+"upperarm.L.pitch" = [-25, 0, 25, 0]
+"upperarm.R.pitch" = [25, 0, -25, 0]
+"hips.z" = [0.0, 0.04, 0.0, 0.04]
+"cloak.1.pitch" = [10, 4, 10, 4]
+
+[action.roll]
+frames = 3
+hold = [3, 3, 2]              # = the 8-frame roll of 05 §1.3
+
+[action.roll.keys]
+"spine.pitch" = [60, 180, 300]
+"hips.z" = [-0.15, -0.25, -0.15]
+
+[action.hurt]
+frames = 1
+hold = [12]
+
+[action.hurt.keys]
+"spine.pitch" = [-20]
+"head.pitch" = [-15]
+
+[action.downed]
+frames = 1
+hold = [1]
+
+# The swing is the WEAPON render layer of the same action, rendered without
+# the body (05 §1.1: wind-up 4 f, active 4 f, then recovery to the weapon's
+# rate). 3 render frames per melee base per direction.
+
+[action.downed.keys]
+"spine.pitch" = [85]
+"hips.z" = [-0.35]
+
+[action.swing]
+frames = 3
+hold = [4, 4, 6]
+layer = "weapon"
+
+[action.swing.keys]
+"upperarm.R.pitch" = [-110, 20, 70]
+"weapon.roll" = [-60, 30, 80]
+

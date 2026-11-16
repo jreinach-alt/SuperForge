@@ -108,3 +108,19 @@ def test_template_lint_fires_on_a_blocked_door():
     t = levelgen.Template("plant", "normal", levelgen.N | levelgen.S, 1, False,
                           ["#" * 14] + ["......e......."] + ["." * 14] * 12)
     assert any("door N" in e for e in levelgen.lint_templates([t]))
+
+
+def test_actions_agree_with_the_combat_spec():
+    # actions.toml is read by BOTH the Blender script and the game; these are
+    # the durations docs/dungeons/05 fixes. A retimed action must move both.
+    import tomllib
+    p = os.path.join(os.path.dirname(__file__), "..", "tools", "dungeons", "art", "actions.toml")
+    with open(p, "rb") as f:
+        act = tomllib.load(f)["action"]
+    for name, a in act.items():
+        assert len(a["hold"]) == a["frames"], name
+        assert all(len(v) == a["frames"] for v in a["keys"].values()), name
+    assert sum(act["roll"]["hold"]) == 8                  # 05 §1.3
+    assert act["swing"]["hold"][:2] == [4, 4]             # 05 §1.1 wind-up, active
+    streamed = sum(act[k]["frames"] for k in ("idle", "walk", "roll", "hurt", "downed"))
+    assert streamed * 3 == 33                             # 07 §2 / 02 §1.2

@@ -26,6 +26,7 @@
 | [10 — World and visual themes](10_world_and_themes.md) | the premise (the Unwriting), the "80s matte painting" look, biomes, the bestiary, and the evocation-not-reproduction line |
 | [11 — Art pipeline](11_art_pipeline_3d.md) | Blender prerenders → SNES, ported from SUPERFORGE GT: data-pass renders, material-vote pixelation, palette role tables, plus what is new (skinned characters, tiles) |
 | [12 — Music and sound](12_music_and_sound.md) | 80s orchestral in three colours, adaptive layers on TAD's channel mask, the synthesised orchestra, the cue sheet |
+| [13 — Character pipeline](13_character_pipeline.md) | animated figures: the rig and actions as data, the ported pixelate stage (tested without Blender), the `bpy` script to write, acceptance metrics, and where Elyum helps (references only) |
 | [research/genre_reference.md](research/genre_reference.md) | what the genre reference and its precedents do (the evidence behind 01–06) |
 | [research/kit_capabilities.md](research/kit_capabilities.md) | what this kit already proves, game by game (Proven / Near / New) |
 
@@ -48,6 +49,8 @@ python3 -m pytest tests/test_dungeons_model.py -q    # 110 checks, ~3 s
 | `tools/dungeons/loot.py` | the item roller and the 4-byte record |
 | `tools/dungeons/data/templates.txt` | 13 hand-authored rooms (tier M) |
 | `tools/dungeons/data/gear.toml` | 22 bases, 21 enchants, rarity, power, drop tuning |
+| `tools/dungeons/art/actions.toml`, `roles.toml` | the hero rig, actions and palette roles, as data for Blender and the game alike |
+| `tools/dungeons/art/pixelate_actor.py` | render → sprite, ported from sf-gt (`tests/test_dungeons_pixelate.py`) |
 
 **These are oracles.** The ROM tests in 08 compare WRAM and VRAM against them
 byte for byte. That is how a generated level gets a test that reads rendered
@@ -58,7 +61,7 @@ output rather than a proxy: the expected tilemap is computable.
 - The template linter's first run caught `start_cross` walling off its own
   north door. 20,000 generated floors had never exercised that door.
 - The CHR arithmetic showed resident hero frames overflow an OBJ name table
-  (356 tiles against 256). That turned "heroes are sprites" into "heroes are
+  (312 tiles against 256). That turned "heroes are sprites" into "heroes are
   streamed" (02 §1.2) and "the boss is sprites" into "the boss is BG2" (02 §1).
 
 ## The five decisions that shape everything

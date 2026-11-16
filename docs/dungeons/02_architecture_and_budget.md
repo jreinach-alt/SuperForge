@@ -44,9 +44,9 @@
 
 The resident option was tried on paper and refused:
 
-- Hero frames are 44 frames × 4 tiles = 176 tiles.
+- Hero frames are 33 frames (3 directions × 11; left is a flip) × 4 tiles = 132 tiles.
 - Swing frames are 45 frames × 4 tiles = 180 tiles.
-- That is **356 tiles against a 256-tile name table**, before shots and FX.
+- That is **312 tiles against a 256-tile name table**, before shots and FX.
 
 **Decision:** every frame, DMA the current frame of each hero and each swing
 from ROM into 4 fixed 16×16 slots.

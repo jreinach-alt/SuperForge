@@ -1,0 +1,72 @@
+# roles.toml — palette ROLE tables for SuperForge Dungeons actors.
+#
+# The contract between the Blender render (which writes a MATERIAL ID into
+# the green channel of its data pass) and pixelate_actor.py (which turns the
+# id + brightness into a palette index). Index n means the same thing in every
+# frame of every model of a family, so one palette swap repaints a model
+# (P1/P2 heroes, elite enemies). Spec: docs/dungeons/11 §4, 13 §4.
+#
+# Ported idea: sf-gt art/fgt/cars/pixelate.py + art_bible.md §2 (role layout).
+#
+# kind = "ramp":  the pixel's brightness picks a step in [lo, hi] using
+#                 `thresholds` (len = hi - lo). Brighter = higher index.
+# kind = "fixed": always `index`.
+# vote:           weight when materials compete for one sprite pixel; small
+#                 features (eyes, lantern) get more so they survive at 16 px.
+# Material ids 0 (nothing) and 1 (drop shadow) are reserved by the renderer.
+
+[family.hero]
+outline = 15
+shadow  = 15
+cover   = 0.5          # fraction of a sprite pixel's samples that must hit the model
+
+[[family.hero.role]]
+name = "cloak"
+material = 2
+kind = "ramp"
+lo = 1
+hi = 5
+thresholds = [0.18, 0.40, 0.62, 0.84]
+vote = 1.0
+[[family.hero.role]]
+name = "trim"
+material = 3
+kind = "ramp"
+lo = 6
+hi = 7
+thresholds = [0.50]
+vote = 1.2
+[[family.hero.role]]
+name = "skin"
+material = 4
+kind = "ramp"
+lo = 8
+hi = 9
+thresholds = [0.45]
+vote = 1.4
+[[family.hero.role]]
+name = "leather"
+material = 5
+kind = "ramp"
+lo = 10
+hi = 11
+thresholds = [0.45]
+vote = 1.0
+[[family.hero.role]]
+name = "glow"
+material = 6
+kind = "fixed"
+index = 12
+vote = 2.2
+[[family.hero.role]]
+name = "metal"
+material = 7
+kind = "fixed"
+index = 13
+vote = 1.3
+[[family.hero.role]]
+name = "detail"
+material = 8
+kind = "fixed"
+index = 14
+vote = 1.8
